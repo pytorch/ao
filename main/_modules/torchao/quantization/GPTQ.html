@@ -389,37 +389,36 @@
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
 <span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Type</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Type</span>
 
 <span class="kn">import</span> <span class="nn">torch</span>
-
 <span class="kn">import</span> <span class="nn">torch.fx</span> <span class="k">as</span> <span class="nn">fx</span>
 <span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-
 <span class="kn">from</span> <span class="nn">torch.utils._pytree</span> <span class="kn">import</span> <span class="n">tree_flatten</span><span class="p">,</span> <span class="n">tree_unflatten</span>
 
+<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
+    <span class="n">find_multiple</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="n">MappingType</span>
+<span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span>
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">_lm_eval_available</span><span class="p">,</span>
     <span class="n">_MultiInput</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">find_multiple</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
-<span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span>
-
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">get_group_qparams_symmetric</span><span class="p">,</span>
     <span class="n">get_groupwise_affine_qparams</span><span class="p">,</span>
-    <span class="n">groupwise_affine_quantize_tensor_from_qparams</span><span class="p">,</span>
+    <span class="n">group_quantize_tensor_symmetric</span><span class="p">,</span>
     <span class="n">groupwise_affine_dequantize_tensor_from_qparams</span><span class="p">,</span>
-    <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">,</span>
     <span class="n">groupwise_affine_quantize_tensor</span><span class="p">,</span>
+    <span class="n">groupwise_affine_quantize_tensor_from_qparams</span><span class="p">,</span>
+    <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">,</span>
+    <span class="n">per_token_dynamic_quant</span><span class="p">,</span>
 <span class="p">)</span>
+
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
-<span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="n">MappingType</span>
 
 <span class="k">if</span> <span class="ow">not</span> <span class="n">_lm_eval_available</span><span class="p">:</span>
     <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;lm_eval is not installed, GPTQ may not be usable&quot;</span><span class="p">)</span>
@@ -456,7 +455,6 @@
         <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
         <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
     <span class="p">):</span>
-
         <span class="bp">self</span><span class="o">.</span><span class="n">id_to_name</span> <span class="o">=</span> <span class="p">{</span>
             <span class="nb">id</span><span class="p">(</span><span class="n">value</span><span class="p">):</span> <span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">dict</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">())</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
@@ -465,6 +463,7 @@
         <span class="n">one_input</span> <span class="o">=</span> <span class="p">[</span><span class="n">multi</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span> <span class="k">for</span> <span class="n">multi</span> <span class="ow">in</span> <span class="n">inputs</span><span class="p">]</span>  <span class="c1"># pyre-ignore[16]</span>
         <span class="c1"># needed for GPTQ on the torchao llama model</span>
         <span class="kn">import</span> <span class="nn">torchao</span>
+
         <span class="n">torchao</span><span class="o">.</span><span class="n">_models</span><span class="o">.</span><span class="n">llama</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">use_index_put_for_kv_cache</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="n">exported_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">export</span><span class="p">(</span>
             <span class="n">model</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span> <span class="n">aten_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pre_dispatch</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">tracing_mode</span><span class="o">=</span><span class="s2">&quot;fake&quot;</span>
@@ -490,7 +489,7 @@
         <span class="n">combine_qparams_list_func</span><span class="p">,</span>
         <span class="n">make_names_and_values_dict_func</span><span class="p">,</span>
         <span class="n">skip_layer_func</span><span class="p">,</span>
-        <span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">act_fake_quant_func</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="c1"># these functions need to already be curried with all inputs other than weight, qparams</span>
 
@@ -519,7 +518,7 @@
         <span class="k">if</span> <span class="n">act_fake_quant_func</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="n">act_fake_quant_func</span> <span class="c1"># accepts [activation tensor], returns a fake-quantized activation tensor</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="n">act_fake_quant_func</span>  <span class="c1"># accepts [activation tensor], returns a fake-quantized activation tensor</span>
         <span class="k">return</span> <span class="bp">self</span>
 
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -544,7 +543,6 @@
         <span class="k">return</span> <span class="n">quantized_state_dict</span>
 
     <span class="k">def</span> <span class="nf">call_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">already_quantized</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>  <span class="c1"># noqa: C901</span>
-
         <span class="k">def</span> <span class="nf">tensors_to_cuda</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
             <span class="n">new_args</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
@@ -587,7 +585,6 @@
             <span class="ow">and</span> <span class="ow">not</span> <span class="n">already_quantized</span>
             <span class="c1"># and if the skip_layer_func doesn&#39;t say we should skip</span>
             <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
-
         <span class="p">)</span>  <span class="c1"># then we will quantize this linear layer/weight</span>
 
         <span class="k">if</span> <span class="n">quantize_linear</span><span class="p">:</span>  <span class="c1"># instantiate variables for GPTQ</span>
@@ -598,9 +595,7 @@
             <span class="n">inp</span> <span class="o">=</span> <span class="n">tensors_to_cuda</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
             <span class="n">cur_args</span><span class="p">,</span> <span class="n">cur_kwargs</span> <span class="o">=</span> <span class="n">tree_unflatten</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span>
 
-            <span class="k">if</span> <span class="p">(</span>
-                <span class="n">quantize_linear</span>
-            <span class="p">):</span>  <span class="c1"># calculate H instead of output (will run the linear eventually with updated weight)</span>
+            <span class="k">if</span> <span class="n">quantize_linear</span><span class="p">:</span>  <span class="c1"># calculate H instead of output (will run the linear eventually with updated weight)</span>
                 <span class="n">x</span> <span class="o">=</span> <span class="n">cur_args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
                 <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
                 <span class="n">shape</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
@@ -650,7 +645,10 @@
 
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
                 <span class="n">old_out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call_function</span><span class="p">(</span>
-                    <span class="n">target</span><span class="p">,</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">already_quantized</span><span class="o">=</span><span class="kc">True</span>
+                    <span class="n">target</span><span class="p">,</span>
+                    <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span>
+                    <span class="n">kwargs</span><span class="p">,</span>
+                    <span class="n">already_quantized</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
 
                 <span class="k">def</span> <span class="nf">SQNR</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
@@ -683,7 +681,10 @@
                 <span class="n">Q2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span><span class="p">(</span><span class="n">W</span><span class="p">,</span> <span class="n">qparams2</span><span class="p">)</span>
                 <span class="n">DQ2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_func</span><span class="p">(</span><span class="n">Q2</span><span class="p">,</span> <span class="n">qparams2</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
                 <span class="n">old_q_out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call_function</span><span class="p">(</span>
-                    <span class="n">target</span><span class="p">,</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span> <span class="n">DQ2</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">already_quantized</span><span class="o">=</span><span class="kc">True</span>
+                    <span class="n">target</span><span class="p">,</span>
+                    <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span> <span class="n">DQ2</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span>
+                    <span class="n">kwargs</span><span class="p">,</span>
+                    <span class="n">already_quantized</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
 
                 <span class="nb">print</span><span class="p">(</span>
@@ -709,7 +710,6 @@
         <span class="n">device</span> <span class="o">=</span> <span class="n">W</span><span class="o">.</span><span class="n">device</span>
 
         <span class="k">if</span> <span class="n">groupsize</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
-
             <span class="n">cur_qparams</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_qparams_func</span><span class="p">(</span><span class="n">W</span><span class="p">)</span>
         <span class="n">dead</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">H</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
         <span class="n">H</span><span class="p">[</span><span class="n">dead</span><span class="p">,</span> <span class="n">dead</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
@@ -768,7 +768,6 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="n">all_qparams</span> <span class="o">==</span> <span class="p">[]:</span>
-
             <span class="n">all_qparams</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur_qparams</span><span class="p">)</span>
 
         <span class="c1"># convert a list of qparams objects into a single one. enerally by</span>
@@ -851,7 +850,6 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_qparams_func</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
@@ -887,7 +885,9 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">combine_qparams_list_func</span><span class="p">,</span>  <span class="c1"># pyre-ignore[16]</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">make_names_and_values_dict_func</span><span class="p">,</span>  <span class="c1"># pyre-ignore[16]</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span><span class="p">,</span>  <span class="c1"># pyre-ignore[16]</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;act_fake_quant_func&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># pyre-ignore[16]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;act_fake_quant_func&quot;</span><span class="p">)</span>
+            <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># pyre-ignore[16]</span>
         <span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Applying GPTQ to weights&quot;</span><span class="p">)</span>
         <span class="n">GPTQ_runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
@@ -897,15 +897,19 @@
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;_convert_for_runtime not implemented&quot;</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
         <span class="k">pass</span>
 
-<span class="k">def</span> <span class="nf">_check_linear_int4_k</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">groupsize</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+
+<span class="k">def</span> <span class="nf">_check_linear_int4_k</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="n">k_divisible_by_groupsize</span> <span class="o">=</span> <span class="n">k</span> <span class="o">%</span> <span class="n">groupsize</span> <span class="o">==</span> <span class="mi">0</span>
     <span class="k">if</span> <span class="n">inner_k_tiles</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">k_divisible_by_16_times_inner_k_tiles</span> <span class="o">=</span> <span class="n">k</span> <span class="o">%</span> <span class="p">(</span><span class="n">inner_k_tiles</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
         <span class="k">return</span> <span class="n">k_divisible_by_groupsize</span> <span class="ow">and</span> <span class="n">k_divisible_by_16_times_inner_k_tiles</span>
     <span class="k">return</span> <span class="n">k_divisible_by_groupsize</span>
+
 
 <span class="k">def</span> <span class="nf">linear_forward_int4</span><span class="p">(</span>
     <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -922,28 +926,37 @@
         <span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">precision</span><span class="p">),</span>
         <span class="n">weight_int4pack</span><span class="p">,</span>
         <span class="n">groupsize</span><span class="p">,</span>
-        <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scales_precision</span><span class="p">)</span>
+        <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scales_precision</span><span class="p">),</span>
     <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
     <span class="n">new_shape</span> <span class="o">=</span> <span class="n">origin_x_size</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="n">out_features</span><span class="p">,)</span>
     <span class="n">c</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">new_shape</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">c</span>
 
+
 <span class="k">class</span> <span class="nc">WeightOnlyInt4Linear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-    <span class="n">__constants__</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;in_features&#39;</span><span class="p">,</span> <span class="s1">&#39;out_features&#39;</span><span class="p">]</span>
+    <span class="n">__constants__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;in_features&quot;</span><span class="p">,</span> <span class="s2">&quot;out_features&quot;</span><span class="p">]</span>
     <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
 
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="c1"># TODO: remove dtype field, not used</span>
-        <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span>
-        <span class="n">precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">scales_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+        <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span>
+        <span class="n">inner_k_tiles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span>
+        <span class="n">precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+        <span class="n">scales_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">padding</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">:</span>
             <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
+
             <span class="bp">self</span><span class="o">.</span><span class="n">origin_in_features</span> <span class="o">=</span> <span class="n">in_features</span>
             <span class="n">in_features</span> <span class="o">=</span> <span class="n">find_multiple</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
 
@@ -960,15 +973,30 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please specify &#39;precision&#39; instead of &#39;dtype&#39;&quot;</span><span class="p">)</span>
 
         <span class="k">assert</span> <span class="n">out_features</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;require out_features % 8 == 0&quot;</span>
-        <span class="k">assert</span> <span class="n">in_features</span> <span class="o">%</span> <span class="p">(</span><span class="n">inner_k_tiles</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;require in_features % (innerKTiles * 16) == 0&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">in_features</span> <span class="o">%</span> <span class="p">(</span><span class="n">inner_k_tiles</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="s2">&quot;require in_features % (innerKTiles * 16) == 0&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">out_features</span> <span class="o">//</span> <span class="mi">8</span><span class="p">,</span> <span class="n">in_features</span> <span class="o">//</span> <span class="p">(</span><span class="n">inner_k_tiles</span> <span class="o">*</span> <span class="mi">16</span><span class="p">),</span> <span class="mi">32</span><span class="p">,</span> <span class="n">inner_k_tiles</span> <span class="o">//</span> <span class="mi">2</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+                <span class="p">(</span>
+                    <span class="n">out_features</span> <span class="o">//</span> <span class="mi">8</span><span class="p">,</span>
+                    <span class="n">in_features</span> <span class="o">//</span> <span class="p">(</span><span class="n">inner_k_tiles</span> <span class="o">*</span> <span class="mi">16</span><span class="p">),</span>
+                    <span class="mi">32</span><span class="p">,</span>
+                    <span class="n">inner_k_tiles</span> <span class="o">//</span> <span class="mi">2</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="p">),</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">dtype</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="s2">&quot;scales_and_zeros&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">in_features</span> <span class="o">//</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">out_features</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scales_precision</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">in_features</span> <span class="o">//</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">out_features</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scales_precision</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="p">),</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -998,8 +1026,15 @@
 <span class="p">):</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
         <span class="c1"># TODO: support linear bias</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span> <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">skip_layer_func</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">skip_layer_func</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">)):</span>
-            <span class="k">if</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">)</span> <span class="ow">or</span> <span class="n">padding_allowed</span><span class="p">:</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">skip_layer_func</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">skip_layer_func</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+        <span class="p">):</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">padding_allowed</span>
+            <span class="p">):</span>
                 <span class="n">new_linear</span> <span class="o">=</span> <span class="n">linear_class</span><span class="p">(</span>
                     <span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
                     <span class="n">child</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
@@ -1031,7 +1066,9 @@
             <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">replace_linear_int4</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">,</span> <span class="n">padding_allowed</span><span class="p">,</span> <span class="n">skip_layer_func</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">replace_linear_int4</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">,</span> <span class="n">padding_allowed</span><span class="p">,</span> <span class="n">skip_layer_func</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">):</span>
     <span class="n">_replace_linear_int4</span><span class="p">(</span>
         <span class="n">module</span><span class="p">,</span>
         <span class="n">groupsize</span><span class="p">,</span>
@@ -1084,28 +1121,37 @@
                     <span class="n">in_features</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span>
                 <span class="p">):</span>
                     <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span><span class="p">:</span>
-                        <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
                         <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is padded to satisfy in_features % 1024 == 0&quot;</span><span class="p">)</span>
+
+                        <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
+
+                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is padded to satisfy in_features % 1024 == 0&quot;</span>
+                        <span class="p">)</span>
                         <span class="n">padded_in_features</span> <span class="o">=</span> <span class="n">find_multiple</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
-                        <span class="n">weight</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">padded_in_features</span> <span class="o">-</span> <span class="n">in_features</span><span class="p">))</span>
+                        <span class="n">weight</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span>
+                            <span class="n">weight</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">padded_in_features</span> <span class="o">-</span> <span class="n">in_features</span><span class="p">)</span>
+                        <span class="p">)</span>
                     <span class="k">else</span><span class="p">:</span>
-                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, &quot;</span> <span class="o">+</span>
-                                <span class="s2">&quot;and that groupsize and inner_k_tiles*16 evenly divide into it&quot;</span><span class="p">)</span>
+                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, &quot;</span>
+                            <span class="o">+</span> <span class="s2">&quot;and that groupsize and inner_k_tiles*16 evenly divide into it&quot;</span>
+                        <span class="p">)</span>
                         <span class="k">continue</span>
-                <span class="p">(</span>
-                    <span class="n">w_int4x8</span><span class="p">,</span>
-                    <span class="n">scales_and_zeros</span>
-                <span class="p">)</span> <span class="o">=</span> <span class="n">groupwise_affine_quantize_tensor</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">w_int4x8</span><span class="p">,</span> <span class="n">scales_and_zeros</span><span class="p">)</span> <span class="o">=</span> <span class="n">groupwise_affine_quantize_tensor</span><span class="p">(</span>
                     <span class="n">weight</span><span class="p">,</span>
                     <span class="mi">4</span><span class="p">,</span>  <span class="c1"># n_bit</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span> <span class="c1"># dtype for scales_and_zeros</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>  <span class="c1"># dtype for scales_and_zeros</span>
                 <span class="p">)</span>
                 <span class="c1"># TODO: just get the device from mod.weight.device?</span>
-                <span class="n">weight_int4pack</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span><span class="n">w_int4x8</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span><span class="p">)</span>
+                <span class="n">weight_int4pack</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span>
+                    <span class="n">w_int4x8</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span>
+                <span class="p">)</span>
                 <span class="n">cur_state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.weight&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">weight_int4pack</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-                <span class="n">cur_state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.scales_and_zeros&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+                <span class="n">cur_state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.scales_and_zeros&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">device</span>
+                <span class="p">)</span>
         <span class="k">return</span> <span class="n">cur_state_dict</span>
 
     <span class="k">def</span> <span class="nf">_convert_for_runtime</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
@@ -1131,96 +1177,100 @@
 
 
 <div class="viewcode-block" id="Int4WeightOnlyGPTQQuantizer"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int4WeightOnlyGPTQQuantizer.html#torchao.quantization.Int4WeightOnlyGPTQQuantizer">[docs]</a><span class="k">class</span> <span class="nc">Int4WeightOnlyGPTQQuantizer</span><span class="p">(</span><span class="n">GPTQQuantizer</span><span class="p">):</span>
-        <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span>
-            <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-            <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
-            <span class="n">groupsize</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
-            <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-            <span class="n">padding_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-            <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">),</span>
-        <span class="p">):</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">blocksize</span> <span class="o">=</span> <span class="n">blocksize</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">percdamp</span> <span class="o">=</span> <span class="n">percdamp</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span> <span class="o">=</span> <span class="n">groupsize</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="n">inner_k_tiles</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span> <span class="o">=</span> <span class="n">padding_allowed</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="n">n_bit</span> <span class="o">=</span> <span class="mi">4</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">get_qparams_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">w</span><span class="p">:</span> <span class="n">get_groupwise_affine_qparams</span><span class="p">(</span>
-                <span class="n">w</span><span class="p">,</span> <span class="n">n_bit</span><span class="p">,</span> <span class="n">groupsize</span>
-            <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">groupwise_affine_quantize_tensor_from_qparams</span><span class="p">(</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+        <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">groupsize</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+        <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+        <span class="n">padding_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">),</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">blocksize</span> <span class="o">=</span> <span class="n">blocksize</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">percdamp</span> <span class="o">=</span> <span class="n">percdamp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span> <span class="o">=</span> <span class="n">groupsize</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="n">inner_k_tiles</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span> <span class="o">=</span> <span class="n">padding_allowed</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act_fake_quant_func</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">n_bit</span> <span class="o">=</span> <span class="mi">4</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">get_qparams_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">w</span><span class="p">:</span> <span class="n">get_groupwise_affine_qparams</span><span class="p">(</span>
+            <span class="n">w</span><span class="p">,</span> <span class="n">n_bit</span><span class="p">,</span> <span class="n">groupsize</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">groupwise_affine_quantize_tensor_from_qparams</span><span class="p">(</span>
                 <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">n_bit</span><span class="p">,</span> <span class="n">groupsize</span>
             <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">q</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">groupwise_affine_dequantize_tensor_from_qparams</span><span class="p">(</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_func</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">q</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">groupwise_affine_dequantize_tensor_from_qparams</span><span class="p">(</span>
                 <span class="n">q</span><span class="p">,</span>
                 <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
                 <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
                 <span class="n">n_bit</span><span class="p">,</span>
                 <span class="n">groupsize</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">combine_qparams_list_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">qparams_list</span><span class="p">:</span> <span class="p">[</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">qparams_list</span><span class="p">)</span>
-            <span class="p">]</span>
-            <span class="c1"># skip unless padding_allowed=True or its correctly sized</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">linear_weight</span><span class="p">:</span> <span class="ow">not</span> <span class="p">(</span>
-                <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">linear_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">groupsize</span><span class="p">)</span> <span class="ow">or</span> <span class="n">padding_allowed</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">combine_qparams_list_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">qparams_list</span><span class="p">:</span> <span class="p">[</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">qparams_list</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="c1"># skip unless padding_allowed=True or its correctly sized</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">linear_weight</span><span class="p">:</span> <span class="ow">not</span> <span class="p">(</span>
+            <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">linear_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">groupsize</span><span class="p">)</span> <span class="ow">or</span> <span class="n">padding_allowed</span>
+        <span class="p">)</span>
+
+        <span class="c1"># we need to do the padding here, both for q and the qparams if necessary</span>
+
+        <span class="c1"># TODO: this is the gpt-fast version, merge with the main version later</span>
+        <span class="k">def</span> <span class="nf">make_names_and_values_dict_func</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">qparams</span><span class="p">):</span>
+            <span class="n">k</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">):</span>
+                <span class="n">new_k</span> <span class="o">=</span> <span class="n">find_multiple</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">new_k</span> <span class="o">=</span> <span class="n">k</span>
+            <span class="c1"># how much we need to pad the weight</span>
+            <span class="n">delta_k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">new_k</span> <span class="o">-</span> <span class="n">k</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="n">q</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">final_q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span>
+                <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">delta_k</span><span class="p">)),</span> <span class="n">inner_k_tiles</span>
             <span class="p">)</span>
-
-            <span class="c1"># we need to do the padding here, both for q and the qparams if necessary</span>
-
-            <span class="c1"># TODO: this is the gpt-fast version, merge with the main version later</span>
-            <span class="k">def</span> <span class="nf">make_names_and_values_dict_func</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">qparams</span><span class="p">):</span>
-                <span class="n">k</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="mi">2</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">):</span>
-                    <span class="n">new_k</span> <span class="o">=</span> <span class="n">find_multiple</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="n">new_k</span> <span class="o">=</span> <span class="n">k</span>
-                <span class="c1"># how much we need to pad the weight</span>
-                <span class="n">delta_k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">new_k</span> <span class="o">-</span> <span class="n">k</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
-                <span class="n">q</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-                <span class="n">final_q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">delta_k</span><span class="p">)),</span> <span class="n">inner_k_tiles</span><span class="p">)</span>
-                <span class="n">scales</span> <span class="o">=</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-                <span class="n">zeros</span> <span class="o">=</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-                <span class="n">scales_and_zeros</span> <span class="o">=</span> <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">(</span><span class="n">scales</span><span class="p">,</span> <span class="n">zeros</span><span class="p">)</span>
-                <span class="c1"># how many new groups we need for padded weight</span>
-                <span class="n">delta_groups</span> <span class="o">=</span> <span class="n">new_k</span> <span class="o">//</span> <span class="n">groupsize</span> <span class="o">-</span> <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-                <span class="n">final_s_and_z</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">scales_and_zeros</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span> <span class="n">delta_groups</span><span class="p">),</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-                <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="n">final_q</span><span class="p">,</span> <span class="s2">&quot;scales_and_zeros&quot;</span><span class="p">:</span> <span class="n">final_s_and_z</span><span class="p">}</span>
-
-            <span class="bp">self</span><span class="o">.</span><span class="n">make_names_and_values_dict_func</span> <span class="o">=</span> <span class="n">make_names_and_values_dict_func</span>
-            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-
-        <span class="k">def</span> <span class="nf">_convert_for_runtime</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">):</span>
-            <span class="n">replace_linear_int4</span><span class="p">(</span>
-                <span class="n">model</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span><span class="p">,</span>
-                <span class="n">skip_layer_func</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span><span class="p">,</span>
+            <span class="n">scales</span> <span class="o">=</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">zeros</span> <span class="o">=</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">scales_and_zeros</span> <span class="o">=</span> <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">(</span><span class="n">scales</span><span class="p">,</span> <span class="n">zeros</span><span class="p">)</span>
+            <span class="c1"># how many new groups we need for padded weight</span>
+            <span class="n">delta_groups</span> <span class="o">=</span> <span class="n">new_k</span> <span class="o">//</span> <span class="n">groupsize</span> <span class="o">-</span> <span class="n">scales_and_zeros</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">final_s_and_z</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span>
+                <span class="n">scales_and_zeros</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">delta_groups</span><span class="p">),</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span>
             <span class="p">)</span>
-            <span class="k">return</span> <span class="n">model</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="n">final_q</span><span class="p">,</span> <span class="s2">&quot;scales_and_zeros&quot;</span><span class="p">:</span> <span class="n">final_s_and_z</span><span class="p">}</span>
 
-        <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-            <span class="n">state_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_quantized_state_dict</span><span class="p">(</span>
-                <span class="n">model</span><span class="p">,</span>
-                <span class="n">inputs</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">blocksize</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">percdamp</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
-            <span class="p">)</span>
-            <span class="n">model</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_for_runtime</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-            <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">model</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">make_names_and_values_dict_func</span> <span class="o">=</span> <span class="n">make_names_and_values_dict_func</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
 
+    <span class="k">def</span> <span class="nf">_convert_for_runtime</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">):</span>
+        <span class="n">replace_linear_int4</span><span class="p">(</span>
+            <span class="n">model</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span><span class="p">,</span>
+            <span class="n">skip_layer_func</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">skip_layer_func</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">model</span>
 
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">get_group_qparams_symmetric</span><span class="p">,</span>
-    <span class="n">group_quantize_tensor_symmetric</span><span class="p">,</span>
-    <span class="n">per_token_dynamic_quant</span><span class="p">,</span>
-<span class="p">)</span>
+    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+        <span class="n">state_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_quantized_state_dict</span><span class="p">(</span>
+            <span class="n">model</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">blocksize</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">percdamp</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_for_runtime</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">model</span></div>
+
 
 <span class="k">def</span> <span class="nf">linear_forward_8da4w</span><span class="p">(</span>
     <span class="n">x</span><span class="p">,</span>
@@ -1241,7 +1291,10 @@
     <span class="n">n_bit</span> <span class="o">=</span> <span class="mi">4</span>
     <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">n_bit</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">n_bit</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
-    <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span>
+    <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="p">(</span>
+        <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span><span class="p">,</span>
+    <span class="p">)</span>
+
     <span class="n">w_dq</span> <span class="o">=</span> <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span><span class="p">(</span>
         <span class="n">weight_int8</span><span class="p">,</span>
         <span class="n">scales</span><span class="p">,</span>
@@ -1261,6 +1314,7 @@
     <span class="c1"># c = c.reshape(new_shape)</span>
 
     <span class="k">return</span> <span class="n">c</span>
+
 
 <span class="k">class</span> <span class="nc">Int8DynActInt4WeightLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
     <span class="n">__constants__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;in_features&quot;</span><span class="p">,</span> <span class="s2">&quot;out_features&quot;</span><span class="p">]</span>
@@ -1346,6 +1400,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
         <span class="p">)</span>
 
+
 <span class="k">def</span> <span class="nf">_replace_linear_8da4w</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -1355,24 +1410,27 @@
     <span class="n">linear_class</span><span class="p">:</span> <span class="n">Type</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span>
     <span class="n">copy_weights</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">):</span>
-    
-    <span class="c1">#import the util function here to avoid circular dependency</span>
+    <span class="c1"># import the util function here to avoid circular dependency</span>
     <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_replace_with_custom_fn_if_matches_filter</span>
 
-    <span class="k">def</span> <span class="nf">filter_fn</span><span class="p">(</span><span class="n">child</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">:</span><span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">filter_fn</span><span class="p">(</span><span class="n">child</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="c1"># TODO: support linear bias</span>
-        <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span> <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">)</span> <span class="ow">or</span> <span class="n">padding_allowed</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">)</span> <span class="ow">or</span> <span class="n">padding_allowed</span><span class="p">)</span>
+        <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">replacement_fn</span><span class="p">(</span><span class="n">child</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
         <span class="n">new_linear</span> <span class="o">=</span> <span class="n">linear_class</span><span class="p">(</span>
-                    <span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
-                    <span class="n">child</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
-                    <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                    <span class="n">device</span><span class="o">=</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-                    <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span>
-                    <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
-                    <span class="n">scales_precision</span><span class="o">=</span><span class="n">scales_precision</span><span class="p">,</span>
-                <span class="p">)</span>
+            <span class="n">child</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
+            <span class="n">child</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
+            <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">scales_precision</span><span class="o">=</span><span class="n">scales_precision</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="c1"># In distributed training, the model may be instantiated</span>
         <span class="c1"># on the meta device, in which case there is no need to</span>
         <span class="c1"># copy the weights, and doing so will result in an error</span>
@@ -1381,6 +1439,7 @@
         <span class="k">return</span> <span class="n">new_linear</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">replacement_fn</span><span class="p">,</span> <span class="n">filter_fn</span><span class="p">)</span>
+
 
 <span class="k">def</span> <span class="nf">replace_linear_8da4w</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
@@ -1398,6 +1457,7 @@
         <span class="n">Int8DynActInt4WeightLinear</span><span class="p">,</span>
     <span class="p">)</span>
 
+
 <span class="k">class</span> <span class="nc">Int8DynActInt4WeightQuantizer</span><span class="p">(</span><span class="n">Quantizer</span><span class="p">):</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1406,7 +1466,7 @@
         <span class="n">precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
         <span class="n">scales_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
         <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span>
-        <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">groupsize</span>
@@ -1436,14 +1496,22 @@
                 <span class="n">weight</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
                 <span class="k">if</span> <span class="ow">not</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">):</span>
                     <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span><span class="p">:</span>
-                        <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
                         <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is padded to satisfy in_features % 1024 == 0&quot;</span><span class="p">)</span>
+
+                        <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
+
+                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is padded to satisfy in_features % 1024 == 0&quot;</span>
+                        <span class="p">)</span>
                         <span class="n">padded_in_features</span> <span class="o">=</span> <span class="n">find_multiple</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
-                        <span class="n">weight</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">padded_in_features</span> <span class="o">-</span> <span class="n">in_features</span><span class="p">))</span>
+                        <span class="n">weight</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span>
+                            <span class="n">weight</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">padded_in_features</span> <span class="o">-</span> <span class="n">in_features</span><span class="p">)</span>
+                        <span class="p">)</span>
                     <span class="k">else</span><span class="p">:</span>
-                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, &quot;</span> <span class="o">+</span>
-                              <span class="s2">&quot;and that groupsize and inner_k_tiles*16 evenly divide into it&quot;</span><span class="p">)</span>
+                        <span class="n">logging</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;warning: </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, &quot;</span>
+                            <span class="o">+</span> <span class="s2">&quot;and that groupsize and inner_k_tiles*16 evenly divide into it&quot;</span>
+                        <span class="p">)</span>
                         <span class="k">continue</span>
                 <span class="p">(</span>
                     <span class="n">weight_int8</span><span class="p">,</span>
@@ -1454,7 +1522,7 @@
                     <span class="mi">4</span><span class="p">,</span>  <span class="c1"># n_bit</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">,</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">scales_precision</span><span class="p">,</span>
-                    <span class="n">mapping_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span>
+                    <span class="n">mapping_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="n">cur_state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.weight&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">weight_int8</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
                 <span class="n">cur_state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.scales&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">scales</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
@@ -1488,7 +1556,7 @@
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-        <span class="n">percdamp</span><span class="o">=</span><span class="mf">.01</span><span class="p">,</span>
+        <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
         <span class="n">groupsize</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
         <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
         <span class="n">padding_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -1509,21 +1577,32 @@
         <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">n_bit</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
         <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">n_bit</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
 
-        <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="n">_quantized_decomposed_quantize_per_channel_group_wrapper</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">_quantized_decomposed_quantize_per_channel_group_wrapper</span><span class="p">(</span>
-            <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">groupsize</span>
+        <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="p">(</span>
+            <span class="n">_quantized_decomposed_quantize_per_channel_group_wrapper</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">q</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span><span class="p">(</span>
-            <span class="n">q</span><span class="p">,</span>
-            <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-            <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
-            <span class="n">groupsize</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">quantize_func</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">:</span> <span class="n">_quantized_decomposed_quantize_per_channel_group_wrapper</span><span class="p">(</span>
+                <span class="n">w</span><span class="p">,</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">groupsize</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="kn">from</span> <span class="nn">torchao._executorch_ops</span> <span class="kn">import</span> <span class="p">(</span>
+            <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_func</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">q</span><span class="p">,</span>
+            <span class="n">qparams</span><span class="p">:</span> <span class="n">_quantized_decomposed_dequantize_per_channel_group_wrapper</span><span class="p">(</span>
+                <span class="n">q</span><span class="p">,</span>
+                <span class="n">qparams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                <span class="n">qparams</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                <span class="n">quant_min</span><span class="p">,</span>
+                <span class="n">quant_max</span><span class="p">,</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+                <span class="n">groupsize</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="p">)</span>
         <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">combine_qparams_list_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">qparams_list</span><span class="p">:</span> <span class="p">[</span>
@@ -1560,7 +1639,9 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">model</span>
 
-    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
         <span class="n">state_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_quantized_state_dict</span><span class="p">(</span>
             <span class="n">model</span><span class="p">,</span>
             <span class="n">inputs</span><span class="p">,</span>

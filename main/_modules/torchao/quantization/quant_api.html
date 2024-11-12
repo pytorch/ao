@@ -394,68 +394,70 @@
 <span class="sd">come along with it and because that is how we access the intended quantized</span>
 <span class="sd">and mixed GEMM kernels</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
-<span class="kn">import</span> <span class="nn">torch</span>
-<span class="kn">import</span> <span class="nn">torchao</span>
-<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
-<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Tuple</span>
-<span class="kn">import</span> <span class="nn">types</span>
 
-<span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.uintx</span> <span class="kn">import</span> <span class="n">UintxLayout</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">types</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
+<span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
+
+<span class="kn">import</span> <span class="nn">torchao</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
-    <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
-    <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
-    <span class="n">TensorCoreTiledLayout</span><span class="p">,</span>
-    <span class="n">PlainLayout</span><span class="p">,</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
-    <span class="n">SemiSparseLayout</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
+    <span class="n">PlainLayout</span><span class="p">,</span>
+    <span class="n">SemiSparseLayout</span><span class="p">,</span>
+    <span class="n">TensorCoreTiledLayout</span><span class="p">,</span>
+    <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
+    <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
+    <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.uintx</span> <span class="kn">import</span> <span class="n">UintxLayout</span>
+<span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observer</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span><span class="p">,</span> <span class="n">get_block_size</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.weight_tensor_linear_activation_quantization</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span>
-    <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="kn">from</span> <span class="nn">.linear_activation_quantized_tensor</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
-    <span class="n">to_linear_activation_quantized</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.weight_tensor_linear_activation_quantization</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
+<span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">,</span> <span class="n">autoquant</span>
+<span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Int4WeightOnlyGPTQQuantizer</span><span class="p">,</span>
+    <span class="n">Int4WeightOnlyQuantizer</span><span class="p">,</span>
+    <span class="n">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">,</span>
+    <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.granularity</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">PerRow</span><span class="p">,</span>
     <span class="n">PerTensor</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.linear_activation_quantized_tensor</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
+    <span class="n">to_linear_activation_quantized</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">.weight_only</span> <span class="kn">import</span> <span class="n">WeightOnlyInt8QuantLinear</span>
+<span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
+    <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span>
+    <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
+    <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span><span class="p">,</span> <span class="n">TwoStepQuantizer</span>
-<span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int4WeightOnlyGPTQQuantizer</span><span class="p">,</span>
-    <span class="n">Int4WeightOnlyQuantizer</span><span class="p">,</span>
-<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">_get_per_token_block_size</span>
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">autoquant</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observer</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
-
-<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">get_block_size</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
@@ -478,27 +480,17 @@
     <span class="s2">&quot;fpx_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_dynamic_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span>
-<span class="p">]</span>
-
-<span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
-    <span class="n">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">,</span>
-
-<span class="p">)</span>
-<span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span>
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
-<span class="c1">### TO BE DEPRECATED START</span>
-<span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
-    <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span>
-    <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
-<span class="p">)</span>
 
+<span class="c1">######</span>
+<span class="c1"># TO BE DEPRECATED START</span>
+<span class="c1">######</span>
 <span class="k">def</span> <span class="nf">_in_features_greater_than_16</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="k">return</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;in_features&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">&gt;</span> <span class="mi">16</span>
+
 
 <span class="k">def</span> <span class="nf">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -507,7 +499,9 @@
 <span class="sd">    as apply_dynamic_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">filter_fn</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">_is_linear</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_in_features_greater_than_16</span><span class="p">(</span>
@@ -515,7 +509,11 @@
         <span class="p">)</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span> <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">filter_fn</span>
+        <span class="n">model</span><span class="p">,</span>
+        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
+            <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
+        <span class="p">),</span>
+        <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span>
 
 
@@ -527,15 +525,22 @@
 <span class="sd">    as apply_weight_only_int8_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+        <span class="p">)</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span>
+        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
+            <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
+        <span class="p">),</span>
         <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">change_linear_weights_to_int4_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+
+<span class="k">def</span> <span class="nf">change_linear_weights_to_int4_woqtensors</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the</span>
 <span class="sd">    `Int4WeightOnlyQuantizedLinearWeight` tensor subclass,</span>
@@ -547,18 +552,28 @@
 <span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+            <span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="n">inner_k_tiles</span><span class="p">),</span>
+        <span class="n">_get_subclass_inserter</span><span class="p">(</span>
+            <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
+            <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span>
+            <span class="n">inner_k_tiles</span><span class="o">=</span><span class="n">inner_k_tiles</span><span class="p">,</span>
+        <span class="p">),</span>
         <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span>
 
-<span class="c1">### TO BE DEPRECATED END</span>
+
+<span class="c1">########</span>
+<span class="c1"># TO BE DEPRECATED END</span>
+<span class="c1">########</span>
 
 
 <span class="k">def</span> <span class="nf">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
@@ -618,7 +633,6 @@
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">NonDynamicallyQuantizableLinear</span><span class="p">)</span>
     <span class="p">)</span>
 
-<span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
 
 <span class="k">def</span> <span class="nf">_get_subclass_inserter</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -633,15 +647,21 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">constructor</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;constructor&quot;</span><span class="p">,</span> <span class="s2">&quot;subclass_constructor&quot;</span><span class="p">)</span>
     <span class="n">from_float</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">,</span> <span class="s2">&quot;from_float&quot;</span><span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">enable_parametrization</span><span class="p">:</span>
-            <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
+                <span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span>
+            <span class="p">)</span>
             <span class="n">_</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
-            <span class="n">parametrize</span><span class="o">.</span><span class="n">register_parametrization</span><span class="p">(</span><span class="n">lin</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">constructor</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">))</span>
+            <span class="n">parametrize</span><span class="o">.</span><span class="n">register_parametrization</span><span class="p">(</span>
+                <span class="n">lin</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">constructor</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
                 <span class="c1"># cls.from_float(...)</span>
-                <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">from_float</span><span class="p">)(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">from_float</span><span class="p">)(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span>
+                <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">lin</span>
 
@@ -678,6 +698,8 @@
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span> <span class="n">replace_conv2d_1x1</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="n">filter_fn</span>
     <span class="p">)</span>
+
+
 <span class="k">def</span> <span class="nf">insert_observers_</span><span class="p">(</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">input_observer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AffineQuantizedObserverBase</span><span class="p">],</span>
@@ -771,20 +793,26 @@
 
     <span class="k">return</span> <span class="s2">&quot;not recognized&quot;</span>
 
+
 <span class="k">def</span> <span class="nf">_linear_extra_repr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
     <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;in_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, out_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+
 
 <span class="k">def</span> <span class="nf">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">constructor</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">allow_requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)</span>
 <span class="sd">    to the weight of linear module</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="k">def</span> <span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
         <span class="n">requires_grad</span> <span class="o">=</span> <span class="n">allow_requires_grad</span> <span class="ow">and</span> <span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad</span>
-        <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">constructor</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="n">requires_grad</span><span class="p">)</span>
+        <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
+            <span class="n">constructor</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="n">requires_grad</span>
+        <span class="p">)</span>
         <span class="n">lin</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">lin</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">lin</span>
 
     <span class="k">return</span> <span class="n">insert_subclass</span>
+
 
 <div class="viewcode-block" id="quantize_"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">[docs]</a><span class="k">def</span> <span class="nf">quantize_</span><span class="p">(</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
@@ -857,19 +885,30 @@
         <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
     <span class="p">)</span></div>
 
+
 <span class="k">def</span> <span class="nf">_int8_asymm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;This is defined here instead of local function to support serialization</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This is defined here instead of local function to support serialization&quot;&quot;&quot;</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+        <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span>
+        <span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;This is defined here instead of local function to support serialization</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span>
+    <span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This is defined here instead of local function to support serialization&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">weight</span>
 
@@ -883,11 +922,16 @@
     <span class="c1"># input settings</span>
     <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
 
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span>
+    <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">weight</span>
 
-<div class="viewcode-block" id="int8_dynamic_activation_int4_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int4_weight.html#torchao.quantization.int8_dynamic_activation_int4_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int4_weight</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">):</span>
+
+<div class="viewcode-block" id="int8_dynamic_activation_int4_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int4_weight.html#torchao.quantization.int8_dynamic_activation_int4_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int4_weight</span><span class="p">(</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear</span>
 <span class="sd">    This is used to produce a model for executorch backend, but currently executorch did not</span>
 <span class="sd">    support lowering for the quantized model from this flow yet</span>
@@ -896,10 +940,16 @@
 <span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
 <span class="sd">         size is more fine grained</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span>
+        <span class="n">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">,</span>
+        <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
+    <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
 <span class="sd">    &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</span>
@@ -918,6 +968,7 @@
 <span class="sd">        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`</span>
 <span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
@@ -943,7 +994,20 @@
             <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">True</span>
             <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
 
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">quant_min</span><span class="p">,</span>
+            <span class="n">quant_max</span><span class="p">,</span>
+            <span class="n">eps</span><span class="p">,</span>
+            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+            <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
+            <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
+            <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
+            <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int4_weight_only_quant</span><span class="p">)</span></div>
 
@@ -952,6 +1016,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies int8 weight-only symmetric per-channel quantization to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="k">def</span> <span class="nf">apply_int8wo_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
@@ -960,9 +1025,17 @@
         <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8wo_quant</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">)</span></div>
+
 
 <span class="k">def</span> <span class="nf">_int8_symm_per_token_reduced_range_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
@@ -970,27 +1043,42 @@
     <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
     <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
-    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
 
 
-<div class="viewcode-block" id="int8_dynamic_activation_int8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span> <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">):</span>
+<div class="viewcode-block" id="int8_dynamic_activation_int8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_weight</span><span class="p">(</span>
+    <span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span> <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies int8 dynamic symmetric per-token activation and int8 per-channel weight</span>
 <span class="sd">    quantization to linear layers</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int8_weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="n">in_features</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="c1"># int8 dynamic quantization only has benefit when in_feature &gt; 16</span>
         <span class="k">if</span> <span class="n">in_features</span> <span class="o">&lt;=</span> <span class="mi">16</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Skipping applying int8_dynamic_activation_int8_weight to weight of shape </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot; because `in_feature` is &lt;= 16: </span><span class="si">{</span><span class="n">in_features</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="sa">f</span><span class="s2">&quot; because `in_feature` is &lt;= 16: </span><span class="si">{</span><span class="n">in_features</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
             <span class="k">return</span> <span class="n">weight</span>
 
         <span class="c1"># weight settings</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+
         <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
@@ -1002,11 +1090,21 @@
             <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
-        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+            <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8_dynamic_activation_int8_weight_quant</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span>
+        <span class="n">apply_int8_dynamic_activation_int8_weight_quant</span>
+    <span class="p">)</span></div>
 
 
 <span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_semi_sparse_weight</span><span class="p">():</span>
@@ -1055,7 +1153,7 @@
 <span class="k">def</span> <span class="nf">_normalize_granularity</span><span class="p">(</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
         <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
-    <span class="p">]</span>
+    <span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]:</span>
     <span class="k">if</span> <span class="n">granularity</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">(),</span> <span class="n">PerTensor</span><span class="p">())</span>
@@ -1066,14 +1164,18 @@
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
             <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
         <span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity types: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Invalid granularity types: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">type</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">])):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Different granularities for activation and weight are not supported: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">granularity</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity specification: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Invalid granularity specification: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
+        <span class="p">)</span>
 
 
 <span class="k">def</span> <span class="nf">_input_activation_quant_func_fp8</span><span class="p">(</span>
@@ -1086,7 +1188,9 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This function is used to quantize the input activation tensor for an aqt_float variant. If scale</span>
 <span class="sd">    is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;Zero point is not supported for dynamic FP8 quantization&quot;</span>
+    <span class="k">assert</span> <span class="p">(</span>
+        <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
+    <span class="p">),</span> <span class="s2">&quot;Zero point is not supported for dynamic FP8 quantization&quot;</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
@@ -1102,7 +1206,9 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>  <span class="c1"># Config is stored on weight</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">),</span> <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
+            <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
+        <span class="p">),</span> <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
         <span class="n">activation</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx_static</span><span class="p">(</span>
             <span class="n">input_float</span><span class="o">=</span><span class="n">x</span><span class="p">,</span>
             <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
@@ -1190,9 +1296,7 @@
         <span class="p">}</span>
 
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
-            <span class="n">quantized_weight</span><span class="p">,</span> 
-            <span class="n">input_quant_func</span><span class="p">,</span>
-            <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
+            <span class="n">quantized_weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">,</span> <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">quantized_weight</span>
 
@@ -1243,12 +1347,14 @@
             <span class="s2">&quot;activation_dtype&quot;</span><span class="p">:</span> <span class="n">activation_dtype</span><span class="p">,</span>
         <span class="p">}</span>
 
-        <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">(</span>
-            <span class="n">quantized_weight</span><span class="p">,</span>
-            <span class="n">input_quant_func</span><span class="p">,</span>
-            <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
-            <span class="n">zero_point</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-            <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
+        <span class="n">quantized_weight</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">(</span>
+                <span class="n">quantized_weight</span><span class="p">,</span>
+                <span class="n">input_quant_func</span><span class="p">,</span>
+                <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span><span class="p">,</span>
+            <span class="p">)</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">quantized_weight</span>
 
@@ -1269,7 +1375,16 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span>
 
-    <span class="n">SUPPORTED_DTYPES</span> <span class="o">=</span> <span class="p">{</span><span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">}</span>
+    <span class="n">SUPPORTED_DTYPES</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint1</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint2</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint3</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint5</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint6</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint7</span><span class="p">,</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
+    <span class="p">}</span>
     <span class="k">assert</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="n">SUPPORTED_DTYPES</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unsupported dtype for hqq: </span><span class="si">{</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
 
     <span class="k">def</span> <span class="nf">apply_uintx_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
@@ -1278,7 +1393,9 @@
 
         <span class="k">if</span> <span class="n">use_hqq</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance&quot;</span><span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                    <span class="s2">&quot;Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance&quot;</span>
+                <span class="p">)</span>
             <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">dtype</span><span class="p">]</span>
             <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
             <span class="n">eps</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1295,9 +1412,14 @@
             <span class="n">_layout</span> <span class="o">=</span> <span class="n">UintxLayout</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=</span><span class="n">pack_dim</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="p">,</span>
+            <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+            <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
             <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
             <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
@@ -1305,6 +1427,7 @@
         <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_uintx_weight_only_quant</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
 
 <span class="k">def</span> <span class="nf">fpx_weight_only</span><span class="p">(</span><span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits</span>
@@ -1318,20 +1441,24 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span> <span class="nf">apply_quant_llm</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes.floatx</span> <span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
         <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_fpx</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.floatx</span> <span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
-        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;floatx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;floatx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">out_dim</span><span class="p">,</span> <span class="n">in_dim</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
         <span class="k">if</span> <span class="p">(</span><span class="n">in_dim</span> <span class="o">%</span> <span class="mi">64</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">out_dim</span> <span class="o">%</span> <span class="mi">256</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">):</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Skipping floatx quantization float</span><span class="si">{</span><span class="n">ebits</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">mbits</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">ebits</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">mbits</span><span class="si">}</span><span class="s2"> because &quot;</span>
                 <span class="sa">f</span><span class="s2">&quot;the shape is not compatible with the kernel: in_dim=</span><span class="si">{</span><span class="n">in_dim</span><span class="si">}</span><span class="s2">, out_dim=</span><span class="si">{</span><span class="n">out_dim</span><span class="si">}</span><span class="s2"> &quot;</span>
-                <span class="s2">&quot;expected in_dim % 64 == 0 and out_dim % 256 == 0&quot;</span><span class="p">)</span>
+                <span class="s2">&quot;expected in_dim % 64 == 0 and out_dim % 256 == 0&quot;</span>
+            <span class="p">)</span>
             <span class="k">return</span> <span class="n">weight</span>
 
         <span class="n">_layout</span> <span class="o">=</span> <span class="n">FloatxTensorCoreLayout</span><span class="p">(</span><span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">to_affine_quantized_fpx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
+
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_quant_llm</span><span class="p">)</span>
 
 
