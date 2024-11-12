@@ -1,11 +1,10 @@
 import warnings
-
 from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import nn
 from torch.ao.pruning import BaseSparsifier
-from torch.ao.quantization import default_placeholder_observer, QConfig
+from torch.ao.quantization import QConfig, default_placeholder_observer
 from torch.ao.quantization.quantize import _remove_qconfig
 
 from .utils import PerChannelNormObserver
@@ -101,7 +100,6 @@ class WandaSparsifier(BaseSparsifier):
         # remove quantization config
         for config in self.groups:
             module = config["module"]
-            tensor_name = config["tensor_name"]
             _remove_qconfig(module)
 
         # remove parameterizations
