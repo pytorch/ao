@@ -22,10 +22,14 @@ _IS_FBCODE = (
 )
 if not _IS_FBCODE:
     try:
-        from . import _C
+        from importlib.util import find_spec
+        from pathlib import Path
+        spec = find_spec("torchao")
+        assert spec is not None, "torchao python module spec is unexpectedly None"
+        SO_PATH = Path(spec.origin).parent / "_C.abi3.so"
+        torch.ops.load_library(SO_PATH)
         from . import ops
     except:
-        _C = None
         logging.info("Skipping import of cpp extensions")
 
 from torchao.quantization import (
