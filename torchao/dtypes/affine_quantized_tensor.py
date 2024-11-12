@@ -238,10 +238,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.zero_point_domain,
                 output_dtype=output_dtype,
             )
-            # need to return to original shape if tensor was padded
-            # in preprocessing
-            for dim, dim_size in enumerate(self.shape):
-                dq = dq.narrow(dim, 0, dim_size)
+            if isinstance(self._layout, TensorCoreTiledLayout):
+                # need to return to original shape if tensor was padded
+                # in preprocessing
+                # TODO: we could add an API for this if there are more use cases
+                # (e.g. dequant_post_process) in TensorImpl or Layout
+                for dim, dim_size in enumerate(self.shape):
+                    dq = dq.narrow(dim, 0, dim_size)
             return dq
 
     @staticmethod
@@ -1698,7 +1701,7 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     output_dtype = input_tensor.dtype
     y = y.to(output_dtype)
     if bias is not None:
-        y += bias
+        y = y + bias
     return y
 
 
