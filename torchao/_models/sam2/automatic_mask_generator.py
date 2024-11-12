@@ -212,7 +212,8 @@ class SAM2AutomaticMaskGenerator:
             else:
                 rles = []
                 # TODO: Using .cpu() directly plus unbind seems to cause weakref error.
-                rles_nt_cpu = torch.nested.nested_tensor_from_jagged(mask_data["rles_nt"].values().cpu(), mask_data["rles_nt"].offsets().cpu())
+                rles_nt_cpu = mask_data["rles_nt"].cpu()
+                del mask_data["rles_nt"]
                 counts_init = mask_data["rles_nt_counts_init"]
                 for (mask_i, d, ci) in zip(rles_nt_cpu.unbind(), mask_data["rles_sizes"], counts_init):
                     h, w = d["size"]
