@@ -311,22 +311,15 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        # mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe = torch.compile(
-        #     mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe,
-        #     mode="max-autotune",
-        #     fullgraph=True,
-        #     dynamic=False,
-        # )
-
-        mask_generator.predictor.model.sam_mask_decoder = torch.compile(
-            mask_generator.predictor.model.sam_mask_decoder,
+        mask_generator.predictor._predict_masks = torch.compile(
+            mask_generator.predictor._predict_masks,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        mask_generator.predictor._transforms.postprocess_masks = torch.compile(
-            mask_generator.predictor._transforms.postprocess_masks,
+        mask_generator.predictor._predict_masks_postprocess = torch.compile(
+            mask_generator.predictor._predict_masks_postprocess,
             fullgraph=True,
             dynamic=True,
         )
