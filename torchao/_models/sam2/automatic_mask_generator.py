@@ -251,10 +251,13 @@ class SAM2AutomaticMaskGenerator:
         )
 
         # Iterate over image crops
-        data = MaskData()
+        data = None
         for crop_box, layer_idx in zip(crop_boxes, layer_idxs):
             crop_data = self._process_crop(image, crop_box, layer_idx, orig_size)
-            data.cat(crop_data)
+            if data is None:
+                data = crop_data
+            else:
+                data.cat(crop_data)
 
         return self._deduplicate_masks(crop_boxes, data)
 
@@ -348,11 +351,11 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("filter"):
             data.filter(keep_by_nms)
 
-        with torch.autograd.profiler.record_function("uncrop_boxes_xyxy"):
-            # Return to the original image frame
-            data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
-        with torch.autograd.profiler.record_function("uncrop_points"):
-            data["points"] = uncrop_points(data["points"], crop_box)
+        # with torch.autograd.profiler.record_function("uncrop_boxes_xyxy"):
+        #     # Return to the original image frame
+        #     data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
+        # with torch.autograd.profiler.record_function("uncrop_points"):
+        #     data["points"] = uncrop_points(data["points"], crop_box)
         with torch.autograd.profiler.record_function("crop_boxes"):
             # data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
             data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles_nt"]))])
