@@ -16,7 +16,7 @@ setup(
             name="torchao_mps_ops",
             sources=["register.mm"],
             include_dirs=[os.getenv("TORCHAO_ROOT")],
-            extra_compile_args=["-DATEN=1"],
+            extra_compile_args=["-DUSE_ATEN=1"],
         ),
     ],
     cmdclass={"build_ext": BuildExtension},

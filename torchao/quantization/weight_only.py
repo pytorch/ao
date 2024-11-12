@@ -5,9 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+
 from .utils import dynamically_quantize_per_channel
 
 __all__ = ["WeightOnlyInt8QuantLinear"]
+
 
 class WeightOnlyInt8QuantLinear(torch.nn.Linear):
     """
