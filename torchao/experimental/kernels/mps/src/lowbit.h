@@ -17,7 +17,7 @@
 #include <fstream>
 #include <sstream>
 
-#ifdef ATEN
+#ifdef USE_ATEN
 #include <ATen/native/mps/OperationUtils.h>
 using namespace at::native::mps;
 inline void finalize_block(MPSStream* mpsStream) {}
