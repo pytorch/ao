@@ -164,8 +164,8 @@ __global__ void _dequantize_int4_kernel(
       // All b values within a 16x16 tile should fall within the same q group
       // Hence we load 1 scale and zero per loop
       int qgroup = ks[0] /  groupSize;
-      __nv_bfloat162 scale2 = {1.0f, 1.0f};
-      __nv_bfloat162 zero2 = {1.0f, 1.0f};
+      __nv_bfloat162 scale2 = __bfloat162bfloat162(__hip_bfloat16(1.0f));
+      __nv_bfloat162 zero2 = __bfloat162bfloat162(__hip_bfloat16(1.0f));
 
       if (scales_and_zeros) {
         const auto& sz = *scales_and_zeros;
