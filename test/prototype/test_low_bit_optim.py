@@ -25,11 +25,7 @@ from torchao.prototype.low_bit_optim.quant_utils import (
 from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
 
 try:
     import bitsandbytes as bnb
@@ -365,9 +361,9 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required."
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
-    @skip_if_lt_x_gpu(2)
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):

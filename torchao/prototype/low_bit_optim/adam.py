@@ -112,7 +112,7 @@ class _AdamBase(Optimizer):
                         )
 
                     torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
-                        p,
+                        p.detach(),
                         grad,
                         state["step"],
                         state["exp_avg"],
