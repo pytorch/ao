@@ -111,7 +111,8 @@ def _(func, types, args, kwargs):
         assert dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
-        dst.k.copy_(src.k)
+        if dst.k is not None:
+            dst.k.copy_(src.k)
 
     elif isinstance(dst, OptimStateFp8):
 
