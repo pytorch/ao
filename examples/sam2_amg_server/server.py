@@ -35,6 +35,7 @@ inductorconfig.coordinate_descent_check_all_directions = True
 inductorconfig.allow_buffer_reuse = False
 
 # torch._dynamo.config.capture_dynamic_output_shape_ops = True
+torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
 
 def example_shapes():
@@ -318,11 +319,11 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        mask_generator.predictor._predict_masks_postprocess = torch.compile(
-            mask_generator.predictor._predict_masks_postprocess,
-            fullgraph=True,
-            dynamic=True,
-        )
+        # mask_generator.predictor._predict_masks_postprocess = torch.compile(
+        #     mask_generator.predictor._predict_masks_postprocess,
+        #     fullgraph=True,
+        #     dynamic=True,
+        # )
 
         mask_generator._process_batch_fullgraph_masks = torch.compile(
             mask_generator._process_batch_fullgraph_masks,

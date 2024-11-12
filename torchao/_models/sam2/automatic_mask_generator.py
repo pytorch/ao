@@ -507,25 +507,41 @@ class SAM2AutomaticMaskGenerator:
             in_points.shape[0], dtype=torch.int, device=in_points.device
         )
         with torch.autograd.profiler.record_function("_predict"):
-            masks, iou_preds, low_res_masks = self.predictor._predict(
+            # masks, iou_preds, low_res_masks = self.predictor._predict(
+            masks = None
+            low_res_masks, iou_preds = self.predictor._predict_masks(
                 in_points[:, None, :],
                 in_labels[:, None],
                 multimask_output=self.multimask_output,
                 return_logits=True,
             )
 
+
         x0, y0, _, _ = crop_box
         is_box_near_crop_edge_torch_offset = torch.tensor([[x0, y0, x0, y0]]).pin_memory().to(device=in_points.device, non_blocking=True)
         return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset)
 
     def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset):
+        if not self.use_m2m:
+            with torch.autograd.profiler.record_function("thresh and filter"):
+                # Filter by predicted IoU
+                if self.pred_iou_thresh > 0.0:
+                    keep_mask = iou_preds.flatten(0, 1) > self.pred_iou_thresh
+                    low_res_masks = low_res_masks.flatten(0, 1).unsqueeze(1)
+                    low_res_masks = low_res_masks[keep_mask]
+                    masks, low_res_mask = self.predictor._predict_masks_postprocess(low_res_masks, -1, True, channel_1=True)
+                    # import pdb; pdb.set_trace()
+                    # print("SDJKFL")
+                    # TODO: Might need this for correctness due to calculate_stability_score IoU?
+                    # data.filter(keep_mask)
+
         # Serialize predictions and store in MaskData
         with torch.autograd.profiler.record_function("MaskData"):
             data = MaskData(
                 masks=masks.flatten(0, 1),
                 iou_preds=iou_preds.flatten(0, 1),
                 # points=points.repeat_interleave(masks.shape[1], dim=0),
-                points=points.repeat_interleave(masks.shape[1], dim=0),
+                points=points.repeat_interleave(3, dim=0),
                 low_res_masks=low_res_masks.flatten(0, 1),
             )
         del masks
@@ -533,12 +549,12 @@ class SAM2AutomaticMaskGenerator:
         keep_mask = None
 
         if not self.use_m2m:
-            with torch.autograd.profiler.record_function("thresh and filter"):
-                # Filter by predicted IoU
-                if self.pred_iou_thresh > 0.0:
-                    keep_mask = data["iou_preds"] > self.pred_iou_thresh
-                    # TODO: Might need this for correctness due to calculate_stability_score IoU?
-                    # data.filter(keep_mask)
+            # with torch.autograd.profiler.record_function("thresh and filter"):
+            #     # Filter by predicted IoU
+            #     if self.pred_iou_thresh > 0.0:
+            #         keep_mask = data["iou_preds"] > self.pred_iou_thresh
+            #         # TODO: Might need this for correctness due to calculate_stability_score IoU?
+            #         # data.filter(keep_mask)
 
             with torch.autograd.profiler.record_function("calculate_stability_score"):
                 # Calculate and filter by stability score
