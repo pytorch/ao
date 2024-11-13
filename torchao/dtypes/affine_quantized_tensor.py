@@ -140,6 +140,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.zero_point_domain,
                 output_dtype=output_dtype,
             )
+            from torchao.dtypes.uintx import TensorCoreTiledLayout
+
             if isinstance(self._layout, TensorCoreTiledLayout):
                 # need to return to original shape if tensor was padded
                 # in preprocessing

@@ -101,11 +101,11 @@ def _quantized_linear_op(input_tensor, weight_tensor, bias):
 AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 
 
-# # following are a list of (dispatch_condition, implementation) functions that takes the following args:
-# # input_tensor: dimension is (M1, M2, ..., in_features)
-# # weight_tensor: dimension is (out_features, in_features)
-# # bias: dimension is (out_features,)
-# # so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
+# _register_aqt_quantized_linear_dispatches function has a list of (dispatch_condition, implementation) functions, defined in their dtype layout classes, that takes the following args:
+# input_tensor: dimension is (M1, M2, ..., in_features)
+# weight_tensor: dimension is (out_features, in_features)
+# bias: dimension is (out_features,)
+# so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
 def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),

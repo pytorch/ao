@@ -11,9 +11,11 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
+from torchao.kernel import (
+    int_scaled_matmul,
+)
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
-    int_scaled_matmul,
 )
 from torchao.utils import fill_defaults
 
