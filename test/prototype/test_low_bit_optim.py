@@ -7,6 +7,7 @@ import pytest
 import torch
 from packaging.version import Version
 from torch import nn
+from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -378,7 +379,6 @@ class TestFSDP2(FSDPTest):
         import torch.distributed as dist
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
-        from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed.tensor import DTensor
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
 
@@ -463,6 +463,25 @@ class TestFSDP2(FSDPTest):
                 v1 = v1.dequantize()
                 v2 = v2.dequantize()
             self.assertEqual(v1, v2)
+
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
+    )
+    def test_uneven_shard(self):
+        in_dim = 512
+        out_dim = _FSDP_WORLD_SIZE * 16 + 1
+
+        # 1st dim of linear weight will not be divisible by WORLD_SIZE
+        model = nn.Linear(in_dim, out_dim, device="cuda")
+        assert model.weight.shape[0] % _FSDP_WORLD_SIZE != 0
+        fully_shard(model)
+        optim = low_bit_optim.AdamW8bit(model.parameters())
+
+        for _ in range(2):
+            inputs = torch.randn(2, in_dim, device="cuda")
+            model(inputs).sum().backward()
+            optim.step()
+            optim.zero_grad()
 
 
 instantiate_parametrized_tests(TestQuantize)
