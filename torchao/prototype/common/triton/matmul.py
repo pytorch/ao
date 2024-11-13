@@ -1,19 +1,9 @@
 import torch
-import triton
-import triton.language as tl
-from torchao.prototype.common.triton.matmul_perf_model import early_config_prune, estimate_matmul_time
 
-from .custom_autotune import Config, autotune, heuristics
+from triton import Config, autotune, cdiv, heuristics, jit
+from triton import language as tl
+from .matmul_perf_model import early_config_prune, estimate_matmul_time
 
-# Allowed types for acc_type given the types of a and b.
-TRITON_ACC_TYPES = {
-    torch.float16: (torch.float32, torch.float16),
-    torch.bfloat16: (torch.float32, torch.bfloat16),
-    torch.float32: (torch.float32,),
-    torch.int8: (torch.int32,),
-}
-
-AUTOTUNER_TOP_K = 50
 _ordered_datatypes = [torch.int8, torch.float16, torch.bfloat16, torch.float32]
 
 
@@ -41,15 +31,6 @@ def get_higher_dtype(a, b):
 
 def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
-
-
-def set_tuner_top_k(k):
-    global AUTOTUNER_TOP_K
-    AUTOTUNER_TOP_K = k
-
-
-def to_tl_type(ty):
-    return getattr(tl, str(ty).split(".")[-1])
 
 
 def get_configs_io_bound():
@@ -89,8 +70,8 @@ def get_configs_io_bound():
     return configs
 
 
-def get_configs_compute_bound():
-    configs = [
+@autotune(
+    configs=[
         # basic configs for compute-bound matmuls
         Config(
             {"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 32, "SPLIT_K": 1},
@@ -184,39 +165,21 @@ def get_configs_compute_bound():
             num_warps=2,
         ),
     ]
-    return configs
-
-
-def get_autotuner(
-    configs=get_configs_compute_bound() + get_configs_io_bound(),
+    + get_configs_io_bound(),
     key=["M", "N", "K"],
-    early_config_prune=early_config_prune,
-    perf_model=estimate_matmul_time,
-    top_k=AUTOTUNER_TOP_K,
-):
-    autotuner = autotune(
-        configs=configs,
-        key=key,
-        prune_configs_by={
-            "early_config_prune": early_config_prune,
-            "perf_model": perf_model,
-            "top_k": top_k,
-        },
-    )
-
-    return autotuner
-
-
-def get_mm_heuristics():
-    return heuristics(
-        {
-            "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
-        }
-    )
-
-
-@triton.jit
-def _matmul_kernel(
+    prune_configs_by={
+        "early_config_prune": early_config_prune,
+        "perf_model": estimate_matmul_time,
+        "top_k": 10,
+    },
+)
+@heuristics(
+    {
+        "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
+    }
+)
+@jit
+def _kernel(
     A,
     B,
     C,
@@ -229,23 +192,16 @@ def _matmul_kernel(
     stride_bn,  #
     stride_cm,
     stride_cn,  #
-    # meta params
+    acc_dtype: tl.constexpr,  #
+    input_precision: tl.constexpr,  #
+    fp8_fast_accum: tl.constexpr,  #
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,  #
+    GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
-    GROUP_M: tl.constexpr,
-    # epilogue
-    epilogue_alpha=None,
-    epilogue_beta=None,
-    epilogue_source=None,  # Corresponds to C in GEMM convention of D = AB + C
-    # matmul kernel settings
-    acc_dtype: tl.constexpr = tl.float32,  #
-    allow_tf32: tl.constexpr = True,  #
-    fp8_fast_accum: tl.constexpr = True,  #
-    AB_DTYPE: tl.constexpr = None,  #
-    EPILOGUE: tl.constexpr = False,
+    AB_DTYPE: tl.constexpr,  #
 ):
     # matrix multiplication
     pid = tl.program_id(0)
@@ -281,29 +237,17 @@ def _matmul_kernel(
             a = a.to(AB_DTYPE)
             b = b.to(AB_DTYPE)
         if fp8_fast_accum:
-            acc = tl.dot(a, b, acc, out_dtype=acc_dtype, allow_tf32=allow_tf32)
+            acc = tl.dot(
+                a, b, acc, out_dtype=acc_dtype, input_precision=input_precision
+            )
         else:
-            acc += tl.dot(a, b, out_dtype=acc_dtype, allow_tf32=allow_tf32)
+            acc += tl.dot(a, b, out_dtype=acc_dtype, input_precision=input_precision)
         A += BLOCK_K * SPLIT_K * stride_ak
         B += BLOCK_K * SPLIT_K * stride_bk
-    # acc = acc.to(C.dtype.element_ty)
-
+    acc = acc.to(C.dtype.element_ty)
     # rematerialize rm and rn to save registers
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-
-    if EPILOGUE:
-        if epilogue_alpha is not None:
-            acc = epilogue_alpha.to(acc_dtype) * acc
-        if epilogue_source is not None:
-            epilogue_src = tl.load(
-                epilogue_source + rm[:, None] * stride_cm + rn[None, :] * stride_cn
-            )
-            if epilogue_beta is not None:
-                epilogue_src = epilogue_src.to(acc_dtype) * epilogue_beta.to(acc_dtype)
-            acc = acc + epilogue_src
-
-    acc = acc.to(C.dtype.element_ty)
     C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
     mask = (rm < M)[:, None] & (rn < N)[None, :]
     # handles write-back with reduction-splitting
@@ -313,97 +257,111 @@ def _matmul_kernel(
         tl.atomic_add(C, acc, mask=mask)
 
 
-_autotuner = get_autotuner()
-_heuristics = get_mm_heuristics()
-matmul = _autotuner(_heuristics(_matmul_kernel))
+class _matmul(torch.autograd.Function):
+    kernel = _kernel
 
+    _locks = {}
 
-def triton_mm_launcher(
-    a,
-    b,
-    epilogue_alpha=None,
-    epilogue_beta=None,
-    epilogue_source=None,
-    allow_tf32=True,
-    fp8_fast_accum=True,
-    acc_dtype=None,
-    output_dtype=None,
-    kernel=matmul,
-):
-
-    device = a.device
-    # handle non-contiguous inputs if necessary
-    # a = grad
-    # b = galore_proj.ortho_matrix.t()
-    if a.stride(0) > 1 and a.stride(1) > 1:
-        a = a.contiguous()
-    if b.stride(0) > 1 and b.stride(1) > 1:
-        b = b.contiguous()
-    # checks constraints
-    assert a.shape[1] == b.shape[0], "incompatible dimensions"
-    M, K = a.shape
-    _, N = b.shape
-
-    # common type between a and b
-    ab_dtype = get_higher_dtype(a.dtype, b.dtype)
-
-    # allocates output
-    if output_dtype is None:
-        output_dtype = ab_dtype
-
-    c = torch.empty((M, N), device=device, dtype=output_dtype)
-
-    if acc_dtype is None:
-        acc_dtype = [ab_dtype][0]
-    else:
-        assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
+    @staticmethod
+    def _call(a, b, acc_dtype, input_precision, fp8_fast_accum, output_dtype):
+        device = a.device
+        # handle non-contiguous inputs if necessary
+        if a.stride(0) > 1 and a.stride(1) > 1:
+            a = a.contiguous()
+        if b.stride(0) > 1 and b.stride(1) > 1:
+            b = b.contiguous()
+        # checks constraints
         assert (
-            acc_dtype in TRITON_ACC_TYPES[a.dtype]
-        ), "acc_dtype not compatible with the type of a"
-        assert (
-            acc_dtype in TRITON_ACC_TYPES[b.dtype]
-        ), "acc_dtype not compatible with the type of b"
+            a.shape[1] == b.shape[0]
+        ), f"incompatible dimensions {a.shape} and {b.shape}"
+        M, K = a.shape
+        _, N = b.shape
 
-    acc_dtype = to_tl_type(acc_dtype)
-    ab_dtype = to_tl_type(ab_dtype)
-    output_dtype = to_tl_type(output_dtype)
+        # common type between a and b
+        ab_dtype = get_higher_dtype(a.dtype, b.dtype)
 
-    # Tensor cores support input with mixed float8 types.
-    if a.dtype in [tl.float8e4nv, tl.float8e5] and b.dtype in [
-        tl.float8e4nv,
-        tl.float8e5,
-    ]:
-        ab_dtype = None
-    # launch kernel
-    # print(
-    #     f"{__file__} triton matmul args: (AB dtype {ab_dtype}) (C dtype {c.dtype}) (allow_tf32 {allow_tf32}) (fp8_fast_accum {fp8_fast_accum})"
-    # )
-    grid = lambda META: (
-        triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
-        META["SPLIT_K"],
-    )
+        # allocates output
+        if output_dtype is None:
+            output_dtype = ab_dtype
 
-    matmul[grid](
+        c = torch.empty((M, N), device=device, dtype=output_dtype)
+
+        # Allowed types for acc_type given the types of a and b.
+        supported_acc_dtypes = {
+            torch.float16: (torch.float32, torch.float16),
+            torch.bfloat16: (torch.float32, torch.bfloat16),
+            torch.float32: (torch.float32,),
+            torch.int8: (torch.int32,),
+        }
+
+        if acc_dtype is None:
+            acc_dtype = supported_acc_dtypes[ab_dtype][0]
+        else:
+            assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
+            assert (
+                acc_dtype in supported_acc_dtypes[a.dtype]
+            ), "acc_dtype not compatible with the type of a"
+            assert (
+                acc_dtype in supported_acc_dtypes[b.dtype]
+            ), "acc_dtype not compatible with the type of b"
+
+        def to_tl_type(ty):
+            return getattr(tl, str(ty).split(".")[-1])
+
+        acc_dtype = to_tl_type(acc_dtype)
+        ab_dtype = to_tl_type(ab_dtype)
+        output_dtype = to_tl_type(output_dtype)
+
+        # Tensor cores support input with mixed float8 types.
+        if a.dtype in [tl.float8e4nv, tl.float8e5] and b.dtype in [
+            tl.float8e4nv,
+            tl.float8e5,
+        ]:
+            ab_dtype = None
+        # launch kernel
+        grid = lambda META: (
+            cdiv(M, META["BLOCK_M"]) * cdiv(N, META["BLOCK_N"]),
+            META["SPLIT_K"],
+        )
+        _kernel[grid](
+            a,
+            b,
+            c,
+            M,
+            N,
+            K,  #
+            a.stride(0),
+            a.stride(1),  #
+            b.stride(0),
+            b.stride(1),  #
+            c.stride(0),
+            c.stride(1),  #
+            acc_dtype=acc_dtype,  #
+            input_precision=input_precision,  #
+            fp8_fast_accum=fp8_fast_accum,  #
+            GROUP_M=8,
+            AB_DTYPE=ab_dtype,
+        )
+        return c
+
+    @staticmethod
+    def forward(
+        ctx,
         a,
         b,
-        c,
-        M,
-        N,
-        K,  #
-        a.stride(0),
-        a.stride(1),  #
-        b.stride(0),
-        b.stride(1),  #
-        c.stride(0),
-        c.stride(1),  #
-        epilogue_alpha=epilogue_alpha,  #
-        epilogue_beta=epilogue_beta,  #
-        epilogue_source=epilogue_source,  #
-        acc_dtype=acc_dtype,  #
-        allow_tf32=allow_tf32,  #
-        fp8_fast_accum=fp8_fast_accum,  #
-        GROUP_M=8,
-        AB_DTYPE=ab_dtype,
-        EPILOGUE=any([epilogue_alpha, epilogue_beta, epilogue_source]),
-    )
-    return c
+        acc_dtype=None,
+        input_precision=None,
+        fp8_fast_accum=True,
+        output_dtype=None,
+    ):
+        return _matmul._call(
+            a,
+            b,
+            acc_dtype=acc_dtype,
+            input_precision=input_precision,
+            fp8_fast_accum=fp8_fast_accum,
+            output_dtype=output_dtype,
+        )
+
+
+matmul = _matmul.apply

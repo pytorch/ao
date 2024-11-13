@@ -38,7 +38,7 @@ from torchao.dtypes import (
 )
 from torchao.dtypes.uintx.uintx_layout import UintxLayout
 from torchao.float8.inference import Float8MMConfig
-from torchao.quantization.linear_activation_weight_observer import (
+from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
