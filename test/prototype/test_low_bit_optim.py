@@ -157,11 +157,11 @@ class TestOptim(TestCase):
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
     def test_optim_fp8_coat_smoke(self, optim_name, dtype, device):
-        
-        if not TORCH_VERSION_AT_LEAST_2_4:
-            pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
-        if torch.cuda.get_device_capability() < (8, 9):
-            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+        if device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
