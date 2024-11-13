@@ -111,6 +111,10 @@ class _AdamBase(Optimizer):
                             "optim.param_groups[0]['lr'].fill_(new_lr)"
                         )
 
+                    # without calling p.detach(), torch.compile() will have issues with FSDP2 in some cases
+                    # https://github.com/pytorch/ao/issues/652#issuecomment-2285040894
+                    # thus, by calling p.detach(), DTensor won't have .grad anymore, which is ok since we
+                    # are passing grad separately anyway.
                     torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
                         p.detach(),
                         grad,
