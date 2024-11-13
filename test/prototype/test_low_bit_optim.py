@@ -163,7 +163,7 @@ class TestOptim(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
-    def test_optim_addons(self, optim_name, dtype, device):
+    def test_optim_fp8_coat_smoke(self, optim_name, dtype, device):
         
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
