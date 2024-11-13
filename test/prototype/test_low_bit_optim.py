@@ -467,6 +467,7 @@ class TestFSDP2(FSDPTest):
     @pytest.mark.skipif(
         not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_uneven_shard(self):
         in_dim = 512
         out_dim = _FSDP_WORLD_SIZE * 16 + 1
@@ -475,6 +476,9 @@ class TestFSDP2(FSDPTest):
         model = nn.Linear(in_dim, out_dim, device="cuda")
         assert model.weight.shape[0] % _FSDP_WORLD_SIZE != 0
         fully_shard(model)
+
+        # currently all of our low-bit Adam/AdamW share the same implementation.
+        # thus, we only need to test for 1 optimizer class.
         optim = low_bit_optim.AdamW8bit(model.parameters())
 
         for _ in range(2):
