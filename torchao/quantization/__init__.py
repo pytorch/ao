@@ -4,6 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from torchao.kernel import (
+    int_scaled_matmul,
+    safe_int_mm,
+)
+
 from .autoquant import (
     DEFAULT_AUTOQUANT_CLASS_LIST,
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
@@ -23,10 +28,6 @@ from .granularity import (
     PerRow,
     PerTensor,
     PerToken,
-)
-from torchao.kernel import (
-    safe_int_mm,
-    int_scaled_matmul,
 )
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
@@ -55,18 +56,18 @@ from .quant_api import (
 )
 from .quant_primitives import (
     MappingType,
-    ZeroPointDomain,
     TorchAODType,
+    ZeroPointDomain,
     choose_qparams_affine,
-    quantize_affine,
-    dequantize_affine,
     choose_qparams_affine_floatx,
     choose_qparams_affine_with_min_max,
-    quantize_affine_floatx,
+    choose_qparams_and_quantize_affine_hqq,
+    dequantize_affine,
     dequantize_affine_floatx,
     fake_quantize_affine,
     fake_quantize_affine_cachemask,
-    choose_qparams_and_quantize_affine_hqq,
+    quantize_affine,
+    quantize_affine_floatx,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
