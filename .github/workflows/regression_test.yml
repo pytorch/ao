@@ -61,11 +61,11 @@ jobs:
             gpu-arch-version: ""
           - name: CPU Nightly
             runs-on: linux.4xlarge
-            torch-spec: '--pre torch==2.6.0.dev20241101 --index-url https://download.pytorch.org/whl/nightly/cpu'
+            torch-spec: '--pre torch==2.6.0.dev20241106 --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
 
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 120
       runner: ${{ matrix.runs-on }}
