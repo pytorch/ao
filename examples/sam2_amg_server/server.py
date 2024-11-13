@@ -245,11 +245,11 @@ def max_memory_allocated():
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
     from compare_rle_lists import compare_masks
-    miou_sum, miou_count = compare_masks(masks, ref_masks, order_by_area=order_by_area, verbose=verbose)
-    if miou_count == 0:
+    miou, equal_count = compare_masks(masks, ref_masks, order_by_area=order_by_area, verbose=verbose)
+    if equal_count == len(masks):
         print("Masks exactly match reference.")
     else:
-        print(f"mIoU is {miou_sum / miou_count}")
+        print(f"mIoU is {miou} with equal count {equal_count} out of {len(masks)}")
 
 
 def main(checkpoint_path,
@@ -291,7 +291,7 @@ def main(checkpoint_path,
     
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-
+ 
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
@@ -325,11 +325,11 @@ def main(checkpoint_path,
         #     dynamic=True,
         # )
 
-        mask_generator._process_batch_fullgraph_masks = torch.compile(
-            mask_generator._process_batch_fullgraph_masks,
-            fullgraph=True,
-            dynamic=True,
-        )
+        # mask_generator._process_batch_fullgraph_masks = torch.compile(
+        #     mask_generator._process_batch_fullgraph_masks,
+        #     fullgraph=True,
+        #     dynamic=True,
+        # )
 
     if furious:
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)

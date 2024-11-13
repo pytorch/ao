@@ -523,6 +523,7 @@ class SAM2AutomaticMaskGenerator:
         return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset)
 
     def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset):
+        points = points.repeat_interleave(3 if masks is None else masks.shape[1], dim=0)
         if not self.use_m2m:
             with torch.autograd.profiler.record_function("thresh and filter"):
                 # Filter by predicted IoU
@@ -531,6 +532,8 @@ class SAM2AutomaticMaskGenerator:
                     low_res_masks = low_res_masks.flatten(0, 1).unsqueeze(1)
                     low_res_masks = low_res_masks[keep_mask]
                     masks, low_res_mask = self.predictor._predict_masks_postprocess(low_res_masks, -1, True, channel_1=True)
+                    iou_preds = iou_preds.flatten(0, 1).unsqueeze(1)[keep_mask]
+                    points = points[keep_mask]
                     # import pdb; pdb.set_trace()
                     # print("SDJKFL")
                     # TODO: Might need this for correctness due to calculate_stability_score IoU?
@@ -542,7 +545,7 @@ class SAM2AutomaticMaskGenerator:
                 masks=masks.flatten(0, 1),
                 iou_preds=iou_preds.flatten(0, 1),
                 # points=points.repeat_interleave(masks.shape[1], dim=0),
-                points=points.repeat_interleave(3, dim=0),
+                points=points, #.repeat_interleave(3, dim=0),
                 low_res_masks=low_res_masks.flatten(0, 1),
             )
         del masks
@@ -565,11 +568,11 @@ class SAM2AutomaticMaskGenerator:
             with torch.autograd.profiler.record_function("stability_score_thresh"):
                 if self.stability_score_thresh > 0.0:
                     keep_mask_stability = data["stability_score"] >= self.stability_score_thresh
-                    if keep_mask is None:
-                        keep_mask = keep_mask_stability
-                    else:
-                        keep_mask = torch.logical_and(keep_mask, keep_mask_stability)
-                    # data.filter(keep_mask)
+                    # if keep_mask is None:
+                    #     keep_mask = keep_mask_stability
+                    # else:
+                    #     keep_mask = torch.logical_and(keep_mask, keep_mask_stability)
+                    data.filter(keep_mask_stability)
         else:
             # One step refinement using previous mask predictions
             in_points = self.predictor._transforms.transform_coords(
@@ -612,9 +615,10 @@ class SAM2AutomaticMaskGenerator:
 
         # with torch.autograd.profiler.record_function("filter(keep_mask)"):
         #     # if not torch.all(keep_mask):
-        #     data.filter(keep_mask)
+        data.filter(keep_mask)
 
-        return data, keep_mask
+        # return data, keep_mask
+        return data, None
 
     def _process_batch(
         self,
@@ -632,8 +636,9 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("_process_batch: _process_batch_fullgraph"):
             data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
         with torch.autograd.profiler.record_function("_process_batch: filter"):
-            keep_index = keep_mask.nonzero(as_tuple=True)[0]
-            data.filter_by_index(keep_index)
+            if keep_mask is not None:
+                keep_index = keep_mask.nonzero(as_tuple=True)[0]
+                data.filter_by_index(keep_index)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
