@@ -149,12 +149,7 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
     
-    @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_4, reason="FP8 CUDA requires PyTorch >= 2.4"
-    )
-    @pytest.mark.skipif(
-        torch.cuda.get_device_capability() < (8, 9), reason="FP8 CUDA requires compute capability >= 8.9"
-    )
+
     @parametrize(
         "optim_name",
         ["AdamFp8", "AdamWFp8"],
@@ -163,6 +158,11 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_optim_fp8_coat_smoke(self, optim_name, dtype, device):
         
+        if not TORCH_VERSION_AT_LEAST_2_4:
+            pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+        if torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
 
