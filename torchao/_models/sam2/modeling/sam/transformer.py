@@ -114,18 +114,15 @@ class TwoWayTransformer(nn.Module):
         # Prepare queries
         queries = point_embedding
         keys = image_embedding
-        # print("point_embedding.size(): ", point_embedding.size())
-        # print("image_embedding.size(): ", image_embedding.size())
 
-        with torch.autograd.profiler.record_function("TwoWayTransformer: layers"):
-            # Apply transformer blocks and final layernorm
-            for layer in self.layers:
-                queries, keys = layer(
-                    queries=queries,
-                    keys=keys,
-                    query_pe=point_embedding,
-                    key_pe=image_pe,
-                )
+        # Apply transformer blocks and final layernorm
+        for layer in self.layers:
+            queries, keys = layer(
+                queries=queries,
+                keys=keys,
+                query_pe=point_embedding,
+                key_pe=image_pe,
+            )
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
@@ -186,22 +183,17 @@ class TwoWayAttentionBlock(nn.Module):
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
-            with torch.autograd.profiler.record_function("A0"):
-                queries = self.self_attn(q=queries, k=queries, v=queries)
+            queries = self.self_attn(q=queries, k=queries, v=queries)
         else:
-            with torch.autograd.profiler.record_function("A1"):
-                q = queries + query_pe
-                attn_out = self.self_attn(q=q, k=q, v=queries)
-                queries = queries + attn_out
+            q = queries + query_pe
+            attn_out = self.self_attn(q=q, k=q, v=queries)
+            queries = queries + attn_out
         queries = self.norm1(queries)
-        # print("0 queries.size(): ", queries.size())
-        # print("0 keys.size(): ", keys.size())
 
         # Cross attention block, tokens attending to image embedding
         q = queries + query_pe
         k = keys + key_pe
-        with torch.autograd.profiler.record_function("B"):
-            attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
+        attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm2(queries)
 
@@ -213,8 +205,7 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
-        with torch.autograd.profiler.record_function("C"):
-            attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
+        attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
         keys = keys + attn_out
         keys = self.norm4(keys)
 
@@ -262,11 +253,6 @@ class Attention(nn.Module):
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
-        # print("q is k: ", q is k, " k is v: ", k is v)
-
-        # print("0 q.size(): ", q.size())
-        # print("0 k.size(): ", k.size())
-        # print("0 v.size(): ", v.size())
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
@@ -276,10 +262,6 @@ class Attention(nn.Module):
         q = self._separate_heads(q, self.num_heads)
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
-
-        # print("1 q.size(): ", q.size())
-        # print("1 k.size(): ", k.size())
-        # print("1 v.size(): ", v.size())
 
         dropout_p = self.dropout_p if self.training else 0.0
         # # Attention
@@ -301,7 +283,6 @@ class Attention(nn.Module):
         out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
 
         out = self._recombine_heads(out)
-        # print("out.size(): ", out.size())
         out = self.out_proj(out)
 
         return out
