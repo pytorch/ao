@@ -163,14 +163,12 @@ class TestOptim(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
-    @parametrize("optim_addon",["dynamic_range_expansion"])
-    def test_optim_addons(self, optim_name, dtype, device, optim_addon):
+    def test_optim_addons(self, optim_name, dtype, device):
         
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
 
-        optim_params = {optim_addon: True}
-        optim = getattr(low_bit_optim, optim_name)(model.parameters(), **optim_params)
+        optim = getattr(low_bit_optim, optim_name)(model.parameters(), dynamic_range_expansion=True)
 
         x = torch.randn(4, 32, device=device, dtype=dtype)
         loss = model(x).sum()
