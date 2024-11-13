@@ -3,10 +3,10 @@ name: Code Analysis with Ruff
 on:
   workflow_dispatch:
     inputs:
-      fix:
-        description: 'Apply fixes automatically'
-        type: boolean
-        default: false
+      pr_url:
+        description: 'URL of the PR to fix'
+        required: true
+        type: string
   push:
     branches:
       - main
@@ -27,10 +27,17 @@ jobs:
       matrix:
         python-version: ["3.9"]
     steps:
+    - name: Extract PR info
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        PR_URL=${{ github.event.inputs.pr_url }}
+        PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
+        echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+        
     - uses: actions/checkout@v3
       with:
-        ref: ${{ github.event.pull_request.head.ref }}
-        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        fetch-depth: 0
+        ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', env.PR_NUMBER) || '' }}
         token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Set up Python ${{ matrix.python-version }}
@@ -43,8 +50,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install ruff==0.6.8
         
-    - name: Check or fix code with Ruff
-      if: ${{ !inputs.fix }}
+    - name: Regular lint check
+      if: github.event_name != 'workflow_dispatch'
       run: |
         ruff check .
         # --isolated is used to skip the allowlist at all so this applies to all files
@@ -53,24 +60,21 @@ jobs:
         ruff check --select F,I
         ruff format --check
 
-    - name: Apply Ruff fixes
-      if: ${{ inputs.fix }}
+    - name: Apply fixes to PR
+      if: github.event_name == 'workflow_dispatch'
       run: |
-        # Fix general issues
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        # Apply fixes
         ruff check --fix .
-        # Fix formatting
         ruff format .
         
-    - name: Create Pull Request with fixes
-      if: ${{ inputs.fix }}
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: 'Auto-fix: Apply Ruff formatting and fixes'
-        title: 'Auto-fix: Apply Ruff formatting and fixes'
-        body: |
-          This PR applies automatic fixes using Ruff linter and formatter.
-          
-          Changes were made automatically by the Ruff workflow.
-        branch: ruff-fixes-${{ github.event.pull_request.number }}
-        base: ${{ github.event.pull_request.head.ref }}
+        # Commit and push if there are changes
+        if [[ -n "$(git status --porcelain)" ]]; then
+          git add .
+          git commit -m "Apply automatic Ruff fixes"
+          git push
+        else
+          echo "No fixes needed!"
+        fi
