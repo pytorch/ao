@@ -40,7 +40,7 @@ jobs:
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
         yum install -y  devtoolset-11-binutils
-        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        export PATH=/opt/rh/devtoolset-11/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
