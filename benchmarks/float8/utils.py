@@ -10,6 +10,8 @@ import re
 from typing import Optional
 
 from torch.profiler import profile, ProfilerActivity, record_function
+from transformers import AutoConfig
+from diffusers import DiffusionPipeline
 
 def profiler_output_to_filtered_time_by_kernel_name(
     prof, 
@@ -202,6 +204,7 @@ def get_name_to_shapes_iter(
 
     raise AssertionError(f'unknown shape_gen_name {shape_gen_name}')
 
+
 # copy-pasta from https://github.com/vkuzo/pytorch_scripts/blob/main/add_inductor_metadata_to_perf_trace.py
 def update_triton_kernels_in_prof_chome_trace_with_torch_logs(
     perf_trace_file: str,
@@ -348,3 +351,22 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         return data["aten::_scaled_mm"] / 1e6 / n_iter
     else:
         raise AssertionError("unexpected format of data")
+
+
+def get_llm_mm_shapes(model_name, seq_len=512):
+    """Extracts matrix shapes for matrix multiplications in attention and feed-forward layers for an LLM model."""
+    config = AutoConfig.from_pretrained(model_name)
+
+    hidden_size = config.hidden_size
+    num_attention_heads = config.num_attention_heads
+    intermediate_size = getattr(config, "intermediate_size", hidden_size * 4)  # Typically 4x hidden size
+
+    d_head = hidden_size // num_attention_heads
+
+    matrix_shapes = {
+        "Attention mm": (seq_len, seq_len, d_head),  # Attention score matrix per head
+        "Input -> Intermediate": (seq_len, hidden_size, intermediate_size),  # Feed-forward layer matrix multiplication shapes
+        "Intermediate -> Output": (seq_len, intermediate_size, hidden_size),  # Feed-forward layer matrix multiplication shapes
+    }
+
+    return matrix_shapes.items()
