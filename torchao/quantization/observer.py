@@ -1,4 +1,12 @@
+import logging
+from abc import ABCMeta, abstractmethod
+from functools import partial
+from typing import Any, Optional, Tuple
+
 import torch
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
 from .granularity import (
     Granularity,
     PerAxis,
@@ -6,17 +14,11 @@ from .granularity import (
     PerTensor,
 )
 from .quant_primitives import (
-    _get_reduction_params,
-    choose_qparams_affine_with_min_max,
     MappingType,
     ZeroPointDomain,
+    _get_reduction_params,
+    choose_qparams_affine_with_min_max,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-from abc import ABCMeta, abstractmethod
-from typing import Tuple, Optional, Any
-from functools import partial
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +154,12 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.min_val = min_val
             self.max_val = max_val
         else:
-            assert self.min_val.shape == min_val.shape, f"Can't update existing min_val - shape mismatch, self.min_val:{self.min_val.shape} != min_val:{min_val.shape}"
-            assert self.max_val.shape == max_val.shape, f"Can't update existing max_val - shape mismatch, self.max_val {self.max_val.shape} != max_val:{max_val.shape}"
+            assert (
+                self.min_val.shape == min_val.shape
+            ), f"Can't update existing min_val - shape mismatch, self.min_val:{self.min_val.shape} != min_val:{min_val.shape}"
+            assert (
+                self.max_val.shape == max_val.shape
+            ), f"Can't update existing max_val - shape mismatch, self.max_val {self.max_val.shape} != max_val:{max_val.shape}"
             min_val = torch.min(self.min_val, min_val)
             max_val = torch.max(self.max_val, max_val)
             self.min_val.copy_(min_val)
@@ -169,7 +175,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.min_val,
             self.max_val,
             self.mapping_type,
-            [], # BlockSize is not needed because the min/max are already reduced
+            [],  # BlockSize is not needed because the min/max are already reduced
             self.target_dtype,
             self.quant_min,
             self.quant_max,
@@ -179,6 +185,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.preserve_zero,
             self.zero_point_domain,
         )
+
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`

@@ -1,6 +1,7 @@
 import copy
 
 import pytest
+import unittest
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -70,7 +71,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         actual = torch.compile(from_scaled_tc_floatx, fullgraph=True)(x, ebits, mbits, scale)
         torch.testing.assert_close(actual, expected)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
@@ -87,12 +88,12 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
-    @pytest.mark.skipif(is_fbcode(), reason="broken in fbcode")
+    @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
         device = "cuda"

@@ -17,7 +17,7 @@
 #include <fstream>
 #include <sstream>
 
-#ifdef ATEN
+#ifdef USE_ATEN
 #include <ATen/native/mps/OperationUtils.h>
 using namespace at::native::mps;
 inline void finalize_block(MPSStream* mpsStream) {}
@@ -88,7 +88,8 @@ using DispatchFn =
 inline void linear_lowbit_quant_weights_mps_impl(
     id<MTLBuffer> a_buf,
     id<MTLBuffer> b_buf,
-    id<MTLBuffer> sz_buf,
+    id<MTLBuffer> s_buf,
+    id<MTLBuffer> z_buf,
     id<MTLBuffer> out_buf,
     int32_t M,
     int32_t K,
@@ -111,11 +112,12 @@ inline void linear_lowbit_quant_weights_mps_impl(
       [computeEncoder setComputePipelineState:cpl];
       [computeEncoder setBuffer:a_buf offset:0 atIndex:0];
       [computeEncoder setBuffer:b_buf offset:0 atIndex:1];
-      [computeEncoder setBuffer:sz_buf offset:0 atIndex:2];
-      [computeEncoder setBuffer:out_buf offset:0 atIndex:3];
+      [computeEncoder setBuffer:s_buf offset:0 atIndex:2];
+      [computeEncoder setBuffer:z_buf offset:0 atIndex:3];
+      [computeEncoder setBuffer:out_buf offset:0 atIndex:4];
       [computeEncoder setBytes:sizes.data()
                         length:sizeof(uint32_t) * sizes.size()
-                       atIndex:4];
+                       atIndex:5];
       dispatch_fn(computeEncoder, maxThreadsPerGroup, M, N, K);
       finalize_block(mpsStream);
     }
@@ -128,7 +130,8 @@ void linear_lowbit_quant_weights_mps(
     id<MTLBuffer> a_buf,
     id<MTLBuffer> b_buf,
     int64_t qGroupSize,
-    id<MTLBuffer> sz_buf,
+    id<MTLBuffer> s_buf,
+    id<MTLBuffer> z_buf,
     id<MTLBuffer> out_buf,
     int32_t M,
     int32_t K,
@@ -143,7 +146,8 @@ void linear_lowbit_quant_weights_mps(
   return linear_lowbit_quant_weights_mps_impl(
       a_buf,
       b_buf,
-      sz_buf,
+      s_buf,
+      z_buf,
       out_buf,
       M,
       K,

@@ -6,7 +6,8 @@ using namespace metal;
  *
  * @param[A] M x K unquantized input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (5 * K / 8)
- * @param[scalesAndZeros] 3D tensor containg the scales and zero point for each group. Expected shape is #groups x N x 2
+ * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
+ * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
  * @param[sizes] The sizes involved in the order: M, K, N
  *
@@ -16,9 +17,10 @@ template<typename T, unsigned groupSize>
 kernel void int5pack_mm(
     constant T                 * A              [[buffer(0)]],
     constant uchar             * B              [[buffer(1)]],
-    constant T                 * scalesAndZeros [[buffer(2)]],
-    device   T                 * outputData     [[buffer(3)]],
-    constant uint3             & sizes          [[buffer(4)]], // M, K, N
+    constant T                 * scales         [[buffer(2)]],
+    constant T                 * zeros          [[buffer(3)]],
+    device   T                 * outputData     [[buffer(4)]],
+    constant uint3             & sizes          [[buffer(5)]], // M, K, N
     uint2                        thread_index   [[thread_position_in_grid]]) {
     const uint K = sizes.y;
     const uint N = sizes.z;
@@ -31,8 +33,8 @@ kernel void int5pack_mm(
     float rc = 0.0;
     uint k = 0;
     for (uint32_t kb = 0; kb < k_block ; kb ++) {
-      const float scale = float(scalesAndZeros[(kb * N + n) * 2 + 0]);
-      const float zero = float(scalesAndZeros[(kb * N + n) * 2 + 1]) - scale * float(16);
+      const float scale = float(scales[kb * N + n]);
+      const float zero = float(zeros[kb * N + n]);
       for(uint idx = 0; idx < groupSize && k < K; idx+=8, k+=8) {
         const auto a_val0 = float(A_ptr[k + 0]);
         const auto a_val1 = float(A_ptr[k + 1]);
@@ -78,9 +80,10 @@ template                                                                 \
 kernel void int5pack_mm<DTYPE, GSIZE>(                                   \
     constant DTYPE             * A              [[buffer(0)]],           \
     constant uchar             * B              [[buffer(1)]],           \
-    constant DTYPE             * scalesAndZeros [[buffer(2)]],           \
-    device   DTYPE             * outputData     [[buffer(3)]],           \
-    constant uint3             & sizes          [[buffer(4)]],           \
+    constant DTYPE             * scales         [[buffer(2)]],           \
+    constant DTYPE             * zeros          [[buffer(3)]],           \
+    device   DTYPE             * outputData     [[buffer(4)]],           \
+    constant uint3             & sizes          [[buffer(5)]],           \
     uint2                        thread_index [[thread_position_in_grid]])
 
 INSTANTIATE_INT5MM(float, 32);

@@ -23,13 +23,13 @@ H100_PCT_ACHIEVABLE_GEMM_TOPS = 0.6
 # which would hit about 2.2k GBPS on Meta's H100 variant
 H100_PCT_ACHIEVABLE_MEM_BW = 0.92
 
-# Source: run a triton kernel with a single element read/write on an H100 and 
+# Source: run a triton kernel with a single element read/write on an H100 and
 # measure GPU time from the trace
 TRITON_KERNEL_1_ELEMENT_TIME_SEC = 0.002 * 0.001
 
 
 def get_tensor_memory_traffic_bytes(
-    dim0, 
+    dim0,
     dim1,
     scaling_type: str,
     fuse_with_prev=False,
@@ -84,7 +84,7 @@ def get_tensor_memory_traffic_bytes(
             tc_adjustment = numel * BYTES_PER_EL_FLOAT8
 
             # https://github.com/pytorch/pytorch/issues/128063
-            # instead of 
+            # instead of
             #   kernel 1: x_bf16 -> max(abs(x)), x_fp8
             #   kernel 2: not modeled
             #   kernel 3: not modeled
@@ -96,7 +96,7 @@ def get_tensor_memory_traffic_bytes(
             #   kernel 4: x_bf16, scale -> x_fp8
             #     reads: numel * BYTES_PER_EL_BF16
             #     writes: 2 * numel * BYTES_PER_EL_FLOAT8
-            # Note that assuming worst case, this issue brings the memory 
+            # Note that assuming worst case, this issue brings the memory
             # traffic for delayed scaling to be equal to that of dynamic scaling.
             tc_adjustment += (
                 # subtract writes from kernel 1
@@ -123,15 +123,14 @@ def get_gemm_time_sympy(M, K, N, dtype):
 
 
 def get_float8_mem_sympy(
-    M, 
-    K, 
+    M,
+    K,
     N,
     model_torch_compile_limitations: bool = False,
     scaling_type_input: str = "dynamic",
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
 ):
-
     assert scaling_type_input in ("dynamic", "delayed"), "unsupported"
     assert scaling_type_weight in ("dynamic", "delayed"), "unsupported"
     assert scaling_type_grad_output in ("dynamic", "delayed"), "unsupported"
@@ -151,23 +150,35 @@ def get_float8_mem_sympy(
     # forward - output
     #
     fwd_fp8_input_mem = get_tensor_memory_traffic_bytes(
-        M, K, scaling_type_input, fuse_with_prev=True, 
-        model_torch_compile_limitations=model_torch_compile_limitations)
+        M,
+        K,
+        scaling_type_input,
+        fuse_with_prev=True,
+        model_torch_compile_limitations=model_torch_compile_limitations,
+    )
     fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
-        K, N, scaling_type_weight, fuse_with_prev=False,
-        model_torch_compile_limitations=model_torch_compile_limitations)
+        K,
+        N,
+        scaling_type_weight,
+        fuse_with_prev=False,
+        model_torch_compile_limitations=model_torch_compile_limitations,
+    )
     fwd_fp8_total_mem = fwd_fp8_input_mem + fwd_fp8_weight_mem
 
     #
     # backward - grad_input
     #
     gi_fp8_grad_output_mem = get_tensor_memory_traffic_bytes(
-        M, N, scaling_type_grad_output, fuse_with_prev=True,
-        model_torch_compile_limitations=model_torch_compile_limitations)
+        M,
+        N,
+        scaling_type_grad_output,
+        fuse_with_prev=True,
+        model_torch_compile_limitations=model_torch_compile_limitations,
+    )
     # already casted, assuming that we save weight from fw to bw
     # TODO: model this if FSDP float8 all-gather is on
     # TODO: model this if we don't save weight from fw to bw, and recompute instead
-    gi_fp8_weight_mem = 0  
+    gi_fp8_weight_mem = 0
 
     #
     # backward - grad_weight
@@ -177,9 +188,12 @@ def get_float8_mem_sympy(
     # this should be always 0
     gw_fp8_grad_output_mem = 0  # already casted
 
-    bwd_fp8_total_mem = \
-        gi_fp8_grad_output_mem + gi_fp8_weight_mem + \
-        gw_fp8_input_t_mem + gw_fp8_grad_output_mem
+    bwd_fp8_total_mem = (
+        gi_fp8_grad_output_mem
+        + gi_fp8_weight_mem
+        + gw_fp8_input_t_mem
+        + gw_fp8_grad_output_mem
+    )
     fp8_total_mem = fwd_fp8_total_mem + bwd_fp8_total_mem
     fp8_mem_time_s = (
         fp8_total_mem / H100_PEAK_MEM_BW_BYTES_SEC / H100_PCT_ACHIEVABLE_MEM_BW

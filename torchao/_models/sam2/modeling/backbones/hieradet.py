@@ -66,12 +66,28 @@ class MultiScaleAttention(nn.Module):
             H, W = q.shape[1:3]  # downsampled shape
             q = q.reshape(B, H * W, self.num_heads, -1)
 
+        # TODO: This fails on batch sizes bigger than 2^16 - 1
         # Torch's SDPA expects [B, nheads, H*W, C] so we transpose
-        x = F.scaled_dot_product_attention(
-            q.transpose(1, 2),
-            k.transpose(1, 2),
-            v.transpose(1, 2),
-        )
+        if q.size(0) > 65535:
+            num_chunks = (q.size(0) + 65535) // 65535
+            q_chunks = q.chunk(num_chunks)
+            k_chunks = k.chunk(num_chunks)
+            v_chunks = v.chunk(num_chunks)
+            x_chunks = []
+            for (qi, ki, vi) in zip(q_chunks, k_chunks, v_chunks):
+                xi = F.scaled_dot_product_attention(
+                    qi.transpose(1, 2),
+                    ki.transpose(1, 2),
+                    vi.transpose(1, 2),
+                )
+                x_chunks.append(xi)
+            x = torch.cat(x_chunks)
+        else:
+            x = F.scaled_dot_product_attention(
+                q.transpose(1, 2),
+                k.transpose(1, 2),
+                v.transpose(1, 2),
+            )
         # Transpose back
         x = x.transpose(1, 2)
         x = x.reshape(B, H, W, -1)

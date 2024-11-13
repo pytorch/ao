@@ -18,6 +18,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
 )
 
 
@@ -161,7 +162,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
 
 class TestQuantBlockSparseWeight(common_utils.TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "pytorch 2.6+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "pytorch 2.6+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):

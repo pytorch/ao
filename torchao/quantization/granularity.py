@@ -12,10 +12,12 @@ class Granularity:
     """
     Base class for representing the granularity of quantization.
 
-    This class serves as a parent for specific granularity types used in 
+    This class serves as a parent for specific granularity types used in
     quantization operations, such as per-tensor or per-axis quantization.
     """
+
     pass
+
 
 @dataclass(frozen=True)
 class PerTensor(Granularity):
@@ -25,7 +27,9 @@ class PerTensor(Granularity):
     This granularity type calculates the quantization parameters
     based off the entire tensor.
     """
+
     pass
+
 
 @dataclass(frozen=True)
 class PerAxis(Granularity):
@@ -42,7 +46,9 @@ class PerAxis(Granularity):
     Attributes:
         axis (int): The axis along which reduction is performed.
     """
+
     axis: int
+
 
 @dataclass(frozen=True)
 class PerGroup(Granularity):
@@ -61,7 +67,9 @@ class PerGroup(Granularity):
         group_size (int): The size of each quantization group
 
     """
+
     group_size: int
+
 
 class PerRow(Granularity):
     """
@@ -71,7 +79,9 @@ class PerRow(Granularity):
     where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
     is quantized with a block_size of (1, weight.shape[1]).
     """
+
     pass
+
 
 class PerToken(Granularity):
     """
@@ -87,4 +97,5 @@ class PerToken(Granularity):
     If the input tensor has only two dimensions, e.g. [8, 16], then this is
     equivalent to `PerAxis(axis=0)`, which yields 8 sets of quantization parameters.
     """
+
     pass

@@ -279,7 +279,8 @@ class Attention(nn.Module):
         #     global ALLOW_ALL_KERNELS
         #     ALLOW_ALL_KERNELS = True
         #     out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        # TODO: This scale should not be needed. But without it compile causes a NaN.
+        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)
@@ -339,21 +340,22 @@ class RoPEAttention(Attention):
         )
 
         dropout_p = self.dropout_p if self.training else 0.0
-        # Attention
-        try:
-            with sdp_kernel_context(dropout_p):
-                out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-        except Exception as e:
-            # Fall back to all kernels if the Flash attention kernel fails
-            warnings.warn(
-                f"Flash Attention kernel failed due to: {e}\nFalling back to all available "
-                f"kernels for scaled_dot_product_attention (which may have a slower speed).",
-                category=UserWarning,
-                stacklevel=2,
-            )
-            global ALLOW_ALL_KERNELS
-            ALLOW_ALL_KERNELS = True
-            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        # # Attention
+        # try:
+        #     with sdp_kernel_context(dropout_p):
+        #         out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        # except Exception as e:
+        #     # Fall back to all kernels if the Flash attention kernel fails
+        #     warnings.warn(
+        #         f"Flash Attention kernel failed due to: {e}\nFalling back to all available "
+        #         f"kernels for scaled_dot_product_attention (which may have a slower speed).",
+        #         category=UserWarning,
+        #         stacklevel=2,
+        #     )
+        #     global ALLOW_ALL_KERNELS
+        #     ALLOW_ALL_KERNELS = True
+        # TODO: This scale should not be needed. But without it compile causes a NaN.
+        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)

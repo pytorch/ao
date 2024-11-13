@@ -1,12 +1,5 @@
 import torch
 import torch.nn as nn
-from torchao.float8.config import ScalingType
-from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
-    NoopFwToFloat8E5M2BwDynamic,
-)
-from torchao.float8.float8_tensor import GemmInputRole
-from torchao.float8.float8_utils import e4m3_dtype
 from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor.parallel import (
@@ -14,6 +7,14 @@ from torch.distributed.tensor.parallel import (
     PrepareModuleInput,
     RowwiseParallel,
 )
+
+from torchao.float8.config import ScalingType
+from torchao.float8.float8_scaling_utils import (
+    NoopFwToFloat8E5M2BwDynamic,
+    hp_tensor_to_float8_dynamic,
+)
+from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.float8_utils import e4m3_dtype
 
 # subclass the ColwiseParallel and RowwiseParallel classes
 # to add the float8 support

@@ -170,11 +170,10 @@ class TestNF4Linear(TestCase):
         assert base_mod.param.block_size == 32
         assert base_mod.param.scaler_block_size == 2
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        input_tensor = torch.rand(64, device="cuda", dtype=dtype)
+        input_tensor = torch.rand(64, dtype=dtype)
         base_mod = self.TestMod(input_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -184,11 +183,10 @@ class TestNF4Linear(TestCase):
         assert other_mod.param.block_size == 32
         assert other_mod.param.scaler_block_size == 2
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        input_tensor = torch.rand(128, device="cuda", dtype=dtype)
+        input_tensor = torch.rand(128, dtype=dtype)
         base_mod = self.TestMod(input_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)

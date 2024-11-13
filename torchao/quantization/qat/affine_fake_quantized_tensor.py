@@ -1,15 +1,17 @@
+from typing import Callable, Optional, Tuple
+
 import torch
 import torch.utils._pytree as pytree
-from typing import Callable, Optional, Tuple
+from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
     _get_and_check_qmin_qmax,
     choose_qparams_affine,
-    fake_quantize_affine,
-    ZeroPointDomain,
-    MappingType,
 )
-from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import TorchAOBaseTensor
+
 from .utils import (
     _GenericFakeQuantize,
     _UnwrapAffineFakeQuantizedTensor,
@@ -32,7 +34,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
+        quant_max: Optional[int] = None,
         eps: Optional[float] = None,
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
@@ -65,6 +67,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
                 zero_point_domain,
             )
             return fq
+
         return AffineFakeQuantizedTensor(
             original_tensor,
             apply_fake_quant_fn,
@@ -115,7 +118,7 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
         original_tensor: torch.Tensor,
         apply_fake_quant_fn: Callable,
         fake_quant_enabled: bool = True,
-        **kwargs
+        **kwargs,
     ):
         self.original_tensor = original_tensor
         self.apply_fake_quant_fn = apply_fake_quant_fn
@@ -126,7 +129,11 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
 
     @classmethod
     def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride,
+        cls,
+        tensor_data_dict,
+        tensor_attributes,
+        outer_size,
+        outer_stride,
     ):
         original_tensor = tensor_data_dict["original_tensor"]
         (apply_fake_quant_fn, fake_quant_enabled) = tensor_attributes
@@ -144,7 +151,7 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
+        quant_max: Optional[int] = None,
         eps: Optional[float] = None,
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
@@ -223,6 +230,7 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
             requires_grad=False,
         )
 
+
 implements = AffineFakeQuantizedTensor.implements
 
 
@@ -242,7 +250,6 @@ def _(func, types, args, kwargs):
 
 @implements(aten.mm.default)
 def _(func, types, args, kwargs):
-    bias = None
     input_tensor = args[0]
     weight_tensor = args[1]
     if isinstance(input_tensor, AffineFakeQuantizedTensor):
@@ -267,40 +274,56 @@ def _(func, types, args, kwargs):
 @implements(aten.detach.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach),
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(torch.detach),
     )
 
 
 @implements(aten.clone.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone),
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(torch.clone),
     )
 
 
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.t),
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(torch.t),
     )
 
 
-@implements([
-    aten.add.Tensor,
-    aten.add_.Tensor,
-    aten.mul_.Tensor,
-    aten.copy_.default,
-])
+@implements(
+    [
+        aten.add.Tensor,
+        aten.add_.Tensor,
+        aten.mul_.Tensor,
+        aten.copy_.default,
+    ]
+)
 def _(func, types, args, kwargs):
     assert len(args) == 2, f"dispatched the wrong op to the binary handler: {func}"
-    new_args = pytree.tree_map_only(AffineFakeQuantizedTensor, lambda x: x.original_tensor, args)
-    first_afq_tensor = args[0] if isinstance(args[0], AffineFakeQuantizedTensor) else args[1]
+    new_args = pytree.tree_map_only(
+        AffineFakeQuantizedTensor, lambda x: x.original_tensor, args
+    )
+    first_afq_tensor = (
+        args[0] if isinstance(args[0], AffineFakeQuantizedTensor) else args[1]
+    )
     new_value = func(*new_args, **kwargs)
     out = first_afq_tensor._create_new(new_value)
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 # Needed by FSDP:
+
 
 @implements(aten.empty_like.default)
 def _(func, types, args, kwargs):

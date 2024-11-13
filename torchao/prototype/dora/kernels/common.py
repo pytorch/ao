@@ -5,7 +5,7 @@ import triton
 import triton.language as tl
 
 # Re-exports
-from triton.ops.matmul import (
+from torchao.prototype.common.triton.matmul import (
     early_config_prune,
     estimate_matmul_time,
     get_configs_io_bound,

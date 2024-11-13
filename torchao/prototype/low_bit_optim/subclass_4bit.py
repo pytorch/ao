@@ -177,13 +177,15 @@ def _(func, types, args, kwargs):
     )
 
 
-# this is needed for DTensor.full_tensor()
 @OptimState4bit.implements(
     [
+        # required by DTensor.full_tensor()
         c10d_functional.all_gather_into_tensor.default,
         _c10d_functional.all_gather_into_tensor.default,
         c10d_functional.wait_tensor.default,
         _c10d_functional.wait_tensor.default,
+        # required by torch.distributed.checkpoint.save
+        aten.detach.default,
     ]
 )
 def _(func, types, args, kwargs):
@@ -198,6 +200,53 @@ def _(func, types, args, kwargs):
     shape = (x._shape[0] * codes.numel() // x.codes.numel(),) + x._shape[1:]
 
     # assume tensors from all ranks have the same signedness
+    return OptimState4bit(codes, scale, x.qmap.clone(), x.signed, shape)
+
+
+# required by torch.distributed.checkpoint.save
+# note that we don't actually implement pin memory for this tensor subclass
+# (pin_memory argument is ignored in aten._to_copy)
+@OptimState4bit.implements(aten.is_pinned.default)
+def _(func, types, args, kwargs):
+    return (
+        args[0].codes.is_pinned()
+        and args[0].scale.is_pinned()
+        and args[0].qmap.is_pinned()
+    )
+
+
+# required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
+@OptimState4bit.implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    x, dim, start, end = args[:4]
+    step = args[4] if len(args) > 4 else 1
+
+    # input validation
+    if dim != 0:
+        raise ValueError("Only support aten.slice along the first dim")
+    if step != 1:
+        raise ValueError("Only support aten.slice with step=1")
+
+    block_size = x.block_size
+    stride = math.prod(x.shape[1:])
+
+    # for 1 increment in x along the first dim,
+    # (flattened) scale will increment by stride / block_size
+    if (start * stride) % block_size != 0 or (end * stride) % block_size != 0:
+        raise ValueError(
+            f"Invalid start or end for shape={x.shape} and block_size={block_size}. "
+            f"Make sure start and end align with block boundary. "
+            f"Received start={start}, end={end}."
+        )
+
+    # note that for 4-bit, we store .codes as flattened buffer
+    # divide by 2 since we store 2x 4-bit in 1x uint8
+    codes = x.codes[start * stride // 2 : end * stride // 2]
+    scale = x.scale[start * stride // block_size : end * stride // block_size]
+
+    # adjust the first dim
+    shape = (x.shape[0] * codes.numel() // x.codes.numel(),) + x.shape[1:]
+
     return OptimState4bit(codes, scale, x.qmap.clone(), x.signed, shape)
 
 

@@ -1,28 +1,37 @@
 from enum import Enum
+
 import torch
 from torch.sparse import SparseSemiStructuredTensor
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 if TORCH_VERSION_AT_LEAST_2_3:
-    from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
+    from torch.sparse import (
+        SparseSemiStructuredTensorCUSPARSELT,
+        SparseSemiStructuredTensorCUTLASS,
+    )
+
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 
 GRADIENT_TYPE = Enum("GRADIENT_TYPE", ["DENSE", "SPARSE", "STE"])
 
-class _SparsifyFunc(torch.autograd.Function):
 
+class _SparsifyFunc(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor, algo: str, backend: GRADIENT_TYPE):  # type: ignore[override]
-        use_cutlass = (backend == "cutlass")
+        use_cutlass = backend == "cutlass"
         if not isinstance(x, SparseSemiStructuredTensor):
-            (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
-                x, algorithm=algo, use_cutlass=use_cutlass
+            (packed, meta, packed_t, meta_t, bitmask) = (
+                torch._sparse_semi_structured_tile(
+                    x, algorithm=algo, use_cutlass=use_cutlass
+                )
             )
             cls = (
-                SparseSemiStructuredTensorCUTLASS if use_cutlass else SparseSemiStructuredTensorCUSPARSELT
+                SparseSemiStructuredTensorCUTLASS
+                if use_cutlass
+                else SparseSemiStructuredTensorCUSPARSELT
             )
             out = cls(
                 x.shape,
@@ -44,10 +53,15 @@ class _SparsifyFunc(torch.autograd.Function):
         # We just return grad_out, since we just use STE - straight through estimation
         return grad_out, None, None
 
-class _SparsifyLikeFunc(torch.autograd.Function):
 
+class _SparsifyLikeFunc(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor, gradient=GRADIENT_TYPE.SPARSE):  # type: ignore[override]
+    def forward(
+        ctx,
+        x: torch.Tensor,
+        pattern: SparseSemiStructuredTensor,
+        gradient=GRADIENT_TYPE.SPARSE,
+    ):  # type: ignore[override]
         assert isinstance(pattern, SparseSemiStructuredTensor)
 
         if not isinstance(pattern, SparseSemiStructuredTensorCUTLASS):
@@ -59,7 +73,9 @@ class _SparsifyLikeFunc(torch.autograd.Function):
                 "`sparsify_like(x, pattern)` is not implemented when `bitmask` is transposed"
             )
 
-        packed, packed_t = torch._sparse_semi_structured_apply(x, pattern.compressed_swizzled_bitmask)
+        packed, packed_t = torch._sparse_semi_structured_apply(
+            x, pattern.compressed_swizzled_bitmask
+        )
 
         # save for backwards
         ctx.meta = pattern.meta
@@ -79,7 +95,9 @@ class _SparsifyLikeFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):  # type: ignore[override]
-        if ctx.gradient == GRADIENT_TYPE.STE or isinstance(grad_out, SparseSemiStructuredTensor):
+        if ctx.gradient == GRADIENT_TYPE.STE or isinstance(
+            grad_out, SparseSemiStructuredTensor
+        ):
             return grad_out, None, None, None
         assert not isinstance(grad_out, SparseSemiStructuredTensor)
         assert grad_out.dtype == ctx.dtype
@@ -113,6 +131,7 @@ class _SparsifyLikeFunc(torch.autograd.Function):
         )
         return grad_out, None
 
+
 @torch._dynamo.allow_in_graph
 def semi_structured_sparsify(
     x: torch.Tensor,
@@ -123,6 +142,7 @@ def semi_structured_sparsify(
     Sparsifies a dense tensor into a semi-structured tensor, according to the algo and backend passed.
     """
     return _SparsifyFunc.apply(x, algo, backend)
+
 
 @torch._dynamo.allow_in_graph
 def semi_structured_sparsify_like(
