@@ -295,10 +295,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -834,7 +837,7 @@
     <span class="k">return</span> <span class="n">block_scalers</span>
 
 
-<span class="k">class</span> <span class="nc">NF4Tensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<div class="viewcode-block" id="NF4Tensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor">[docs]</a><span class="k">class</span> <span class="nc">NF4Tensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;NF4Tensor class for converting a weight to the QLoRA NF4 format&quot;&quot;&quot;</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
@@ -974,7 +977,7 @@
             <span class="n">nf4</span><span class="o">=</span><span class="n">nf4</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="NF4Tensor.double_quantize_scalers"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.double_quantize_scalers">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">double_quantize_scalers</span><span class="p">(</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -1032,9 +1035,9 @@
             <span class="n">quantized_scaler_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">),</span>
             <span class="n">quantization_factor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span>
             <span class="n">scalers_1_mean</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
-    <span class="k">def</span> <span class="nf">dequantize_scalers</span><span class="p">(</span>
+<div class="viewcode-block" id="NF4Tensor.dequantize_scalers"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.dequantize_scalers">[docs]</a>    <span class="k">def</span> <span class="nf">dequantize_scalers</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1058,9 +1061,9 @@
         <span class="n">dequantized</span> <span class="o">=</span> <span class="p">(</span><span class="n">input_tensor</span> <span class="o">/</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
         <span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span>
-        <span class="k">return</span> <span class="n">dequantized</span>
+        <span class="k">return</span> <span class="n">dequantized</span></div>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="NF4Tensor.convert_to_norm_float_weight"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.convert_to_norm_float_weight">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">convert_to_norm_float_weight</span><span class="p">(</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -1098,9 +1101,9 @@
         <span class="c1"># The size of combined blocks will be half the size of the original tensor</span>
         <span class="n">combined_blocks</span> <span class="o">=</span> <span class="n">quantized_blocks</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">quantized_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span>
 
-        <span class="k">return</span> <span class="n">combined_blocks</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">combined_blocks</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span></div>
 
-    <span class="k">def</span> <span class="nf">get_original_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<div class="viewcode-block" id="NF4Tensor.get_original_weight"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.get_original_weight">[docs]</a>    <span class="k">def</span> <span class="nf">get_original_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the original weight from the normalized float weight format&quot;&quot;&quot;</span>
         <span class="c1"># Since we are using uint8 we will decode 2 entries per byte</span>
         <span class="c1"># Shift elements down 4 and select out the bottom 4 bits</span>
@@ -1126,22 +1129,22 @@
         <span class="c1"># Upon flattening this will interleave the elements</span>
         <span class="n">scaled_first</span> <span class="o">=</span> <span class="n">scaled_first</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
         <span class="n">scaled_second</span> <span class="o">=</span> <span class="n">scaled_second</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">scaled_first</span><span class="p">,</span> <span class="n">scaled_second</span><span class="p">],</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">scaled_first</span><span class="p">,</span> <span class="n">scaled_second</span><span class="p">],</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span></div>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="NF4Tensor.quantize_tensor_nearest"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.quantize_tensor_nearest">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">quantize_tensor_nearest</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Quantize a float16 tensor to nf4 format to nearest and not rounded up&quot;&quot;&quot;</span>
         <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># (numel, 1)</span>
         <span class="c1"># Compare the value tensor with the nf4 tensor element-wise</span>
         <span class="n">diff</span> <span class="o">=</span> <span class="p">(</span><span class="n">value</span> <span class="o">-</span> <span class="n">nf4</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span>
         <span class="n">closest_nf4</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">indices</span>
-        <span class="k">return</span> <span class="n">closest_nf4</span>
+        <span class="k">return</span> <span class="n">closest_nf4</span></div>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="NF4Tensor.dequantize"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.dequantize">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">dequantize</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Dequantize a nf4 value to bfloat16 format&quot;&quot;&quot;</span>
         <span class="c1"># return nf4.index_select(0, value)</span>
-        <span class="k">return</span> <span class="n">nf4</span><span class="p">[</span><span class="n">value</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">nf4</span><span class="p">[</span><span class="n">value</span><span class="p">]</span></div>
 
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Quantized Data: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span><span class="si">}</span><span class="se">\n</span><span class="s2">Scalers: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
@@ -1305,7 +1308,7 @@
             <span class="n">scaler_mean</span><span class="p">,</span>
             <span class="n">quantized_data</span><span class="p">,</span>
             <span class="n">nf4</span><span class="p">,</span>
-        <span class="p">),</span> <span class="p">(</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="n">quantization_factor</span><span class="p">,</span> <span class="n">quantized_data</span><span class="p">)</span>
+        <span class="p">),</span> <span class="p">(</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="n">quantization_factor</span><span class="p">,</span> <span class="n">quantized_data</span><span class="p">)</span></div>
 
 
 <span class="k">class</span> <span class="nc">LinearNF4</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>

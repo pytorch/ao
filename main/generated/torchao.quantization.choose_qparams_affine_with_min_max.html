@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>SmoothFakeDynQuantMixin &mdash; torchao main documentation</title>
+  <title>choose_qparams_affine_with_min_max &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,6 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="SmoothFakeDynamicallyQuantizedLinear" href="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html" />
-    <link rel="prev" title="torchao.quantization" href="../api_ref_quantization.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -297,11 +295,14 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -346,17 +347,13 @@
       </li>
 
         
-          <li><a href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a> &gt;</li>
-        
-          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
-        
-      <li>SmoothFakeDynQuantMixin</li>
+      <li>choose_qparams_affine_with_min_max</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.SmoothFakeDynQuantMixin.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.choose_qparams_affine_with_min_max.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -386,19 +383,19 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="smoothfakedynquantmixin">
-<h1>SmoothFakeDynQuantMixin<a class="headerlink" href="#smoothfakedynquantmixin" title="Permalink to this heading">¶</a></h1>
-<dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynQuantMixin">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">SmoothFakeDynQuantMixin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynQuantMixin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynQuantMixin" title="Permalink to this definition">¶</a></dt>
-<dd><dl class="py method">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynQuantMixin.set_debug_x_absmax">
-<span class="sig-name descname"><span class="pre">set_debug_x_absmax</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynQuantMixin.set_debug_x_absmax"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynQuantMixin.set_debug_x_absmax" title="Permalink to this definition">¶</a></dt>
-<dd><p>Sets <cite>self.x_running_abs_max</cite> to a value which will lead to smooth scale
-of all ones if <cite>alpha=0.5</cite>, to enable performance benchmarking without
-calibration.</p>
-</dd></dl>
-
+  <section id="choose-qparams-affine-with-min-max">
+<h1>choose_qparams_affine_with_min_max<a class="headerlink" href="#choose-qparams-affine-with-min-max" title="Permalink to this heading">¶</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchao.quantization.choose_qparams_affine_with_min_max">
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">choose_qparams_affine_with_min_max</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">min_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.5)"><span class="pre">dtype</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quant_min</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quant_max</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.5)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_point_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.5)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve_zero</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_point_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.ZeroPointDomain.html#torchao.quantization.ZeroPointDomain" title="torchao.quantization.quant_primitives.ZeroPointDomain"><span class="pre">ZeroPointDomain</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ZeroPointDomain.INT</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/torchao/quantization/quant_primitives.html#choose_qparams_affine_with_min_max"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.choose_qparams_affine_with_min_max" title="Permalink to this definition">¶</a></dt>
+<dd><p>A variant of <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code>
+operator that pass in min_val and max_val directly instead of deriving these from a single input.
+This is used for observers in static quantization where min_val and max_val may be obtained through
+tracking all the data in calibration data set.</p>
+<p>:param Mostly same as <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code>. with one:
+:param difference: instead of passing in <cite>input</cite> Tensor and use that to calculate min_val/max_val
+:param and then scale/zero_point:
+:param we pass in min_val/max_val directly:</p>
 </dd></dl>
 
 </section>
@@ -408,15 +405,6 @@ calibration.</p>
              
             </div>
             <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html" class="btn btn-neutral float-right" title="SmoothFakeDynamicallyQuantizedLinear" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
-      
-      
-        <a href="../api_ref_quantization.html" class="btn btn-neutral" title="torchao.quantization" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
-      
-    </div>
   
 
   
@@ -446,7 +434,7 @@ calibration.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">SmoothFakeDynQuantMixin</a></li>
+<li><a class="reference internal" href="#">choose_qparams_affine_with_min_max</a></li>
 </ul>
 
             </div>

@@ -41,7 +41,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="to_nf4" href="generated/torchao.dtypes.to_nf4.html" />
-    <link rel="prev" title="int8_weight_only" href="generated/torchao.quantization.int8_weight_only.html" />
+    <link rel="prev" title="Welcome to the torchao Documentation" href="index.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -298,10 +298,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -345,8 +348,6 @@
         </a> &gt;
       </li>
 
-        
-          <li><a href="api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a> &gt;</li>
         
       <li>torchao.dtypes</li>
     
@@ -394,14 +395,20 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_intx.html#torchao.dtypes.to_affine_quantized_intx" title="torchao.dtypes.to_affine_quantized_intx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_intx</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_floatx.html#torchao.dtypes.to_affine_quantized_floatx" title="torchao.dtypes.to_affine_quantized_floatx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_floatx</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_intx_static.html#torchao.dtypes.to_affine_quantized_intx_static" title="torchao.dtypes.to_affine_quantized_intx_static"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_intx_static</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_intx_static.html#torchao.dtypes.to_affine_quantized_intx_static" title="torchao.dtypes.to_affine_quantized_intx_static"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_intx_static</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_floatx.html#torchao.dtypes.to_affine_quantized_floatx" title="torchao.dtypes.to_affine_quantized_floatx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_floatx</span></code></a></p></td>
 <td><p></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_floatx_static.html#torchao.dtypes.to_affine_quantized_floatx_static" title="torchao.dtypes.to_affine_quantized_floatx_static"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_floatx_static</span></code></a></p></td>
 <td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.to_affine_quantized_fpx.html#torchao.dtypes.to_affine_quantized_fpx" title="torchao.dtypes.to_affine_quantized_fpx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_affine_quantized_fpx</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor" title="torchao.dtypes.NF4Tensor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">NF4Tensor</span></code></a></p></td>
+<td><p>NF4Tensor class for converting a weight to the QLoRA NF4 format</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor" title="torchao.dtypes.AffineQuantizedTensor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code></a></p></td>
 <td><p>Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:</p></td>
@@ -421,7 +428,7 @@
         <a href="generated/torchao.dtypes.to_nf4.html" class="btn btn-neutral float-right" title="to_nf4" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="generated/torchao.quantization.int8_weight_only.html" class="btn btn-neutral" title="int8_weight_only" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="index.html" class="btn btn-neutral" title="Welcome to the torchao Documentation" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   

@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+uintx_weight_only
+=================
+
+.. autofunction:: uintx_weight_only

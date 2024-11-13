@@ -295,10 +295,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -428,7 +431,7 @@
     <span class="k">return</span> <span class="n">div</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="SmoothFakeDynQuantMixin"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynQuantMixin.html#torchao.quantization.SmoothFakeDynQuantMixin">[docs]</a><span class="k">class</span> <span class="nc">SmoothFakeDynQuantMixin</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">SmoothFakeDynQuantMixin</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">init_smoothquant_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">calibrating</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="kc">None</span>
@@ -498,16 +501,16 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;W_int_repr&quot;</span><span class="p">,</span> <span class="n">W_int_repr</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
         <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
 
-<div class="viewcode-block" id="SmoothFakeDynQuantMixin.set_debug_x_absmax"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynQuantMixin.html#torchao.quantization.SmoothFakeDynQuantMixin.set_debug_x_absmax">[docs]</a>    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets `self.x_running_abs_max` to a value which will lead to smooth scale</span>
 <span class="sd">        of all ones if `alpha=0.5`, to enable performance benchmarking without</span>
 <span class="sd">        calibration.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span></div></div>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
 
 
-<div class="viewcode-block" id="SmoothFakeDynamicallyQuantizedLinear"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear">[docs]</a><span class="k">class</span> <span class="nc">SmoothFakeDynamicallyQuantizedLinear</span><span class="p">(</span><span class="n">SmoothFakeDynQuantMixin</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">SmoothFakeDynamicallyQuantizedLinear</span><span class="p">(</span><span class="n">SmoothFakeDynQuantMixin</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This is a replacement for `torch.nn.Linear` which implements dynamic per-token</span>
 <span class="sd">    activation quantization and dynamic per-channel weight quantization based on</span>
@@ -519,7 +522,7 @@
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">init_smoothquant_variables</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SmoothFakeDynamicallyQuantizedLinear.forward"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibrating</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">update_x_running_abs_max</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
             <span class="n">Y</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
@@ -535,9 +538,9 @@
             <span class="n">Y</span> <span class="o">=</span> <span class="n">quant_int8_dynamic_per_token_linear</span><span class="p">(</span>
                 <span class="n">X</span><span class="p">,</span> <span class="n">W_int_repr_t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_scales</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">X</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
-        <span class="k">return</span> <span class="n">Y</span></div>
+        <span class="k">return</span> <span class="n">Y</span>
 
-<div class="viewcode-block" id="SmoothFakeDynamicallyQuantizedLinear.from_float"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.from_float">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">mod</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Converts a `mod` of class `torch.nn.Linear` to the smooth fake quantized</span>
@@ -555,9 +558,9 @@
         <span class="c1"># TODO: test when creation is on cuda</span>
         <span class="n">device_to_use</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span><span class="o">.</span><span class="n">device</span>
         <span class="n">new_mod</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device_to_use</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">new_mod</span></div>
+        <span class="k">return</span> <span class="n">new_mod</span>
 
-<div class="viewcode-block" id="SmoothFakeDynamicallyQuantizedLinear.to_inference"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.to_inference">[docs]</a>    <span class="k">def</span> <span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Calculates the smoothquant scale based on calibration</span>
 <span class="sd">        in preparation for inference</span>
@@ -569,11 +572,11 @@
             <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">,</span>
             <span class="n">alpha</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">alpha</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">fold_weight</span><span class="p">()</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fold_weight</span><span class="p">()</span>
 
-<div class="viewcode-block" id="SmoothFakeDynamicallyQuantizedLinear.set_debug_x_absmax"><a class="viewcode-back" href="../../../generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.set_debug_x_absmax">[docs]</a>    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">w_absmax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="n">w_absmax</span></div></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="n">w_absmax</span>
 
 
 <span class="c1">#</span>

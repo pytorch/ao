@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-SmoothFakeDynQuantMixin
-=======================
+ZeroPointDomain
+===============
 
-.. autoclass:: SmoothFakeDynQuantMixin
+.. autoclass:: ZeroPointDomain
     :members:

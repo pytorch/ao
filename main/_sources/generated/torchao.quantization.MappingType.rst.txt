@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-Int4WeightOnlyQuantizer
-=======================
+MappingType
+===========
 
-.. autoclass:: Int4WeightOnlyQuantizer
+.. autoclass:: MappingType
     :members:

@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-Int4WeightOnlyGPTQQuantizer
-===========================
+TorchAODType
+============
 
-.. autoclass:: Int4WeightOnlyGPTQQuantizer
+.. autoclass:: TorchAODType
     :members:

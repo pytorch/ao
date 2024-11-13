@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>SmoothFakeDynamicallyQuantizedLinear &mdash; torchao main documentation</title>
+  <title>int_scaled_matmul &mdash; torchao main documentation</title>
   
 
   
@@ -40,8 +40,6 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="swap_linear_with_smooth_fq_linear" href="torchao.quantization.swap_linear_with_smooth_fq_linear.html" />
-    <link rel="prev" title="SmoothFakeDynQuantMixin" href="torchao.quantization.SmoothFakeDynQuantMixin.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -297,11 +295,14 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -346,17 +347,13 @@
       </li>
 
         
-          <li><a href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a> &gt;</li>
-        
-          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
-        
-      <li>SmoothFakeDynamicallyQuantizedLinear</li>
+      <li>int_scaled_matmul</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.int_scaled_matmul.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -386,50 +383,30 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="smoothfakedynamicallyquantizedlinear">
-<h1>SmoothFakeDynamicallyQuantizedLinear<a class="headerlink" href="#smoothfakedynamicallyquantizedlinear" title="Permalink to this heading">¶</a></h1>
-<dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">SmoothFakeDynamicallyQuantizedLinear</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynamicallyQuantizedLinear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear" title="Permalink to this definition">¶</a></dt>
-<dd><p>This is a replacement for <cite>torch.nn.Linear</cite> which implements dynamic per-token
-activation quantization and dynamic per-channel weight quantization based on
-Smoothquant scaling.</p>
-<dl class="py method">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.forward">
-<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynamicallyQuantizedLinear.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.forward" title="Permalink to this definition">¶</a></dt>
-<dd><p>Define the computation performed at every call.</p>
-<p>Should be overridden by all subclasses.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although the recipe for forward pass needs to be defined within
-this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
-instead of this since the former takes care of running the
-registered hooks while the latter silently ignores them.</p>
-</div>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.from_float">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_float</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mod</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynamicallyQuantizedLinear.from_float"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.from_float" title="Permalink to this definition">¶</a></dt>
-<dd><p>Converts a <cite>mod</cite> of class <cite>torch.nn.Linear</cite> to the smooth fake quantized
-version of it.  Note: requires calibration.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.set_debug_x_absmax">
-<span class="sig-name descname"><span class="pre">set_debug_x_absmax</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynamicallyQuantizedLinear.set_debug_x_absmax"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.set_debug_x_absmax" title="Permalink to this definition">¶</a></dt>
-<dd><p>Sets <cite>self.x_running_abs_max</cite> to a value which will lead to smooth scale
-of all ones if <cite>alpha=0.5</cite>, to enable performance benchmarking without
-calibration.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.to_inference">
-<span class="sig-name descname"><span class="pre">to_inference</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/smoothquant.html#SmoothFakeDynamicallyQuantizedLinear.to_inference"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.to_inference" title="Permalink to this definition">¶</a></dt>
-<dd><p>Calculates the smoothquant scale based on calibration
-in preparation for inference</p>
-</dd></dl>
-
+  <section id="int-scaled-matmul">
+<h1>int_scaled_matmul<a class="headerlink" href="#int-scaled-matmul" title="Permalink to this heading">¶</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchao.quantization.int_scaled_matmul">
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int_scaled_matmul</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scales1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/torchao/kernel/intmm.html#int_scaled_matmul"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int_scaled_matmul" title="Permalink to this definition">¶</a></dt>
+<dd><p>Performs scaled integer matrix multiplication.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><em>torch.Tensor</em></a>) – The first matrix to multiply.</p></li>
+<li><p><strong>b</strong> (<a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><em>torch.Tensor</em></a>) – The second matrix to multiply.</p></li>
+<li><p><strong>scales1</strong> (<a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)"><em>torch.Tensor</em></a>) – The scaling factors for the rows of the result.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The result of the scaled matrix multiplication.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.5)">torch.Tensor</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#AssertionError" title="(in Python v3.13)"><strong>AssertionError</strong></a> – If the dimensions of the input tensors do not match the expected shapes.</p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -439,15 +416,6 @@ in preparation for inference</p>
              
             </div>
             <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="torchao.quantization.swap_linear_with_smooth_fq_linear.html" class="btn btn-neutral float-right" title="swap_linear_with_smooth_fq_linear" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
-      
-      
-        <a href="torchao.quantization.SmoothFakeDynQuantMixin.html" class="btn btn-neutral" title="SmoothFakeDynQuantMixin" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
-      
-    </div>
   
 
   
@@ -477,7 +445,7 @@ in preparation for inference</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">SmoothFakeDynamicallyQuantizedLinear</a></li>
+<li><a class="reference internal" href="#">int_scaled_matmul</a></li>
 </ul>
 
             </div>

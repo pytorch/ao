@@ -295,10 +295,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -401,6 +404,9 @@
     <span class="n">addmm_float8_unwrapped_inference</span><span class="p">,</span>
     <span class="n">preprocess_data</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span> <span class="nn">torchao.kernel</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">int_scaled_matmul</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">FP8_TYPES</span><span class="p">,</span>
     <span class="n">MappingType</span><span class="p">,</span>
@@ -411,7 +417,6 @@
     <span class="n">choose_qparams_and_quantize_affine_hqq</span><span class="p">,</span>
     <span class="n">dequantize_affine</span><span class="p">,</span>
     <span class="n">dequantize_affine_floatx</span><span class="p">,</span>
-    <span class="n">int_scaled_matmul</span><span class="p">,</span>
     <span class="n">quantize_affine</span><span class="p">,</span>
     <span class="n">quantize_affine_floatx</span><span class="p">,</span>
 <span class="p">)</span>

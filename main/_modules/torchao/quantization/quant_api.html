@@ -295,10 +295,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
@@ -418,7 +421,7 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.uintx</span> <span class="kn">import</span> <span class="n">UintxLayout</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observer</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observed_tensor</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span><span class="p">,</span> <span class="n">get_block_size</span>
@@ -1120,7 +1123,7 @@
     <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">())</span>
 
 
-<span class="k">def</span> <span class="nf">float8_weight_only</span><span class="p">(</span><span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">):</span>
+<div class="viewcode-block" id="float8_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.float8_weight_only.html#torchao.quantization.float8_weight_only">[docs]</a><span class="k">def</span> <span class="nf">float8_weight_only</span><span class="p">(</span><span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies float8 weight-only symmetric per-channel quantization to linear layers.</span>
 
@@ -1143,7 +1146,7 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
         <span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8wo_quant</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8wo_quant</span><span class="p">)</span></div>
 
 
 <span class="n">_fp8_granularities</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">]</span>
@@ -1245,7 +1248,7 @@
     <span class="k">return</span> <span class="n">is_compatible</span>
 
 
-<span class="k">def</span> <span class="nf">float8_dynamic_activation_float8_weight</span><span class="p">(</span>
+<div class="viewcode-block" id="float8_dynamic_activation_float8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.float8_dynamic_activation_float8_weight.html#torchao.quantization.float8_dynamic_activation_float8_weight">[docs]</a><span class="k">def</span> <span class="nf">float8_dynamic_activation_float8_weight</span><span class="p">(</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
@@ -1300,10 +1303,10 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">quantized_weight</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8_dynamic_activation_quant</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8_dynamic_activation_quant</span><span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">float8_static_activation_float8_weight</span><span class="p">(</span>
+<div class="viewcode-block" id="float8_static_activation_float8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.float8_static_activation_float8_weight.html#torchao.quantization.float8_static_activation_float8_weight">[docs]</a><span class="k">def</span> <span class="nf">float8_static_activation_float8_weight</span><span class="p">(</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
@@ -1358,10 +1361,10 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">quantized_weight</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8_static_activation_quant</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8_static_activation_quant</span><span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">uintx_weight_only</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<div class="viewcode-block" id="uintx_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.uintx_weight_only.html#torchao.quantization.uintx_weight_only">[docs]</a><span class="k">def</span> <span class="nf">uintx_weight_only</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where</span>
 <span class="sd">    x is the number of bits specified by `dtype`</span>
@@ -1426,10 +1429,10 @@
             <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_uintx_weight_only_quant</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_uintx_weight_only_quant</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">fpx_weight_only</span><span class="p">(</span><span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<div class="viewcode-block" id="fpx_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.fpx_weight_only.html#torchao.quantization.fpx_weight_only">[docs]</a><span class="k">def</span> <span class="nf">fpx_weight_only</span><span class="p">(</span><span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits</span>
 <span class="sd">    e.g. fp6_e3_m2, fp6_e2_m3, ...</span>
 <span class="sd">    The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112</span>
@@ -1459,7 +1462,7 @@
         <span class="n">_layout</span> <span class="o">=</span> <span class="n">FloatxTensorCoreLayout</span><span class="p">(</span><span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">to_affine_quantized_fpx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_quant_llm</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_quant_llm</span><span class="p">)</span></div>
 
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
