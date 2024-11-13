@@ -3,7 +3,6 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-from typing import Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
