@@ -79,7 +79,7 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         
         # Apply fixes
-        ruff check --fix .
+        ruff check --select F,I --fix
         ruff format .
         
         # Commit and push if there are changes
