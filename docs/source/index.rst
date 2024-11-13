@@ -1,9 +1,7 @@
 Welcome to the torchao Documentation
 =======================================
 
-**torchao** is an open-source library that provides the functionality
-to quantize and prune your models using native PyTorch. Our documentation is under development
-with more content coming soon.
+`**torchao** <https://github.com/pytorch/ao>`__ is a library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training using native PyTorch. Please checkout torchao `README <https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization>`__ for an overall introduction to the library and recent highlight and updates. The documentation here will focus on 1. API Reference 2. Developer / Researcher Contribution Guide 3. Tutorials.
 
 ..
    .. grid:: 3
@@ -81,13 +79,19 @@ with more content coming soon.
    :maxdepth: 1
    :caption: API Reference
 
-   api_ref_sparsity
-   api_ref_intro
-   api_ref_quantization
    api_ref_dtypes
+   api_ref_quantization
+   api_ref_sparsity
 ..
       api_ref_kernel
-      
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
+   :caption: Contributor Guide
+
+   contributor_guide
+
 .. toctree::
    :glob:
    :maxdepth: 1
