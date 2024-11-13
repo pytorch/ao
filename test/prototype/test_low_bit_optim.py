@@ -388,7 +388,7 @@ class TestFSDP2(FSDPTest):
         model_args = ModelArgs(
             n_layers=3,
             n_heads=4,
-            dim=1024,
+            dim=512,
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
