@@ -1,6 +1,7 @@
+from typing import Optional
+
 import torch
 from torch import Tensor
-from typing import Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
@@ -13,19 +14,22 @@ DTYPE = torch.float8_e4m3fn
 
 
 def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
-
     shape = input.shape
     input = input.view(-1, block_size)
     k = None
 
     if dynamic_range_expansion:
         # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
-        # The idea is to align optimizer state distributions more closely 
+        # The idea is to align optimizer state distributions more closely
         # with the FP8 representation range, reducing the quantization error.
         k = aten.ones(input.shape[0], dtype=DTYPE, device=input.device)
-        Rdtype = torch.finfo(DTYPE).max / torch.finfo(DTYPE).min # calculate the range of the dtype
-        Rx = input.abs().amax(-1).clip(1e-12) / input.abs().amin(-1).clip(1e-12) # range of input max and min
-        k = torch.log(Rdtype) / torch.log(Rx)# calculating optimal value k dynamically
+        Rdtype = (
+            torch.finfo(DTYPE).max / torch.finfo(DTYPE).min
+        )  # calculate the range of the dtype
+        Rx = input.abs().amax(-1).clip(1e-12) / input.abs().amin(-1).clip(
+            1e-12
+        )  # range of input max and min
+        k = torch.log(Rdtype) / torch.log(Rx)  # calculating optimal value k dynamically
         input = input.sign() * (input.abs() ** k.view(-1, 1))
 
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
@@ -42,10 +46,10 @@ class OptimStateFp8(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale"]
 
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor, k: Optional[Tensor] =None):
+    def __new__(cls, codes: Tensor, scale: Tensor, k: Optional[Tensor] = None):
         return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
-    def __init__(self, codes: Tensor, scale: Tensor, k: Optional[Tensor] =None):
+    def __init__(self, codes: Tensor, scale: Tensor, k: Optional[Tensor] = None):
         """Create quantized FP8 optimizer state.
 
         Args
@@ -80,19 +84,28 @@ class OptimStateFp8(TorchAOBaseTensor):
 
         if self.k is not None:
             float_data = float_data.view(-1, self.block_size)
-            float_data =  float_data ** (1 / self.k.view(-1, 1))
-        
+            float_data = float_data ** (1 / self.k.view(-1, 1))
+
         if output_dtype is not None:
             float_data = float_data.to(output_dtype)
 
         return float_data.view(self.codes.shape)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 256, device=None, dynamic_range_expansion: bool = False):
-        
+    def zeros(
+        cls,
+        shape,
+        block_size: int = 256,
+        device=None,
+        dynamic_range_expansion: bool = False,
+    ):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
-        k = torch.ones(codes.numel() // block_size, device=device) if dynamic_range_expansion else None
+        k = (
+            torch.ones(codes.numel() // block_size, device=device)
+            if dynamic_range_expansion
+            else None
+        )
         return cls(codes, scale, k)
 
     def __repr__(self):
@@ -115,12 +128,13 @@ def _(func, types, args, kwargs):
             dst.k.copy_(src.k)
 
     elif isinstance(dst, OptimStateFp8):
+        codes, scale, k = quantize_fp8(
+            src, dst.block_size, True if dst.k is not None else False
+        )
 
-        codes, scale, k = quantize_fp8(src, dst.block_size, True if dst.k is not None else False)
-        
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
-        
+
         if dst.k is not None:
             dst.k.copy_(k)
     else:
@@ -136,7 +150,7 @@ def _(func, types, args, kwargs):
     out = OptimStateFp8(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
-        args[0].k.to(device=device) if args[0].k is not None else None
+        args[0].k.to(device=device) if args[0].k is not None else None,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
@@ -172,7 +186,7 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
-        func(x.k, *args[1:], **kwargs) if x.k else None
+        func(x.k, *args[1:], **kwargs) if x.k else None,
     )
 
 

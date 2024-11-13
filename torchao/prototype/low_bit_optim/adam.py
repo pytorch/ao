@@ -60,9 +60,7 @@ class _AdamBase(Optimizer):
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
             if isinstance(p, DTensor):
                 out = DTensor.from_local(
-                    local_tensor=self._subclass_zeros(
-                        p.to_local(), signed
-                    ),
+                    local_tensor=self._subclass_zeros(p.to_local(), signed),
                     device_mesh=p.device_mesh,
                     placements=p.placements,
                     run_check=False,
@@ -266,7 +264,10 @@ class AdamFp8(_AdamBase):
         self.dynamic_range_expansion = dynamic_range_expansion
 
     def _subclass_zeros(self, p: Tensor, signed: bool):
-        return OptimStateFp8.zeros(p.shape, self.block_size, p.device, self.dynamic_range_expansion)
+        return OptimStateFp8.zeros(
+            p.shape, self.block_size, p.device, self.dynamic_range_expansion
+        )
+
 
 class AdamW8bit(_AdamBase):
     def __init__(
@@ -352,9 +353,11 @@ class AdamWFp8(_AdamBase):
             is_adamw=True,
         )
         self.dynamic_range_expansion = dynamic_range_expansion
-        
+
     def _subclass_zeros(self, p: Tensor, signed: bool):
-        return OptimStateFp8.zeros(p.shape, self.block_size, p.device, self.dynamic_range_expansion)
+        return OptimStateFp8.zeros(
+            p.shape, self.block_size, p.device, self.dynamic_range_expansion
+        )
 
 
 class _AdamW(_AdamBase):
