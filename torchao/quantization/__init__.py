@@ -90,7 +90,6 @@ __all__ = [
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
-
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",
@@ -103,7 +102,6 @@ __all__ = [
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
-
     # smooth quant - subject to change
     "swap_conv2d_1x1_to_linear",
     "get_scale",
@@ -113,13 +111,11 @@ __all__ = [
     "smooth_fq_linear_to_inference",
     "set_smooth_fq_attribute",
     "compute_error",
-
     # building blocks
     "to_linear_activation_quantized",
     "to_weight_tensor_with_linear_activation_scale_metadata",
     "AffineQuantizedMinMaxObserver",
     "AffineQuantizedObserverBase",
-
     # quant primitive ops
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
@@ -131,11 +127,9 @@ __all__ = [
     "choose_qparams_and_quantize_affine_hqq",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
-
     # operators/kernels
     "safe_int_mm",
     "int_scaled_matmul",
-
     # dataclasses and types
     "MappingType",
     "ZeroPointDomain",
@@ -145,7 +139,6 @@ __all__ = [
     "PerGroup",
     "PerRow",
     "PerToken",
-
     "LinearActivationQuantizedTensor",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",

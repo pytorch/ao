@@ -19,7 +19,7 @@ First we want to lay out the torchao stack::
 
   Quantization Algorithms/Flows: weight only/dynamic/static quantization, hqq, awq, gptq etc.
   ---------------------------------------------------------------------------------------------
-          Quantized Tensors (derived dtypes): AffineQuantizedTensor, CoodbookQuantizedTensor
+          Quantized Tensors (derived dtypes): AffineQuantizedTensor, CodebookQuantizedTensor
   ---------------------------------------------------------------------------------------------
     Quantization Primitive Ops/Efficient Kernels: matmul, quantize, dequantize
   ---------------------------------------------------------------------------------------------
@@ -208,6 +208,8 @@ Today we have some prototype low bit optimizers: `main/torchao/prototype/low_bit
 Quantized Training
 ******************
 Similar to low bit optimizers, we have quantized training prototype in `main/torchao/prototype/quantized_training <https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training>`__, and we could extend AffineQuantizedTensor to support training as well, initial enablement is in progress, but there will be a lot of follow up work needed including making it work for different kernels etc.
+
+You can also checkout the tutorial for `Quantized Training <https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py>`__ that talks about how to make a dtype tensor subclass trainable.
 
 Case Study: How int4 weight only quantization works in torchao?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -600,75 +602,3 @@ Note: llama model (llama2/llama3) is our representative model for memory bound m
 Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
 
 Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
-
-
-
-
-
-
-  
-  
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-
-
-
-
-
-
-
-
-
-
-
