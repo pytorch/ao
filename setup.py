@@ -110,6 +110,9 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
+    if len(sources) == 0:
+        return None
+
     ext_modules = [
         extension(
             "torchao._C",
