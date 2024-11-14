@@ -109,10 +109,13 @@ class SAM2ImagePredictor:
         else:
             raise NotImplementedError("Image format not supported")
 
-        image_torch = self._transforms.to_tensor(image)
-        image_torch = image_torch.to(device=self.device)
-        image_torch = self._transforms.transforms(image_torch)
-        input_image = image_torch[None, ...].to(dtype=self._image_dtype)
+        input_image = self._transforms.to_tensor(image)
+        # TODO: Doing these transforms on the GPU changes the numerics
+        input_image = self._transforms.transforms(input_image)
+        input_image = input_image.to(device=self.device)
+        # TODO: Doing this here instead causes masks to not match reference exactly
+        # input_image = self._transforms.transforms(input_image)
+        input_image = input_image[None, ...].to(dtype=self._image_dtype)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
