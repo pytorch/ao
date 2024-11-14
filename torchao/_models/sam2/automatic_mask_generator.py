@@ -261,7 +261,7 @@ class SAM2AutomaticMaskGenerator:
                 iou_threshold=self.crop_nms_thresh,
             )
             data.filter(keep_by_nms)
-        # data.to_numpy()
+        data.to_numpy()
         return data
 
     def _generate_masks_batch(self, images: List[np.ndarray]) -> List[MaskData]:
