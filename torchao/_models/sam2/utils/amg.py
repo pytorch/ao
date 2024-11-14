@@ -374,7 +374,8 @@ def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
 
 def uncrop_points(points: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
     x0, y0, _, _ = crop_box
-    offset = torch.tensor([[x0, y0]], device=points.device)
+    offset = torch.tensor([[x0, y0]]).pin_memory()
+    offset = offset.to(device=points.device, non_blocking=True)
     # Check if points has a channel dimension
     if len(points.shape) == 3:
         offset = offset.unsqueeze(1)
