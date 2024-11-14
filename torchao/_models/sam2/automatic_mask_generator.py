@@ -420,9 +420,7 @@ class SAM2AutomaticMaskGenerator:
                     orig_box = [0, 0, orig_w, orig_h]
                     orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=self.predictor.device)
                     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=self.predictor.device)
-                    data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
-                    if keep_mask is not None:
-                        data.filter(keep_mask)
+                    data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
                     all_batch_iterator_data.append(data)
                 self.predictor.reset_predictor()
             all_all_batch_iterator_data.append(all_batch_iterator_data)
@@ -587,8 +585,7 @@ class SAM2AutomaticMaskGenerator:
             # if not torch.all(keep_mask):
             data.filter(keep_mask)
 
-        # return data, keep_mask
-        return data, None
+        return data
 
     def _process_batch(
         self,
@@ -607,10 +604,7 @@ class SAM2AutomaticMaskGenerator:
         crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float)
         crop_box_torch = crop_box_torch.pin_memory()
         crop_box_torch = crop_box_torch.to(device=self.predictor.device, non_blocking=True)
-        data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
-        if keep_mask is not None:
-            keep_index = keep_mask.nonzero(as_tuple=True)[0]
-            data.filter_by_index(keep_index)
+        data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
