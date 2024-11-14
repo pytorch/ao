@@ -228,8 +228,10 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
         a = a.expand_as(diff.narrow(1, 0, 1))
         diff = torch.cat([a, diff, a], dim=1)
         # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-        if diff.numel() >= 2147483647:
-            change_indices = torch.cat([d.nonzero() for d in diff.chunk(2)])
+        if diff.numel() > 2147483646:
+            # Roundup to nearest multiple
+            num_chunks = ((diff.numel() + 2147483646) // 2147483646)
+            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
         else:
             change_indices = diff.nonzero()
 
@@ -266,34 +268,9 @@ def _mask_to_rle_pytorch_2_chunk_to_dict(tensor: torch.Tensor, alt_lens: torch.T
 
 
 def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
-    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-    # Chunk sizes depend on the size of image and int32 max
-    # Unfortunately this also doesn't compile for data dependent shapes
-    # and masks vary in size.
-    rles = []
-    for mask_chunk in tensor.chunk(1):
-        alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
-        rles.extend(_mask_to_rle_pytorch_2_chunk_to_dict(mask_chunk, alt_lens, all_btw_idx))
-    return rles
-
-
-def mask_to_rle_pytorch_2_nt(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-    # Chunk sizes depend on the size of image and int32 max
-    # Unfortunately this also doesn't compile for data dependent shapes
-    # and masks vary in size.
-    rles = []
-    for mask_chunk in tensor.chunk(1):
-        alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
-        rles.append((alt_lens, all_btw_idx))
-    all_btw_idx = torch.cat([r[1] for r in rles])
-    alt_lens = torch.cat([r[0] for r in rles])
-    ret_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
-
-    b, h, w = tensor.shape
-    tensor = tensor.permute(0, 2, 1).flatten(1)
-    counts_init = (tensor[:, 0] == 0).tolist()
-    return ret_nt, counts_init
+    # Split into two to prepare better compilation
+    alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(tensor)
+    return _mask_to_rle_pytorch_2_chunk_to_dict(tensor, alt_lens, all_btw_idx)
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:

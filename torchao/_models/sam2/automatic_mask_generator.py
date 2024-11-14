@@ -26,7 +26,6 @@ from torchao._models.sam2.utils.amg import (
     is_box_near_crop_edge_torch,
     mask_to_rle_pytorch,
     mask_to_rle_pytorch_2,
-    mask_to_rle_pytorch_2_nt,
     MaskData,
     remove_small_regions,
     rle_to_mask,
@@ -210,17 +209,6 @@ class SAM2AutomaticMaskGenerator:
             elif self.output_mode == "binary_mask":
                 mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
             else:
-                rles = []
-                # TODO: Using .cpu() directly plus unbind seems to cause weakref error.
-                rles_nt_cpu = mask_data["rles_nt"].cpu()
-                del mask_data["rles_nt"]
-                counts_init = mask_data["rles_nt_counts_init"]
-                for (mask_i, d, ci) in zip(rles_nt_cpu.unbind(), mask_data["rles_sizes"], counts_init):
-                    h, w = d["size"]
-                    counts = [] if ci else [0]
-                    counts.extend(mask_i.tolist()[:-1])
-                    rles.append({"size": [h, w], "counts": counts})
-                mask_data["rles"] = rles
                 mask_data["segmentations"] = mask_data["rles"]
 
         with torch.autograd.profiler.record_function("_encode_masks: Write mask records"):
@@ -229,12 +217,12 @@ class SAM2AutomaticMaskGenerator:
             for idx in range(len(mask_data["segmentations"])):
                 ann = {
                     "segmentation": mask_data["segmentations"][idx],
-                    # "area": area_from_rle(mask_data["rles"][idx]),
-                    # "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
-                    # "predicted_iou": mask_data["iou_preds"][idx].item(),
-                    # "point_coords": [mask_data["points"][idx].tolist()],
-                    # "stability_score": mask_data["stability_score"][idx].item(),
-                    # "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
+                    "area": area_from_rle(mask_data["rles"][idx]),
+                    "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
+                    "predicted_iou": mask_data["iou_preds"][idx].item(),
+                    "point_coords": [mask_data["points"][idx].tolist()],
+                    "stability_score": mask_data["stability_score"][idx].item(),
+                    "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
                 }
                 curr_anns.append(ann)
 
@@ -352,14 +340,13 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("filter"):
             data.filter(keep_by_nms)
 
-        # with torch.autograd.profiler.record_function("uncrop_boxes_xyxy"):
-        #     # Return to the original image frame
-        #     data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
-        # with torch.autograd.profiler.record_function("uncrop_points"):
-        #     data["points"] = uncrop_points(data["points"], crop_box)
+        with torch.autograd.profiler.record_function("uncrop_boxes_xyxy"):
+            # Return to the original image frame
+            data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
+        with torch.autograd.profiler.record_function("uncrop_points"):
+            data["points"] = uncrop_points(data["points"], crop_box)
         with torch.autograd.profiler.record_function("crop_boxes"):
-            # data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
-            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles_nt"]))])
+            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
         return data
 
@@ -439,7 +426,8 @@ class SAM2AutomaticMaskGenerator:
                     orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=self.predictor.device)
                     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=self.predictor.device)
                     data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
-                    data.filter(keep_mask)
+                    if keep_mask is not None:
+                        data.filter(keep_mask)
                     all_batch_iterator_data.append(data)
                 self.predictor.reset_predictor()
             all_all_batch_iterator_data.append(all_batch_iterator_data)
@@ -454,13 +442,7 @@ class SAM2AutomaticMaskGenerator:
                     # TODO: Capture all these masks in a single NT for mask_to_rle_pytorch_2
                     # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
                     # to cause a single DtoH sync
-                    # data["rles"] = mask_to_rle_pytorch_2(data["masks"])
-                    rles_nt, rles_nt_counts_init = mask_to_rle_pytorch_2_nt(data["masks"])
-                    data["rles_nt"] = rles_nt
-                    data["rles_nt_counts_init"] = rles_nt_counts_init
-                    b, h, w = data["masks"].size()
-                    data["rles_sizes"] = [{"size": [h, w]}] * b
-                    del data["masks"]
+                    data["rles"] = mask_to_rle_pytorch_2(data["masks"])
 
                     batch_data = data
                     with torch.autograd.profiler.record_function("data.cat"):
@@ -643,11 +625,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            rles_nt, rles_nt_counts_init = mask_to_rle_pytorch_2_nt(data["masks"])
-            data["rles_nt"] = rles_nt
-            data["rles_nt_counts_init"] = rles_nt_counts_init
-            b, h, w = data["masks"].size()
-            data["rles_sizes"] = [{"size": [h, w]}] * b
+            data["rles"] = mask_to_rle_pytorch_2(data["masks"])
             del data["masks"]
 
         return data
