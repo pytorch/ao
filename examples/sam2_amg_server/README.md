@@ -24,7 +24,7 @@ Experiments run on H100 and with batch size 1
 | mode            | mIoU               | mask count mismatch | avg. ms per request | max. memory (MiB (%)) | batch size | points per batch |
 | --------------  | -----------------  | ------------------- | ------------------- | --------------------- | ---------- | ---------------- |
 |        baseline | 1.0                |   0                 | 863                 |  4013MiB (4%)         |  1         |   64             |
-|              ao | 1.0                |   0                 | 840                 |  4350MiB (4%)         |  1         |   64             |
+|              ao | 0.9999980926513672 |   6                 | 586                 |                       |  1         |   64             |
 |            fast | 0.9937329888343811 | 191                 | 333                 |                       |  1         | 1024             |
 |            fast | 0.9937219619750977 | 192                 | 324                 |                       | 16         | 1024             |
 |  fast + furious | 0.9804400205612183 | 292                 | 131                 |                       |  1         | 1024             |
@@ -34,7 +34,7 @@ mask count mismatch counts the number of requests where the number of masks diff
 For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
 We exclude these examples from the mIoU calculation.
 
-The 'ao' mode is a copy of the baseline with modifications to make the code compile-able and improve the performance of fast.
+The 'ao' mode is a copy of the baseline with modifications to make the code more compile-able and speed up run length encoding
 
 ### 0. Download checkpoints and install requirements
 
