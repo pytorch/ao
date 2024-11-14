@@ -501,10 +501,11 @@ class SAM2AutomaticMaskGenerator:
                 # Filter by predicted IoU
                 if self.pred_iou_thresh > 0.0:
                     keep_mask = iou_preds.flatten(0, 1) > self.pred_iou_thresh
+                    keep_index = keep_mask.nonzero(as_tuple=True)[0]
                     low_res_masks = low_res_masks.flatten(0, 1).unsqueeze(1)
-                    low_res_masks = low_res_masks[keep_mask]
-                    iou_preds = iou_preds.flatten(0, 1).unsqueeze(1)[keep_mask]
-                    points = points[keep_mask]
+                    low_res_masks = low_res_masks[keep_index]
+                    iou_preds = iou_preds.flatten(0, 1).unsqueeze(1)[keep_index]
+                    points = points[keep_index]
         if masks is None:
             masks, low_res_mask = self.predictor._predict_masks_postprocess(low_res_masks, -1, True, channel_1=low_res_masks.size(1) == 1)
 
