@@ -578,7 +578,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
             keep_mask = ~is_box_near_crop_edge_torch(
-                data["boxes"], crop_box, crop_box_torch, orig_box_torch
+                data["boxes"], crop_box, crop_box_torch, orig_box_torch,
             )
 
         with torch.autograd.profiler.record_function("filter(keep_mask)"):

@@ -14,17 +14,6 @@ import torch
 
 # Very lightly adapted from https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/utils/amg.py
 
-def nt_index_select_dim_0(nt, index):
-    values = nt.values()
-    offsets = nt.offsets()
-    lengths = offsets.diff()
-    offsets_index = offsets[index].cpu()
-    lengths_index = lengths[index].cpu()
-    indices = [o + torch.arange(l) for (o, l) in zip(offsets_index, lengths_index)]
-    indices = torch.cat(indices).to(values.device)
-    values_index = torch.index_select(values, 0, indices)
-    lengths_index = lengths_index.to(values.device)
-    return torch.nested.nested_tensor_from_jagged(values_index, lengths=lengths_index)
 
 class MaskData:
     """
@@ -55,40 +44,16 @@ class MaskData:
         return self._stats.items()
 
     def filter(self, keep: torch.Tensor) -> None:
-        keep_list = keep.tolist()
         for k, v in self._stats.items():
             if v is None:
                 self._stats[k] = None
             elif isinstance(v, torch.Tensor):
                 # self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
-                if v.is_nested:
-                    self._stats[k] = nt_index_select_dim_0(v, keep)
-                else:
-                    self._stats[k] = v[keep]
+                self._stats[k] = v[keep]
             elif isinstance(v, np.ndarray):
                 self._stats[k] = v[keep.detach().cpu().numpy()]
             elif isinstance(v, list) and keep.dtype == torch.bool:
-                self._stats[k] = [a for i, a in enumerate(v) if keep_list[i]]
-            elif isinstance(v, list):
-                self._stats[k] = [v[i] for i in keep]
-            else:
-                raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
-
-    def filter_by_index(self, keep: torch.Tensor) -> None:
-        keep_list = keep.tolist()
-        for k, v in self._stats.items():
-            if v is None:
-                self._stats[k] = None
-            elif isinstance(v, torch.Tensor):
-                # self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
-                if v.is_nested:
-                    self._stats[k] = nt_index_select_dim_0(v, keep)
-                else:
-                    self._stats[k] = v[keep]
-            elif isinstance(v, np.ndarray):
-                self._stats[k] = v[keep.detach().cpu().numpy()]
-            elif isinstance(v, list) and keep.dtype == torch.bool:
-                self._stats[k] = [a for i, a in enumerate(v) if keep_list[i]]
+                self._stats[k] = [a for i, a in enumerate(v) if keep[i]]
             elif isinstance(v, list):
                 self._stats[k] = [v[i] for i in keep]
             else:
@@ -99,16 +64,7 @@ class MaskData:
             if k not in self._stats or self._stats[k] is None:
                 self._stats[k] = deepcopy(v)
             elif isinstance(v, torch.Tensor):
-                if v.is_nested:
-                    values0 = self._stats[k].values()
-                    lengths0 = self._stats[k].offsets().diff()
-                    values1 = v.values()
-                    lengths1 = v.offsets().diff()
-                    new_values = torch.cat([values0, values1])
-                    new_lengths = torch.cat([lengths0, lengths1])
-                    self._stats[k] = torch.nested.nested_tensor_from_jagged(new_values, lengths=new_lengths)
-                else:
-                    self._stats[k] = torch.cat([self._stats[k], v], dim=0)
+                self._stats[k] = torch.cat([self._stats[k], v], dim=0)
             elif isinstance(v, np.ndarray):
                 self._stats[k] = np.concatenate([self._stats[k], v], axis=0)
             elif isinstance(v, list):
@@ -206,7 +162,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def _mask_to_rle_pytorch_2_chunk(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -218,37 +174,19 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: change indices"):
         # Compute change indices
         diff = tensor[:, 1:] ^ tensor[:, :-1]
-        # a = torch.tensor([[True]], device=diff.device)
-        a = torch.ones((1, 1), dtype=torch.bool, device=diff.device)
-        # import pdb; pdb.set_trace()
-        # if diff.is_cuda:
-        #     a = a.pin_memory().cuda()
-        #     # a = a.to(diff.device)
+        a = torch.tensor([[True]])
+        if diff.is_cuda:
+            a = a.pin_memory().cuda()
+            # a = a.to(diff.device)
         a = a.expand_as(diff.narrow(1, 0, 1))
         diff = torch.cat([a, diff, a], dim=1)
-        # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-        if diff.numel() > 2147483646:
-            # Roundup to nearest multiple
-            num_chunks = ((diff.numel() + 2147483646) // 2147483646)
-            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
-        else:
-            change_indices = diff.nonzero()
+        change_indices = diff.nonzero()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
-        alt_lens = diff.sum(dim=1)
+        alt_lens = diff.sum(dim=1).tolist()
 
         all_cur_idx = change_indices[:, 1]
         all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
-
-    return alt_lens, all_btw_idx
-
-
-def _mask_to_rle_pytorch_2_chunk_to_dict(tensor: torch.Tensor, alt_lens: torch.Tensor, all_btw_idx: torch.Tensor):
-    b, h, w = tensor.shape
-    tensor = tensor.permute(0, 2, 1).flatten(1)
-
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: tolist"):
-        alt_lens = alt_lens.tolist()
         all_btw_idx = all_btw_idx.tolist()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
@@ -267,9 +205,14 @@ def _mask_to_rle_pytorch_2_chunk_to_dict(tensor: torch.Tensor, alt_lens: torch.T
 
 
 def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
-    # Split into two to prepare better compilation
-    alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(tensor)
-    return _mask_to_rle_pytorch_2_chunk_to_dict(tensor, alt_lens, all_btw_idx)
+    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+    # Chunk sizes depend on the size of image and int32 max
+    # Unfortunately this also doesn't compile for data dependent shapes
+    # and masks vary in size.
+    rles = []
+    for mask_chunk in tensor.chunk(4):
+        rles.extend(_mask_to_rle_pytorch_2_chunk(mask_chunk))
+    return rles
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
