@@ -1,6 +1,6 @@
 import unittest
 import torch
-from torchao.dtypes.affine_quantized_tensor import (
+from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     MappingType,
 )
