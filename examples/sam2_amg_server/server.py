@@ -34,6 +34,7 @@ inductorconfig.coordinate_descent_tuning = True
 inductorconfig.coordinate_descent_check_all_directions = True
 inductorconfig.allow_buffer_reuse = False
 
+# torch._dynamo.config.capture_dynamic_output_shape_ops = True
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
 
@@ -173,7 +174,7 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 0.1  # Time interval to wait before processing a batch
+batch_interval = 0.01  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
@@ -186,7 +187,7 @@ def process_batch(batch, mask_generator):
         print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    max_memory_allocated()
+    # max_memory_allocated()
     return masks
 
 
@@ -220,17 +221,17 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-def benchmark_fn(func, inp, mask_generator):
+def benchmark_fn(func, inp, mask_generator, warmup=3, runs=10):
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
-    logging.info("Running 3 warumup iterations.")
-    for _ in range(3):
+    logging.info("Running {warmup} warmup iterations.")
+    for _ in range(warmup):
         func(inp, mask_generator)
-    logging.info("Running 10 benchmark iterations.")
+    logging.info("Running {runs} benchmark iterations.")
     t = time.time()
-    for _ in range(10):
+    for _ in range(runs):
         func(inp, mask_generator)
-    print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+    print(f"Benchmark took {(time.time() - t)/runs}s per iteration.")
     max_memory_allocated()
 
 
@@ -244,11 +245,11 @@ def max_memory_allocated():
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
     from compare_rle_lists import compare_masks
-    miou_sum, miou_count = compare_masks(masks, ref_masks, order_by_area=order_by_area, verbose=verbose)
-    if miou_count == 0:
+    miou, equal_count = compare_masks(masks, ref_masks, order_by_area=order_by_area, verbose=verbose)
+    if equal_count == len(masks):
         print("Masks exactly match reference.")
     else:
-        print(f"mIoU is {miou_sum / miou_count}")
+        print(f"mIoU is {miou} with equal count {equal_count} out of {len(masks)}")
 
 
 def main(checkpoint_path,
@@ -290,7 +291,7 @@ def main(checkpoint_path,
     
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-
+ 
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
@@ -299,17 +300,30 @@ def main(checkpoint_path,
         # TODO: Using CUDA graphs can cause numerical differences?
         mask_generator.predictor.model.image_encoder = torch.compile(
             mask_generator.predictor.model.image_encoder,
-            # mode="max-autotune-no-cudagraphs",
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        mask_generator._process_batch_fullgraph = torch.compile(
-            mask_generator._process_batch_fullgraph,
+        mask_generator.predictor.model.sam_prompt_encoder.forward = torch.compile(
+            mask_generator.predictor.model.sam_prompt_encoder.forward,
+            mode="max-autotune",
             fullgraph=True,
-            dynamic=True,
+            dynamic=False,
         )
+
+        mask_generator.predictor._predict_masks = torch.compile(
+            mask_generator.predictor._predict_masks,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+        # mask_generator.predictor._predict_masks_postprocess = torch.compile(
+        #     mask_generator.predictor._predict_masks_postprocess,
+        #     fullgraph=True,
+        #     dynamic=True,
+        # )
 
     if furious:
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
@@ -340,27 +354,28 @@ def main(checkpoint_path,
                 unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
     if benchmark:
+        print(f"batch size {batch_size} dog benchmark")
         if batch_size == 1:
-            print("batch size 1 test")
             benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
-            benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
         else:
-            print(f"batch size {batch_size} test")
             benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
-            print(f"batch size {batch_size} example shapes test")
-            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes()]
-            random_images = random_images[:batch_size]
-            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+        for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
+            print(f"batch size {batch_size} example shapes {i} benchmark")
+            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
 
-            print(f"batch size {batch_size} example shapes 2 test")
-            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes_2()]
-            random_images = random_images[:batch_size]
-            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+            if batch_size == 1:
+                [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
+            else:
+                random_images = random_images[:batch_size]
+                benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
         print(f"Saving profile under {profile}")
-        profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+        if batch_size == 1:
+            profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
+        else:
+            profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return
@@ -406,7 +421,8 @@ def main(checkpoint_path,
         return StreamingResponse(buf, media_type="image/png")
     
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":
     fire.Fire(main)
