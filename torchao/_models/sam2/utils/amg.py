@@ -99,7 +99,16 @@ class MaskData:
             if k not in self._stats or self._stats[k] is None:
                 self._stats[k] = deepcopy(v)
             elif isinstance(v, torch.Tensor):
-                self._stats[k] = torch.cat([self._stats[k], v], dim=0)
+                if v.is_nested:
+                    values0 = self._stats[k].values()
+                    lengths0 = self._stats[k].offsets().diff()
+                    values1 = v.values()
+                    lengths1 = v.offsets().diff()
+                    new_values = torch.cat([values0, values1])
+                    new_lengths = torch.cat([lengths0, lengths1])
+                    self._stats[k] = torch.nested.nested_tensor_from_jagged(new_values, lengths=new_lengths)
+                else:
+                    self._stats[k] = torch.cat([self._stats[k], v], dim=0)
             elif isinstance(v, np.ndarray):
                 self._stats[k] = np.concatenate([self._stats[k], v], axis=0)
             elif isinstance(v, list):
