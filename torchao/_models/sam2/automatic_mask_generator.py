@@ -499,7 +499,6 @@ class SAM2AutomaticMaskGenerator:
 
 
         x0, y0, _, _ = crop_box
-        is_box_near_crop_edge_torch_offset = torch.tensor([[x0, y0, x0, y0]]).pin_memory().to(device=in_points.device, non_blocking=True)
         points = points.repeat_interleave(3 if masks is None else masks.shape[1], dim=0)
 
         # TODO: Turn this off and replace with above
@@ -581,7 +580,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
             keep_mask = ~is_box_near_crop_edge_torch(
-                data["boxes"], crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset,
+                data["boxes"], crop_box, crop_box_torch, orig_box_torch
             )
 
         with torch.autograd.profiler.record_function("filter(keep_mask)"):
