@@ -521,12 +521,12 @@ class SAM2AutomaticMaskGenerator:
         keep_mask = None
 
         if not self.use_m2m:
-            with torch.autograd.profiler.record_function("thresh and filter"):
-                # Filter by predicted IoU
-                if self.pred_iou_thresh > 0.0:
-                    keep_mask = data["iou_preds"] > self.pred_iou_thresh
-                    # TODO: Might need this for correctness due to calculate_stability_score IoU?
-                    data.filter(keep_mask)
+            # with torch.autograd.profiler.record_function("thresh and filter"):
+            #     # Filter by predicted IoU
+            #     if self.pred_iou_thresh > 0.0:
+            #         keep_mask = data["iou_preds"] > self.pred_iou_thresh
+            #         # TODO: Might need this for correctness due to calculate_stability_score IoU?
+            #         data.filter(keep_mask)
 
             with torch.autograd.profiler.record_function("calculate_stability_score"):
                 # Calculate and filter by stability score
