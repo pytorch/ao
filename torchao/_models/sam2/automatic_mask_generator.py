@@ -545,12 +545,8 @@ class SAM2AutomaticMaskGenerator:
                 )
             with torch.autograd.profiler.record_function("stability_score_thresh"):
                 if self.stability_score_thresh > 0.0:
-                    keep_mask_stability = data["stability_score"] >= self.stability_score_thresh
-                    # if keep_mask is None:
-                    #     keep_mask = keep_mask_stability
-                    # else:
-                    #     keep_mask = torch.logical_and(keep_mask, keep_mask_stability)
-                    data.filter(keep_mask_stability)
+                    keep_mask = data["stability_score"] >= self.stability_score_thresh
+                    data.filter(keep_mask)
         else:
             # One step refinement using previous mask predictions
             in_points = self.predictor._transforms.transform_coords(
