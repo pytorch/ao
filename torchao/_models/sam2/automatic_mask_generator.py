@@ -498,9 +498,6 @@ class SAM2AutomaticMaskGenerator:
 
         x0, y0, _, _ = crop_box
         is_box_near_crop_edge_torch_offset = torch.tensor([[x0, y0, x0, y0]]).pin_memory().to(device=in_points.device, non_blocking=True)
-        return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset)
-
-    def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset):
         points = points.repeat_interleave(3 if masks is None else masks.shape[1], dim=0)
         if not self.use_m2m:
             with torch.autograd.profiler.record_function("thresh and filter"):

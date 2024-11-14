@@ -325,12 +325,6 @@ def main(checkpoint_path,
         #     dynamic=True,
         # )
 
-        # mask_generator._process_batch_fullgraph_masks = torch.compile(
-        #     mask_generator._process_batch_fullgraph_masks,
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
-
     if furious:
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
         # NOTE: Not baseline feature
