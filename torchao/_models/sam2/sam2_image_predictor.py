@@ -110,13 +110,9 @@ class SAM2ImagePredictor:
             raise NotImplementedError("Image format not supported")
 
         image_torch = self._transforms.to_tensor(image)
-        # image_torch = image_torch.pin_memory().to(device=self.device, non_blocking=True)
         image_torch = image_torch.to(device=self.device)
-        with torch.autograd.profiler.record_function("self._transforms.transforms"):
-            image_torch = self._transforms.transforms(image_torch)
-        # input_image = self._transforms(image)
+        image_torch = self._transforms.transforms(image_torch)
         input_image = image_torch[None, ...].to(dtype=self._image_dtype)
-        # input_image = input_image[None, ...].to(device=self.device, dtype=self._image_dtype)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
