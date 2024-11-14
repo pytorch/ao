@@ -524,6 +524,8 @@ class SAM2AutomaticMaskGenerator:
         keep_mask = None
 
         if not self.use_m2m:
+            # NOTE: This is left just for reference. We filter earlier for this case to save
+            # on compute within the expensive _predict_masks_postprocess
             # with torch.autograd.profiler.record_function("thresh and filter"):
             #     # Filter by predicted IoU
             #     if self.pred_iou_thresh > 0.0:
