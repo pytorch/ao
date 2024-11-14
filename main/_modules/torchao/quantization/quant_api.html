@@ -411,6 +411,7 @@
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
+    <span class="n">MarlinQQQLayout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
     <span class="n">PlainLayout</span><span class="p">,</span>
     <span class="n">SemiSparseLayout</span><span class="p">,</span>
@@ -418,6 +419,7 @@
     <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
     <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
+    <span class="n">to_marlinqqq_quantized_intx</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.uintx</span> <span class="kn">import</span> <span class="n">UintxLayout</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
@@ -908,10 +910,35 @@
         <span class="p">)</span>
 
 
+<span class="k">def</span> <span class="nf">_int8_symm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+    <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
+    <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
+
+    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
 <span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span>
-    <span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="n">weight</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span>
+    <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+    <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This is defined here instead of local function to support serialization&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">weight</span>
 
@@ -923,17 +950,37 @@
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">7</span>
 
     <span class="c1"># input settings</span>
-    <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
+    <span class="k">if</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">:</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
+    <span class="k">elif</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_quant</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unsupported activation mapping type: </span><span class="si">{</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
 
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-        <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span>
-    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinQQQLayout</span><span class="p">):</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_marlinqqq_quantized_intx</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">quant_min</span><span class="p">,</span>
+            <span class="n">quant_max</span><span class="p">,</span>
+            <span class="n">eps</span><span class="p">,</span>
+            <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
+        <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">weight</span>
 
 
 <div class="viewcode-block" id="int8_dynamic_activation_int4_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int4_weight.html#torchao.quantization.int8_dynamic_activation_int4_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int4_weight</span><span class="p">(</span>
-    <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span>
+    <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+    <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear</span>
 <span class="sd">    This is used to produce a model for executorch backend, but currently executorch did not</span>
@@ -942,11 +989,16 @@
 <span class="sd">    Args:</span>
 <span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
 <span class="sd">         size is more fine grained</span>
+<span class="sd">        `layout`: layout type for quantized weight tensor, only supports `PlainLayout()` and `MarlinQQQLayout()` for now</span>
+<span class="sd">        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric</span>
+<span class="sd">        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span>
         <span class="n">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
+        <span class="n">layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">act_mapping_type</span><span class="p">,</span>
     <span class="p">)</span></div>
 
 

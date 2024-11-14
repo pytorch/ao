@@ -416,6 +416,8 @@
     <span class="s2">&quot;fake_quantize_affine&quot;</span><span class="p">,</span>
     <span class="s2">&quot;fake_quantize_affine_cachemask&quot;</span><span class="p">,</span>
     <span class="s2">&quot;choose_qparams_and_quantize_affine_hqq&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;choose_qparams_and_quantize_affine_qqq&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dequantize_affine_qqq&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MappingType&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ZeroPointDomain&quot;</span><span class="p">,</span>
     <span class="s2">&quot;TorchAODType&quot;</span><span class="p">,</span>
@@ -1297,6 +1299,119 @@
     <span class="k">if</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">zero_point</span> <span class="o">=</span> <span class="n">zero_point</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">),</span> <span class="n">zero_point</span>
+
+
+<span class="k">def</span> <span class="nf">choose_qparams_and_quantize_affine_qqq</span><span class="p">(</span>
+    <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">num_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">assert</span> <span class="n">num_bits</span> <span class="o">==</span> <span class="mi">4</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unsupported num_bits = </span><span class="si">{</span><span class="n">num_bits</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">shape</span>
+    <span class="k">assert</span> <span class="n">group_size</span> <span class="ow">in</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">size_k</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported groupsize = </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">orig_device</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">device</span>
+    <span class="k">if</span> <span class="n">group_size</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">group_size</span> <span class="o">=</span> <span class="n">size_k</span>
+
+    <span class="k">if</span> <span class="n">group_size</span> <span class="o">&lt;</span> <span class="n">size_k</span><span class="p">:</span>
+        <span class="c1"># Reshape to [-1, group_size]</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">))</span>
+
+        <span class="n">max_q_val</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="n">num_bits</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">half_q_val</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_q_val</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
+
+        <span class="c1"># Compute scale for each group</span>
+        <span class="n">s_group</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">w</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">s_group</span> <span class="o">*=</span> <span class="mi">2</span> <span class="o">/</span> <span class="n">max_q_val</span>  <span class="c1"># 2 =&gt; symmetric</span>
+
+        <span class="c1"># Quantize</span>
+        <span class="n">q_w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">w</span> <span class="o">/</span> <span class="n">s_group</span><span class="p">)</span><span class="o">.</span><span class="n">int</span><span class="p">()</span>
+        <span class="n">q_w</span> <span class="o">+=</span> <span class="n">half_q_val</span>
+        <span class="n">q_w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">q_w</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">max_q_val</span><span class="p">)</span>
+        <span class="c1"># Compute ref (dequantized)</span>
+        <span class="n">w_ref</span> <span class="o">=</span> <span class="p">(</span><span class="n">q_w</span> <span class="o">-</span> <span class="n">half_q_val</span><span class="p">)</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_group</span>
+
+        <span class="c1"># Restore original shapes</span>
+        <span class="k">def</span> <span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span><span class="p">))</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">w</span>
+
+        <span class="n">q_w</span> <span class="o">=</span> <span class="n">reshape_w</span><span class="p">(</span><span class="n">q_w</span><span class="p">)</span>
+        <span class="n">w_ref</span> <span class="o">=</span> <span class="n">reshape_w</span><span class="p">(</span><span class="n">w_ref</span><span class="p">)</span>
+
+        <span class="c1"># Compute int8 quantization scale for each channel</span>
+        <span class="n">s_channel</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">w_ref</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">s_channel</span> <span class="o">/=</span> <span class="mf">127.0</span>
+        <span class="n">t_int8</span> <span class="o">=</span> <span class="p">(</span><span class="n">w_ref</span> <span class="o">/</span> <span class="n">s_channel</span><span class="p">)</span><span class="o">.</span><span class="n">round</span><span class="p">()</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="o">-</span><span class="mi">128</span><span class="p">,</span> <span class="mi">127</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+        <span class="n">w_ref</span> <span class="o">=</span> <span class="n">t_int8</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_channel</span>
+        <span class="n">s_channel</span> <span class="o">=</span> <span class="n">s_channel</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
+
+        <span class="c1"># Fuse scales</span>
+        <span class="n">s_group</span> <span class="o">=</span> <span class="p">(</span><span class="n">s_group</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">size_n</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span> <span class="o">/</span> <span class="n">s_channel</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">half</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">max_q_val</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">num_bits</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+
+        <span class="c1"># Compute scale for each channel</span>
+        <span class="n">s_channel</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">w</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">s_channel</span> <span class="o">/=</span> <span class="n">max_q_val</span>
+
+        <span class="c1"># Quantize</span>
+        <span class="n">q_w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">w</span> <span class="o">/</span> <span class="n">s_channel</span><span class="p">)</span><span class="o">.</span><span class="n">int</span><span class="p">()</span>
+        <span class="n">q_w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">q_w</span><span class="p">,</span> <span class="o">-</span><span class="n">max_q_val</span><span class="p">,</span> <span class="n">max_q_val</span><span class="p">)</span>
+        <span class="c1"># Compute ref (dequantized)</span>
+        <span class="n">w_ref</span> <span class="o">=</span> <span class="n">q_w</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_channel</span>
+
+        <span class="n">s_group</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">half</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">orig_device</span><span class="p">)</span>
+        <span class="c1"># div 2 ** (8 - self.bits)) to offset right shift in unpacking</span>
+        <span class="n">s_channel</span> <span class="o">/=</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="mi">8</span> <span class="o">-</span> <span class="n">num_bits</span><span class="p">)</span>
+        <span class="n">s_channel</span> <span class="o">=</span> <span class="n">s_channel</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">size_n</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">q_w</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">w_ref</span>
+
+
+<span class="k">def</span> <span class="nf">dequantize_affine_qqq</span><span class="p">(</span>
+    <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">s_group</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">s_channel</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">num_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">assert</span> <span class="n">num_bits</span> <span class="o">==</span> <span class="mi">4</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unsupported num_bits = </span><span class="si">{</span><span class="n">num_bits</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">shape</span>
+    <span class="k">assert</span> <span class="n">group_size</span> <span class="ow">in</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">size_k</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported groupsize = </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">group_size</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">group_size</span> <span class="o">=</span> <span class="n">size_k</span>
+
+    <span class="k">if</span> <span class="n">group_size</span> <span class="o">&lt;</span> <span class="n">size_k</span><span class="p">:</span>
+        <span class="c1"># Reshape to [-1, group_size]</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">))</span>
+
+        <span class="n">max_q_val</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="n">num_bits</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">half_q_val</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_q_val</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
+
+        <span class="n">s_group</span> <span class="o">=</span> <span class="n">s_group</span> <span class="o">*</span> <span class="n">s_channel</span><span class="o">.</span><span class="n">half</span><span class="p">()</span>
+        <span class="n">w_dq</span> <span class="o">=</span> <span class="p">(</span><span class="n">w</span> <span class="o">-</span> <span class="n">half_q_val</span><span class="p">)</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_group</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Restore original shapes</span>
+        <span class="k">def</span> <span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span><span class="p">))</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">w</span>
+
+        <span class="n">w_dq</span> <span class="o">=</span> <span class="n">reshape_w</span><span class="p">(</span><span class="n">w_dq</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">s_channel</span> <span class="o">=</span> <span class="n">s_channel</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="mi">8</span> <span class="o">-</span> <span class="n">num_bits</span><span class="p">))</span>
+        <span class="n">w_dq</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_channel</span>
+
+    <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">w_dq</span> <span class="o">=</span> <span class="n">w_dq</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">w_dq</span> <span class="o">=</span> <span class="n">w_dq</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">w_dq</span>
 
 
 <span class="c1"># HQQ</span>

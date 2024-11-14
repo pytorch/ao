@@ -387,14 +387,19 @@
 <h1>int8_dynamic_activation_int4_weight<a class="headerlink" href="#int8-dynamic-activation-int4-weight" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.quantization.int8_dynamic_activation_int4_weight">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int8_dynamic_activation_int4_weight</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#int8_dynamic_activation_int4_weight"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int8_dynamic_activation_int4_weight" title="Permalink to this definition">¶</a></dt>
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int8_dynamic_activation_int4_weight</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">PlainLayout()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act_mapping_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">MappingType.ASYMMETRIC</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#int8_dynamic_activation_int4_weight"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int8_dynamic_activation_int4_weight" title="Permalink to this definition">¶</a></dt>
 <dd><p>Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
 This is used to produce a model for executorch backend, but currently executorch did not
 support lowering for the quantized model from this flow yet</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
-size is more fine grained</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
+size is more fine grained</p></li>
+<li><p><strong>layout</strong> – layout type for quantized weight tensor, only supports <cite>PlainLayout()</cite> and <cite>MarlinQQQLayout()</cite> for now</p></li>
+<li><p><strong>mapping_type</strong> – quantization type for weight, controls the weight quantization is symmetric or asymmetric</p></li>
+<li><p><strong>act_mapping_type</strong> – quantization type for activation, controls the activation quantization is symmetric or asymmetric</p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>
