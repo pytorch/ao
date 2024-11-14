@@ -25,7 +25,8 @@ from torchao._models.sam2.utils.amg import (
     is_box_near_crop_edge,
     is_box_near_crop_edge_torch,
     mask_to_rle_pytorch,
-    mask_to_rle_pytorch_2,
+    _mask_to_rle_pytorch_2_0,
+    _mask_to_rle_pytorch_2_1,
     MaskData,
     remove_small_regions,
     rle_to_mask,
@@ -200,6 +201,7 @@ class SAM2AutomaticMaskGenerator:
         return self._encode_masks(mask_data)
 
     def _encode_masks(self, mask_data):
+        mask_data["rles"] = _mask_to_rle_pytorch_2_1(mask_data["rles"])
         # Encode masks
         if self.output_mode == "coco_rle":
             mask_data["segmentations"] = [
@@ -341,7 +343,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_points"):
             data["points"] = uncrop_points(data["points"], crop_box)
         with torch.autograd.profiler.record_function("crop_boxes"):
-            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
+            data["crop_boxes"] = torch.tensor([crop_box for _ in range(data["rles"].b)])
 
         return data
 
@@ -435,7 +437,7 @@ class SAM2AutomaticMaskGenerator:
                     # TODO: Capture all these masks in a single NT for mask_to_rle_pytorch_2
                     # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
                     # to cause a single DtoH sync
-                    data["rles"] = mask_to_rle_pytorch_2(data["masks"])
+                    data["rles"] = _mask_to_rle_pytorch_2_0(data["masks"])
                     del data["masks"]
 
                     batch_data = data
@@ -602,7 +604,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            data["rles"] = mask_to_rle_pytorch_2(data["masks"])
+            data["rles"] = _mask_to_rle_pytorch_2_0(data["masks"])
             del data["masks"]
 
         return data

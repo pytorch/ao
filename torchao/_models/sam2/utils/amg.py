@@ -11,10 +11,43 @@ from typing import Any, Dict, Generator, ItemsView, List, Tuple
 
 import numpy as np
 import torch
+from dataclasses import dataclass, astuple
+
+
+@dataclass
+class RLEData:
+    alt_lens_nt: torch.Tensor
+    counts_init: torch.Tensor
+    b: int
+    h: int
+    w: int
+
+
+def nt_index_select_dim_0(nt, index):
+    values = nt.values()
+    offsets = nt.offsets()
+    lengths = offsets.diff()
+    offsets_index = offsets[index].cpu()
+    lengths_index = lengths[index].cpu()
+    indices = [o + torch.arange(l) for (o, l) in zip(offsets_index, lengths_index)]
+    indices = torch.cat(indices).to(values.device)
+    values_index = torch.index_select(values, 0, indices)
+    lengths_index = lengths_index.to(values.device)
+    return torch.nested.nested_tensor_from_jagged(values_index, lengths=lengths_index)
+
+
+def nt_cat_dim_0(nts: List[torch.Tensor]):
+    all_values = []
+    all_lengths = []
+    for nt in nts:
+        all_values.append(nt.values())
+        all_lengths.append(nt.offsets().diff())
+    new_values = torch.cat(all_values)
+    new_lengths = torch.cat(all_lengths)
+    return torch.nested.nested_tensor_from_jagged(new_values, lengths=new_lengths)
+
 
 # Very lightly adapted from https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/utils/amg.py
-
-
 class MaskData:
     """
     A structure for storing masks and their related data in batched format.
@@ -24,13 +57,13 @@ class MaskData:
     def __init__(self, **kwargs) -> None:
         for v in kwargs.values():
             assert isinstance(
-                v, (list, np.ndarray, torch.Tensor)
+                v, (list, np.ndarray, torch.Tensor, RLEData)
             ), "MaskData only supports list, numpy arrays, and torch tensors."
         self._stats = dict(**kwargs)
 
     def __setitem__(self, key: str, item: Any) -> None:
         assert isinstance(
-            item, (list, np.ndarray, torch.Tensor)
+            item, (list, np.ndarray, torch.Tensor, RLEData)
         ), "MaskData only supports list, numpy arrays, and torch tensors."
         self._stats[key] = item
 
@@ -56,6 +89,14 @@ class MaskData:
                 self._stats[k] = [a for i, a in enumerate(v) if keep[i]]
             elif isinstance(v, list):
                 self._stats[k] = [v[i] for i in keep]
+            elif isinstance(v, RLEData):
+                new_alt_lens_nt = nt_index_select_dim_0(v.alt_lens_nt, keep)
+                self._stats[k] = RLEData(
+                        alt_lens_nt=new_alt_lens_nt,
+                        counts_init=v.counts_init[keep],
+                        b=new_alt_lens_nt.size(0),
+                        h=v.h,
+                        w=v.w)
             else:
                 raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
 
@@ -69,6 +110,15 @@ class MaskData:
                 self._stats[k] = np.concatenate([self._stats[k], v], axis=0)
             elif isinstance(v, list):
                 self._stats[k] = self._stats[k] + deepcopy(v)
+            elif isinstance(v, RLEData):
+                assert self._stats[k].h == v.h
+                assert self._stats[k].w == v.w
+                self._stats[k] = RLEData(
+                        alt_lens_nt=nt_cat_dim_0([self._stats[k].alt_lens_nt, v.alt_lens_nt]),
+                        counts_init=torch.cat([self._stats[k].counts_init, v.counts_init]),
+                        b=self._stats[k].b + v.b,
+                        h=v.h,
+                        w=v.w)
             else:
                 raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
 
@@ -162,7 +212,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor, torch.Tensor):
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -187,25 +237,43 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
             change_indices = diff.nonzero()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
-        alt_lens = diff.sum(dim=1).tolist()
+        alt_lens = diff.sum(dim=1)
 
         all_cur_idx = change_indices[:, 1]
         all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
-        all_btw_idx = all_btw_idx.tolist()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
+        alt_lens_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
         # Encode run length
+        counts_init = (tensor[:, 0] == 0)
+        return RLEData(alt_lens_nt=alt_lens_nt,
+                       counts_init=counts_init,
+                       b=b,
+                       h=h,
+                       w=w)
+
+
+def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
         out = []
-        counts_init = (tensor[:, 0] == 0).tolist()
+        alt_lens = rle_data.alt_lens_nt.offsets().diff()
+        all_btw_idx = rle_data.alt_lens_nt.values()
+        alt_lens = alt_lens.tolist()
+        all_btw_idx = all_btw_idx.tolist()
+        counts_init = rle_data.counts_init.tolist()
         offset = 0
-        for i, ci in zip(range(b), counts_init):
+        for i, ci in zip(range(rle_data.b), counts_init):
             btw_idxs = all_btw_idx[offset:offset + alt_lens[i]][:-1]
             offset += alt_lens[i]
             counts = [] if ci else [0]
             counts.extend(btw_idxs)
-            out.append({"size": [h, w], "counts": counts})
+            out.append({"size": [rle_data.h, rle_data.w], "counts": counts})
 
     return out
+
+
+def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+    return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
