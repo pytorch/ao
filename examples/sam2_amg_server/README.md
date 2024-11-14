@@ -33,6 +33,8 @@ Experiments run on H100 and with batch size 1
 mask count mismatch counts the number of requests where the number of masks differ from the baseline.
 For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
 We exclude these examples from the mIoU calculation.
+Difference in mask count seem to stem from even only slight reorderings in compute. For example preprocessing on GPU instead of CPU.
+A more relaxed way of measuring mIoU might be useful here to take into account slight differences in the number of masks, which may be caused by additional or missing sub-divisions.
 
 The 'ao' mode is a copy of the baseline with modifications to make the code more compile-able and speed up run length encoding
 
