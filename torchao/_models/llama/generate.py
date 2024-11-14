@@ -417,10 +417,13 @@ def main(
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     if memory_profile:
-        if device != "cuda":
-            print("Memory profiling only works on CUDA")
-        else:
+        if device == "cuda":
             torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        elif device == "xpu":
+            torch.xpu.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        else:
+            print("Memory profiling only works on CUDA or XPU devices")
+    
     aggregate_metrics = {
         'tokens_per_sec': [],
     }
@@ -499,24 +502,29 @@ def main(
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
-            if device != "cuda":
-                print("Memory profiling only works on CUDA")
-            else:
+            if device == "cuda":
                 snapshot = torch.cuda.memory._snapshot()
-                with open(f"{memory_profile}.pickle", 'wb') as f:
-                    from pickle import dump
-                    dump(snapshot, f)
-                print(
-                    f"\nmemory profile {memory_profile}.pickle saved, to convert that to a usable file, use",
-                    "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
-                )
-                break
-
+            elif device == "xpu":
+                snapshot = torch.xpu.memory._snapshot()
+            else:
+                print("Memory profiling only works on CUDA or XPU devices")
+    
+            with open(f"{memory_profile}.pickle", 'wb') as f:
+                from pickle import dump
+                dump(snapshot, f)
+            print(
+                f"\nmemory profile {memory_profile}.pickle saved, to convert that to a usable file, use",
+                "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
+            )
+            break
     print("==========")
 
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
-    mem = torch.cuda.max_memory_reserved() /1e9
+    if device == "cuda": 
+        mem = torch.cuda.max_memory_reserved() /1e9
+    elif device == "xpu":
+        mem = torch.xpu.max_memory_reserved() /1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     if batch_size > 1:
         print(f"Average tokens/sec including batches {batch_size*tokpersec:.2f}")
