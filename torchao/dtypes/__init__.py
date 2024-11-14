@@ -1,6 +1,4 @@
 from . import affine_quantized_tensor_ops
-
-# from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
     MarlinQQQTensor,
@@ -28,8 +26,6 @@ from .utils import (
     Layout,
     PlainLayout,
 )
-
-# from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
 
 __all__ = [
     "NF4Tensor",

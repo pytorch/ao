@@ -1,6 +1,6 @@
 import unittest
 import torch
-from torchao.quantization.quant_primitives import (
+from torchao.quantization import (
     ZeroPointDomain,
     MappingType,
 )
