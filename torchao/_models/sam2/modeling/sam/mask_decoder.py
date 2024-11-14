@@ -219,6 +219,8 @@ class MaskDecoder(nn.Module):
             # TODO: Not specifying scale kwarg in SDPA will cause NaN here
             # print("hs.isnan().any(): ", hs.isnan().any().item())
 
+        # TODO: These outputs are being immediately indexed.
+        # Is there something to remove?
         iou_token_out = hs[:, s, :]
         mask_tokens_out = hs[:, s + 1: (s + 1 + self.num_mask_tokens), :]
 

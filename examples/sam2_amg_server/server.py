@@ -149,6 +149,26 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
+def memory_runner(path, fn, *args, **kwargs):
+    print("Start memory recording")
+    torch.cuda.synchronize()
+    torch.cuda.memory._record_memory_history(
+        True,
+        trace_alloc_max_entries=100000,
+        trace_alloc_record_context=True
+    )
+    result = fn(*args, **kwargs)
+    torch.cuda.synchronize()
+    snapshot = torch.cuda.memory._snapshot()
+    print("Finish memory recording")
+    import pickle
+    with open(path, 'wb') as f:
+        pickle.dump(snapshot, f)
+    # Use to convert pickle file into html
+    # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
+    return result
+
+
 def image_tensor_to_masks(example_image, mask_generator):
     masks = mask_generator.generate(example_image)
     return masks
@@ -259,6 +279,7 @@ def main(checkpoint_path,
          unittest=False,
          benchmark=False,
          profile=None,
+         memory_profile=None,
          verbose=False,
          points_per_batch=64,
          port=5000,
@@ -376,6 +397,13 @@ def main(checkpoint_path,
             profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
         else:
             profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+
+    if memory_profile is not None:
+        print(f"Saving memory profile under {memory_profile}")
+        if batch_size == 1:
+            memory_runner(memory_profile, image_tensor_to_masks, image_tensor, mask_generator)
+        else:
+            memory_runner(memory_profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return
