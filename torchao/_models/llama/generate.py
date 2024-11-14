@@ -14,6 +14,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
+from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def device_sync(device):
@@ -211,6 +212,7 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
+            int8_dynamic_activation_int4_weight,
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
@@ -235,8 +237,20 @@ def main(
             assert group_size in [32,64,128,256], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
         if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayout
-            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            if "qqq" in quantization:
+                from torchao.dtypes import MarlinQQQLayout
+                quantize_(
+                    model,
+                    int8_dynamic_activation_int4_weight(
+                        group_size=128,
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=MarlinQQQLayout(),
+                    ),
+                )
+            else:  
+                from torchao.dtypes import MarlinSparseLayout
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if "embed-int8wo" in quantization:
@@ -474,7 +488,7 @@ if __name__ == '__main__':
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, '
-            +'embed-int8wo'
+            +'embed-int8wo, marlin_qqq'
         )
     )
     parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
