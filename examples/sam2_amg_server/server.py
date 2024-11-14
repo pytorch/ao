@@ -207,7 +207,7 @@ def process_batch(batch, mask_generator):
         print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    # max_memory_allocated()
+    max_memory_allocated()
     return masks
 
 
