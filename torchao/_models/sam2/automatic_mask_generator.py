@@ -343,7 +343,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_points"):
             data["points"] = uncrop_points(data["points"], crop_box)
         with torch.autograd.profiler.record_function("crop_boxes"):
-            data["crop_boxes"] = torch.tensor([crop_box for _ in range(data["rles"].b)])
+            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
         return data
 
@@ -486,6 +486,8 @@ class SAM2AutomaticMaskGenerator:
             in_points.shape[0], dtype=torch.int, device=in_points.device
         )
         with torch.autograd.profiler.record_function("_predict"):
+            # NOTE: Just leaving this for reference. predict was split to
+            # allow earlier filtering by predicted iou
             # masks, iou_preds, low_res_masks = self.predictor._predict(
             masks = None
             low_res_masks, iou_preds = self.predictor._predict_masks(
@@ -599,9 +601,11 @@ class SAM2AutomaticMaskGenerator:
         orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float)
         orig_box_torch = orig_box_torch.pin_memory()
         orig_box_torch = orig_box_torch.to(device=self.predictor.device, non_blocking=True)
+
         crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float)
         crop_box_torch = crop_box_torch.pin_memory()
         crop_box_torch = crop_box_torch.to(device=self.predictor.device, non_blocking=True)
+
         data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):

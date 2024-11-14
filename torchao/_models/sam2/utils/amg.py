@@ -22,6 +22,9 @@ class RLEData:
     h: int
     w: int
 
+    def __len__(self):
+        return self.b
+
 
 def nt_index_select_dim_0(nt, index):
     values = nt.values()
