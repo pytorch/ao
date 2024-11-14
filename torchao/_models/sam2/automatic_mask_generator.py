@@ -200,31 +200,29 @@ class SAM2AutomaticMaskGenerator:
         return self._encode_masks(mask_data)
 
     def _encode_masks(self, mask_data):
-        with torch.autograd.profiler.record_function("_encode_masks"):
-            # Encode masks
-            if self.output_mode == "coco_rle":
-                mask_data["segmentations"] = [
-                    coco_encode_rle(rle) for rle in mask_data["rles"]
-                ]
-            elif self.output_mode == "binary_mask":
-                mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
-            else:
-                mask_data["segmentations"] = mask_data["rles"]
+        # Encode masks
+        if self.output_mode == "coco_rle":
+            mask_data["segmentations"] = [
+                coco_encode_rle(rle) for rle in mask_data["rles"]
+            ]
+        elif self.output_mode == "binary_mask":
+            mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
+        else:
+            mask_data["segmentations"] = mask_data["rles"]
 
-        with torch.autograd.profiler.record_function("_encode_masks: Write mask records"):
-            # Write mask records
-            curr_anns = []
-            for idx in range(len(mask_data["segmentations"])):
-                ann = {
-                    "segmentation": mask_data["segmentations"][idx],
-                    "area": area_from_rle(mask_data["rles"][idx]),
-                    "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
-                    "predicted_iou": mask_data["iou_preds"][idx].item(),
-                    "point_coords": [mask_data["points"][idx].tolist()],
-                    "stability_score": mask_data["stability_score"][idx].item(),
-                    "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
-                }
-                curr_anns.append(ann)
+        # Write mask records
+        curr_anns = []
+        for idx in range(len(mask_data["segmentations"])):
+            ann = {
+                "segmentation": mask_data["segmentations"][idx],
+                "area": area_from_rle(mask_data["rles"][idx]),
+                "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
+                "predicted_iou": mask_data["iou_preds"][idx].item(),
+                "point_coords": [mask_data["points"][idx].tolist()],
+                "stability_score": mask_data["stability_score"][idx].item(),
+                "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
+            }
+            curr_anns.append(ann)
 
         return curr_anns
 
@@ -301,12 +299,9 @@ class SAM2AutomaticMaskGenerator:
 
     def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
 
-        with torch.autograd.profiler.record_function("_process_crop_points: np.array"):
-            # Get points for this crop
-            points_scale = np.array(cropped_im_size)[None, ::-1]
-
-        with torch.autograd.profiler.record_function("_process_crop_points: points_scale"):
-            points_for_image = self.point_grids[crop_layer_idx] * points_scale
+        # Get points for this crop
+        points_scale = np.array(cropped_im_size)[None, ::-1]
+        points_for_image = self.point_grids[crop_layer_idx] * points_scale
 
         # Generate masks for this crop in batches
         # data = MaskData()
@@ -443,6 +438,7 @@ class SAM2AutomaticMaskGenerator:
                     # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
                     # to cause a single DtoH sync
                     data["rles"] = mask_to_rle_pytorch_2(data["masks"])
+                    del data["masks"]
 
                     batch_data = data
                     with torch.autograd.profiler.record_function("data.cat"):
