@@ -326,13 +326,6 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        mask_generator.predictor.model.sam_prompt_encoder.forward = torch.compile(
-            mask_generator.predictor.model.sam_prompt_encoder.forward,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,
             mode="max-autotune",

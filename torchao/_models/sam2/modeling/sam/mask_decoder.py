@@ -221,6 +221,8 @@ class MaskDecoder(nn.Module):
 
         # TODO: These outputs are being immediately indexed.
         # Is there something to remove?
+        # TODO: The fact that there's a crop box and we try to find stuff at the
+        # boundary later and there's generally cropping going on smells of padding.
         iou_token_out = hs[:, s, :]
         mask_tokens_out = hs[:, s + 1: (s + 1 + self.num_mask_tokens), :]
 
