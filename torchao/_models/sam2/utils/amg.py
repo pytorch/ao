@@ -237,13 +237,10 @@ def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Ten
         diff = torch.cat([a, diff, a], dim=1)
     return diff
 
-def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: nonzero"):
-        if diff.numel() > 2147483646:
-            num_chunks = (diff.numel() + 2147483646) // 2147483646
-            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
-        else:
-            change_indices = diff.nonzero()
+
+@torch.compile(fullgraph=True, dynamic=True)
+def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+    tensor = tensor.permute(0, 2, 1).flatten(1)
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
         alt_lens = diff.sum(dim=1)
@@ -265,10 +262,14 @@ def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
     b, h, w = tensor.shape
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"):
         diff = _mask_to_rle_pytorch_2_0_0(tensor)
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: flatten"):
-        tensor = tensor.permute(0, 2, 1).flatten(1)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: nonzero"):
+        if diff.numel() > 2147483646:
+            num_chunks = (diff.numel() + 2147483646) // 2147483646
+            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
+        else:
+            change_indices = diff.nonzero()
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
-        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff)
+        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff, change_indices)
     return RLEData(alt_lens_nt=alt_lens_nt,
                    counts_init=counts_init,
                    b=b,
@@ -296,7 +297,8 @@ def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
 
 
 def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
-    return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2"):
+        return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
