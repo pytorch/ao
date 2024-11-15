@@ -644,6 +644,19 @@ class Float8Linear(torch.nn.Linear):
         s = f'{super().extra_repr()}, cast_configs={cast_config_str}"'
         return s
 
+    def _maybe_fixup_delayed_scaling_buffers(self):
+        if (
+            self.config.enable_fsdp_float8_all_gather
+            and self.config.cast_config_weight.scaling_type is ScalingType.DELAYED
+        ):
+            # in case the module weight-related buffers got overwritten by
+            # the user (such as when calling `model.to_empty`), we
+            # re-link the weight wrapper buffers to point to the correct
+            # location
+            self.weight._amax_buffer = self.fp8_amax_weight
+            self.weight._amax_history_buffer = self.fp8_amax_history_weight
+            self.weight._scale_buffer = self.fp8_scale_weight
+
     @classmethod
     def from_float(
         cls,

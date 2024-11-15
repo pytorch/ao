@@ -530,6 +530,29 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             y = m(x)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_to_empty_delayed_scaling_with_float8_all_gather(self):
+        with torch.device("meta"):
+            m_ref = nn.Sequential(nn.Linear(32, 32))
+            config = Float8LinearConfig(
+                cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
+                cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
+                cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
+                enable_fsdp_float8_all_gather=True,
+            )
+            m_fp8 = convert_to_float8_training(m_ref, config=config)
+
+        assert m_fp8[0].fp8_amax_weight is m_fp8[0].weight._amax_buffer
+        assert m_fp8[0].fp8_amax_history_weight is m_fp8[0].weight._amax_history_buffer
+        assert m_fp8[0].fp8_scale_weight is m_fp8[0].weight._scale_buffer
+
+        m_fp8.to_empty(device="cuda")
+        m_fp8[0]._maybe_fixup_delayed_scaling_buffers()
+
+        assert m_fp8[0].fp8_amax_weight is m_fp8[0].weight._amax_buffer
+        assert m_fp8[0].fp8_amax_history_weight is m_fp8[0].weight._amax_history_buffer
+        assert m_fp8[0].fp8_scale_weight is m_fp8[0].weight._scale_buffer
+
 
 class TestScaledMM:
     @unittest.skipIf(
