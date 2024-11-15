@@ -263,9 +263,12 @@ def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor) -> (tor
 
 def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
     b, h, w = tensor.shape
-    diff = _mask_to_rle_pytorch_2_0_0(tensor)
-    tensor = tensor.permute(0, 2, 1).flatten(1)
-    alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"):
+        diff = _mask_to_rle_pytorch_2_0_0(tensor)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: flatten"):
+        tensor = tensor.permute(0, 2, 1).flatten(1)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
+        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff)
     return RLEData(alt_lens_nt=alt_lens_nt,
                    counts_init=counts_init,
                    b=b,
