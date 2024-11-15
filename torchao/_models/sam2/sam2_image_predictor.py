@@ -109,9 +109,13 @@ class SAM2ImagePredictor:
         else:
             raise NotImplementedError("Image format not supported")
 
-        input_image = self._transforms(image)
-        input_image = input_image[None, ...].to(self.device)
-        input_image = input_image.to(self._image_dtype)
+        input_image = self._transforms.to_tensor(image)
+        # TODO: Doing these transforms on the GPU changes the numerics
+        input_image = self._transforms.transforms(input_image)
+        input_image = input_image.to(device=self.device)
+        # TODO: Doing this here instead causes masks to not match reference exactly
+        # input_image = self._transforms.transforms(input_image)
+        input_image = input_image[None, ...].to(dtype=self._image_dtype)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
@@ -390,6 +394,21 @@ class SAM2ImagePredictor:
                 "An image must be set with .set_image(...) before mask prediction."
             )
 
+        with torch.autograd.profiler.record_function("_predict_masks"):
+            low_res_masks, iou_predictions = self._predict_masks(point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx)
+        with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
+            masks, low_res_masks = self._predict_masks_postprocess(low_res_masks, img_idx, iou_predictions, return_logits)
+            return masks, iou_predictions, low_res_masks
+
+    def _predict_masks(
+            self,
+            point_coords,
+            point_labels,
+            boxes: Optional[torch.Tensor] = None,
+            mask_input: Optional[torch.Tensor] = None,
+            multimask_output: bool = True,
+            return_logits: bool = False,
+            img_idx: int = -1):
         if point_coords is not None:
             concat_points = (point_coords, point_labels)
         else:
@@ -421,30 +440,39 @@ class SAM2ImagePredictor:
             concat_points is not None and concat_points[0].shape[0] > 1
         )  # multi object prediction
         high_res_features = [
-            feat_level[img_idx].unsqueeze(0)
+            feat_level[img_idx].unsqueeze(0).clone()
             for feat_level in self._features["high_res_feats"]
         ]
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
-                image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
-                image_pe=self.model.sam_prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings,
-                dense_prompt_embeddings=dense_embeddings,
+                image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
+                image_pe=self.model.sam_prompt_encoder.get_dense_pe().clone(),
+                sparse_prompt_embeddings=sparse_embeddings.clone(),
+                dense_prompt_embeddings=dense_embeddings.clone(),
                 multimask_output=multimask_output,
                 repeat_image=batched_mode,
                 high_res_features=high_res_features,
             )
 
+        return low_res_masks, iou_predictions
+
+    def _predict_masks_postprocess(self, low_res_masks, img_idx, return_logits, channel_1=False):
+        # TODO: Might want to defer this until after data["iou_preds"] > self.pred_iou_thresh
         with torch.autograd.profiler.record_function("self._transforms.postprocess_masks"):
             # Upscale the masks to the original image resolution
-            masks = self._transforms.postprocess_masks(
-                low_res_masks, self._orig_hw[img_idx]
-            )
+            if channel_1:
+                masks = self._transforms.postprocess_masks_1_channel(
+                    low_res_masks, self._orig_hw[img_idx]
+                )
+            else:
+                masks = self._transforms.postprocess_masks(
+                    low_res_masks, self._orig_hw[img_idx]
+                )
         low_res_masks = torch.clamp(low_res_masks, -32.0, 32.0)
         if not return_logits:
             masks = masks > self.mask_threshold
 
-        return masks, iou_predictions, low_res_masks
+        return masks, low_res_masks
 
     def get_image_embedding(self) -> torch.Tensor:
         """

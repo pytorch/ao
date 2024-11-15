@@ -1,6 +1,12 @@
 name: Code Analysis with Ruff
 
 on:
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'URL of the PR to fix'
+        required: true
+        type: string
   push:
     branches:
       - main
@@ -13,30 +19,74 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
     strategy:
       matrix:
         python-version: ["3.9"]
     steps:
+    - name: Extract PR info
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        PR_URL=${{ github.event.inputs.pr_url }}
+        PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
+        echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+        
     - uses: actions/checkout@v3
+      if: github.event_name == 'workflow_dispatch'
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Checkout PR branch
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        gh pr checkout ${{ env.PR_NUMBER }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - uses: actions/checkout@v3
+      if: github.event_name != 'workflow_dispatch'
+      with:
+        fetch-depth: 0
+        
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install ruff==0.6.8
-    - name: Analyzing the code with ruff
+        
+    - name: Regular lint check
+      if: github.event_name != 'workflow_dispatch'
       run: |
         ruff check .
-    - name: Check *all* Python files for F821, F823, and W191
-      run: |
         # --isolated is used to skip the allowlist at all so this applies to all files
         # please be careful when using this large changes means everyone needs to rebase
         ruff check --isolated --select F821,F823,W191
-    - name: Check the allow-listed files for F,I
-      run: |
         ruff check --select F,I
-    - name: Check the allow-listed files for well formatted code
-      run: |
         ruff format --check
+
+    - name: Apply fixes to PR
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        # Apply fixes
+        ruff check --select F,I --fix
+        ruff format .
+        
+        # Commit and push if there are changes
+        if [[ -n "$(git status --porcelain)" ]]; then
+          git add .
+          git commit -m "Apply automatic Ruff fixes"
+          git push
+        else
+          echo "No fixes needed!"
+        fi

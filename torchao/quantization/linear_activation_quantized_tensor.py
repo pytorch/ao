@@ -19,7 +19,7 @@ aten = torch.ops.aten
 class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
     Applies activation quantization for linear operator, this is used to support
-    dynamic quantization or static quantization, user can pass in a `input_quant_func`
+    dynamic quantization, user can pass in a `input_quant_func`
     that is used to quantize the activation
 
     Args:
@@ -60,7 +60,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         self.quant_kwargs = quant_kwargs
 
     def __repr__(self):
-        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
+        return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
 
     def __tensor_flatten__(self):
         return ["original_weight_tensor"], [self.input_quant_func, self.quant_kwargs]

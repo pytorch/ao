@@ -10,7 +10,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from torchao.kernel.intmm import int_scaled_matmul, safe_int_mm
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
@@ -24,8 +23,6 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "safe_int_mm",
-    "int_scaled_matmul",
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
@@ -36,6 +33,11 @@ __all__ = [
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
     "choose_qparams_and_quantize_affine_hqq",
+    "choose_qparams_and_quantize_affine_qqq",
+    "dequantize_affine_qqq",
+    "MappingType",
+    "ZeroPointDomain",
+    "TorchAODType",
 ]
 
 
@@ -914,6 +916,119 @@ def _choose_qparams_affine(
     if zero_point is not None:
         zero_point = zero_point.to(dtype=zero_point_dtype)
     return scale.to(dtype=scale_dtype), zero_point
+
+
+def choose_qparams_and_quantize_affine_qqq(
+    w: torch.Tensor,
+    num_bits: int,
+    group_size: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert num_bits == 4, f"Unsupported num_bits = {num_bits}"
+    size_n, size_k = w.shape
+    assert group_size in [-1, 128, size_k], f"Unsupported groupsize = {group_size}"
+    orig_device = w.device
+    if group_size == -1:
+        group_size = size_k
+
+    if group_size < size_k:
+        # Reshape to [-1, group_size]
+        w = w.reshape((-1, group_size))
+
+        max_q_val = 2**num_bits - 1
+        half_q_val = (max_q_val + 1) // 2
+
+        # Compute scale for each group
+        s_group = torch.amax(torch.abs(w), -1, keepdim=True)
+        s_group *= 2 / max_q_val  # 2 => symmetric
+
+        # Quantize
+        q_w = torch.round(w / s_group).int()
+        q_w += half_q_val
+        q_w = torch.clamp(q_w, 0, max_q_val)
+        # Compute ref (dequantized)
+        w_ref = (q_w - half_q_val).half() * s_group
+
+        # Restore original shapes
+        def reshape_w(w):
+            w = w.reshape((size_n, size_k)).contiguous()
+            return w
+
+        q_w = reshape_w(q_w)
+        w_ref = reshape_w(w_ref)
+
+        # Compute int8 quantization scale for each channel
+        s_channel = torch.amax(torch.abs(w_ref), -1, keepdim=True)
+        s_channel /= 127.0
+        t_int8 = (w_ref / s_channel).round().clamp(-128, 127).to(torch.int8)
+        w_ref = t_int8.half() * s_channel
+        s_channel = s_channel.reshape(-1, 1).to(dtype=torch.float)
+
+        # Fuse scales
+        s_group = (s_group.reshape(size_n, -1).contiguous() / s_channel).to(
+            dtype=torch.half
+        )
+    else:
+        max_q_val = 2 ** (num_bits - 1) - 1
+
+        # Compute scale for each channel
+        s_channel = torch.amax(torch.abs(w), -1, keepdim=True)
+        s_channel /= max_q_val
+
+        # Quantize
+        q_w = torch.round(w / s_channel).int()
+        q_w = torch.clamp(q_w, -max_q_val, max_q_val)
+        # Compute ref (dequantized)
+        w_ref = q_w.half() * s_channel
+
+        s_group = torch.tensor([], dtype=torch.half, device=orig_device)
+        # div 2 ** (8 - self.bits)) to offset right shift in unpacking
+        s_channel /= 2 ** (8 - num_bits)
+        s_channel = s_channel.reshape(size_n, -1).contiguous().to(torch.float)
+
+    return q_w, s_group, s_channel, w_ref
+
+
+def dequantize_affine_qqq(
+    w: torch.Tensor,
+    s_group: torch.Tensor,
+    s_channel: torch.Tensor,
+    num_bits: int,
+    group_size: int,
+    output_dtype: Optional[torch.dtype] = None,
+):
+    assert num_bits == 4, f"Unsupported num_bits = {num_bits}"
+    size_n, size_k = w.shape
+    assert group_size in [-1, 128, size_k], f"Unsupported groupsize = {group_size}"
+    if group_size == -1:
+        group_size = size_k
+
+    if group_size < size_k:
+        # Reshape to [-1, group_size]
+        w = w.reshape((-1, group_size))
+
+        max_q_val = 2**num_bits - 1
+        half_q_val = (max_q_val + 1) // 2
+
+        s_group = s_group * s_channel.half()
+        w_dq = (w - half_q_val).half() * s_group.reshape(-1, 1)
+
+        # Restore original shapes
+        def reshape_w(w):
+            w = w.reshape((size_n, size_k)).contiguous()
+            return w
+
+        w_dq = reshape_w(w_dq)
+
+    else:
+        s_channel = s_channel * (2 ** (8 - num_bits))
+        w_dq = w.half() * s_channel
+
+    if output_dtype is None:
+        w_dq = w_dq.to(torch.float16)
+    else:
+        w_dq = w_dq.to(output_dtype)
+
+    return w_dq
 
 
 # HQQ

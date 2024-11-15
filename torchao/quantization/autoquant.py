@@ -10,6 +10,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.float8.inference import Float8MMConfig
+from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
 )
@@ -24,7 +25,6 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .quant_primitives import safe_int_mm
 from .subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,

@@ -70,7 +70,7 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
         self.quant_kwargs = quant_kwargs
 
     def __repr__(self):
-        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func_static}, scale={self.scale}, zero_point={self.zero_point}, quant_kwargs={self.quant_kwargs})"
+        return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func_static}, scale={self.scale}, zero_point={self.zero_point}, quant_kwargs={self.quant_kwargs})"
 
     def __tensor_flatten__(self):
         tensor_data = ["original_weight_tensor", "scale"]

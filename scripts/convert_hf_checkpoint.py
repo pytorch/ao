@@ -85,6 +85,10 @@ def convert_hf_checkpoint(
        else:
            state_dict = torch.load(str(file), map_location="cpu", mmap=True, weights_only=True)
            merged_result.update(state_dict)
+    
+    if config.tie_word_embeddings:
+        merged_result["lm_head.weight"] = merged_result["model.embed_tokens.weight"].clone()
+
     final_result = {}
     for key, value in merged_result.items():
         if "layers" in key:
@@ -112,7 +116,7 @@ def convert_hf_checkpoint(
             del final_result[key.replace("wq", "wv")]
     print(f"Saving checkpoint to {checkpoint_dir / 'model.pth'}")
     torch.save(final_result, checkpoint_dir / "model.pth")
-    if 'llama-3-' in model_name.lower() or 'llama-3.1-' in model_name.lower():
+    if any([x in model_name.lower() for x in ["llama-3-", "llama-3.1-", "llama-3.2-"]]):
         if 'llama-3.1-405b' in model_name.lower():
             original_dir = checkpoint_dir / "original" / "mp16"
         else:

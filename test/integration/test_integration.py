@@ -34,8 +34,10 @@ from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
 )
-from torchao.quantization.quant_primitives import (
+from torchao.quantization import (
     safe_int_mm,
+)
+from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
