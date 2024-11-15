@@ -167,8 +167,10 @@ class SAM2ImagePredictor:
             len(img_batch.shape) == 4 and img_batch.shape[1] == 3
         ), f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
         logging.info("Computing image embeddings for the provided images...")
-        backbone_out = self.model.forward_image(img_batch)
-        _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
+        with torch.autograd.profiler.record_function("forward_image"):
+            backbone_out = self.model.forward_image(img_batch)
+        with torch.autograd.profiler.record_function("_prepare_backbone_features"):
+            _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
         # Add no_mem_embed, which is added to the lowest rest feat. map during training on videos
         if self.model.directly_add_no_mem_embed:
             vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed

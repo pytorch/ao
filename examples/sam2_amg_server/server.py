@@ -384,11 +384,15 @@ def main(checkpoint_path,
         for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
             print(f"batch size {batch_size} example shapes {i} benchmark")
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
+            if batch_size > len(random_images):
+                num_repeat = (len(random_images) + batch_size) // batch_size
+                random_images = num_repeat * random_images
 
             if batch_size == 1:
                 [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
             else:
                 random_images = random_images[:batch_size]
+                print("len(random_images): ", len(random_images))
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
