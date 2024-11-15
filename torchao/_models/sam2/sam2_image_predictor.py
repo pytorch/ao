@@ -464,11 +464,11 @@ class SAM2ImagePredictor:
             # Upscale the masks to the original image resolution
             if channel_1:
                 masks = self._transforms.postprocess_masks_1_channel(
-                    low_res_masks, self._orig_hw[img_idx]
+                    low_res_masks, self._orig_hw[img_idx], self._image_dtype
                 )
             else:
                 masks = self._transforms.postprocess_masks(
-                    low_res_masks, self._orig_hw[img_idx]
+                    low_res_masks, self._orig_hw[img_idx], self._image_dtype
                 )
         low_res_masks = torch.clamp(low_res_masks, -32.0, 32.0)
         if not return_logits:
