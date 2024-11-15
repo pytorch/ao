@@ -92,7 +92,7 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
-        from torchao.dtypes.affine_quantized_tensor import (
+        from torchao.dtypes.affine_quantized_tensor_ops import (
             register_aqt_quantized_linear_dispatch,
             deregister_aqt_quantized_linear_dispatch,
         )
