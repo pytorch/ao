@@ -9,6 +9,7 @@ import segment_anything_fast
 import time
 import resource
 
+import torchao
 from torchao.quantization import (
     quantize_,
     int8_dynamic_activation_int8_weight,
