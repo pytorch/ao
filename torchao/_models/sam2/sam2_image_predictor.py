@@ -66,6 +66,7 @@ class SAM2ImagePredictor:
         ]
 
         self._image_dtype = torch.float32
+        self._transforms_device = "cpu"
 
     @classmethod
     def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2ImagePredictor":
@@ -110,10 +111,10 @@ class SAM2ImagePredictor:
             raise NotImplementedError("Image format not supported")
 
         input_image = self._transforms.to_tensor(image)
-        # TODO: Doing these transforms on the GPU changes the numerics
+        # NOTE: Doing these transforms on the GPU changes the numerics
+        input_image = input_image.to(device=self._transforms_device)
         input_image = self._transforms.transforms(input_image)
         input_image = input_image.to(device=self.device)
-        # TODO: Doing this here instead causes masks to not match reference exactly
         # input_image = self._transforms.transforms(input_image)
         input_image = input_image[None, ...].to(dtype=self._image_dtype)
 

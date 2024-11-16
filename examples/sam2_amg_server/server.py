@@ -343,6 +343,7 @@ def main(checkpoint_path,
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
         # NOTE: Not baseline feature
         mask_generator.predictor._image_dtype = torch.float16
+        mask_generator.predictor._transforms_device = mask_generator.predictor.device
         torch.set_float32_matmul_precision('high')
         mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
         # NOTE: Not baseline feature
