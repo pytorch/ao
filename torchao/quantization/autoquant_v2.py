@@ -28,6 +28,8 @@ import copy
 from torch.utils._pytree import tree_map
 import logging
 from torchao.utils import benchmark_model
+from itertools import chain
+import torch.nn.functional as F
 
 logging.basicConfig(level=logging.ERROR)  # Set the root logger level to ERROR
 
@@ -36,8 +38,6 @@ target_folder = '/home/jerryzh/local/tmp/20241104_dynamo_test'
 
 prepare_target_folder(target_folder)
 
-
-import torch.nn.functional as F
 
 __all__ = [
     "AutoQuantizableLinearWeight",
@@ -335,7 +335,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         try:
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **kwargs)
-        except:
+        except Exception:
             print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
@@ -419,16 +419,6 @@ class AQMixin():
         print(f">>time: {res:0.3f}ms for {cls}, to_beat: {best_time:0.3f}ms ")
         return res
 
-    @classmethod
-    def _autoquant_test2(cls, model, fqn, weight):
-        linear_module = model.get_submodule(fqn)
-        # copied from https://github.com/pytorch/pytorch/blob/75eeefbfab3862abe887e1d85a0b1b18c227d9f3/torch/_dynamo/variables/builder.py#L963
-        modified_fqn = re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
-        prev_cls_and_time = check_cache(modified_fqn)
-        if prev_cls_and_time is not None:
-            best_cls, best_time = prev_cls_and_time
-            linear_module.weight = torch.nn.Parameter(best_cls.from_float(weight), requires_grad=False)
-        return res
 
 class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
     """
@@ -784,7 +774,6 @@ def _replace_with_custom_fn_if_matches_filter(
         return model
 
 
-from itertools import chain
 def dict_union(*args):
     return dict(chain.from_iterable(d.items() for d in args))
 

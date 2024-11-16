@@ -76,10 +76,10 @@ def is_first_node_of_dual_linear(gm: torch.fx.GraphModule, n: torch.fx.Node):
     first_user = list(n.users.items())[0][0]
     if first_user.op == 'call_module':
         first_user_mod = getattr(gm, first_user.target)
-        if type(first_user_mod) == torch.nn.Linear:
+        if type(first_user_mod) is torch.nn.Linear:
             return True
     elif first_user.op == 'call_function':
-        if first_user.target == torch._C._nn.linear:
+        if first_user.target is torch._C._nn.linear:
             return True
     return False
 
@@ -561,7 +561,7 @@ def debug_linears_for_float8(
             # check for linear
             module_fqn = n.target
             module_instance = getattr(gm, n.target)
-            if type(module_instance) != torch.nn.Linear:
+            if type(module_instance) is not torch.nn.Linear:
                 continue
 
             if linear_mod_filter_fn is not None and not linear_mod_filter_fn(module_instance):
@@ -572,7 +572,7 @@ def debug_linears_for_float8(
             # so if we are at the second linear then skip debug/extract to avoid duplication
             is_second_linear_of_dual_linear = (
                 n.args[0].op == 'call_module' and
-                type(getattr(gm, n.args[0].target)) == torch.nn.Linear and
+                type(getattr(gm, n.args[0].target)) is torch.nn.Linear and
                 len(n.args[0].users) == 1
             )
             if is_second_linear_of_dual_linear:
@@ -591,7 +591,7 @@ def debug_linears_for_float8(
             # so if we are at the second linear then skip debug/extract to avoid duplication
             is_second_linear_of_dual_linear = (
                 n.args[0].op == 'call_function' and
-                n.args[0].target == torch._C._nn.linear and
+                n.args[0].target is torch._C._nn.linear and
                 len(n.args[0].users) == 1
             )
             if is_second_linear_of_dual_linear:
