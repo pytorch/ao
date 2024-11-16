@@ -149,6 +149,26 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
+def memory_runner(path, fn, *args, **kwargs):
+    print("Start memory recording")
+    torch.cuda.synchronize()
+    torch.cuda.memory._record_memory_history(
+        True,
+        trace_alloc_max_entries=100000,
+        trace_alloc_record_context=True
+    )
+    result = fn(*args, **kwargs)
+    torch.cuda.synchronize()
+    snapshot = torch.cuda.memory._snapshot()
+    print("Finish memory recording")
+    import pickle
+    with open(path, 'wb') as f:
+        pickle.dump(snapshot, f)
+    # Use to convert pickle file into html
+    # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
+    return result
+
+
 def image_tensor_to_masks(example_image, mask_generator):
     masks = mask_generator.generate(example_image)
     return masks
@@ -187,7 +207,7 @@ def process_batch(batch, mask_generator):
         print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    # max_memory_allocated()
+    max_memory_allocated()
     return masks
 
 
@@ -259,6 +279,7 @@ def main(checkpoint_path,
          unittest=False,
          benchmark=False,
          profile=None,
+         memory_profile=None,
          verbose=False,
          points_per_batch=64,
          port=5000,
@@ -305,13 +326,6 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        mask_generator.predictor.model.sam_prompt_encoder.forward = torch.compile(
-            mask_generator.predictor.model.sam_prompt_encoder.forward,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,
             mode="max-autotune",
@@ -329,6 +343,7 @@ def main(checkpoint_path,
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
         # NOTE: Not baseline feature
         mask_generator.predictor._image_dtype = torch.float16
+        mask_generator.predictor._transforms_device = mask_generator.predictor.device
         torch.set_float32_matmul_precision('high')
         mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
         # NOTE: Not baseline feature
@@ -363,11 +378,15 @@ def main(checkpoint_path,
         for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
             print(f"batch size {batch_size} example shapes {i} benchmark")
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
+            if batch_size > len(random_images):
+                num_repeat = (len(random_images) + batch_size) // batch_size
+                random_images = num_repeat * random_images
 
             if batch_size == 1:
                 [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
             else:
                 random_images = random_images[:batch_size]
+                print("len(random_images): ", len(random_images))
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
@@ -376,6 +395,13 @@ def main(checkpoint_path,
             profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
         else:
             profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+
+    if memory_profile is not None:
+        print(f"Saving memory profile under {memory_profile}")
+        if batch_size == 1:
+            memory_runner(memory_profile, image_tensor_to_masks, image_tensor, mask_generator)
+        else:
+            memory_runner(memory_profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return
