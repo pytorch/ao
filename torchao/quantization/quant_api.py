@@ -81,6 +81,7 @@ from .subclass import (
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 from .autoquant_v2 import autoquant_v2
+from .autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,7 @@ def _is_linear(mod, *args):
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
+        and not isinstance(mod.weight, AutoQuantizableLinearWeightV2)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, AffineFakeQuantizedTensor)

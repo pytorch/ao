@@ -49,16 +49,49 @@ __all__ = [
     "OTHER_AUTOQUANT_CLASS_LIST",
 ]
 
+# TODO: use SubgraphMatcher
+def _graph_equals(g1, g2):
+    if len(g1.nodes) != len(g2.nodes):
+        return False
+
+    for n1, n2 in zip(g1.nodes, g2.nodes):
+        if n1.op != n2.op:
+            return False
+
+        if n1.op in ["call_function", "call_method"] and n1.target != n2.target:
+            return False
+
+        if len(n1.args) != len(n2.args):
+            return False
+    return True
 
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
 
-def check_cache(fqn, cls, shapes_and_dtype):
-    return AUTOQUANT_CACHE.get((fqn, cls, shapes_and_dtype), None)
+# This is a flag to control whether we do some rewrite for graph
+# to account for different batch sizes, it's a temporary solution for llama model
+# we'll need to think about how to support this more generally
+LLAMA = False
+USE_GRAPH = True
 
-def update_cache(fqn, shapes_and_dtype, cls, res):
-    AUTOQUANT_CACHE[(fqn, cls, shapes_and_dtype)] = res
+if USE_GRAPH:
+    def check_cache(gm, cls, shapes_and_dtype):
+        for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
+            graph_equals = _graph_equals(gm_.graph, gm.graph)
+            if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
+                return AUTOQUANT_CACHE[(gm_, cls, shapes_and_dtype)]
+        return None
+
+    def update_cache(gm, cls, shapes_and_dtype, res):
+        AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
+
+else:
+    def check_cache(fqn, cls, shapes_and_dtype):
+        return AUTOQUANT_CACHE.get((fqn, cls, shapes_and_dtype), None)
+
+    def update_cache(fqn, cls, shapes_and_dtype, res):
+        AUTOQUANT_CACHE[(fqn, cls, shapes_and_dtype)] = res
 
 # adjust each input's bsz to target_bsz
 # enable grad
@@ -141,35 +174,40 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         #     if check_cache(q_cls, shapes_and_dtype) is None:
         #         update_cache(q_cls, shapes_and_dtype, None)
 
-    def tune_autoquant2(self, fqn, q_cls, shapes_and_dtype, time_for_best_shape):
+    def tune_autoquant2(self, fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape):
         act_shape, w_shape, bias_shape, act_dtype = shapes_and_dtype
 
         with torch.no_grad():
             try:
-                # copied from https://github.com/pytorch/pytorch/blob/75eeefbfab3862abe887e1d85a0b1b18c227d9f3/torch/_dynamo/variables/builder.py#L963
-                modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
-                m, inputs = self.fqn_to_submodule[modified_fqn]
                 m_copy = copy.deepcopy(m)
                 for name, module in m_copy.named_modules():
                     if isinstance(module, torch.nn.Linear):
                         linear_module = module
                 weight = q_cls.from_float(linear_module.weight)
                 linear_module.weight = torch.nn.Parameter(weight, requires_grad=False)
-                extracted_bsz = 256
-                target_bsz = act_shape[0]
-                inputs = tree_map(lambda t: resize_input(t, extracted_bsz, target_bsz), inputs)
-                maybe_adjust_model_bsz(m_copy, extracted_bsz, target_bsz)
+                if LLAMA:
+                    extracted_bsz = 256
+                    target_bsz = act_shape[0]
+                    inputs = tree_map(lambda t: resize_input(t, extracted_bsz, target_bsz), inputs)
+                    maybe_adjust_model_bsz(m_copy, extracted_bsz, target_bsz)
 
                 m_copy = torch.compile(m_copy, mode="max-autotune-no-cudagraphs")
 
-                cur_time = do_autoquant_bench(m_copy, *inputs, warmup=25, rep=100)
+                if isinstance(inputs, (list, tuple)):
+                    cur_time = do_autoquant_bench(m_copy, *inputs, warmup=25, rep=100)
+                else:
+                    cur_time = do_autoquant_bench(m_copy, **inputs, warmup=25, rep=100)
                 print(f">>time: {cur_time:0.3f}ms for {q_cls}, to_beat: {time_for_best_shape}")
                 if cur_time < time_for_best_shape:
-                    update_cache(fqn, shapes_and_dtype, q_cls, cur_time)
+                    if USE_GRAPH:
+                        update_cache(m, q_cls, shapes_and_dtype, cur_time)
+                    else:
+                        update_cache(fqn, q_cls, shapes_and_dtype, cur_time)
                 res = cur_time
+                return res
             except Exception as e:
                 print(f"warning: failed to autoquant {q_cls.__name__} due to {e}")
-                res = torch.inf
+                return None
 
     @torch.no_grad()
     def to_quantized(self, error_on_unseen, **kwargs):
@@ -207,34 +245,61 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             cur_time=0
             total_seen=0
             shape_count = count_shapes(self, do_print=False)
-            for shapes_and_dtype, times_seen in self.logged_data.items():
-                if check_cache(fqn, q_cls, shapes_and_dtype) is None:
-                    # only print shapes once
-                    if print_shape_once == True:
-                        print_shape_once = False
-                        count_shapes(self, do_print=True)
+            if USE_GRAPH:
+                modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
+                m, inputs = self.fqn_to_submodule[modified_fqn]
+                for shapes_and_dtype, times_seen in self.logged_data.items():
+                    if check_cache(m, q_cls, shapes_and_dtype) is None:
+                        # only print shapes once
+                        if print_shape_once == True:
+                            print_shape_once = False
+                            count_shapes(self, do_print=True)
 
-                    time_for_best_shape = check_cache(fqn, q_cls, shapes_and_dtype)
-                    time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
-                    self.tune_autoquant2(fqn, q_cls, shapes_and_dtype, time_for_best_shape)
-                    ran_new_benchmarks=True
-                    torch._dynamo.reset()
-                if check_cache(fqn, q_cls, shapes_and_dtype) is not None:
-                    cur_time += check_cache(fqn, q_cls, shapes_and_dtype) * times_seen
-                    total_seen += times_seen
+                        time_for_best_shape = check_cache(m, q_cls, shapes_and_dtype)
+                        time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
+                        self.tune_autoquant2(fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape)
+                        ran_new_benchmarks=True
+                        torch._dynamo.reset()
+                    if check_cache(m, q_cls, shapes_and_dtype) is not None:
+                        cur_time += check_cache(m, q_cls, shapes_and_dtype) * times_seen
+                        total_seen += times_seen
+            else:
+                for shapes_and_dtype, times_seen in self.logged_data.items():
+                    if check_cache(fqn, q_cls, shapes_and_dtype) is None:
+                        # only print shapes once
+                        if print_shape_once == True:
+                            print_shape_once = False
+                            count_shapes(self, do_print=True)
+
+                        time_for_best_shape = check_cache(fqn, q_cls, shapes_and_dtype)
+                        time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
+                        # copied from https://github.com/pytorch/pytorch/blob/75eeefbfab3862abe887e1d85a0b1b18c227d9f3/torch/_dynamo/variables/builder.py#L963
+                        modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
+                        # print("fqn in fqn to submodule:", modified_fqn in self.fqn_to_submodule, "modified fqn:", modified_fqn, " keys:", self.fqn_to_submodule.keys())
+                        m, inputs = self.fqn_to_submodule[modified_fqn]
+                        self.tune_autoquant2(fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape)
+                        ran_new_benchmarks=True
+                        torch._dynamo.reset()
+                    if check_cache(fqn, q_cls, shapes_and_dtype) is not None:
+                        cur_time += check_cache(fqn, q_cls, shapes_and_dtype) * times_seen
+                        total_seen += times_seen
 
             if total_seen != 0:
                 cur_time = cur_time / total_seen
-            # print aggregated time if there were multiple shapes to aggregate and some new benchmarking was done
-            if shape_count is not None and shape_count > 1 and ran_new_benchmarks:
-                print(f">time (all shapes): {cur_time:0.4f}ms for {q_cls}, prev_best: {best_time:0.4f}ms")
-            if best_time >= cur_time:
-                best_time = cur_time
-                best_cls = q_cls
+
+                # print aggregated time if there were multiple shapes to aggregate and some new benchmarking was done
+                if shape_count is not None and shape_count > 1 and ran_new_benchmarks:
+                    print(f">time (all shapes): {cur_time:0.4f}ms for {q_cls}, prev_best: {best_time:0.4f}ms")
+                if best_time >= cur_time:
+                    best_time = cur_time
+                    best_cls = q_cls
         # if no new benchmarking was done, don't print the final result, it will be the same as for another layer
         if ran_new_benchmarks:
             print(f"best_cls={best_cls}\n")
         # TODO handle random cls args/kwargs? or should they be curried?
+        if best_cls is None:
+            best_cls = AQFloatLinearWeight
+
         self = best_cls.from_float(self.weight)
         return self
 
@@ -858,15 +923,23 @@ def autoquant_v2(
     assert example_input is not None
 
     torch._dynamo.reset()
+    # TODO: explore using node.meta to retrieve the subgraph and fqn information
     # disable nn module inlining, our subgraph extraction logic depends on this
     torch._dynamo.config.inline_inbuilt_nn_modules = False
     torch._inductor.config.pre_grad_custom_pass = lambda g: debug_linears_for_float8(g, target_folder)
     model = torch.compile(model)
-    model(*example_input)
+    if isinstance(example_input, torch.Tensor):
+        example_input = [example_input]
+    if isinstance(example_input, (list, tuple)):
+        model(*example_input)
+    elif isinstance(example_input, dict):
+        model(**example_input)
+    else:
+        raise Exception("Unexpected example_input:", example_input)
 
     # verify debug logs and summary got saved
-    assert os.path.isfile(os.path.join(target_folder, 'debug_logs_0.txt'))
-    assert os.path.isfile(os.path.join(target_folder, 'summary_0.csv'))
+    assert os.path.isfile(os.path.join(target_folder, 'debug_logs_0.txt')), "No debug log saved, autoquant_v2 can't work for this model right now"
+    assert os.path.isfile(os.path.join(target_folder, 'summary_0.csv')), "No debug log saved, autoquant_v2 can't work for this model right now"
 
     # first, find how many torch.compile'd regions we have
     extraction_idxs = []
@@ -900,9 +973,13 @@ def autoquant_v2(
             m = m.to(torch.bfloat16)
             inputs = tree_map(lambda x: x.to(torch.bfloat16), inputs)
 
+            m = m.to(torch.bfloat16)
+            inputs = tree_map(lambda x: x.to(torch.bfloat16), inputs)
+
             fqn_to_submodule[fqn] = m, inputs
 
     model = model._orig_mod
+    # print("model:", model)
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight
     _change_linears_to_autoquantizable(
@@ -963,10 +1040,13 @@ def autoquant_v2(
 
     real_model.finalize_autoquant = finalize_autoquant
 
+    print("running example input")
     # if example input was provided, check it and run it
     if isinstance(example_input, torch.Tensor):
         example_input = [example_input]
     if isinstance(example_input, (tuple, list)):
         model(*example_input)
+    elif isinstance(example_input, dict):
+        model(**example_input)
 
     return model

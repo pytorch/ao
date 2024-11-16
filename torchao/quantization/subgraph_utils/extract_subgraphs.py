@@ -537,7 +537,6 @@ def debug_linears_for_float8(
 
     Format of subgraph_with_inputs_0_0.pt: Tuple[nn.Module, Tuple[torch.tensor]]
     """
-
     global DEBUG_LINEARS_CALL_COUNTER
     debug_logs_filename = os.path.join(target_folder, f'debug_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt')
     skip_logs_filename = os.path.join(target_folder, f'skip_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt')

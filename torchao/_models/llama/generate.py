@@ -224,11 +224,11 @@ def main(
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
-        if "int8wo" in quantization:
+        elif "int8wo" in quantization:
             quantize_(model, int8_weight_only())
-        if "int8dq" in quantization:
+        elif "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
-        if "int4wo" in quantization:
+        elif "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
             else:
@@ -253,9 +253,9 @@ def main(
                 quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
-        if "embed-int8wo" in quantization:
+        elif "embed-int8wo" in quantization:
             quantize_(model, int8_weight_only(group_size=64), filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding))
-        if quantization.startswith("awq"):
+        elif quantization.startswith("awq"):
             from torchao._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
             from torchao.prototype.awq.example import get_calib_dataset
@@ -282,7 +282,7 @@ def main(
             is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
             use_hqq = "hqq" in quantization
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, use_hqq=use_hqq), is_observed_linear)
-        if "uintx" in quantization:
+        elif "uintx" in quantization:
             # uintx-nbits-group_size, e.g. "uintx-2-64"
             if "hqq" in quantization:
                 # uintx-nbits-group_size-hqq
@@ -296,9 +296,9 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
-        if "float8wo" in quantization:
+        elif "float8wo" in quantization:
             quantize_(model, float8_weight_only())
-        if "float8dq" in quantization:
+        elif "float8dq" in quantization:
             granularity = str(quantization.split("-")[-1])
             if granularity=="tensor":
                 granularity = PerTensor()
@@ -307,7 +307,7 @@ def main(
             else:
                 granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
-        if "autoquant_v2" in quantization:
+        elif "autoquant_v2" in quantization:
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
@@ -335,6 +335,7 @@ def main(
             else:
                 model = autoquant_v2(model, manual=True, example_input=inputs)
 
+            print("running generate")
             generate(
                 model,
                 encode_tokens(tokenizer, prompt, bos=True, device=device),
@@ -345,9 +346,10 @@ def main(
                 top_k=top_k,
             )
 
+            print("running finalize autoquant")
             # do autoquantization
             model.finalize_autoquant()
-        if "autoquant" in quantization:
+        elif "autoquant" in quantization:
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
