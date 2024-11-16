@@ -1,8 +1,7 @@
 import csv
 import os
-from typing import List, Any, Optional, Callable
+from typing import Optional, Callable
 import traceback
-import sys
 
 import torch
 import torch.nn.functional as F
@@ -98,7 +97,7 @@ def debug_single_linear(
             f.write(s + '\n')
 
     printme(f'\ndebugging linear {linear_node.target} {subgraph_idx}')
-    printme(f'\ndebugging details\n')
+    printme('\ndebugging details\n')
 
     prev_input_shape = None
     prev_node_type = None
@@ -231,7 +230,7 @@ def extract_linear_subgraph(
             old_2nd_linear_node = list(old_linear_node.users.items())[0][0]
             weight2_val = get_meta_val(old_2nd_linear_node.args[1])
             # TODO handle no bias and kwargs
-            bias2_val = get_meta_val(old_2nd_linear_node.args[2])
+            get_meta_val(old_2nd_linear_node.args[2])
 
             old_shape2 = weight2_val.shape
             new_shape2 = old_shape2[1], old_shape2[0]
@@ -434,9 +433,9 @@ def extract_linear_subgraph(
         # print(f'cur_output_node: {cur_output_node.format_node()}')
 
         if len(new_output_nodes) == 1:
-            new_output_node = new_g.output(new_output_nodes[0])
+            new_g.output(new_output_nodes[0])
         else:
-            new_output_node = new_g.output(tuple(new_output_nodes))
+            new_g.output(tuple(new_output_nodes))
         # print(f'new_output_node: {cur_output_node.format_node()}')
         new_g.erase_node(cur_output_node)
         new_gm.recompile()
@@ -464,7 +463,7 @@ def extract_linear_subgraph(
     torch.save((new_gm, test_inputs), subgraph_save_filename)
 
     # test fwd
-    test_output = new_gm(*test_inputs)
+    new_gm(*test_inputs)
 
     # Note: cannot verify runnable after save/load here, because loading
     # from disk in this file seems to try to use device meta as we are inside
@@ -545,7 +544,6 @@ def debug_linears_for_float8(
 
     gm = g.owning_module
     assert gm is not None, 'unsupported, gm needs to be specified'
-    printme = graph_tabular_log.debug
     graph_tabular_log.debug("\nstarting linear debug\n")
 
     def log_skip_linear(n, mod, reason):
@@ -554,7 +552,7 @@ def debug_linears_for_float8(
         print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'node.meta: {get_meta_val(n)}')
         print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'node.stack: {get_stack_summary(n)}')
         print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'mod: {mod}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'\n')
+        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, '\n')
 
     subgraph_idx = 0
     module_fqn = None

@@ -1,4 +1,3 @@
-from typing import Callable
 import torch
 import torchao
 from torchao.quantization.quant_primitives import (
@@ -14,7 +13,6 @@ from torchao.dtypes import AffineQuantizedTensor, PlainLayout, TensorCoreTiledLa
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .granularity import (
-    PerAxis,
     PerRow,
     PerTensor,
 )
@@ -251,7 +249,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                 for shapes_and_dtype, times_seen in self.logged_data.items():
                     if check_cache(m, q_cls, shapes_and_dtype) is None:
                         # only print shapes once
-                        if print_shape_once == True:
+                        if print_shape_once is True:
                             print_shape_once = False
                             count_shapes(self, do_print=True)
 
@@ -267,7 +265,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                 for shapes_and_dtype, times_seen in self.logged_data.items():
                     if check_cache(fqn, q_cls, shapes_and_dtype) is None:
                         # only print shapes once
-                        if print_shape_once == True:
+                        if print_shape_once is True:
                             print_shape_once = False
                             count_shapes(self, do_print=True)
 
@@ -724,7 +722,6 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearAc
                     _layout=_layout,
                     scale_dtype=torch.float32,
         )
-        from torchao.float8.inference import _is_rowwise_scaled
         weight = super(AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
 
