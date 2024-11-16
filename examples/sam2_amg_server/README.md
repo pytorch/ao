@@ -27,8 +27,8 @@ Experiments run on H100 and with batch size 1
 |              ao | 0.9999980926513672 |   6                 | 586                 |                       |  1         |   64             |
 |            fast | 0.9937329888343811 | 191                 | 333                 |                       |  1         | 1024             |
 |            fast | 0.9937219619750977 | 192                 | 324                 |                       | 16         | 1024             |
-|  fast + furious | 0.9804400205612183 | 292                 | 131                 |                       |  1         | 1024             |
-|  fast + furious | 0.9806423187255859 | 282                 | 130                 |                       | 16         | 1024             |
+|  fast + furious | 0.9817246198654175 | 266                 | 120                 | 13616MiB (13%)        |  1         | 1024             |
+|  fast + furious | 0.9794579744338989 | 274                 | 122                 | 13808MiB (14%)        | 16         | 1024             |
 
 mask count mismatch counts the number of requests where the number of masks differ from the baseline.
 For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
