@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Benchmarks
 Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
-
+### CUDA backend
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-2-7B  | Base (bfloat16)         | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
@@ -20,6 +20,12 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+### XPU backend(Intel MAX 1100)
+| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)         | 12.212              |  42.20       | 557.71                 | 13.89            | 13.21           |
+|             | int8dq                  | 12.262              |    9.87       |   65.35                 |  14.60            |  6.62           |
+|             | int8wo                  | 12.204              |  66.24       | 438.61                 |  14.60            |  6.62
 
 Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
