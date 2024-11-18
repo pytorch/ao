@@ -30,6 +30,8 @@ if TORCH_VERSION_AT_LEAST_2_3:
     qdtypes = (torch.uint4, torch.uint7)
 else:
     qdtypes = ()
+
+torch.serialization.add_safe_globals([ToyLinearModel])
     
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
