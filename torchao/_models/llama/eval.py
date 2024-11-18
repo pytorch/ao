@@ -22,7 +22,6 @@ from torchao.quantization.quant_api import (
     unwrap_tensor_subclass,
     float8_weight_only,
     float8_dynamic_activation_float8_weight,
-    float8_static_activation_float8_weight,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from torchao._models.llama.model import prepare_inputs_for_model
