@@ -23,12 +23,14 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 ### XPU backend(Intel MAX 1100)
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)         | 12.212              |  42.20       | 557.71                 | 13.89            | 13.21           |
-|             | int8dq                  | 12.262              |    9.87       |   65.35                 |  14.60            |  6.62           |
-|             | int8wo                  | 12.204              |  66.24       | 438.61                 |  14.60            |  6.62
+| Llama-2-7B  | Base (bfloat16)         | NA              |  42.20       | 557.71                 | 13.89            | 13.21           |
+|             | int8dq                  | NA              |    9.87       |   65.35                 |  14.60            |  6.62           |
+|             | int8wo                  | NA              |  66.24       | 438.61                 |  14.60            |  6.62
+
 
 Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
+### CUDA backend
 | Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3.1-8B  | Base (bfloat16)         |  7.54               |  126.90       | 1904.75                 | 16.75            | 15.01           |
@@ -37,7 +39,12 @@ Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a ma
 |               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
 |               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
 |               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
-
+### XPU backend(Intel MAX 1100)
+| Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3-8.1B  | Base (bfloat16)         |  NA              |   40.36       | 605.77                 | 16.35            | 15.01           |
+|             | int8dq                  |  NA              |    13.60       |   102.28                 |  18.69            |  7.52           |
+|             | int8wo                  |  NA              |  59.49       | 447.27                 | 18.60            |  7.52
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
 For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores

@@ -27,7 +27,7 @@ def device_sync(device):
     else:
         print(f"device={device} is not yet suppported")
 
-default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+default_device = 'cuda' if torch.cuda.is_available() else 'xpu' if torch.xpu.is_available() else 'cpu'
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
