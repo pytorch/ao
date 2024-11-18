@@ -12,7 +12,14 @@ graph_tabular_log = torch._logging.getArtifactLogger(__name__, "graph")
 # TODO(future): might be nice to have input shapes here, but needs a refactor since
 # they are easiest to get from the subgraph extraction function, but currently summary
 # is generated from the subgraph debug function.
-summary_headers = ['extraction_idx', 'orig_node_name', 'subgraph_idx', 'lin1_shape', 'lin2_shape', 'subgraph_summary']
+summary_headers = [
+    "extraction_idx",
+    "orig_node_name",
+    "subgraph_idx",
+    "lin1_shape",
+    "lin2_shape",
+    "subgraph_summary",
+]
 
 
 # A model can have multiple regions torch.compile'd separately. Because we currently
@@ -33,7 +40,7 @@ def maybe_short_name(torch_fn):
 
       'torch.cat'
     """
-    if hasattr(torch_fn, '__name__'):
+    if hasattr(torch_fn, "__name__"):
         # torch.cat -> cat
         if hasattr(torch, torch_fn.__name__):
             if getattr(torch, torch_fn.__name__) == torch_fn:
@@ -46,22 +53,26 @@ def maybe_short_name(torch_fn):
 
         # builtin function mul
         # note: there is definitely a more generic way to do this
-        if torch_fn.__name__ == 'mul':
-            return 'mul'
-        if torch_fn.__name__ == 'add':
-            return 'add'
+        if torch_fn.__name__ == "mul":
+            return "mul"
+        if torch_fn.__name__ == "add":
+            return "add"
 
         # activation modules
         # note: there is definitely a more generic way to do this
-        if 'torch.nn.modules.activation' in str(torch_fn):
+        if "torch.nn.modules.activation" in str(torch_fn):
             return torch_fn.__name__
 
     return torch_fn
 
+
 def get_meta_val(n: torch.fx.Node):
     # from https://fburl.com/code/hcwdl994
-    meta_val = n.meta.get('val', n.meta.get('tensor_meta', n.meta.get('example_value', None)))
+    meta_val = n.meta.get(
+        "val", n.meta.get("tensor_meta", n.meta.get("example_value", None))
+    )
     return meta_val
+
 
 def get_stack_summary(n: torch.fx.Node):
     # from https://fburl.com/code/yify7y7f
@@ -71,16 +82,18 @@ def get_stack_summary(n: torch.fx.Node):
         return summary
     return None
 
+
 def is_first_node_of_dual_linear(gm: torch.fx.GraphModule, n: torch.fx.Node):
     first_user = list(n.users.items())[0][0]
-    if first_user.op == 'call_module':
+    if first_user.op == "call_module":
         first_user_mod = getattr(gm, first_user.target)
         if type(first_user_mod) is torch.nn.Linear:
             return True
-    elif first_user.op == 'call_function':
+    elif first_user.op == "call_function":
         if first_user.target is torch._C._nn.linear:
             return True
     return False
+
 
 def debug_single_linear(
     gm: torch.fx.GraphModule,
@@ -92,11 +105,11 @@ def debug_single_linear(
     def printme(s):
         # write both to stdout and log file
         # print(s)
-        with open(debug_logs_filename, 'a') as f:
-            f.write(s + '\n')
+        with open(debug_logs_filename, "a") as f:
+            f.write(s + "\n")
 
-    printme(f'\ndebugging linear {linear_node.target} {subgraph_idx}')
-    printme('\ndebugging details\n')
+    printme(f"\ndebugging linear {linear_node.target} {subgraph_idx}")
+    printme("\ndebugging details\n")
 
     prev_input_shape = None
     prev_node_type = None
@@ -111,29 +124,29 @@ def debug_single_linear(
 
     # look at the preceding activation
     for prev_n in linear_node.all_input_nodes:
-        if prev_n.op == 'placeholder':
+        if prev_n.op == "placeholder":
             continue
         # to get the shape of the input, we need to look at the previous node
         for prev_prev_n in prev_n.all_input_nodes:
             prev_prev_meta = get_meta_val(prev_prev_n)
             if isinstance(prev_prev_meta, tuple):
-                prev_input_shape = ','.join(str(x.shape) for x in prev_prev_meta)
+                prev_input_shape = ",".join(str(x.shape) for x in prev_prev_meta)
             else:
                 prev_input_shape = prev_prev_meta.shape
-            printme(f'prev input shape: {prev_input_shape}')
-        printme(f'prev node: {prev_n.format_node()}')
-        printme(f'prev stack_summary: {get_stack_summary(prev_n)}')
-        if prev_n.op == 'call_module':
+            printme(f"prev input shape: {prev_input_shape}")
+        printme(f"prev node: {prev_n.format_node()}")
+        printme(f"prev stack_summary: {get_stack_summary(prev_n)}")
+        if prev_n.op == "call_module":
             mod = getattr(gm, prev_n.target)
             prev_node_type = type(mod)
-            printme(f'prev mod: {mod}')
+            printme(f"prev mod: {mod}")
         else:
             prev_node_type = prev_n.target
 
     # print info about current linear
-    printme(f'cur_linear node: {linear_node.format_node()}')
-    printme(f'cur_linear mod: {linear_mod}')
-    printme(f'cur_linear stack_summary: {get_stack_summary(linear_node)}')
+    printme(f"cur_linear node: {linear_node.format_node()}")
+    printme(f"cur_linear mod: {linear_mod}")
+    printme(f"cur_linear stack_summary: {get_stack_summary(linear_node)}")
 
     # if there is a dual linear, print that too
     linear_node_to_use = linear_node
@@ -150,37 +163,37 @@ def debug_single_linear(
             weight_shape = get_meta_val(cur_linear_2_weight).shape
             cur_linear_2_size = weight_shape[1], weight_shape[0]
 
-        printme(f'cur_linear 2 node: {linear_node_2.format_node()}')
-        printme(f'cur_linear 2 mod: {linear_mod_2}')
-        printme(f'cur_linear 2 stack_summary: {get_stack_summary(linear_node_2)}')
+        printme(f"cur_linear 2 node: {linear_node_2.format_node()}")
+        printme(f"cur_linear 2 mod: {linear_mod_2}")
+        printme(f"cur_linear 2 stack_summary: {get_stack_summary(linear_node_2)}")
         linear_node_to_use = linear_node_2
 
     # look at the subsequent ops
     # note: sometimes this is a view, so might need to look farther
-    printme(f'num users: {len(linear_node_to_use.users)}')
+    printme(f"num users: {len(linear_node_to_use.users)}")
     for next_n, _ in linear_node_to_use.users.items():
         for next_n_input in next_n.all_input_nodes:
-            printme(f'next input shape: {get_meta_val(next_n_input).shape}')
-        printme(f'next node: {next_n.format_node()}')
-        printme(f'next stack_summary: {get_stack_summary(next_n)}')
-        if next_n.op == 'call_module':
+            printme(f"next input shape: {get_meta_val(next_n_input).shape}")
+        printme(f"next node: {next_n.format_node()}")
+        printme(f"next stack_summary: {get_stack_summary(next_n)}")
+        if next_n.op == "call_module":
             mod = getattr(gm, next_n.target)
-            printme(f'next mod: {mod}')
+            printme(f"next mod: {mod}")
             next_node_types.append(type(mod))
         else:
             next_node_types.append(next_n.target)
 
-    printme('\ndebugging summary\n')
+    printme("\ndebugging summary\n")
     if not dual_linear:
-        linear_shape_str = f'{cur_linear_size}'
-        linear_str = 'Linear'
+        linear_shape_str = f"{cur_linear_size}"
+        linear_str = "Linear"
     else:
-        linear_shape_str = f'{cur_linear_size} {cur_linear_2_size}'
-        linear_str = 'Linear -> Linear'
-    printme(f'input_shape {prev_input_shape}, (K, N) {linear_shape_str}')
-    subgraph_summary = f'{maybe_short_name(prev_node_type)} -> {linear_str} -> {[maybe_short_name(t) for t in next_node_types]}'
+        linear_shape_str = f"{cur_linear_size} {cur_linear_2_size}"
+        linear_str = "Linear -> Linear"
+    printme(f"input_shape {prev_input_shape}, (K, N) {linear_shape_str}")
+    subgraph_summary = f"{maybe_short_name(prev_node_type)} -> {linear_str} -> {[maybe_short_name(t) for t in next_node_types]}"
     printme(subgraph_summary)
-    printme('\n')
+    printme("\n")
 
     summary_result = [
         DEBUG_LINEARS_CALL_COUNTER,  # extraction_idx
@@ -238,7 +251,6 @@ def extract_linear_subgraph(
                 torch.nn.Linear(*new_shape2, dtype=weight2_val.dtype),
             ).cuda()
 
-
     new_gm = torch.fx.symbolic_trace(new_m)
     new_g = new_gm.graph
     new_linear_node = list(new_gm.graph.nodes)[1]
@@ -257,6 +269,7 @@ def extract_linear_subgraph(
 
     # add the node inputs as placeholders, and copy the non-node inputs as is
     prev_old_arg_to_new_arg = {}
+
     def prev_node_map_arg(old_arg):
         if isinstance(old_arg, torch.fx.Node):
             if old_arg in prev_old_arg_to_new_arg:
@@ -272,35 +285,39 @@ def extract_linear_subgraph(
 
     old_prev_node = old_linear_node.all_input_nodes[0]
 
-    if old_prev_node.op == 'call_module':
+    if old_prev_node.op == "call_module":
         prev_mod = getattr(old_gm, old_prev_node.target)
-        new_name = 'prev_mod'
+        new_name = "prev_mod"
         setattr(new_gm, new_name, prev_mod)
         new_args = tree_map(prev_node_map_arg, old_prev_node.args)
         new_kwargs = tree_map(prev_node_map_arg, old_prev_node.kwargs)
         with new_g.inserting_before(new_linear_node):
             new_prev_node = new_g.call_module(new_name, new_args, new_kwargs)
 
-    elif old_prev_node.op == 'call_function':
+    elif old_prev_node.op == "call_function":
         new_args = tree_map(prev_node_map_arg, old_prev_node.args)
         new_kwargs = tree_map(prev_node_map_arg, old_prev_node.kwargs)
         with new_g.inserting_before(new_linear_node):
-            new_prev_node = new_g.call_function(old_prev_node.target, new_args, new_kwargs)
+            new_prev_node = new_g.call_function(
+                old_prev_node.target, new_args, new_kwargs
+            )
 
-    elif old_prev_node.op == 'call_method':
+    elif old_prev_node.op == "call_method":
         new_args = tree_map(prev_node_map_arg, old_prev_node.args)
         new_kwargs = tree_map(prev_node_map_arg, old_prev_node.kwargs)
         with new_g.inserting_before(new_linear_node):
-            new_prev_node = new_g.call_method(old_prev_node.target, new_args, new_kwargs)
+            new_prev_node = new_g.call_method(
+                old_prev_node.target, new_args, new_kwargs
+            )
 
-    elif old_prev_node.op == 'placeholder':
+    elif old_prev_node.op == "placeholder":
         new_prev_node = new_linear_node.args[0]
 
     else:
-        raise AssertionError(f'old_prev_node.op: {old_prev_node.op} is unsupported')
+        raise AssertionError(f"old_prev_node.op: {old_prev_node.op} is unsupported")
 
     # only erase placeholder if there is a previous op
-    if old_prev_node.op != 'placeholder':
+    if old_prev_node.op != "placeholder":
         prev_placeholder = new_linear_node.args[0]
         new_linear_node.args = (new_prev_node, *new_linear_node.args[1:])
         new_g.erase_node(prev_placeholder)
@@ -323,16 +340,18 @@ def extract_linear_subgraph(
     first_new_linear_node = new_linear_node
 
     if is_first_node_of_dual_linear(old_gm, old_linear_node):
-        print('DUAL LINEAR')
+        print("DUAL LINEAR")
         if old_linear_mod is not None:
             old_first_user = list(old_linear_node.users.items())[0][0]
             old_first_user_mod = getattr(old_gm, old_first_user.target)
-            dual_linear_name = '1'
+            dual_linear_name = "1"
             setattr(new_gm, dual_linear_name, old_first_user_mod)
             new_args, new_kwargs = (new_linear_node,), {}
 
             with new_g.inserting_after(new_linear_node):
-                new_dual_linear_node = new_g.call_module(dual_linear_name, new_args, new_kwargs)
+                new_dual_linear_node = new_g.call_module(
+                    dual_linear_name, new_args, new_kwargs
+                )
             new_dual_linear_node.meta = old_first_user.meta
 
             # make the following code treat the second linear as the root
@@ -343,7 +362,6 @@ def extract_linear_subgraph(
             old_first_user = list(old_linear_node.users.items())[0][0]
             new_linear_node = list(new_linear_node.users.items())[0][0]
             old_linear_node = old_first_user
-
 
     #
     # step 3: add the subsequent nodes (can be multiple users)
@@ -387,14 +405,14 @@ def extract_linear_subgraph(
 
     next_node_is_output = False
     for counter, (old_next_n, _) in enumerate(old_linear_node.users.items()):
-        if old_next_n.op == 'output':
+        if old_next_n.op == "output":
             # nothing to do
             next_node_is_output = True
             break
 
         new_args = tree_map(next_node_map_arg, old_next_n.args)
         new_kwargs = tree_map(next_node_map_arg, old_next_n.kwargs)
-        if old_next_n.op == 'call_function':
+        if old_next_n.op == "call_function":
             with new_g.inserting_after(new_last_node):
                 new_next_n = new_g.call_function(
                     old_next_n.target,
@@ -403,7 +421,7 @@ def extract_linear_subgraph(
                 )
             new_output_nodes.append(new_next_n)
             new_last_node = new_next_n
-        elif old_next_n.op == 'call_method':
+        elif old_next_n.op == "call_method":
             with new_g.inserting_after(new_last_node):
                 new_next_n = new_g.call_method(
                     old_next_n.target,
@@ -412,16 +430,16 @@ def extract_linear_subgraph(
                 )
             new_output_nodes.append(new_next_n)
             new_last_node = new_next_n
-        elif old_next_n.op == 'call_module':
+        elif old_next_n.op == "call_module":
             prev_mod = getattr(old_gm, old_next_n.target)
-            new_name = f'next_mod_{counter}'
+            new_name = f"next_mod_{counter}"
             setattr(new_gm, new_name, prev_mod)
             with new_g.inserting_after(new_last_node):
                 new_next_n = new_g.call_module(new_name, new_args, new_kwargs)
             new_output_nodes.append(new_next_n)
             new_last_node = new_next_n
         else:
-            assert False, f'unsupported old_next_n.op, {old_next_n.op}'
+            assert False, f"unsupported old_next_n.op, {old_next_n.op}"
         new_next_n.meta = old_next_n.meta
         new_gm.recompile()
         # print(f'after adding next_node, {new_gm}')
@@ -442,20 +460,23 @@ def extract_linear_subgraph(
 
     # ensure every node has metas
     for n in new_g.nodes:
-        if n.op == 'output':
+        if n.op == "output":
             continue
-        assert n.meta is not None and n.meta != {}, f'{n}.meta is {n.meta}!'
+        assert n.meta is not None and n.meta != {}, f"{n}.meta is {n.meta}!"
 
     test_inputs = []
     for node in new_g.nodes:
-        if node.op != 'placeholder':
+        if node.op != "placeholder":
             continue
         meta = get_meta_val(node)
         new_inputs = None
         if isinstance(meta, tuple):
-            new_inputs = tuple(torch.randn(*inner_meta.shape, dtype=inner_meta.dtype, device='cuda') for inner_meta in meta)
+            new_inputs = tuple(
+                torch.randn(*inner_meta.shape, dtype=inner_meta.dtype, device="cuda")
+                for inner_meta in meta
+            )
         else:
-            new_inputs = torch.randn(*meta.shape, dtype=meta.dtype, device='cuda')
+            new_inputs = torch.randn(*meta.shape, dtype=meta.dtype, device="cuda")
         test_inputs.append(new_inputs)
 
     # save subgraph and inputs
@@ -468,10 +489,11 @@ def extract_linear_subgraph(
     # from disk in this file seems to try to use device meta as we are inside
     # of dynamo tracing. Need to load from a separate process to properly test.
 
+
 def print_and_append_to_logs(logger, filename, s):
     logger.debug(s)
-    with open(filename, 'a') as f:
-        f.write(s + '\n')
+    with open(filename, "a") as f:
+        f.write(s + "\n")
 
 
 def prepare_target_folder(target_folder: str):
@@ -482,8 +504,14 @@ def prepare_target_folder(target_folder: str):
     # ensure target folder only has file extensions we could have written
     for root, dirs, files in os.walk(target_folder):
         for file in files:
-            if not (file.endswith('.txt') or file.endswith('.pt') or file.endswith('.swp') or file.endswith('.csv') or file.endswith('.json')):
-                raise AssertionError(f'unknown file in target_dir: {file}')
+            if not (
+                file.endswith(".txt")
+                or file.endswith(".pt")
+                or file.endswith(".swp")
+                or file.endswith(".csv")
+                or file.endswith(".json")
+            ):
+                raise AssertionError(f"unknown file in target_dir: {file}")
 
     # delete any existing files from previous run for this target_folder
     for root, dirs, files in os.walk(target_folder):
@@ -536,65 +564,81 @@ def debug_linears_for_float8(
     Format of subgraph_with_inputs_0_0.pt: Tuple[nn.Module, Tuple[torch.tensor]]
     """
     global DEBUG_LINEARS_CALL_COUNTER
-    debug_logs_filename = os.path.join(target_folder, f'debug_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt')
-    skip_logs_filename = os.path.join(target_folder, f'skip_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt')
-    summary_filename = os.path.join(target_folder, f'summary_{DEBUG_LINEARS_CALL_COUNTER}.csv')
+    debug_logs_filename = os.path.join(
+        target_folder, f"debug_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt"
+    )
+    skip_logs_filename = os.path.join(
+        target_folder, f"skip_logs_{DEBUG_LINEARS_CALL_COUNTER}.txt"
+    )
+    summary_filename = os.path.join(
+        target_folder, f"summary_{DEBUG_LINEARS_CALL_COUNTER}.csv"
+    )
     summary_results = [summary_headers]
 
     gm = g.owning_module
-    assert gm is not None, 'unsupported, gm needs to be specified'
+    assert gm is not None, "unsupported, gm needs to be specified"
     graph_tabular_log.debug("\nstarting linear debug\n")
 
     def log_skip_linear(n, mod, reason):
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'SKIP: {reason}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'node: {n.format_node()}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'node.meta: {get_meta_val(n)}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'node.stack: {get_stack_summary(n)}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f'mod: {mod}')
-        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, '\n')
+        print_and_append_to_logs(
+            graph_tabular_log, skip_logs_filename, f"SKIP: {reason}"
+        )
+        print_and_append_to_logs(
+            graph_tabular_log, skip_logs_filename, f"node: {n.format_node()}"
+        )
+        print_and_append_to_logs(
+            graph_tabular_log, skip_logs_filename, f"node.meta: {get_meta_val(n)}"
+        )
+        print_and_append_to_logs(
+            graph_tabular_log, skip_logs_filename, f"node.stack: {get_stack_summary(n)}"
+        )
+        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, f"mod: {mod}")
+        print_and_append_to_logs(graph_tabular_log, skip_logs_filename, "\n")
 
     subgraph_idx = 0
     module_fqn = None
     for n in gm.graph.nodes:
-        if n.op == 'call_module':
+        if n.op == "call_module":
             # check for linear
             module_fqn = n.target
             module_instance = getattr(gm, n.target)
             if type(module_instance) is not torch.nn.Linear:
                 continue
 
-            if linear_mod_filter_fn is not None and not linear_mod_filter_fn(module_instance):
-                log_skip_linear(n, module_instance, 'failed filter function')
+            if linear_mod_filter_fn is not None and not linear_mod_filter_fn(
+                module_instance
+            ):
+                log_skip_linear(n, module_instance, "failed filter function")
                 continue
 
             # Note: we special case for linear -> linear,
             # so if we are at the second linear then skip debug/extract to avoid duplication
             is_second_linear_of_dual_linear = (
-                n.args[0].op == 'call_module' and
-                type(getattr(gm, n.args[0].target)) is torch.nn.Linear and
-                len(n.args[0].users) == 1
+                n.args[0].op == "call_module"
+                and type(getattr(gm, n.args[0].target)) is torch.nn.Linear
+                and len(n.args[0].users) == 1
             )
             if is_second_linear_of_dual_linear:
-                log_skip_linear(n, module_instance, 'second of dual linear')
+                log_skip_linear(n, module_instance, "second of dual linear")
                 continue
 
-        elif n.op == 'call_function':
+        elif n.op == "call_function":
             if n.target != torch._C._nn.linear:
                 continue
 
             if linear_node_filter_fn is not None and not linear_node_filter_fn(n):
-                log_skip_linear(n, None, 'failed filter function')
+                log_skip_linear(n, None, "failed filter function")
                 continue
 
             # Note: we special case for linear -> linear,
             # so if we are at the second linear then skip debug/extract to avoid duplication
             is_second_linear_of_dual_linear = (
-                n.args[0].op == 'call_function' and
-                n.args[0].target is torch._C._nn.linear and
-                len(n.args[0].users) == 1
+                n.args[0].op == "call_function"
+                and n.args[0].target is torch._C._nn.linear
+                and len(n.args[0].users) == 1
             )
             if is_second_linear_of_dual_linear:
-                log_skip_linear(n, module_instance, 'second of dual linear')
+                log_skip_linear(n, module_instance, "second of dual linear")
                 continue
 
             module_instance = None
@@ -604,23 +648,31 @@ def debug_linears_for_float8(
 
         # for now, the case where the linear's input is a graph input is not supported
         if False:
-            is_input_placeholder = n.args[0].op == 'placeholder'
+            is_input_placeholder = n.args[0].op == "placeholder"
             if is_input_placeholder:
-                log_skip_linear(n, module_instance, 'input is placeholder')
+                log_skip_linear(n, module_instance, "input is placeholder")
                 continue
 
         try:
-            summary_result = debug_single_linear(gm, n, module_instance, debug_logs_filename, subgraph_idx)
+            summary_result = debug_single_linear(
+                gm, n, module_instance, debug_logs_filename, subgraph_idx
+            )
             subgraph_save_filename = os.path.join(
-                target_folder, f'subgraph_with_inputs_{DEBUG_LINEARS_CALL_COUNTER}_{subgraph_idx}.pt')
+                target_folder,
+                f"subgraph_with_inputs_{DEBUG_LINEARS_CALL_COUNTER}_{subgraph_idx}.pt",
+            )
             extract_linear_subgraph(gm, n, module_instance, subgraph_save_filename)
             summary_results.append(summary_result + [module_fqn])
         except Exception as e:
             print(e)
-            log_skip_linear(n, module_instance, f"{subgraph_idx}, {str(e)}, {traceback.format_exc()}")
+            log_skip_linear(
+                n,
+                module_instance,
+                f"{subgraph_idx}, {str(e)}, {traceback.format_exc()}",
+            )
         subgraph_idx += 1
 
-    with open(summary_filename, 'w') as f:
+    with open(summary_filename, "w") as f:
         csv.writer(f).writerows(summary_results)
 
     graph_tabular_log.debug("\nending linear debug\n")
