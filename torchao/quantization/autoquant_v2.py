@@ -71,25 +71,15 @@ AUTOQUANT_CACHE = {}
 # to account for different batch sizes, it's a temporary solution for llama model
 # we'll need to think about how to support this more generally
 LLAMA = False
-USE_GRAPH = True
+def check_cache(gm, cls, shapes_and_dtype):
+    for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
+        graph_equals = _graph_equals(gm_.graph, gm.graph)
+        if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
+            return AUTOQUANT_CACHE[(gm_, cls, shapes_and_dtype)]
+    return None
 
-if USE_GRAPH:
-    def check_cache(gm, cls, shapes_and_dtype):
-        for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
-            graph_equals = _graph_equals(gm_.graph, gm.graph)
-            if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
-                return AUTOQUANT_CACHE[(gm_, cls, shapes_and_dtype)]
-        return None
-
-    def update_cache(gm, cls, shapes_and_dtype, res):
-        AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
-
-else:
-    def check_cache(fqn, cls, shapes_and_dtype):
-        return AUTOQUANT_CACHE.get((fqn, cls, shapes_and_dtype), None)
-
-    def update_cache(fqn, cls, shapes_and_dtype, res):
-        AUTOQUANT_CACHE[(fqn, cls, shapes_and_dtype)] = res
+def update_cache(gm, cls, shapes_and_dtype, res):
+    AUTOQUANT_CACHE[(gm, cls, shapes_and_dtype)] = res
 
 # adjust each input's bsz to target_bsz
 # enable grad
@@ -168,9 +158,6 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         logged_shapes = (act_mat.shape, w_autoquant.shape, None if bias is None else  bias.shape,)
         shapes_and_dtype = logged_shapes + (logged_dtype,)
         w_autoquant.logged_data[shapes_and_dtype] = 1 + w_autoquant.logged_data.get(shapes_and_dtype, 0)
-        # for q_cls in w_autoquant.qtensor_class_list:
-        #     if check_cache(q_cls, shapes_and_dtype) is None:
-        #         update_cache(q_cls, shapes_and_dtype, None)
 
     def tune_autoquant2(self, fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape):
         act_shape, w_shape, bias_shape, act_dtype = shapes_and_dtype
@@ -197,10 +184,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                     cur_time = do_autoquant_bench(m_copy, **inputs, warmup=25, rep=100)
                 print(f">>time: {cur_time:0.3f}ms for {q_cls}, to_beat: {time_for_best_shape}")
                 if cur_time < time_for_best_shape:
-                    if USE_GRAPH:
-                        update_cache(m, q_cls, shapes_and_dtype, cur_time)
-                    else:
-                        update_cache(fqn, q_cls, shapes_and_dtype, cur_time)
+                    update_cache(m, q_cls, shapes_and_dtype, cur_time)
                 res = cur_time
                 return res
             except Exception as e:
@@ -243,44 +227,24 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             cur_time=0
             total_seen=0
             shape_count = count_shapes(self, do_print=False)
-            if USE_GRAPH:
-                modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
-                m, inputs = self.fqn_to_submodule[modified_fqn]
-                for shapes_and_dtype, times_seen in self.logged_data.items():
-                    if check_cache(m, q_cls, shapes_and_dtype) is None:
-                        # only print shapes once
-                        if print_shape_once is True:
-                            print_shape_once = False
-                            count_shapes(self, do_print=True)
+            # copied from https://github.com/pytorch/pytorch/blob/75eeefbfab3862abe887e1d85a0b1b18c227d9f3/torch/_dynamo/variables/builder.py#L963
+            modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
+            m, inputs = self.fqn_to_submodule[modified_fqn]
+            for shapes_and_dtype, times_seen in self.logged_data.items():
+                if check_cache(m, q_cls, shapes_and_dtype) is None:
+                    # only print shapes once
+                    if print_shape_once is True:
+                        print_shape_once = False
+                        count_shapes(self, do_print=True)
 
-                        time_for_best_shape = check_cache(m, q_cls, shapes_and_dtype)
-                        time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
-                        self.tune_autoquant2(fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape)
-                        ran_new_benchmarks=True
-                        torch._dynamo.reset()
-                    if check_cache(m, q_cls, shapes_and_dtype) is not None:
-                        cur_time += check_cache(m, q_cls, shapes_and_dtype) * times_seen
-                        total_seen += times_seen
-            else:
-                for shapes_and_dtype, times_seen in self.logged_data.items():
-                    if check_cache(fqn, q_cls, shapes_and_dtype) is None:
-                        # only print shapes once
-                        if print_shape_once is True:
-                            print_shape_once = False
-                            count_shapes(self, do_print=True)
-
-                        time_for_best_shape = check_cache(fqn, q_cls, shapes_and_dtype)
-                        time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
-                        # copied from https://github.com/pytorch/pytorch/blob/75eeefbfab3862abe887e1d85a0b1b18c227d9f3/torch/_dynamo/variables/builder.py#L963
-                        modified_fqn = "L__self___" + re.sub(r"[^a-zA-Z0-9]+", "_", fqn)
-                        # print("fqn in fqn to submodule:", modified_fqn in self.fqn_to_submodule, "modified fqn:", modified_fqn, " keys:", self.fqn_to_submodule.keys())
-                        m, inputs = self.fqn_to_submodule[modified_fqn]
-                        self.tune_autoquant2(fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape)
-                        ran_new_benchmarks=True
-                        torch._dynamo.reset()
-                    if check_cache(fqn, q_cls, shapes_and_dtype) is not None:
-                        cur_time += check_cache(fqn, q_cls, shapes_and_dtype) * times_seen
-                        total_seen += times_seen
+                    time_for_best_shape = check_cache(m, q_cls, shapes_and_dtype)
+                    time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
+                    self.tune_autoquant2(fqn, m, inputs, q_cls, shapes_and_dtype, time_for_best_shape)
+                    ran_new_benchmarks=True
+                    torch._dynamo.reset()
+                if check_cache(m, q_cls, shapes_and_dtype) is not None:
+                    cur_time += check_cache(m, q_cls, shapes_and_dtype) * times_seen
+                    total_seen += times_seen
 
             if total_seen != 0:
                 cur_time = cur_time / total_seen
@@ -965,7 +929,7 @@ def autoquant_v2(
             fqn_to_submodule[fqn] = m, inputs
 
     model = model._orig_mod
-    # print("model:", model)
+
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight
     _change_linears_to_autoquantizable(
@@ -1026,7 +990,6 @@ def autoquant_v2(
 
     real_model.finalize_autoquant = finalize_autoquant
 
-    print("running example input")
     # if example input was provided, check it and run it
     if isinstance(example_input, torch.Tensor):
         example_input = [example_input]
