@@ -21,6 +21,7 @@ from .uintx import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
+    Int4CPULayout,
 )
 from .utils import (
     Layout,
@@ -48,4 +49,5 @@ __all__ = [
     "UintxLayout",
     "MarlinQQQTensor",
     "MarlinQQQLayout",
+    "Int4CPULayout",
 ]
