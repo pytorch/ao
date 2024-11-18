@@ -195,7 +195,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
         quantize_(model_copy, int8_dynamic_activation_int8_weight())
         reference = model_copy(input)
 
-        from torchao.dtypes.affine_quantized_tensor import BlockSparseLayout
+        from torchao.dtypes import BlockSparseLayout
 
         quantize_(
             model,

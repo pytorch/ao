@@ -101,7 +101,8 @@ class LowBitTester {
     int32_t ceil_K_group_size = (K + qGroupSize - 1) / qGroupSize;
     for (int idx = 0; idx < N * ceil_K_group_size; ++idx) {
       s_ptr[idx] = (idx + 1.0) / N;
-      z_ptr[idx] = int_distrib(generator);
+      auto zp = int_distrib(generator);
+      z_ptr[idx] = -zp * s_ptr[idx];
     }
     for (int idx = 0; idx < M * N; ++idx) {
       c_ptr[idx] = -1.0;

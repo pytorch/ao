@@ -217,7 +217,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         weight = tensor_data_dict["weight"]
-        qtensor_class_list, mode, dtype, shape = tensor_attributes[0]
+        qtensor_class_list, mode, dtype, shape = tensor_attributes
         return cls(
             weight,
             qtensor_class_list,

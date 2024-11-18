@@ -28,15 +28,17 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
+    MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
+    UintxLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
+    to_marlinqqq_quantized_intx,
 )
-from torchao.dtypes.uintx.uintx import UintxLayout
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -525,10 +527,35 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         )
 
 
+def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+
+    return to_affine_quantized_intx(
+        x,
+        mapping_type,
+        _get_per_token_block_size(x),
+        target_dtype,
+        eps=eps,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        scale_dtype=torch.float32,
+    )
+
+
 def apply_int8_dynamic_activation_int4_weight_quant(
-    weight, group_size=32, mapping_type=MappingType.SYMMETRIC
+    weight,
+    group_size=32,
+    layout=PlainLayout(),
+    mapping_type=MappingType.SYMMETRIC,
+    act_mapping_type=MappingType.ASYMMETRIC,
 ):
     """This is defined here instead of local function to support serialization"""
+    if group_size is None or group_size == -1:
+        group_size = weight.shape[-1]
     if weight.shape[-1] % group_size != 0:
         return weight
 
@@ -540,17 +567,37 @@ def apply_int8_dynamic_activation_int4_weight_quant(
     quant_max = 7
 
     # input settings
-    input_quant_func = _int8_asymm_per_token_quant
+    if act_mapping_type == MappingType.ASYMMETRIC:
+        input_quant_func = _int8_asymm_per_token_quant
+    elif act_mapping_type == MappingType.SYMMETRIC:
+        input_quant_func = _int8_symm_per_token_quant
+    else:
+        assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
-    weight = to_affine_quantized_intx(
-        weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps
-    )
+    if isinstance(layout, MarlinQQQLayout):
+        weight = to_marlinqqq_quantized_intx(
+            weight, block_size, quant_min, quant_max, _layout=layout
+        )
+    else:
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            _layout=layout,
+        )
     weight = to_linear_activation_quantized(weight, input_quant_func)
     return weight
 
 
 def int8_dynamic_activation_int4_weight(
-    group_size=32, mapping_type=MappingType.SYMMETRIC
+    group_size=32,
+    layout=PlainLayout(),
+    mapping_type=MappingType.SYMMETRIC,
+    act_mapping_type=MappingType.ASYMMETRIC,
 ):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
@@ -559,11 +606,16 @@ def int8_dynamic_activation_int4_weight(
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
+        `layout`: layout type for quantized weight tensor, only supports `PlainLayout()` and `MarlinQQQLayout()` for now
+        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
+        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
     """
     return _get_linear_subclass_inserter(
         apply_int8_dynamic_activation_int4_weight_quant,
         group_size=group_size,
+        layout=layout,
         mapping_type=mapping_type,
+        act_mapping_type=act_mapping_type,
     )
 
 

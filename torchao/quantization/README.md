@@ -309,6 +309,16 @@ Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regress
 
 More details can be found [here](../sparsity/README.md)
 
+### Marlin QQQ
+
+Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. For more details about Marlin QQQ, please refer to [paper](https://arxiv.org/pdf/2406.09904).
+
+| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (float16)          |  112.45       |  1486.00                | 13.93            | 13.21           |
+|             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
+|             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
+
 ### UINTx Quantization
 We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
 

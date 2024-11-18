@@ -334,10 +334,6 @@ class Float8Linear(torch.nn.Linear):
         # TODO(future PR): add serialization for this flag
         self.is_amax_initialized = not self.config.enable_amax_init
 
-        # Syncing of amaxes and scales happens outside of this function. This
-        # flag is here to enforce that the user does not forget to do this.
-        self.amax_and_scale_synced = not self.config.enable_amax_init
-
         # This is needed to properly handle autocast in the amax/scale
         # update function for torch.float16
         self.last_seen_input_dtype = None
@@ -544,23 +540,12 @@ class Float8Linear(torch.nn.Linear):
     def float8_pre_forward(self, input):
         if not self.enable_pre_and_post_forward:
             return
-        if (
-            self.is_amax_initialized
-            and (not self.amax_and_scale_synced)
-            and torch.is_grad_enabled()
-        ):
-            raise AssertionError(
-                "amaxes and scales not synced, please call `sync_float8_amax_and_scale_history` before forward"
-            )
         self.last_seen_input_dtype = input.dtype
 
     def float8_post_forward(self):
         if not self.enable_pre_and_post_forward:
             return
-        # Ensure that calling forward again will fail until the user syncs
-        # amaxes and scales
         self.is_amax_initialized = True
-        self.amax_and_scale_synced = False
 
     def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = (
