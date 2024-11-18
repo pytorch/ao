@@ -1,11 +1,10 @@
 import csv
 import os
-from typing import Optional, Callable
 import traceback
+from typing import Callable, Optional
 
 import torch
 import torch.nn.functional as F
-
 from torch.utils._pytree import tree_map
 
 graph_tabular_log = torch._logging.getArtifactLogger(__name__, "graph")

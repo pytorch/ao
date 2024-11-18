@@ -1,35 +1,51 @@
+import copy
+import csv
+import logging
+import os
+import re
+from itertools import chain
+
 import torch
+import torch.nn.functional as F
+from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch.utils._pytree import tree_map
+
 import torchao
+from torchao.dtypes import (
+    AffineQuantizedTensor,
+    Float8Layout,
+    PlainLayout,
+    TensorCoreTiledLayout,
+)
+from torchao.float8.inference import Float8MMConfig
+from torchao.quantization.linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
-from .subclass import ( # noqa
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    QuantizedLinearWeightBase,
+from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+    benchmark_model,
 )
-from torchao.dtypes import AffineQuantizedTensor, PlainLayout, TensorCoreTiledLayout, Float8Layout
-from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
-from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from .granularity import (
     PerRow,
     PerTensor,
 )
 from .quant_primitives import safe_int_mm
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
-from torchao.quantization.utils import quantize_activation_per_token_absmax
-from torchao.float8.inference import Float8MMConfig
-from .subgraph_utils.extract_subgraphs import debug_linears_for_float8, prepare_target_folder
-import os
-import re
-import csv
-import copy
-from torch.utils._pytree import tree_map
-import logging
-from torchao.utils import benchmark_model
-from itertools import chain
-import torch.nn.functional as F
+from .subclass import (  # noqa
+    Int8DynamicallyQuantizedLinearWeight,
+    Int8WeightOnlyQuantizedLinearWeight,
+    QuantizedLinearWeightBase,
+)
+from .subgraph_utils.extract_subgraphs import (
+    debug_linears_for_float8,
+    prepare_target_folder,
+)
 
 logging.basicConfig(level=logging.ERROR)  # Set the root logger level to ERROR
 
@@ -783,8 +799,10 @@ def _change_autoquantizable_to_quantized(model, supress_autoquant_errors=True, *
             hasattr(mod, "weight") and isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
     error_on_unseen=kwargs.pop("error_on_unseen", True)
-    from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-    from torchao.quantization.quant_api import _get_subclass_inserter
+    from torchao.quantization.quant_api import (
+        _get_subclass_inserter,
+        _replace_with_custom_fn_if_matches_filter,
+    )
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(

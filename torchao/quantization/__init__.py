@@ -16,10 +16,16 @@ from .autoquant import (
     autoquant,
 )
 from .autoquant_v2 import (
-    autoquant_v2,
     DEFAULT_AUTOQUANT_CLASS_LIST as V2_DEFAULT_AUTOQUANT_CLASS_LIST,
+)
+from .autoquant_v2 import (
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST as V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+)
+from .autoquant_v2 import (
     OTHER_AUTOQUANT_CLASS_LIST as V2_OTHER_AUTOQUANT_CLASS_LIST,
+)
+from .autoquant_v2 import (
+    autoquant_v2,
 )
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,

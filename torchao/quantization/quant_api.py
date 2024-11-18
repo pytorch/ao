@@ -54,6 +54,8 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
+from .autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
+from .autoquant_v2 import autoquant_v2
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
@@ -80,8 +82,6 @@ from .subclass import (
 )
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
-from .autoquant_v2 import autoquant_v2
-from .autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
 
 logger = logging.getLogger(__name__)
 
