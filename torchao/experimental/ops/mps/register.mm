@@ -58,6 +58,7 @@ void check_linear_mps_args(
       ": expect S to be 2d tensor with shape [:, ",
       N,
       "]");
+  TORCH_CHECK(S.is_contiguous(), __func__, " : expect S to be contiguous.");
 
   TORCH_CHECK(
       Z.dim() == 2 && Z.size(1) == N,
@@ -65,6 +66,7 @@ void check_linear_mps_args(
       ": expect Z to be 2d tensor with shape [:, ",
       N,
       "]");
+  TORCH_CHECK(Z.is_contiguous(), __func__, " : expect Z to be contiguous.");
 }
 
 template <int nbit>

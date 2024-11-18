@@ -46,18 +46,18 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
     ]
 
     def _init_tensors(self, group_size, M, K, N, nbit, device="mps"):
-        max_abs = 1 << (nbit - 1)
         ceil_K_group_size = (K + group_size - 1) // group_size
-        A = 2 * torch.rand(M, K, dtype=torch.float32, device=device) - 1
-        W = torch.randint(0, 2 * max_abs, (N, K), dtype=torch.uint8, device=device)
+        A = torch.rand(M, K, dtype=torch.float32, device=device)
+        W = torch.randint(0, 1 << nbit, (N, K), dtype=torch.uint8, device=device)
         S = torch.rand(ceil_K_group_size, N, dtype=torch.float32, device=device) + 0.01
         Z = torch.randint(
             0,
-            2 * max_abs,
+            1 << nbit,
             (ceil_K_group_size, N),
             dtype=torch.float32,
             device=device,
         )
+        Z = -Z * S
         return A, W, S, Z
 
     def _reference_linear_lowbit_quant_weights(self, A, W, group_size, S, Z, nbit):
