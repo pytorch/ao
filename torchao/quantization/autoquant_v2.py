@@ -18,12 +18,13 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.float8.inference import Float8MMConfig
-from torchao.quantization.linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
-)
-from torchao.quantization.quant_primitives import (
+from torchao.kernel import safe_int_mm
+from torchao.quantization import (
     MappingType,
     ZeroPointDomain,
+)
+from torchao.quantization.linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
 )
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 from torchao.utils import (
@@ -36,7 +37,6 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .quant_primitives import safe_int_mm
 from .subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
