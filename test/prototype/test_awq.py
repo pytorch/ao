@@ -4,7 +4,7 @@ import pytest
 import torch
 from torchao.quantization import quantize_
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6,
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
 
