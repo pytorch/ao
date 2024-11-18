@@ -13,10 +13,10 @@ Test numerics of bf16 versus float8 with FSDP on. At a high level:
 
 import copy
 import os
-import pytest
 import warnings
 
 import fire
+import pytest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -27,6 +27,14 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
+from torch.distributed.fsdp import (
+    FullStateDictConfig,
+    StateDictType,
+)
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+)
+
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -34,11 +42,6 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_utils import compute_error
-from torch.distributed.fsdp import (
-    FullStateDictConfig,
-    FullyShardedDataParallel as FSDP,
-    StateDictType,
-)
 
 torch.manual_seed(0)
 
