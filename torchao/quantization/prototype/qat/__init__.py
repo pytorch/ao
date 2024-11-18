@@ -1,17 +1,15 @@
-from .api import (
+from torchao.quantization.qat import (
     ComposableQATQuantizer,
+    Int4WeightOnlyEmbeddingQATQuantizer,
+    Int4WeightOnlyQATQuantizer,
+    Int8DynActInt4WeightQATQuantizer,
 )
-from .linear import (
+from torchao.quantization.qat.linear import (
+    Int8DynActInt4WeightQATLinear,
     disable_4w_fake_quant,
     disable_8da4w_fake_quant,
     enable_4w_fake_quant,
     enable_8da4w_fake_quant,
-    Int4WeightOnlyQATQuantizer,
-    Int8DynActInt4WeightQATLinear,
-    Int8DynActInt4WeightQATQuantizer,
-)
-from .embedding import (
-    Int4WeightOnlyEmbeddingQATQuantizer,
 )
 
 __all__ = [
@@ -21,7 +19,7 @@ __all__ = [
     "enable_8da4w_fake_quant",
     "ComposableQATQuantizer",
     "Int4WeightOnlyQATQuantizer",
-    "Int4WeightOnlyEmbeddingQATQuantizer"
+    "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
     "Int8DynActInt4WeightQATLinear",
 ]

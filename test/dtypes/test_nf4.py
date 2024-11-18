@@ -30,6 +30,7 @@ from torchao.dtypes.nf4tensor import (
     _INNER_TENSOR_NAMES_FOR_SHARDING,
     NF4Tensor,
     linear_nf4,
+    nf4_weight_only,
     to_nf4,
 )
 
@@ -169,11 +170,10 @@ class TestNF4Linear(TestCase):
         assert base_mod.param.block_size == 32
         assert base_mod.param.scaler_block_size == 2
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        input_tensor = torch.rand(64, device="cuda", dtype=dtype)
+        input_tensor = torch.rand(64, dtype=dtype)
         base_mod = self.TestMod(input_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -183,11 +183,10 @@ class TestNF4Linear(TestCase):
         assert other_mod.param.block_size == 32
         assert other_mod.param.scaler_block_size == 2
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        input_tensor = torch.rand(128, device="cuda", dtype=dtype)
+        input_tensor = torch.rand(128, dtype=dtype)
         base_mod = self.TestMod(input_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -280,6 +279,32 @@ class TestNF4Linear(TestCase):
         self.assertTrue(isinstance(new_tensor, NF4Tensor))
         self.assertEqual(new_tensor.get_device(), -1)  # that it's on CPU
         self.assertEqual(new_tensor.size(), nf4_tensor.size())
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @parametrize("compile", [False, True])
+    def test_quantize_api(self, compile):
+        nf4_linear = nn.Linear(512, 512, device="cuda")
+        torchao.quantize_(nf4_linear, nf4_weight_only())
+        assert isinstance(nf4_linear.weight, NF4Tensor)
+
+        ref_linear = copy.deepcopy(nf4_linear)
+        ref_linear.weight.data = ref_linear.weight.get_original_weight()  # dequantize
+
+        if compile:
+            nf4_linear.compile()
+            ref_linear.compile()
+
+        nf4_x = torch.randn(2, 512, device="cuda").requires_grad_()
+        ref_x = nf4_x.detach().clone().requires_grad_()
+
+        nf4_out = nf4_linear(nf4_x)
+        ref_out = ref_linear(ref_x)
+        self.assertEqual(nf4_out, ref_out)
+
+        grad_out = torch.randn(2, 512, device="cuda")
+        nf4_out.backward(grad_out)
+        ref_out.backward(grad_out)
+        self.assertEqual(nf4_x.grad, ref_x.grad)
 
 
 class TestFSDPOps(TestCase):

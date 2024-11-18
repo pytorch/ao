@@ -28,7 +28,8 @@ jobs:
       os: linux
       with-cpu: enable
       with-cuda: enable
-      with-rocm: disable
+      with-rocm: enable
+      with-xpu: enable
 
   build:
     needs: generate-matrix

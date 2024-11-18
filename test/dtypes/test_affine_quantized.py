@@ -10,6 +10,7 @@ from torchao.quantization import (
     int8_dynamic_activation_int8_semi_sparse_weight,
     float8_weight_only,
 )
+from torchao.quantization.quant_primitives import MappingType
 from torchao.dtypes import SemiSparseLayout
 from torch.testing._internal import common_utils
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -26,6 +27,7 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool):
         int8_weight_only(),
         int8_dynamic_activation_int4_weight(),
         int8_dynamic_activation_int8_weight(),
+        int8_dynamic_activation_int8_weight(act_mapping_type=MappingType.ASYMMETRIC),
     ]
     if do_int4:
         base_functions.append(int4_weight_only(group_size=32))
@@ -90,7 +92,7 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
-        from torchao.dtypes.affine_quantized_tensor import (
+        from torchao.dtypes.affine_quantized_tensor_ops import (
             register_aqt_quantized_linear_dispatch,
             deregister_aqt_quantized_linear_dispatch,
         )
@@ -133,7 +135,30 @@ class TestAffineQuantized(TestCase):
         assert "AffineQuantizedTensor" in str(ql)
 
 
+class TestAffineQuantizedBasic(TestCase):
+    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+    COMMON_DTYPES = [torch.bfloat16]
+
+    @common_utils.parametrize("apply_quant", get_quantization_functions(False, True))
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_flatten_unflatten(self, apply_quant, device, dtype):
+        l = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        ql = apply_quant(l)
+        lp_tensor = ql.weight
+        tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
+        tensor_data_dict = {name: getattr(lp_tensor, name) for name in tensor_data_name_dict}
+        outer_size = lp_tensor.size()
+        outer_stride = lp_tensor.stride()
+        reconstructed = type(lp_tensor).__tensor_unflatten__(tensor_data_dict, tensor_attributes, outer_size, outer_stride)
+        example_inputs = (torch.randn(32, 128, dtype=dtype, device=device),)
+        ref = ql(*example_inputs)
+        ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
+        reconstruct_res = ql(*example_inputs)
+        self.assertEqual(reconstruct_res, ref)
+
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
+common_utils.instantiate_parametrized_tests(TestAffineQuantizedBasic)
 
 
 if __name__ == "__main__":

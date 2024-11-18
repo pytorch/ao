@@ -15,6 +15,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint5.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint7.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
 #include <vector>
 
@@ -560,20 +561,120 @@ TEST(test_bitpacking_64_uint6_values, PackUnpackAreSame) {
   }
 }
 
+TEST(test_bitpacking_8_uint7_values, PackUnpackAreSame) {
+  int unpacked_bytes = 8;
+  int packed_bytes = 7;
+  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 7);
+  std::vector<uint8_t> packed(packed_bytes, 0);
+  std::vector<uint8_t> unpacked(unpacked_bytes, 0);
+
+  torchao::bitpacking::internal::pack_8_uint7_values(
+      packed.data(), input.data());
+  torchao::bitpacking::internal::unpack_8_uint7_values(
+      unpacked.data(), packed.data());
+  for (int i = 0; i < unpacked_bytes; ++i) {
+    EXPECT_EQ(input[i], unpacked[i]);
+  }
+}
+
+TEST(test_bitpacking_64_uint7_values, PackUnpackAreSame) {
+  int unpacked_bytes = 64;
+  int packed_bytes = 56;
+  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 7);
+  std::vector<uint8_t> packed(packed_bytes, 0);
+
+  uint8x16_t input0;
+  uint8x16_t input1;
+  uint8x16_t input2;
+  uint8x16_t input3;
+
+  uint8x16_t unpacked0;
+  uint8x16_t unpacked1;
+  uint8x16_t unpacked2;
+  uint8x16_t unpacked3;
+
+  torchao::bitpacking::internal::vec_load_64_uint8_values(
+      input0, input1, input2, input3, input.data());
+  torchao::bitpacking::internal::vec_pack_64_uint7_values(
+      packed.data(), input0, input1, input2, input3);
+  torchao::bitpacking::internal::vec_unpack_64_uint7_values(
+      unpacked0, unpacked1, unpacked2, unpacked3, packed.data());
+
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(input0[i], unpacked0[i]);
+    EXPECT_EQ(input1[i], unpacked1[i]);
+    EXPECT_EQ(input2[i], unpacked2[i]);
+    EXPECT_EQ(input3[i], unpacked3[i]);
+  }
+}
+
+TEST(test_bitpacking_128_uint7_values, PackUnpackAreSame) {
+  int unpacked_bytes = 128;
+  int packed_bytes = 112;
+  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 7);
+  std::vector<uint8_t> packed(packed_bytes, 0);
+
+  uint8x16_t input0;
+  uint8x16_t input1;
+  uint8x16_t input2;
+  uint8x16_t input3;
+  uint8x16_t input4;
+  uint8x16_t input5;
+  uint8x16_t input6;
+  uint8x16_t input7;
+
+  uint8x16_t unpacked0;
+  uint8x16_t unpacked1;
+  uint8x16_t unpacked2;
+  uint8x16_t unpacked3;
+  uint8x16_t unpacked4;
+  uint8x16_t unpacked5;
+  uint8x16_t unpacked6;
+  uint8x16_t unpacked7;
+
+  torchao::bitpacking::internal::vec_load_64_uint8_values(
+      input0, input1, input2, input3, input.data());
+  torchao::bitpacking::internal::vec_load_64_uint8_values(
+      input4, input5, input6, input7, input.data() + 64);
+  torchao::bitpacking::internal::vec_pack_128_uint7_values(
+      packed.data(),
+      input0,
+      input1,
+      input2,
+      input3,
+      input4,
+      input5,
+      input6,
+      input7);
+  torchao::bitpacking::internal::vec_unpack_128_uint7_values(
+      unpacked0,
+      unpacked1,
+      unpacked2,
+      unpacked3,
+      unpacked4,
+      unpacked5,
+      unpacked6,
+      unpacked7,
+      packed.data());
+
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(input0[i], unpacked0[i]);
+    EXPECT_EQ(input1[i], unpacked1[i]);
+    EXPECT_EQ(input2[i], unpacked2[i]);
+    EXPECT_EQ(input3[i], unpacked3[i]);
+    EXPECT_EQ(input4[i], unpacked4[i]);
+    EXPECT_EQ(input5[i], unpacked5[i]);
+    EXPECT_EQ(input6[i], unpacked6[i]);
+    EXPECT_EQ(input7[i], unpacked7[i]);
+  }
+}
+
 // Universal bitpacking tests
 template <int nbit>
 void test_bitpacking_32_lowbit_values() {
   int unpacked_bytes = 32;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -597,15 +698,7 @@ template <int nbit>
 void test_bitpacking_64_lowbit_values() {
   int unpacked_bytes = 64;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -637,15 +730,7 @@ template <int nbit>
 void test_bitpacking_128_lowbit_values() {
   int unpacked_bytes = 128;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -726,6 +811,8 @@ TEST_BITPACKING_32_LOWBIT_VALUES(3);
 TEST_BITPACKING_32_LOWBIT_VALUES(4);
 TEST_BITPACKING_32_LOWBIT_VALUES(5);
 TEST_BITPACKING_32_LOWBIT_VALUES(6);
+TEST_BITPACKING_32_LOWBIT_VALUES(7);
+TEST_BITPACKING_32_LOWBIT_VALUES(8);
 
 TEST_BITPACKING_64_LOWBIT_VALUES(1);
 TEST_BITPACKING_64_LOWBIT_VALUES(2);
@@ -733,6 +820,8 @@ TEST_BITPACKING_64_LOWBIT_VALUES(3);
 TEST_BITPACKING_64_LOWBIT_VALUES(4);
 TEST_BITPACKING_64_LOWBIT_VALUES(5);
 TEST_BITPACKING_64_LOWBIT_VALUES(6);
+TEST_BITPACKING_64_LOWBIT_VALUES(7);
+TEST_BITPACKING_64_LOWBIT_VALUES(8);
 
 TEST_BITPACKING_128_LOWBIT_VALUES(1);
 TEST_BITPACKING_128_LOWBIT_VALUES(2);
@@ -740,5 +829,7 @@ TEST_BITPACKING_128_LOWBIT_VALUES(3);
 TEST_BITPACKING_128_LOWBIT_VALUES(4);
 TEST_BITPACKING_128_LOWBIT_VALUES(5);
 TEST_BITPACKING_128_LOWBIT_VALUES(6);
+TEST_BITPACKING_128_LOWBIT_VALUES(7);
+TEST_BITPACKING_128_LOWBIT_VALUES(8);
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

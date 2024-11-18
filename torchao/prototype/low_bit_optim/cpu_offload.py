@@ -25,7 +25,11 @@ class CPUOffloadOptimizer:
             kwargs: other keyword arguments to be passed to the base optimizer e.g. `lr`, `weight_decay`.
         """
         # default to fused CPU AdamW
-        if optimizer_class is torch.optim.AdamW and TORCH_VERSION_AT_LEAST_2_4 and "fused" not in kwargs:
+        if (
+            optimizer_class is torch.optim.AdamW
+            and TORCH_VERSION_AT_LEAST_2_4
+            and "fused" not in kwargs
+        ):
             kwargs.update(fused=True)
 
         param_groups = list(params)
@@ -66,6 +70,9 @@ class CPUOffloadOptimizer:
             params = param_group.pop("params")
 
             for p_cuda in params:
+                if not p_cuda.requires_grad:
+                    continue
+
                 # pre-allocate CPU params and grads
                 p_cpu = torch.empty_like(p_cuda, device="cpu", pin_memory=True)
                 p_cpu.grad = torch.empty_like(p_cpu, pin_memory=True)
@@ -74,7 +81,9 @@ class CPUOffloadOptimizer:
                 self.param_cuda2cpu_map[p_cuda] = p_cpu
 
                 p_cuda.register_post_accumulate_grad_hook(backward_hook)
-                self.optim_dict[p_cuda] = optimizer_class([{"params": p_cpu, **param_group}], **kwargs)
+                self.optim_dict[p_cuda] = optimizer_class(
+                    [{"params": p_cpu, **param_group}], **kwargs
+                )
 
     @torch.no_grad()
     def step(self, closure=None):

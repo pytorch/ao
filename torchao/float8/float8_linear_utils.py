@@ -4,20 +4,20 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
+
 from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
-
 from torchao.float8.float8_utils import (
     amax_history_to_scale_stack,
     e4m3_dtype,
     e5m2_dtype,
 )
-from torch.distributed._functional_collectives import all_reduce, AsyncCollectiveTensor
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -48,8 +48,8 @@ def _update_history_stack(
     assert (
         amax_history_stack.dim() == 2
     ), f"Expected amat_history_stack to be 2D, got {amax_history_stack.shape()}"
-    assert new_amax.size(0) == amax_history_stack.size(
-        0
+    assert (
+        new_amax.size(0) == amax_history_stack.size(0)
     ), f"Expected new_amax to have the same size as the first dimension of amax_history_stack, got {new_amax.size(0)} and {amax_history_stack.size(0)}"
     new_amax_history_stack = torch.roll(amax_history_stack, 1, dims=1)
     new_amax_history_stack[:, 0] = new_amax.squeeze(-1)

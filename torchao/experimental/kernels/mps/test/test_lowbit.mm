@@ -45,14 +45,12 @@ void reference_linear_lowbit_quant_weights_cpu(
     const T* a_ptr,
     const uint8_t* w_ptr,
     int64_t group_size,
-    const T* sz_ptr,
+    const T* s_ptr,
+    const T* z_ptr,
     T* out_ptr,
     int32_t M,
     int32_t K,
-    int32_t N,
-    int64_t nbit) {
-  uint8_t zero_shift = 1 << (nbit - 1);
-
+    int32_t N) {
   for (int32_t m = 0; m < M; m++) {
     for (int32_t n = 0; n < N; n++) {
       const int32_t k_block = (K + group_size - 1) / group_size;
@@ -61,9 +59,8 @@ void reference_linear_lowbit_quant_weights_cpu(
       float rc = 0.0;
       int32_t k = 0;
       for (int32_t kb = 0; kb < k_block; kb++) {
-        const float scale = float(sz_ptr[(kb * N + n) * 2 + 0]);
-        const float zero =
-            float(sz_ptr[(kb * N + n) * 2 + 1]) - scale * float(zero_shift);
+        const float scale = float(s_ptr[kb * N + n]);
+        const float zero = float(z_ptr[kb * N + n]);
         for (int32_t idx = 0; idx < group_size && k < K; idx++, k++) {
           const auto a_val = float(A_ptr[k]);
           uint8_t w_val = w_ptr[n * K + k];
@@ -88,7 +85,8 @@ class LowBitTester {
     T* a_ptr = reinterpret_cast<T*>([buf_A contents]);
     uint8_t* w_ptr = reinterpret_cast<uint8_t*>([buf_W contents]);
     T* c_ptr = reinterpret_cast<T*>([buf_C contents]);
-    T* s_ptr = reinterpret_cast<T*>([buf_SZ contents]);
+    T* s_ptr = reinterpret_cast<T*>([buf_S contents]);
+    T* z_ptr = reinterpret_cast<T*>([buf_Z contents]);
     std::random_device rd;
     std::mt19937 generator(rd());
     std::uniform_int_distribution<> int_distrib(0, (1 << nbit) - 1);
@@ -102,8 +100,9 @@ class LowBitTester {
     }
     int32_t ceil_K_group_size = (K + qGroupSize - 1) / qGroupSize;
     for (int idx = 0; idx < N * ceil_K_group_size; ++idx) {
-      s_ptr[2 * idx] = (idx + 1.0) / N;
-      s_ptr[2 * idx + 1] = 0;
+      s_ptr[idx] = (idx + 1.0) / N;
+      auto zp = int_distrib(generator);
+      z_ptr[idx] = -zp * s_ptr[idx];
     }
     for (int idx = 0; idx < M * N; ++idx) {
       c_ptr[idx] = -1.0;
@@ -118,19 +117,29 @@ class LowBitTester {
 
   void linear() {
     LowBitQuantWeights<nbit>::linear(
-        buf_A, buf_B, qGroupSize, buf_SZ, buf_C, M, K, N, type_string<T>());
+        buf_A,
+        buf_B,
+        qGroupSize,
+        buf_S,
+        buf_Z,
+        buf_C,
+        M,
+        K,
+        N,
+        type_string<T>());
   }
 
   bool validate(float atol_lim = 5e-3, float rtol_lim = 5e-3) const {
     T* a_ptr = reinterpret_cast<T*>([buf_A contents]);
     uint8_t* w_ptr = reinterpret_cast<uint8_t*>([buf_W contents]);
     T* c_ptr = reinterpret_cast<T*>([buf_C contents]);
-    T* sz_ptr = reinterpret_cast<T*>([buf_SZ contents]);
+    T* s_ptr = reinterpret_cast<T*>([buf_S contents]);
+    T* z_ptr = reinterpret_cast<T*>([buf_Z contents]);
 
     char* e_ptr_f = new char[M * N * sizeof(T)]; // expected
     T* e_ptr = reinterpret_cast<T*>(e_ptr_f);
     reference_linear_lowbit_quant_weights_cpu<T>(
-        a_ptr, w_ptr, qGroupSize, sz_ptr, e_ptr, M, K, N, nbit);
+        a_ptr, w_ptr, qGroupSize, s_ptr, z_ptr, e_ptr, M, K, N);
 
     for (int m = 0; m < M; m++) {
       for (int n = 0; n < N; n++) {
@@ -159,7 +168,8 @@ class LowBitTester {
     buf_W = allocSharedBuffer(device, N * K);
     buf_B = allocSharedBuffer(device, N * nbit * K / 8);
     buf_C = allocSharedBuffer(device, M * N * elem_size);
-    buf_SZ = allocSharedBuffer(device, N * ceil_K_group_size * 2 * elem_size);
+    buf_S = allocSharedBuffer(device, N * ceil_K_group_size * elem_size);
+    buf_Z = allocSharedBuffer(device, N * ceil_K_group_size * elem_size);
   }
 
  public:
@@ -169,7 +179,8 @@ class LowBitTester {
   id<MTLBuffer> buf_W; // NxK elements
   id<MTLBuffer> buf_B; // NxK elements (packed)
   id<MTLBuffer> buf_C; // MxN elements
-  id<MTLBuffer> buf_SZ; // (K/group_size)xNx2 elements
+  id<MTLBuffer> buf_S; // (K/group_size)xN elements
+  id<MTLBuffer> buf_Z; // (K/group_size)xN elements
 };
 
 } // namespace torchao::kernels::mps::lowbit

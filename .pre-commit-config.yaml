@@ -15,6 +15,9 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
-        args: [--fix]
+        args:
+          - --fix
+          - --select
+          - F,I
       # Run the formatter.
       - id: ruff-format

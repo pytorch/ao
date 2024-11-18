@@ -90,7 +90,7 @@ We offer prototype support for accelerating block sparsity with our triton kerne
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_
-from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
 
 model = model.cuda()
 sparsify_(model, block_sparse_weight())

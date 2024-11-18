@@ -47,6 +47,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
 )
 from pathlib import Path
 from torchao._models.llama.tokenizer import get_tokenizer
@@ -576,6 +577,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.5 and below")
     def test_quantized_tensor_subclass_int8_dyn_quant(self):
         # use multiples of 1024 so that we don't need padding
         m = ToyLinearModel(1024, 1024, 2048).eval().to(torch.bfloat16).to("cuda")
@@ -732,8 +734,8 @@ class TestMultiTensorFlow(TestCase):
         self.assertEqual(mt.count, 3)
         mt.unpad()
         self.assertEqual(mt.count, 1)
-        
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+") 
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_multitensor_inplace_operation(self):
         from torchao.quantization.GPTQ_MT import MultiTensor
@@ -742,7 +744,7 @@ class TestMultiTensorFlow(TestCase):
         mt += 1  # In-place addition
         self.assertTrue(torch.equal(mt.values[0], torch.full((3, 3), 2)))
 
- 
+
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)

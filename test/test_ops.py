@@ -13,6 +13,11 @@ from torch.testing._internal.optests import opcheck
 from torchao.utils import is_fbcode, TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
 from torchao.dtypes.floatx import from_scaled_tc_floatx
 from torchao.sparsity.marlin import marlin_24_workspace, pack_to_marlin_24, inject_24
+from torchao.quantization.marlin_qqq import (
+    marlin_qqq_workspace,
+    pack_to_marlin_qqq,
+)
+from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 import pytest
 
 if is_fbcode():
@@ -33,22 +38,23 @@ from torchao.quantization.utils import (
 
 
 class TestOps(TestCase):
-    def _create_floatx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device):
+    def _create_floatx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device, dtype):
         # Randomly initialize each byte
         nbits = 1 + ebits + mbits
         floatx_weight = torch.randint(256, (OC, IC // 8 * nbits), dtype=torch.uint8)
-        scale = torch.rand(OC).half() + 0.5
-        fp16_act = torch.rand(BS, IC).half() + 0.5
+        scale = torch.rand(OC).to(dtype) + 0.5
+        fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
-    def test_quant_llm_linear(self, ebits, mbits):
+    @parametrize("dtype", [torch.half, torch.bfloat16])
+    def test_quant_llm_linear(self, ebits, mbits, dtype):
         BS = 2
         OC = 256
         IC = 256
         splitK = 1
-        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda")
+        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda", dtype)
 
         # smoke test
         torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, floatx_weight, scale, splitK)
@@ -60,19 +66,21 @@ class TestOps(TestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
-    def test_quant_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK):
+    @parametrize("dtype", [torch.half, torch.bfloat16])
+    def test_quant_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK, dtype):
         # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/tests/python/kernel_test_fpx.py
-        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda")
+        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda", dtype)
 
         results_floatx = torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, floatx_weight, scale, splitK)
 
-        fp16_weight = from_scaled_tc_floatx(floatx_weight, ebits, mbits, scale).half()
+        fp16_weight = from_scaled_tc_floatx(floatx_weight, ebits, mbits, scale).to(dtype)
         results_fp16 = fp16_act @ fp16_weight.T
 
         error = (results_floatx - results_fp16).abs().mean()
         gt = results_fp16.abs().mean()
         relative_error = error / gt
-        assert relative_error < 1e-3
+        rtol = 1e-2 if dtype == torch.bfloat16 else 1e-3
+        assert relative_error < rtol
 
 instantiate_parametrized_tests(TestOps)
 
@@ -418,6 +426,110 @@ def test_marlin_24(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_facto
     test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
     opcheck(
         torch.ops.torchao.marlin_24_gemm,
+        fn_inputs,
+        test_utils=test_utils,
+    )
+
+
+MARLIN_QQQ_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
+MARLIN_QQQ_K_CHUNKS = [128]
+MARLIN_QQQ_N_CHUNKS = [64, 128, 256]
+MNK_FACTORS = [
+    (1, 1, 1),
+    (1, 4, 8),
+    (1, 7, 5),
+    (13, 17, 67),
+    (26, 37, 13),
+    (67, 13, 11),
+]
+MARLIN_QQQ_SUPPORTED_NUM_BITS = [4]
+MARLIN_QQQ_SUPPORTED_GROUP_SIZES = [-1, 128]
+
+MARLIN_TEST_PARAMS = list(
+    itertools.product(
+        MARLIN_QQQ_BATCH_SIZE,
+        MARLIN_QQQ_K_CHUNKS,
+        MARLIN_QQQ_N_CHUNKS,
+        MARLIN_QQQ_SUPPORTED_NUM_BITS,
+        MARLIN_QQQ_SUPPORTED_GROUP_SIZES,
+        MNK_FACTORS,
+    )
+)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
+    MARLIN_TEST_PARAMS,
+    ids=str,
+)
+def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors):
+    int8_traits = torch.iinfo(torch.int8)
+    m_factor, n_factor, k_factor = mnk_factors
+
+    size_m = m_factor
+    size_k = k_chunk * k_factor
+    size_n = n_chunk * n_factor
+
+    a_input = torch.randn(
+        (batch_size, size_m, size_k), dtype=torch.float16, device="cuda"
+    )
+    b_weight = torch.rand((size_n, size_k), dtype=torch.float16, device="cuda")
+
+    # Reshape input into 2D tensor
+    input_2d = a_input.view(-1, a_input.shape[-1])
+    a_input_in, a_input_out = input_2d.shape
+
+    # Quantize activations
+    s_a = (
+        input_2d.abs()
+        .max(dim=-1, keepdim=True)[0]
+        .div(int8_traits.max)
+        .to(torch.float32)
+    )
+    q_a = (
+        (input_2d / s_a).round().clamp(int8_traits.min, int8_traits.max).to(torch.int8)
+    )
+
+    # Quantize weights
+    q_w, s_group, s_channel, w_ref = choose_qparams_and_quantize_affine_qqq(
+        b_weight, num_bits, group_size
+    )
+    q_w = q_w.t()
+    s_group = s_group.t()
+    s_channel = s_channel.t()
+    w_ref = w_ref.t()
+    marlin_qqq_q_w, marlin_qqq_s_group, marlin_qqq_s_channel = pack_to_marlin_qqq(
+        q_w, s_group, s_channel, num_bits, group_size
+    )
+
+    workspace = marlin_qqq_workspace(size_n)
+
+    # Obtains reference output
+    output_ref = torch.matmul(q_a.half() * s_a.half(), w_ref)
+    output_ref = output_ref.reshape(a_input.shape[:-1] + (size_n,))
+
+    fn_inputs = (
+        q_a,
+        marlin_qqq_q_w,
+        s_a,
+        marlin_qqq_s_channel,
+        marlin_qqq_s_group,
+        workspace,
+        a_input_in,
+        size_n,
+        a_input_out,
+    )
+    output = torchao.ops.marlin_qqq_gemm(*fn_inputs)
+    output = output.reshape(a_input.shape[:-1] + (size_n,))
+
+    max_diff = compute_max_diff(output, output_ref)
+    assert max_diff < 0.04
+
+    # Performs opcheck
+    test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
+    opcheck(
+        torch.ops.torchao.marlin_qqq_gemm,
         fn_inputs,
         test_utils=test_utils,
     )

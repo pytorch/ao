@@ -6,13 +6,15 @@ import torch
 
 from torchao.sparsity.training.autograd import semi_structured_sparsify
 from torchao.sparsity.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
-
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 # load pointwise op support, which exists only for CUTLASS
 if TORCH_VERSION_AT_LEAST_2_3:
     from torch.sparse import SparseSemiStructuredTensorCUTLASS
-    SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
+
+    SparseSemiStructuredTensorCUTLASS._load_dispatch_table(
+        CUTLASS_POINTWISE_OP_DISPATCH_TABLE
+    )
 
 __all__ = [
     "SemiSparseLinear",
@@ -20,6 +22,7 @@ __all__ = [
     "swap_linear_with_semi_sparse_linear",
     "swap_semi_sparse_linear_with_linear",
 ]
+
 
 class SemiSparseLinear(torch.nn.Linear):
     """
@@ -39,7 +42,9 @@ class SemiSparseLinear(torch.nn.Linear):
 
     @classmethod
     def to_dense(cls, semi_sparse_linear):
-        mod = torch.nn.Linear(semi_sparse_linear.in_features, semi_sparse_linear.out_features)
+        mod = torch.nn.Linear(
+            semi_sparse_linear.in_features, semi_sparse_linear.out_features
+        )
         mod.weight = semi_sparse_linear.weight
         mod.bias = semi_sparse_linear.bias
         return mod
@@ -63,10 +68,13 @@ class SemiSparseActivationLinear(torch.nn.Linear):
 
     @classmethod
     def to_dense(cls, semi_sparse_linear):
-        mod = torch.nn.Linear(semi_sparse_linear.in_features, semi_sparse_linear.out_features)
+        mod = torch.nn.Linear(
+            semi_sparse_linear.in_features, semi_sparse_linear.out_features
+        )
         mod.weight = semi_sparse_linear.weight
         mod.bias = semi_sparse_linear.bias
         return mod
+
 
 def swap_linear_with_semi_sparse_linear(model, config, current=""):
     """
@@ -81,6 +89,7 @@ def swap_linear_with_semi_sparse_linear(model, config, current=""):
                 del child
         else:
             swap_linear_with_semi_sparse_linear(child, config, current=fqn)
+
 
 def swap_semi_sparse_linear_with_linear(model, current=""):
     """

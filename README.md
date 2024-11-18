@@ -2,7 +2,7 @@
 
 [![](https://dcbadge.vercel.app/api/server/gpumode?style=flat)](https://discord.gg/gpumode)
 
-[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Composability](#composability) | [Custom Kernels](#custom-kernels) | [Alpha Features](#alpha-features) | [Installation](#installation) | [Integrations](#integrations) | [Videos](#videos) | [License](#license)
+[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Composability](#composability) | [Custom Kernels](#custom-kernels) | [Alpha Features](#alpha-features) | [Installation](#installation) | [Integrations](#integrations) | [Videos](#videos) | [License](#license) | [Citation](#citation)
 
 ## Introduction
 
@@ -59,7 +59,7 @@ In practice these features alongside int4 weight only quantization allow us to *
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/)
 
 ```python
-from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
 qat_quantizer = Int8DynActInt4WeightQATQuantizer()
 
@@ -192,3 +192,17 @@ We're also fortunate to be integrated into some of the leading open-source libra
 ## License
 
 `torchao` is released under the [BSD 3](https://github.com/pytorch-labs/ao/blob/main/LICENSE) license.
+
+# Citation
+
+If you find the torchao library useful, please cite it in your work as below.
+
+```bibtex
+@software{torchao,
+  title = {torchao: PyTorch native quantization and sparsity for training and inference},
+  author = {torchao maintainers and contributors},
+  url = {https//github.com/pytorch/torchao},
+  license = {BSD-3-Clause},
+  month = oct,
+  year = {2024}
+```

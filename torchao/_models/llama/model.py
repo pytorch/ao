@@ -35,6 +35,7 @@ class ModelArgs:
     rope_base: float = 10000
     norm_eps: float = 1e-5
     use_scaled_rope: bool = False
+    tie_word_embeddings: bool = False
 
     def __post_init__(self):
         if self.n_local_heads == -1:
@@ -78,6 +79,9 @@ transformer_configs = {
     ),
     "Llama-3.1-405B": dict(block_size=131072, n_layer=126, n_head=128, n_local_heads=8, dim=16384, intermediate_size=53248, vocab_size=128256, rope_base=500000,
         use_scaled_rope=True
+    ),
+    "Llama-3.2-3B": dict(block_size=131072, n_layer=28, n_head=24, n_local_heads=8, dim=3072, intermediate_size=8192, vocab_size=128256, rope_base=500000,
+        use_scaled_rope=True, tie_word_embeddings=True
     ),
 }
 

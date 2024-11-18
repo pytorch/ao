@@ -8,15 +8,16 @@ from typing import Dict, List, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
-import torch.nn.utils.parametrize as parametrize
-from torchao.utils import find_multiple
+
+from torchao.kernel import (
+    int_scaled_matmul,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
-    quantize_affine,
     dequantize_affine,
-    int_scaled_matmul,
+    quantize_affine,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -38,10 +39,11 @@ __all__ = [
     "groupwise_affine_dequantize_tensor",
     "per_token_dynamic_quant",
     "get_group_qparams_symmetric",
-    "recommended_inductor_config_setter"
+    "recommended_inductor_config_setter",
 ]
 
 _lm_eval_available = importlib.util.find_spec("lm_eval") is not None
+
 
 # basic SQNR
 def compute_error(x, y):
@@ -56,7 +58,6 @@ _cur_fqn: Optional[str] = None
 
 
 def _get_logging_hook(fqn):
-
     def forward_hook(module, input):
         global _cur_fqn
         _cur_fqn = fqn
@@ -76,7 +77,6 @@ _fqn_to_op_to_shape_to_count: Dict[
 
 
 class LoggingTensorMode(TorchDispatchMode):
-
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
@@ -100,10 +100,9 @@ class LoggingTensorMode(TorchDispatchMode):
 
         return rs
 
+
 class _MultiInput:
-
     def __init__(self, inputs):
-
         self.values = list(inputs)
 
     def add_input(self, input):
@@ -121,16 +120,22 @@ class _MultiInput:
 
 def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
-        raise ValueError(f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
+        raise ValueError(
+            f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead."
+        )
     if size is not None and tensor_arg.size() != size:
-        raise ValueError(f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+        raise ValueError(
+            f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead."
+        )
+
 
 def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
     block_size = []
-    for _ in range(len(x.shape)-1):
+    for _ in range(len(x.shape) - 1):
         block_size.append(1)
     block_size.append(x.shape[-1])
     return block_size
+
 
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
@@ -150,11 +155,23 @@ def quantize_activation_per_token_absmax(t):
     quant_max = 127
     scale_dtype = torch.float32 if t.dtype == torch.float16 else None
 
-    scale, zero_point = choose_qparams_affine(t, mapping_type, block_size, dtype, quant_min, quant_max, eps, scale_dtype=scale_dtype)
+    scale, zero_point = choose_qparams_affine(
+        t,
+        mapping_type,
+        block_size,
+        dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype=scale_dtype,
+    )
 
-    quantized = quantize_affine(t, block_size, scale, zero_point, dtype, quant_min, quant_max)
+    quantized = quantize_affine(
+        t, block_size, scale, zero_point, dtype, quant_min, quant_max
+    )
 
     return quantized, scale
+
 
 def quant_int8_dynamic_per_token_linear(
     x,
@@ -174,6 +191,7 @@ def quant_int8_dynamic_per_token_linear(
     if bias is not None:
         mm_out = mm_out + bias
     return mm_out
+
 
 def quant_int8_per_token_matmul(
     x_vals_int8,
@@ -205,10 +223,13 @@ def quant_int8_per_token_matmul(
         w_vals_int8_t.dtype == torch.int8
     ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
 
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+    assert (
+        x_scales.dtype
+        in [
+            torch.float,
+            torch.bfloat16,
+        ]
+    ), f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
 
     #
     # 1. do the matrix form of dot(X_i, W_j)
@@ -232,6 +253,7 @@ def quant_int8_per_token_matmul(
     y = y.to(output_dtype)
     return y
 
+
 def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     """
     assumes symmetric quantization
@@ -247,16 +269,30 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     zero_point_dtype = torch.int64
 
     mapping_type = MappingType.SYMMETRIC
-    scale, zero_point = choose_qparams_affine(x, mapping_type, block_size, target_dtype=target_dtype, quant_min=quant_min, quant_max=quant_max, eps=eps, zero_point_dtype=zero_point_dtype)
-    quant = quantize_affine(x, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
+    scale, zero_point = choose_qparams_affine(
+        x,
+        mapping_type,
+        block_size,
+        target_dtype=target_dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=eps,
+        zero_point_dtype=zero_point_dtype,
+    )
+    quant = quantize_affine(
+        x, block_size, scale, zero_point, target_dtype, quant_min, quant_max
+    )
     return quant, scale, zero_point
+
 
 # reference: https://fburl.com/code/vfsygwd0
 def dequantize_per_tensor(int_repr, scale, zero_point, out_dtype=torch.float32):
     block_size = int_repr.shape
     input_dtype = int_repr.dtype
     assert scale.numel() == 1, f"scale size: {scale.numel()}"
-    dequantized = dequantize_affine(int_repr, block_size, scale, zero_point, input_dtype, output_dtype=out_dtype)
+    dequantized = dequantize_affine(
+        int_repr, block_size, scale, zero_point, input_dtype, output_dtype=out_dtype
+    )
     return dequantized
 
 
@@ -271,9 +307,12 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     # transpose for block_size as well
     block_size = (int_repr.shape[0], 1)
     input_dtype = int_repr.dtype
-    dequantized = dequantize_affine(int_repr, block_size, scales, zero_points, input_dtype, output_dtype=out_dtype)
+    dequantized = dequantize_affine(
+        int_repr, block_size, scales, zero_points, input_dtype, output_dtype=out_dtype
+    )
     dequantized = dequantized.t()
     return dequantized
+
 
 def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     if groupsize > w.shape[-1]:
@@ -303,7 +342,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
         preserve_zero=False,
-        zero_point_domain=ZeroPointDomain.FLOAT
+        zero_point_domain=ZeroPointDomain.FLOAT,
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
@@ -350,18 +389,28 @@ def groupwise_affine_quantize_tensor_from_qparams(
     block_size = (1, groupsize)
     output_dtype = torch.int32
     quant_min = 0
-    quant_max = 2 ** n_bit - 1
+    quant_max = 2**n_bit - 1
 
-    int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
+    int_data = quantize_affine(
+        w,
+        block_size,
+        scales,
+        zeros,
+        output_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain=ZeroPointDomain.FLOAT,
+    )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
         int_data_device_type = int_data.device.type
         # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
-        if int_data_device_type == 'mps':
+        if int_data_device_type == "mps":
             int_data = int_data.cpu()
         int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if int_data_device_type == 'mps':
-            int_data = int_data.to(device='mps')
+        if int_data_device_type == "mps":
+            int_data = int_data.to(device="mps")
     return int_data
+
 
 def groupwise_affine_dequantize_tensor_from_qparams(
     w_int4x8,
@@ -373,11 +422,17 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert groupsize > 1
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
-    if TORCH_VERSION_AT_LEAST_2_5 and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1]>1):
+    if TORCH_VERSION_AT_LEAST_2_5 and (
+        w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1
+    ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
         low_bits = data & 0x0F
-        w_int32 = torch.zeros((w_int4x8.shape[0], w_int4x8.shape[1] * 2), dtype=torch.int32, device=w_int4x8.device)
+        w_int32 = torch.zeros(
+            (w_int4x8.shape[0], w_int4x8.shape[1] * 2),
+            dtype=torch.int32,
+            device=w_int4x8.device,
+        )
         w_int32[::, ::2] = high_bits
         w_int32[::, 1::2] = low_bits
     else:
@@ -391,7 +446,18 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     input_dtype = torch.int32
     quant_min = 0
     quant_max = 2**n_bit - 1
-    return dequantize_affine(w_int32, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
+    return dequantize_affine(
+        w_int32,
+        block_size,
+        scales,
+        zeros,
+        input_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain=ZeroPointDomain.FLOAT,
+        output_dtype=scales.dtype,
+    )
+
 
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
@@ -415,7 +481,13 @@ def groupwise_affine_dequantize_tensor(
 
 
 # TODO: separate scale and zero point precision
-def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32, mapping_type=MappingType.SYMMETRIC):
+def get_group_qparams_symmetric(
+    w,
+    n_bit=4,
+    groupsize=128,
+    precision=torch.float32,
+    mapping_type=MappingType.SYMMETRIC,
+):
     # needed for GPTQ with padding
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -432,7 +504,17 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
     for i in range(2, 9):
         ranges[i] = (-(2 ** (i - 1)), 2 ** (i - 1) - 1)
     quant_min, quant_max = ranges[n_bit]
-    scale, zero_point = choose_qparams_affine(w, mapping_type, block_size, target_dtype=torch.int8, quant_min=quant_min, quant_max=quant_max, eps=eps, scale_dtype=precision, zero_point_dtype=precision)
+    scale, zero_point = choose_qparams_affine(
+        w,
+        mapping_type,
+        block_size,
+        target_dtype=torch.int8,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=eps,
+        scale_dtype=precision,
+        zero_point_dtype=precision,
+    )
     return scale.reshape(w.shape[0], -1), zero_point.reshape(w.shape[0], -1)
 
 
@@ -441,25 +523,34 @@ def group_quantize_tensor_symmetric(
     n_bit=4,
     group_size=128,
     precision=torch.float32,
-    mapping_type=MappingType.SYMMETRIC
+    mapping_type=MappingType.SYMMETRIC,
 ):
-    scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision, mapping_type)
+    scales, zeros = get_group_qparams_symmetric(
+        w, n_bit, group_size, precision, mapping_type
+    )
     n_bit = 4
     max_int = 2 ** (n_bit - 1) - 1
     min_int = -(2 ** (n_bit - 1))
     # TODO: currently we don't know how to express torch.int4, we'll
     # add torch.int4 to core later
-    from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+    from torchao._executorch_ops import (
+        _quantized_decomposed_quantize_per_channel_group_wrapper,
+    )
+
     w_int8 = _quantized_decomposed_quantize_per_channel_group_wrapper(
         w, scales, zeros, min_int, max_int, torch.int8, group_size
     )
 
     return w_int8, scales, zeros
 
+
 def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     orig_dtype = input.dtype
     # TODO: we may need to make the choose_qparams op configurable
-    from torchao._executorch_ops import _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper
+    from torchao._executorch_ops import (
+        _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper,
+    )
+
     (
         scales,
         zero_points,
@@ -471,14 +562,19 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     quant_min = -128
     quant_max = 127
     from torchao._executorch_ops import _quantized_decomposed_quantize_per_token_wrapper
+
     input = _quantized_decomposed_quantize_per_token_wrapper(
         input, scales, zero_points, quant_min, quant_max, torch.int8
     )
-    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token_wrapper
+    from torchao._executorch_ops import (
+        _quantized_decomposed_dequantize_per_token_wrapper,
+    )
+
     input = _quantized_decomposed_dequantize_per_token_wrapper(
         input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
     )
     return input.to(orig_dtype)
+
 
 def recommended_inductor_config_setter():
     """

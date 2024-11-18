@@ -11,8 +11,6 @@ to simplify the product code.
 
 from typing import Optional
 
-import torchao.float8.float8_aten_api  # noqa
-
 import torch
 
 

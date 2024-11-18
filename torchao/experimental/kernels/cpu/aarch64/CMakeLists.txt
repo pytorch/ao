@@ -5,8 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library" OFF)
-
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   add_library(
     torchao_kernels_aarch64
@@ -28,7 +26,6 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
     # Temporarily exposing this to the parent scope until we wire
     # this up properly from the top level
     set(TORCHAO_ENABLE_KLEIDI ON PARENT_SCOPE)
-    message(STATUS "Building with Kleidi")
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
   endif()
 endif()

@@ -118,7 +118,9 @@ def get_extensions():
     if IS_ROCM and use_cuda:
         sources += hip_sources
 
-    ## TODO: remove this condition and use what we have in CUDA once we fix the individual builds.
+    if len(sources) == 0:
+        return None
+
     ext_modules = [
         extension(
             "torchao._C",

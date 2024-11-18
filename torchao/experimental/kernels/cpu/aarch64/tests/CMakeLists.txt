@@ -36,7 +36,6 @@ endif()
 add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
 # The TORCHAO_ENABLE_KLEIDI cmake variable should be set by `torchao_kernels_aarch64"
-# This is a temporary work around.
 if(TORCHAO_ENABLE_KLEIDI)
   add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
 endif()
@@ -84,9 +83,18 @@ target_link_libraries(
     dep
 )
 
+add_executable(test_embedding test_embedding.cpp)
+target_link_libraries(
+  test_embedding
+    PRIVATE
+    GTest::gtest_main
+    dep
+)
+
 include(GoogleTest)
 gtest_discover_tests(test_quantization)
 gtest_discover_tests(test_reduction)
 gtest_discover_tests(test_bitpacking)
 gtest_discover_tests(test_linear)
 gtest_discover_tests(test_valpacking)
+gtest_discover_tests(test_embedding)

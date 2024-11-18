@@ -17,21 +17,14 @@ using namespace at::native::mps;
 
 // LowBit Quantized Linear on MPS Backend
 template <int nbit>
-Tensor linear_mps_kernel(
+void check_linear_mps_args(
     const Tensor& A,
     const Tensor& B,
     int64_t group_size,
-    const Tensor& SZ) {
-  auto M = A.size(0);
+    const Tensor& S,
+    const Tensor& Z) {
   auto N = B.size(0);
   auto K = A.size(1);
-
-  TORCH_CHECK(
-      A.is_mps(), __func__, "A is on ", A.device(), " but expected on mps");
-  TORCH_CHECK(
-      B.is_mps(), __func__, "B is on ", B.device(), " but expected on mps");
-  TORCH_CHECK(
-      SZ.is_mps(), __func__, "SZ is on ", SZ.device(), " but expected on mps");
 
   TORCH_CHECK(
       A.dtype() == at::kBFloat16 || A.dtype() == at::kHalf ||
@@ -60,11 +53,43 @@ Tensor linear_mps_kernel(
       group_size);
 
   TORCH_CHECK(
-      SZ.dim() == 3 && SZ.size(1) == N && SZ.size(2) == 2,
+      S.dim() == 2 && S.size(1) == N,
       __func__,
-      ": expect SZ to be 3d tensor with sizes [:, ",
+      ": expect S to be 2d tensor with shape [:, ",
       N,
-      ", 2]");
+      "]");
+  TORCH_CHECK(S.is_contiguous(), __func__, " : expect S to be contiguous.");
+
+  TORCH_CHECK(
+      Z.dim() == 2 && Z.size(1) == N,
+      __func__,
+      ": expect Z to be 2d tensor with shape [:, ",
+      N,
+      "]");
+  TORCH_CHECK(Z.is_contiguous(), __func__, " : expect Z to be contiguous.");
+}
+
+template <int nbit>
+Tensor linear_mps_kernel(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t group_size,
+    const Tensor& S,
+    const Tensor& Z) {
+  TORCH_CHECK(
+      A.is_mps(), __func__, ": A is on ", A.device(), " but expected on mps");
+  TORCH_CHECK(
+      B.is_mps(), __func__, ": B is on ", B.device(), " but expected on mps");
+  TORCH_CHECK(
+      S.is_mps(), __func__, ": S is on ", S.device(), " but expected on mps");
+  TORCH_CHECK(
+      Z.is_mps(), __func__, ": Z is on ", Z.device(), " but expected on mps");
+
+  check_linear_mps_args<nbit>(A, B, group_size, S, Z);
+
+  auto M = A.size(0);
+  auto N = B.size(0);
+  auto K = A.size(1);
 
   auto C = at::empty({M, N}, A.options());
 
@@ -72,7 +97,8 @@ Tensor linear_mps_kernel(
       getMTLBufferStorage(A),
       getMTLBufferStorage(B),
       group_size,
-      getMTLBufferStorage(SZ),
+      getMTLBufferStorage(S),
+      getMTLBufferStorage(Z),
       getMTLBufferStorage(C),
       M,
       K,
@@ -80,6 +106,30 @@ Tensor linear_mps_kernel(
       scalarToMetalTypeString(A));
 
   return C;
+}
+
+template <int nbit>
+Tensor linear_mps_kernel_meta(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t group_size,
+    const Tensor& S,
+    const Tensor& Z) {
+  TORCH_CHECK(
+      A.is_meta(), __func__, ": A is on ", A.device(), " but expected on meta");
+  TORCH_CHECK(
+      B.is_meta(), __func__, ": B is on ", B.device(), " but expected on meta");
+  TORCH_CHECK(
+      S.is_meta(), __func__, ": S is on ", S.device(), " but expected on meta");
+  TORCH_CHECK(
+      Z.is_meta(), __func__, ": Z is on ", Z.device(), " but expected on meta");
+
+  check_linear_mps_args<nbit>(A, B, group_size, S, Z);
+
+  auto M = A.size(0);
+  auto N = B.size(0);
+
+  return at::empty({M, N}, A.options()).to("meta");
 }
 
 // LowBit Packing on CPU Backend
@@ -109,19 +159,19 @@ TORCH_LIBRARY(torchao, m) {
   m.def("_pack_weight_6bit(Tensor W) -> Tensor");
   m.def("_pack_weight_7bit(Tensor W) -> Tensor");
   m.def(
-      "_linear_fp_act_1bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_1bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_2bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_2bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_3bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_3bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_4bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_4bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_5bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_5bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_6bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_6bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
-      "_linear_fp_act_7bit_weight(Tensor A, Tensor B, int group_size, Tensor SZ) -> Tensor");
+      "_linear_fp_act_7bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
@@ -142,6 +192,16 @@ TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel<5>);
   m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel<6>);
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel<7>);
+}
+
+TORCH_LIBRARY_IMPL(torchao, Meta, m) {
+  m.impl("_linear_fp_act_1bit_weight", &linear_mps_kernel_meta<1>);
+  m.impl("_linear_fp_act_2bit_weight", &linear_mps_kernel_meta<2>);
+  m.impl("_linear_fp_act_3bit_weight", &linear_mps_kernel_meta<3>);
+  m.impl("_linear_fp_act_4bit_weight", &linear_mps_kernel_meta<4>);
+  m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel_meta<5>);
+  m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel_meta<6>);
+  m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel_meta<7>);
 }
 
 } // namespace torchao::kernels::mps::lowbit::aten

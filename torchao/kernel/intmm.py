@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
 
 try:
     # Only works for torch2.2 or newer.
@@ -37,6 +37,9 @@ if TORCH_VERSION_AT_LEAST_2_2:
         """
         # torch.compile path
         if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
+            if input.device.type == "cpu":
+                # Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend
+                return out_dtype(torch.ops.aten.mm.default, torch.int32, input.float(), mat2.float())
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
         # error checking for cublas path
@@ -126,11 +129,18 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     """
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0)
+    assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
+
+    if scales1.device.type == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        # CPU prefers decomposed version of int_scaled_matmul
+        # to leverage the fusion capability of Inductor
+        c = torch._int_mm(a, b)
+        return c.to(scales1.dtype) * scales1
+
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 

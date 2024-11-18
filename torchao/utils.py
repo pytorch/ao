@@ -1,15 +1,14 @@
-import torch
-from typing import Tuple, Any, Callable
-from functools import reduce
 import functools
+import itertools
+import re
+import time
+from functools import reduce
 from importlib.metadata import version
 from math import gcd
-import torch.nn.utils.parametrize as parametrize
-import itertools
-import time
-import warnings
-import re
+from typing import Any, Callable, Tuple
 
+import torch
+import torch.nn.utils.parametrize as parametrize
 
 __all__ = [
     "benchmark_model",
@@ -27,7 +26,6 @@ __all__ = [
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
     "TORCH_VERSION_AT_LEAST_2_6",
-
     # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
@@ -42,8 +40,9 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     Returns the unique device for a module, or None if no device is found.
     Throws an error if multiple devices are detected.
     """
-    devices = {p.device for p in module.parameters()} | \
-        {p.device for p in module.buffers()}
+    devices = {p.device for p in module.parameters()} | {
+        p.device for p in module.buffers()
+    }
 
     assert len(devices) <= 1, (
         "prepare only works with cpu or single-device CUDA modules, "
@@ -54,13 +53,14 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
 
 
 def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
-    """Benchmark model runs with `args` and `kwargs` both are optional
-    """
+    """Benchmark model runs with `args` and `kwargs` both are optional"""
     if kwargs is None:
         kwargs = {}
 
     if device_type is None:
-        assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        assert isinstance(
+            model, torch.nn.Module
+        ), "Expecting `model` to be torch.nn.Module if device_type is not provided"
         device_type = _assert_and_get_unique_device(model).type
 
     if device_type == "cuda":
@@ -110,12 +110,16 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
 
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU,
-                        torch.profiler.ProfilerActivity.CUDA],
-            record_shapes=True) as prof:
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        record_shapes=True,
+    ) as prof:
         result = fn(*args, **kwargs)
     prof.export_chrome_trace(path)
     return result
+
 
 def get_compute_capability():
     if torch.cuda.is_available():
@@ -123,22 +127,31 @@ def get_compute_capability():
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
 
+
 def skip_if_compute_capability_less_than(min_capability):
     import unittest
+
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(f"Compute capability is less than {min_capability}")
+                raise unittest.SkipTest(
+                    f"Compute capability is less than {min_capability}"
+                )
             return test_func(*args, **kwargs)
+
         return wrapper
+
     return decorator
+
 
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
     return torch.mean(torch.abs(output - output_ref)) / torch.mean(
-        torch.abs(output_ref))
+        torch.abs(output_ref)
+    )
+
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
-    import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
+    import torch.utils.benchmark as benchmark  # this avoids importing numpy when torchao module is loaded
 
     # Manual warmup
     f(*args, **kwargs)
@@ -157,6 +170,7 @@ def find_multiple(n: int, *args: Tuple[int]) -> int:
     if n % k == 0:
         return n
     return n + k - (n % k)
+
 
 def _register_custom_op(lib):
     """This decorator is used to preserve some high level operators for torch.export.export
@@ -191,8 +205,12 @@ def _register_custom_op(lib):
 
             # expecting fn.__name__ starts with `_` and we want to take the rest
             # to be the name of the custom op
-            assert fn.__name__[0] == "_", f"Expecting function name starts with `_`, got {fn.__name__}"
-            assert not any(c in fn.__name__ for c in ".<>"), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+            assert (
+                fn.__name__[0] == "_"
+            ), f"Expecting function name starts with `_`, got {fn.__name__}"
+            assert not any(
+                c in fn.__name__ for c in ".<>"
+            ), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
@@ -207,12 +225,14 @@ def _register_custom_op(lib):
 
     return decorator
 
+
 def get_model_size_in_bytes(model, ignore_embeddings=False):
     """
     Returns the model size in bytes. The option to ignore embeddings
     is useful for models with disproportionately large embeddings compared
     to other model parameters that get quantized/sparsified.
     """
+
     def flat_size(tensor):
         if hasattr(tensor, "__tensor_flatten__"):
             size = 0
@@ -228,10 +248,13 @@ def get_model_size_in_bytes(model, ignore_embeddings=False):
     model_size = 0
     for name, child in model.named_children():
         if not (isinstance(child, torch.nn.Embedding) and ignore_embeddings):
-            for p in itertools.chain(child.parameters(recurse=False), child.buffers(recurse=False)):
+            for p in itertools.chain(
+                child.parameters(recurse=False), child.buffers(recurse=False)
+            ):
                 model_size += flat_size(p)
             model_size += get_model_size_in_bytes(child, ignore_embeddings)
     return model_size
+
 
 class UnwrapTensorSubclass(torch.nn.Module):
     def forward(self, *tensors):
@@ -267,6 +290,7 @@ class UnwrapTensorSubclass(torch.nn.Module):
 
         return plain_tensors
 
+
 def unwrap_tensor_subclass(model, filter_fn=None):
     """Unwraps (nested) tensor subclass in the model to plain tensors
     This is a workaround to make a model with tensor subclass to work with `torch.export.export`
@@ -276,14 +300,19 @@ def unwrap_tensor_subclass(model, filter_fn=None):
     for name, child in model.named_children():
         # make sure child.weight is a tensor subclass
         if (
-            isinstance(child, torch.nn.Linear) and
-            hasattr(child, "weight") and
-            type(child.weight) is not torch.Tensor and
-            type(child.weight) is not torch.nn.Parameter and
-            isinstance(child.weight, torch.Tensor) and
-            issubclass(type(child.weight), torch.Tensor)
+            (
+                isinstance(child, torch.nn.Linear)
+                or isinstance(child, torch.nn.Embedding)
+            )
+            and hasattr(child, "weight")
+            and type(child.weight) is not torch.Tensor
+            and type(child.weight) is not torch.nn.Parameter
+            and isinstance(child.weight, torch.Tensor)
+            and issubclass(type(child.weight), torch.Tensor)
         ):
-            parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
+            parametrize.register_parametrization(
+                child, "weight", UnwrapTensorSubclass()
+            )
         unwrap_tensor_subclass(child)
     return model
 
@@ -300,23 +329,27 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
 
 def parse_version(version_string):
     # Extract just the X.Y.Z part from the version string
-    match = re.match(r'(\d+\.\d+\.\d+)', version_string)
+    match = re.match(r"(\d+\.\d+\.\d+)", version_string)
     if match:
         version = match.group(1)
-        return [int(x) for x in version.split('.')]
+        return [int(x) for x in version.split(".")]
     else:
         raise ValueError(f"Invalid version string format: {version_string}")
+
 
 def compare_versions(v1, v2):
     v1_parts = parse_version(v1)
     v2_parts = parse_version(v2)
     return (v1_parts > v2_parts) - (v1_parts < v2_parts)
 
+
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
 
+
 def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+
 
 TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
@@ -329,6 +362,8 @@ TORCH_VERSION_AT_LEAST_2_2 = torch_version_at_least("2.2.0")
 Helper function for implementing aten op or torch function dispatch
 and dispatching to these implementations.
 """
+
+
 def _implements(cls, aten_ops_or_torch_fns):
     """Use this decorator to implement a function for an aten ops in __torch_dispatch__
     (if user passed in a list of ops)
@@ -350,15 +385,19 @@ def _implements(cls, aten_ops_or_torch_fns):
 
     if not isinstance(aten_ops_or_torch_fns, (list, tuple)):
         aten_ops_or_torch_fns = [aten_ops_or_torch_fns]
+
     def decorator(func):
         for op in aten_ops_or_torch_fns:
+
             @functools.wraps(op)
             def wrapper(f, types, args, kwargs):
                 return func(f, types, args, kwargs)
 
             cls._ATEN_OP_OR_TORCH_FN_TABLE[op] = wrapper
         return func
+
     return decorator
+
 
 def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
     """Use this util function for a common `__torch_function__` implementation
@@ -369,12 +408,15 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
         __torch_function__ = classmethod(_dispatch__torch_function__)
     """
     kwargs = {} if kwargs is None else kwargs
-    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
-       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
+    if (
+        hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
+        and func in cls._ATEN_OP_OR_TORCH_FN_TABLE
+    ):
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     with torch._C.DisableTorchFunctionSubclass():
         return func(*args, **kwargs)
+
 
 def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     """Use this util function for a common `__torch_dispatch__` implementation
@@ -384,13 +426,18 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         ...
         __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     """
-    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
-       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
+    if (
+        hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE")
+        and func in cls._ATEN_OP_OR_TORCH_FN_TABLE
+    ):
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     arg_types = tuple(type(arg) for arg in args)
-    kwarg_types = {k: type(arg) for k, arg in kwargs}
-    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
+    kwarg_types = {k: type(arg) for k, arg in kwargs.items()}
+    raise NotImplementedError(
+        f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}"
+    )
+
 
 def _register_layout(tensor_class: Callable, layout_class: Callable):
     """Helper function for layout registrations, this is used to implement
@@ -411,14 +458,20 @@ def _register_layout(tensor_class: Callable, layout_class: Callable):
         tensor_class._LAYOUT_CONSTRUCTOR_TABLE = {}
 
     def decorator(tensor_impl_class):
-        tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = tensor_impl_class.from_plain
+        tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = (
+            tensor_impl_class.from_plain
+        )
         if TORCH_VERSION_AT_LEAST_2_5:
             # Allow serialization to work for models uses this tensor impl subclass
             torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
         return tensor_impl_class
+
     return decorator
 
-def _get_tensor_impl_constructor(tensor_class: Callable, layout_class: Callable) -> Callable:
+
+def _get_tensor_impl_constructor(
+    tensor_class: Callable, layout_class: Callable
+) -> Callable:
     """Get TensorImpl class constructor (TensorImplClass.from_plain) for `tensor_class` based on `layout_class`
     `layout_class` means the class type of subclass of `Layout`, e.g. `PlainLayout`
 
@@ -430,9 +483,13 @@ def _get_tensor_impl_constructor(tensor_class: Callable, layout_class: Callable)
         tensor impl subclass constructor for the layout_class
     """
     if not hasattr(tensor_class, "_LAYOUT_CONSTRUCTOR_TABLE"):
-        raise ValueError(f"no registered tensor_impl class constructor for: {tensor_class}")
+        raise ValueError(
+            f"no registered tensor_impl class constructor for: {tensor_class}"
+        )
     if layout_class not in tensor_class._LAYOUT_CONSTRUCTOR_TABLE:
-        raise ValueError(f"layout_name: {layout_class} is not supported yet for {tensor_class}")
+        raise ValueError(
+            f"layout_name: {layout_class} is not supported yet for {tensor_class}"
+        )
 
     return tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class]
 
@@ -471,6 +528,7 @@ class TorchAOBaseTensor(torch.Tensor):
             tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
 
     """
+
     implements = classmethod(_implements)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
@@ -496,6 +554,7 @@ class TorchAOBaseTensor(torch.Tensor):
             "dtype": dtype,
         }
         return kwargs
+
 
 def fill_defaults(args, n, defaults_tail):
     """
@@ -525,6 +584,7 @@ def fill_defaults(args, n, defaults_tail):
 ## Deprecated, will be deleted in the future
 def _torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
+
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")

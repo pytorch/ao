@@ -31,7 +31,6 @@ from torchao.quantization.granularity import PerRow, PerTensor
 from tokenizer import get_tokenizer
 import time
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.prototype.spinquant import apply_spinquant
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -71,6 +70,7 @@ def run_evaluation(
 
     if quantization:
         if "spinquant" in quantization:
+            from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
@@ -104,13 +104,13 @@ def run_evaluation(
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
-            from torchao._models._eval import InputRecorder
-            from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
+            from torchao._models._eval import MultiTensorInputRecorder
+            from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
-            inputs = InputRecorder(
+            inputs = MultiTensorInputRecorder(
                 tokenizer,
                 calibration_seq_length,
                 prepare_inputs_for_model,
@@ -122,7 +122,7 @@ def run_evaluation(
                 calibration_limit,
             ).get_inputs()
 
-            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
+            quantizer = Int4WeightOnlyGPTQQuantizer(group_size=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
         else:

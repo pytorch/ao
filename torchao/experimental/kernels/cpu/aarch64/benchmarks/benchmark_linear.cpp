@@ -43,15 +43,17 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot(
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      test_case.weight_zeros.data());
+      test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * k);
   for (auto _ : state) {
@@ -64,7 +66,6 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot(
         group_size,
         weight_data.data(),
         activation_data.data(),
-        test_case.bias.data(),
         test_case.clamp_min,
         test_case.clamp_max);
   }
@@ -103,15 +104,17 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot(
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      test_case.weight_zeros.data());
+      test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * k);
   for (auto _ : state) {
@@ -124,7 +127,6 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot(
         group_size,
         weight_data.data(),
         activation_data.data(),
-        test_case.bias.data(),
         test_case.clamp_min,
         test_case.clamp_max);
   }
@@ -163,15 +165,17 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot(
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      test_case.weight_zeros.data());
+      test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * k);
   for (auto _ : state) {
@@ -184,7 +188,6 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot(
         group_size,
         weight_data.data(),
         activation_data.data(),
-        test_case.bias.data(),
         test_case.clamp_min,
         test_case.clamp_max);
   }
@@ -240,6 +243,8 @@ BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x1x32_F32_NEONDOT
     5);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x1x32_F32_NEONDOT(
     6);
+BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x1x32_F32_NEONDOT(
+    7);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT(
     1);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT(
@@ -253,6 +258,8 @@ BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT(
     6);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT(
+    7);
+BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x4x16_F32_NEONDOT(
     1);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x8x16_F32_NEONDOT(
     2);
@@ -264,6 +271,8 @@ BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x8x16_F32_NEONDOT
     5);
 BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x8x16_F32_NEONDOT(
     6);
+BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT_1x8x16_F32_NEONDOT(
+    7);
 
 // Run the benchmark
 BENCHMARK_MAIN();
