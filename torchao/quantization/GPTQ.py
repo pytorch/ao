@@ -611,8 +611,8 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                     ),
                     dtype=torch.uint8,
                     device=device,
-            ),
-        )
+                ),
+            )
         else:
             self.register_buffer(
                 "weight",
