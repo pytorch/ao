@@ -35,7 +35,8 @@ else:
 if TORCH_VERSION_AT_LEAST_2_6:
     torch.serialization.add_safe_globals([ToyLinearModel])
     torch.serialization.add_safe_globals([torch.nn.Linear])
-    torch.serialization.add_safe_globals([torchao.dtypes.uintx.uintx_layout.UintxTensor])
+    from torchao.dtypes.uintx.uintx_layout import UintxTensor
+    torch.serialization.add_safe_globals([UintxTensor])
     
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
