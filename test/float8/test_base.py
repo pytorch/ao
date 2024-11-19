@@ -4,16 +4,13 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
-import io
 import itertools
 import random
 import re
 import unittest
 import warnings
-from typing import List, Tuple
 
 import pytest
-
 import torch
 import torch.nn as nn
 
@@ -27,9 +24,9 @@ from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
     Float8LinearRecipeName,
-    recipe_name_to_linear_config,
     ScalingGranularity,
     ScalingType,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -45,16 +42,16 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
+    FP8_TYPES,
     compute_error,
     e4m3_dtype,
     e5m2_dtype,
     fp8_tensor_statistics,
-    FP8_TYPES,
     tensor_to_scale,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -186,7 +183,7 @@ class TestFloat8Tensor:
             rtol=0,
         )
         with pytest.raises(RuntimeError):
-            a_fp8_d0_r2 = a_fp8_d0.reshape(-1, 7)
+            a_fp8_d0.reshape(-1, 7)
 
         # if we scale across dim2, we can only reshape to [-1, 7]
         a_fp8_d2 = hp_tensor_to_float8_dynamic(
@@ -210,7 +207,7 @@ class TestFloat8Tensor:
             rtol=0,
         )
         with pytest.raises(RuntimeError):
-            a_fp8_d2_r2 = a_fp8_d2.reshape(3, -1)
+            a_fp8_d2.reshape(3, -1)
 
     @pytest.mark.parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
     @pytest.mark.parametrize(
@@ -261,6 +258,7 @@ class TestFloat8Linear:
         x,
         m_ref,
         config: Float8LinearConfig,
+        use_ac: bool = False,
     ):
         m_fp8 = Float8Linear.from_float(
             copy.deepcopy(m_ref),
@@ -269,9 +267,15 @@ class TestFloat8Linear:
         for _ in range(2):
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(m_fp8)
-            y_fp8 = m_fp8(x)
+            if use_ac:
+                y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
+            else:
+                y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
-            y_ref = m_ref(x)
+            if use_ac:
+                y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
+            else:
+                y_ref = m_ref(x)
             y_ref.sum().backward()
 
         assert y_ref.shape == y_fp8.shape
@@ -344,6 +348,7 @@ class TestFloat8Linear:
     )
     @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("linear_bias", [False, True])
+    @pytest.mark.parametrize("use_ac", [False, True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_linear_from_config_params(
         self,
@@ -354,6 +359,7 @@ class TestFloat8Linear:
         scaling_type_grad_output: ScalingType,
         linear_dtype: torch.dtype,
         linear_bias: bool,
+        use_ac: bool,
     ):
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
@@ -369,6 +375,7 @@ class TestFloat8Linear:
             x,
             m_ref,
             config,
+            use_ac,
         )
 
     # Note: there are now too many config combinations to test all of
@@ -518,7 +525,7 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         with torch.inference_mode(mode=True):
-            y = m(x)
+            m(x)
 
 
 class TestScaledMM:
@@ -632,7 +639,7 @@ class TestScaledMM:
         with pytest.raises(
             RuntimeError,
             match=re.escape(
-                "Expected trailing dimension of mat1 to be divisible by 16 but got mat1 shape: (16x41)."
+                "Expected trailing dimension of mat1 to be divisible by 16 but got mat1 shape: (16x41"
             ),
         ):
             a_fp8 @ b_fp8

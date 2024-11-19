@@ -12,7 +12,6 @@ import os
 import warnings
 
 import fire
-
 import pytest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -24,13 +23,14 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 from torchao.float8 import Float8LinearConfig
 from torchao.float8.config import CastConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     sync_float8_amax_and_scale_history,
 )
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 torch.manual_seed(0)
 

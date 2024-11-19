@@ -10,6 +10,7 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
 )
 from torchao.float8.inference import Float8MMConfig
+from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
 )
@@ -24,7 +25,6 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .quant_primitives import safe_int_mm
 from .subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -217,7 +217,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         weight = tensor_data_dict["weight"]
-        qtensor_class_list, mode, dtype, shape = tensor_attributes[0]
+        qtensor_class_list, mode, dtype, shape = tensor_attributes
         return cls(
             weight,
             qtensor_class_list,

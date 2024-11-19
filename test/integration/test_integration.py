@@ -34,8 +34,10 @@ from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
 )
-from torchao.quantization.quant_primitives import (
+from torchao.quantization import (
     safe_int_mm,
+)
+from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
@@ -774,6 +776,18 @@ class TestSubclass(unittest.TestCase):
         self._test_lin_weight_subclass_impl(
             AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
         )
+
+    def test_autoquantizable_flatten_unflatten(self):
+        from torchao.quantization import DEFAULT_AUTOQUANT_CLASS_LIST
+        weight = torch.randn(16, 32)
+        qtensor_class_list = DEFAULT_AUTOQUANT_CLASS_LIST
+        aqw = AutoQuantizableLinearWeight.from_float(weight, qtensor_class_list)
+        tensor_data_name_dict, tensor_attributes = aqw.__tensor_flatten__()
+        tensor_data_dict = {name: getattr(aqw, name) for name in tensor_data_name_dict}
+        outer_size = aqw.size()
+        outer_stride = aqw.stride()
+        reconstructed = type(aqw).__tensor_unflatten__(tensor_data_dict, tensor_attributes, outer_size, outer_stride)
+
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")

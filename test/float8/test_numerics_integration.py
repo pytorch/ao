@@ -19,12 +19,11 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
-    ScalingType,
-    ScalingGranularity,
+    Float8LinearConfig,
     Float8LinearRecipeName,
+    ScalingType,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
@@ -32,7 +31,7 @@ from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
-from torchao.float8.float8_utils import compute_error, IS_ROCM
+from torchao.float8.float8_utils import IS_ROCM, compute_error
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
@@ -87,7 +86,6 @@ class FeedForward(nn.Module):
 
 
 class TestFloat8NumericsIntegrationTest:
-
     def _test_impl(self, config: Float8LinearConfig) -> None:
         data_dtype = torch.bfloat16
         # LLaMa 3 70B shapes
@@ -167,11 +165,11 @@ class TestFloat8NumericsIntegrationTest:
             assert sqnr > grad_sqnr_threshold
 
     @pytest.mark.parametrize(
-        "scaling_type_input", 
+        "scaling_type_input",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
-        "scaling_type_weight", 
+        "scaling_type_weight",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
@@ -196,7 +194,10 @@ class TestFloat8NumericsIntegrationTest:
 
     @pytest.mark.parametrize(
         "recipe_name",
-        [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+        [
+            Float8LinearRecipeName.ALL_AXISWISE,
+            Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+        ],
     )
     @pytest.mark.skipif(not is_cuda_9_0, reason="requires SM90 compatible machine")
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")

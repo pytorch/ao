@@ -9,12 +9,14 @@ from typing import Dict, List, Optional
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
+from torchao.kernel import (
+    int_scaled_matmul,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
     dequantize_affine,
-    int_scaled_matmul,
     quantize_affine,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5

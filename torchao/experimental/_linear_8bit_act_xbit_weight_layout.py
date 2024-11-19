@@ -12,10 +12,10 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.affine_quantized_tensor import (
-    AQTTensorImpl,
-    register_aqt_quantized_linear_dispatch,
     register_layout,
 )
+from torchao.dtypes.utils import AQTTensorImpl
+from torchao.dtypes.affine_quantized_tensor_ops import register_aqt_quantized_linear_dispatch
 from torchao.dtypes.utils import Layout
 from torchao.quantization.quant_primitives import (
     MappingType,
