@@ -82,6 +82,7 @@ from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
 logger = logging.getLogger(__name__)
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -939,6 +940,9 @@ def float8_dynamic_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
+    assert (
+        is_cuda_8_9
+    ), "Float8 dynamic activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -993,6 +997,9 @@ def float8_static_activation_float8_weight(
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
+    assert (
+        is_cuda_8_9
+    ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
