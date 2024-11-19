@@ -113,7 +113,7 @@ def test_save_weights_only():
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
     quantize_(m, awq_uintx(quant_dtype = quant_dtype, group_size = group_size), is_observed_linear)
-    
+
     model_save_path = "awq_model.pth"
     torch.save(m.state_dict(), model_save_path)
     m2.load_state_dict(torch.load(model_save_path), assign=True) # load weights only.torch.load(model_save_path)
