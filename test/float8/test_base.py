@@ -4,16 +4,13 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
-import io
 import itertools
 import random
 import re
 import unittest
 import warnings
-from typing import List, Tuple
 
 import pytest
-
 import torch
 import torch.nn as nn
 
@@ -27,9 +24,9 @@ from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
     Float8LinearRecipeName,
-    recipe_name_to_linear_config,
     ScalingGranularity,
     ScalingType,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -45,16 +42,16 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
+    FP8_TYPES,
     compute_error,
     e4m3_dtype,
     e5m2_dtype,
     fp8_tensor_statistics,
-    FP8_TYPES,
     tensor_to_scale,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -186,7 +183,7 @@ class TestFloat8Tensor:
             rtol=0,
         )
         with pytest.raises(RuntimeError):
-            a_fp8_d0_r2 = a_fp8_d0.reshape(-1, 7)
+            a_fp8_d0.reshape(-1, 7)
 
         # if we scale across dim2, we can only reshape to [-1, 7]
         a_fp8_d2 = hp_tensor_to_float8_dynamic(
@@ -210,7 +207,7 @@ class TestFloat8Tensor:
             rtol=0,
         )
         with pytest.raises(RuntimeError):
-            a_fp8_d2_r2 = a_fp8_d2.reshape(3, -1)
+            a_fp8_d2.reshape(3, -1)
 
     @pytest.mark.parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
     @pytest.mark.parametrize(
@@ -528,7 +525,7 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         with torch.inference_mode(mode=True):
-            y = m(x)
+            m(x)
 
 
 class TestScaledMM:
