@@ -138,7 +138,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # TODO figure out how to do unpacking
-        raise NotImplementedError("TODO")
         return self.packed_weight, self.scale, self.zero_point
 
     def get_layout(self) -> Layout:
@@ -177,7 +176,7 @@ def _linear_fp_act_int4_weight_gemlite_impl(input_tensor, weight_tensor, bias):
     out = (
         GEMLITE_TRITON_MAPPING[matmul_type]
         .forward(
-            input_tensor.view(-1, input_tensor.shape[-1]),
+            input_tensor.contiguous().view(-1, input_tensor.shape[-1]),
             weight_tensor.tensor_impl.packed_weight,
             weight_tensor.tensor_impl.scale,
             weight_tensor.tensor_impl.zero_point,

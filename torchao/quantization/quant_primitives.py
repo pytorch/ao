@@ -802,7 +802,6 @@ def _choose_qparams_affine(
     min_val: Optional[torch.Tensor] = None,
     max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    import fbvscode; fbvscode.set_trace()
     """op definition that has compatible signatures with custom op library
 
     The op does the following:
@@ -1178,8 +1177,7 @@ def choose_qparams_and_quantize_affine_hqq(
         zero = torch.round(zero)
 
     # Fine-tune weights
-    if False and optimize:
-        import fbvscode; fbvscode.set_trace()
+    if optimize:
         W_q, scale, zero = optimize_weights(
             tensor=W,
             scale=scale,

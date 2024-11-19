@@ -505,7 +505,11 @@ def main(
                 tok_list = y[0].tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in tok_list else tok_list[:tok_list.index(tokenizer.eos_id())]
-                print(tokenizer.decode(tokens))
+                try:
+                    print(tokenizer.decode(tokens))
+                except:
+                    breakpoint()
+                    print("huh")
         else:
             print()
         tokens_generated = (y.size(-1) - prompt_length)
