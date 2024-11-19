@@ -365,6 +365,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     inner_k_tiles=inner_k_tiles,
                     precision=child.weight.dtype,
                     scales_precision=config.scale_precision,
+                    device=next(child.parameters()).device,
                 )
                 setattr(module, name, quantized_linear)
 
