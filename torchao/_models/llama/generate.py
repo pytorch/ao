@@ -205,7 +205,7 @@ def main(
 
 
     if quantization:
-        from torchao.quantization.quant_api import (
+        from torchao.quantization import (
             quantize_,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
@@ -214,7 +214,7 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            autoquant_v2,
+            _autoquant_v2,
             unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
@@ -329,11 +329,11 @@ def main(
                 )
 
             if "autoquant_v2-int4" == quantization:
-                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = _autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
             elif "autoquant_v2-float8" == quantization:
-                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = _autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
             else:
-                model = autoquant_v2(model, manual=True, example_input=inputs)
+                model = _autoquant_v2(model, manual=True, example_input=inputs)
 
             print("running generate")
             generate(
