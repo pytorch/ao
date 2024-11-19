@@ -31,12 +31,6 @@ if TORCH_VERSION_AT_LEAST_2_3:
 else:
     qdtypes = ()
 
-# load with weights_only=True
-if TORCH_VERSION_AT_LEAST_2_6:
-    torch.serialization.add_safe_globals([ToyLinearModel])
-    torch.serialization.add_safe_globals([torch.nn.Linear])
-    from torchao.dtypes.uintx.uintx_layout import UintxTensor
-    torch.serialization.add_safe_globals([UintxTensor])
     
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
@@ -77,7 +71,7 @@ def test_awq_loading(device, qdtype):
     
     model_save_path = "awq_model.pth"
     torch.save(m, model_save_path)
-    loaded_model = torch.load(model_save_path)
+    loaded_model = torch.load(model_save_path. assign=True)
     os.remove(model_save_path)
     
     if torch.cuda.is_available():
