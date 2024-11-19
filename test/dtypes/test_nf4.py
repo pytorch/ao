@@ -534,7 +534,9 @@ class TestFSDPOps(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_module(self):
         linear = nn.Linear(512, 512, bias=False)
-        linear.weight = nn.Parameter(to_nf4(linear.weight.detach()), requires_grad=False)
+        linear.weight = nn.Parameter(
+            to_nf4(linear.weight.detach()), requires_grad=False
+        )
         linear.cuda()
         self.assertEqual(linear.weight.device.type, "cuda")
         weight = linear.weight.get_original_weight()
@@ -546,7 +548,9 @@ class TestFSDPOps(TestCase):
         self.assertEqual(weight.device.type, "cpu")
 
         linear = nn.Linear(512, 512, bias=False)
-        linear.weight = nn.Parameter(to_nf4(linear.weight.detach()), requires_grad=False)
+        linear.weight = nn.Parameter(
+            to_nf4(linear.weight.detach()), requires_grad=False
+        )
         linear.to("cuda")
         self.assertEqual(linear.weight.device.type, "cuda")
         weight = linear.weight.get_original_weight()
