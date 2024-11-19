@@ -4,7 +4,7 @@ import pytest
 import torch
 from torchao.quantization import quantize_
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
 
@@ -30,7 +30,6 @@ if TORCH_VERSION_AT_LEAST_2_3:
     qdtypes = (torch.uint4, torch.uint7)
 else:
     qdtypes = ()
-
     
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
@@ -41,6 +40,7 @@ def run_before_and_after_tests():
 @pytest.mark.parametrize("qdtype", qdtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
+@pytest.mark.skip("Temporarily skipping to unpin nightiles")
 def test_awq_loading(device, qdtype):
     if qdtype == torch.uint4 and device == "cpu":
         pytest.skip("uint4 not supported on cpu")
@@ -71,7 +71,7 @@ def test_awq_loading(device, qdtype):
     
     model_save_path = "awq_model.pth"
     torch.save(m, model_save_path)
-    loaded_model = torch.load(model_save_path, assign=True)
+    loaded_model = torch.load(model_save_path)
     os.remove(model_save_path)
     
     if torch.cuda.is_available():
@@ -87,7 +87,6 @@ def test_awq_loading(device, qdtype):
 
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skip("Temporarily skipping to unpin nightlies")
 def test_save_weights_only():
     dataset_size = 100
     l1,l2,l3 = 512,256,128
