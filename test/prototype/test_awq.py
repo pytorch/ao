@@ -71,7 +71,7 @@ def test_awq_loading(device, qdtype):
     
     model_save_path = "awq_model.pth"
     torch.save(m, model_save_path)
-    loaded_model = torch.load(model_save_path. assign=True)
+    loaded_model = torch.load(model_save_path, assign=True)
     os.remove(model_save_path)
     
     if torch.cuda.is_available():
