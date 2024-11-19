@@ -116,7 +116,7 @@ def test_save_weights_only():
     
     model_save_path = "awq_model.pth"
     torch.save(m.state_dict(), model_save_path)
-    m2.load_state_dict(torch.load(model_save_path, weights_only=False), assign=True) # load weights only.torch.load(model_save_path)
+    m2.load_state_dict(torch.load(model_save_path), assign=True) # load weights only.torch.load(model_save_path)
     os.remove(model_save_path)
     
     m = torch.compile(m, fullgraph=True)
