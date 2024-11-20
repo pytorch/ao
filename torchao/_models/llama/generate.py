@@ -312,6 +312,8 @@ def main(
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
+            calibration_seq_length = 256
+            calibration_limit = 1
             inputs = InputRecorder(
                 tokenizer,
                 calibration_seq_length,
@@ -354,6 +356,8 @@ def main(
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
+            calibration_seq_length = 256
+            calibration_limit = 1
             inputs = InputRecorder(
                 tokenizer,
                 calibration_seq_length,
