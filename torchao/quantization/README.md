@@ -96,7 +96,7 @@ be applied individually. While there are a large variety of quantization apis, t
 from torchao.quantization import quantize_, int4_weight_only
 group_size = 32
 
-# you can enable [hqq](https://ithub.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
+# you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
 # use_hqq flag for `int4_weight_only` quantization
 use_hqq = False
 quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
