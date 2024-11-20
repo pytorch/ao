@@ -207,18 +207,19 @@ def main(
     if quantization:
         from torchao.quantization import (
             quantize_,
+            autoquant,
+            _autoquant_v2,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
             int8_dynamic_activation_int4_weight,
             fpx_weight_only,
             uintx_weight_only,
-            autoquant,
-            _autoquant_v2,
-            unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
+        from torchao.utils import unwrap_tensor_subclass
+
         from torchao.quantization.granularity import PerTensor, PerRow
         from torchao.utils import unwrap_tensor_subclass
         if "spinquant" in quantization:

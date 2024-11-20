@@ -11,7 +11,7 @@ from torchao.dtypes import (
 )
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
-from torchao.quantization import (
+from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )

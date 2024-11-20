@@ -19,7 +19,7 @@ from torchao.dtypes import (
 )
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
-from torchao.quantization import (
+from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
@@ -95,7 +95,7 @@ def check_cache(gm, cls, shapes_and_dtype):
     for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
         graph_equals = _graph_equals(gm_.graph, gm.graph)
         if graph_equals and cls_ is cls and shapes_and_dtype_ == shapes_and_dtype:
-            return AUTOQUANT_CACHE[(gm_, cls, shapes_and_dtype)]
+            return AUTOQUANT_CACHE[(gm_, cls_, shapes_and_dtype_)]
     return None
 
 
