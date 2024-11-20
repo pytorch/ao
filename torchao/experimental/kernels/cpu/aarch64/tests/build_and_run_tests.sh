@@ -8,7 +8,7 @@
 set -eu
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 export TORCHAO_LIBRARIES=${SCRIPT_DIR}/../../../../../..
-export CMAKE_OUT=/tmp/cmake-out/torch_ao/tests
+export CMAKE_OUT=/tmp/cmake-out/torch_ao/kernel_tests
 
 target=${1:-"native"}
 
