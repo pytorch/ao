@@ -911,6 +911,9 @@ def _choose_qparams_affine(
                     zero_point_domain == ZeroPointDomain.FLOAT.name
                 ), "if not preserve_zero, zero_point must be in FLOAT domain"
                 mid_point = (quant_max + quant_min + 1) / 2
+                # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+                # TODO move the conversion of zero_point out of quant_primitives 
+                # and into TensorCoreTiledLayout.from_plain
                 zero_point = min_val_neg + scale * mid_point
 
     if zero_point is not None:
@@ -1190,12 +1193,17 @@ def choose_qparams_and_quantize_affine_hqq(
     # Store meta-data (we invert the scale for dequantization)
     scale = 1.0 / scale
 
-    # Convert to affienquantized format
+    # Convert to TensorCoreTiled format
+    # TODO move the conversion of zero_point out of quant_primitives 
+    # and into TensorCoreTiledLayout.from_plain
     if raw_output is False:
         W_q, scale, zero = _convert_to_affinequantized_format(
             W_q, scale, zero, nbits, shape
         )
-
+    else:
+        W_q = W_q.reshape(shape)
+        scale=scale.reshape(-1, shape[-1])
+        zero=zero.reshape(-1, shape[-1])
     # Make sure all the weights are in the right compute_dtype/device
     W_q = W_q.to(dtype=torch.uint8, device=device)
     scale = scale.to(dtype=compute_dtype, device=device)
