@@ -77,7 +77,7 @@ import torchao.quantization
 # After the first forward pass (when quantization was done)
 from torchao.quantization.autoquant import AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "wb") as f:
-    pickle.dump(AUTOQUANT_CACHE)
+    pickle.dump(AUTOQUANT_CACHE, f)
 
 # On load
 from torchao.quantization.autoquant import AUTOQUANT_CACHE
