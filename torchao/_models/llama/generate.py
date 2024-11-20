@@ -216,11 +216,11 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
         from torchao.quantization.granularity import PerTensor, PerRow
+        from torchao.utils import unwrap_tensor_subclass
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
