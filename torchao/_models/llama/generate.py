@@ -67,7 +67,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
     for i in range(num_new_tokens):
-        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
@@ -345,7 +345,10 @@ def main(
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     if memory_profile:
-        torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        if device != "cuda":
+            print("Memory profiling only works on CUDA")
+        else:
+            torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
     }
@@ -353,7 +356,8 @@ def main(
 
     for i in range(start, num_samples):
         if i==0:
-            torch.cuda.reset_peak_memory_stats()
+            if device == "cuda":
+                torch.cuda.reset_peak_memory_stats() # MKG
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -421,15 +425,18 @@ def main(
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
-            snapshot = torch.cuda.memory._snapshot()
-            with open(f"{memory_profile}.pickle", 'wb') as f:
-                from pickle import dump
-                dump(snapshot, f)
-            print(
-                f"\nmemory profile {memory_profile}.pickle saved, to convert that to a usable file, use",
-                "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
-            )
-            break
+            if device != "cuda":
+                print("Memory profiling only works on CUDA")
+            else:
+                snapshot = torch.cuda.memory._snapshot()
+                with open(f"{memory_profile}.pickle", 'wb') as f:
+                    from pickle import dump
+                    dump(snapshot, f)
+                print(
+                    f"\nmemory profile {memory_profile}.pickle saved, to convert that to a usable file, use",
+                    "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
+                )
+                break
 
     print("==========")
 
