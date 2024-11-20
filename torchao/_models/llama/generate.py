@@ -225,7 +225,7 @@ def main(
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
-        elif "int8wo" in quantization:
+        if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         elif "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())

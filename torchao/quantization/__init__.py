@@ -15,16 +15,10 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .autoquant_v2 import (
+from torchao.prototype.quantization.autoquant_v2 import (
     DEFAULT_AUTOQUANT_CLASS_LIST as V2_DEFAULT_AUTOQUANT_CLASS_LIST,
-)
-from .autoquant_v2 import (
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST as V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
-)
-from .autoquant_v2 import (
     OTHER_AUTOQUANT_CLASS_LIST as V2_OTHER_AUTOQUANT_CLASS_LIST,
-)
-from .autoquant_v2 import (
     autoquant_v2 as _autoquant_v2,
 )
 from .GPTQ import (

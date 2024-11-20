@@ -33,11 +33,11 @@ from torchao.utils import (
     benchmark_model,
 )
 
-from .granularity import (
+from torchao.quantization.granularity import (
     PerRow,
     PerTensor,
 )
-from .subclass import (  # noqa
+from torchao.quantization.subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,

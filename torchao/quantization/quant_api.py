@@ -54,8 +54,8 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
-from .autoquant_v2 import autoquant_v2
+from torchao.prototype.quantization.autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
+from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
