@@ -67,7 +67,7 @@ def maybe_short_name(torch_fn):
 
 
 def get_meta_val(n: torch.fx.Node):
-    # from https://fburl.com/code/hcwdl994
+    # from https://github.com/pytorch/pytorch/blob/8d708090c0eb306facfd8f85d58c578a8cbbe689/torch/fx/graph.py#L644-L647
     meta_val = n.meta.get(
         "val", n.meta.get("tensor_meta", n.meta.get("example_value", None))
     )
@@ -75,7 +75,7 @@ def get_meta_val(n: torch.fx.Node):
 
 
 def get_stack_summary(n: torch.fx.Node):
-    # from https://fburl.com/code/yify7y7f
+    # from https://github.com/pytorch/pytorch/blob/8d708090c0eb306facfd8f85d58c578a8cbbe689/torch/fx/graph.py#L609
     if n.stack_trace:
         parsed_stack_trace = torch.fx.graph._parse_stack_trace(n.stack_trace)
         summary = parsed_stack_trace.get_summary_str()

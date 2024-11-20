@@ -15,8 +15,8 @@ from torchao.quantization import (
     int8_dynamic_activation_int8_weight,
     int4_weight_only,
     autoquant,
-    _autoquant_v2,
 )
+from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.sparsity import sparsify_, apply_fake_sparsity, semi_sparse_weight
 from torchao.dtypes import SemiSparseLayout, MarlinSparseLayout
 from torchao.utils import unwrap_tensor_subclass
@@ -347,11 +347,11 @@ def run(
     elif compress is not None and "autoquant_v2" in compress:
         example_input = torch.randn(1, 3, 1024, 1024, dtype=torch.bfloat16, device=device)
         if "autoquant_v2-int4" == compress:
-            _autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
         elif "autoquant_v2-float8" == compress:
-            _autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.V2_OTHER_AUTOQUANT_CLASS_LIST)
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST)
         else:
-            _autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True)
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True)
 
         predictor.model.image_encoder(example_input)
         predictor.model.image_encoder.finalize_autoquant()

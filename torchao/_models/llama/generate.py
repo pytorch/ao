@@ -208,7 +208,6 @@ def main(
         from torchao.quantization import (
             quantize_,
             autoquant,
-            _autoquant_v2,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
@@ -218,6 +217,7 @@ def main(
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
+        from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
         from torchao.utils import unwrap_tensor_subclass
 
         from torchao.quantization.granularity import PerTensor, PerRow
@@ -330,11 +330,11 @@ def main(
                 )
 
             if "autoquant_v2-int4" == quantization:
-                model = _autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
             elif "autoquant_v2-float8" == quantization:
-                model = _autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
             else:
-                model = _autoquant_v2(model, manual=True, example_input=inputs)
+                model = autoquant_v2(model, manual=True, example_input=inputs)
 
             print("running generate")
             generate(

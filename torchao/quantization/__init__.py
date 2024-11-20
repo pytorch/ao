@@ -15,12 +15,6 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from torchao.prototype.quantization.autoquant_v2 import (
-    DEFAULT_AUTOQUANT_CLASS_LIST as V2_DEFAULT_AUTOQUANT_CLASS_LIST,
-    DEFAULT_INT4_AUTOQUANT_CLASS_LIST as V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
-    OTHER_AUTOQUANT_CLASS_LIST as V2_OTHER_AUTOQUANT_CLASS_LIST,
-    autoquant_v2 as _autoquant_v2,
-)
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
@@ -96,11 +90,6 @@ __all__ = [
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
-    # experimental api
-    "_autoquant_v2",
-    "V2_DEFAULT_AUTOQUANT_CLASS_LIST",
-    "V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
-    "V2_OTHER_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",

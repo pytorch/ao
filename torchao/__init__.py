@@ -32,7 +32,6 @@ if not _IS_FBCODE:
 
 from torchao.quantization import (
     autoquant,
-    _autoquant_v2,
     quantize_,
 )
 from . import dtypes
@@ -41,7 +40,6 @@ from . import testing
 __all__ = [
     "dtypes",
     "autoquant",
-    "_autoquant_v2",
     "quantize_",
     "testing",
 ]

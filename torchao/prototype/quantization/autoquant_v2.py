@@ -46,6 +46,10 @@ from .subgraph_utils.extract_subgraphs import (
     debug_linears_for_float8,
     prepare_target_folder,
 )
+from torchao.quantization.subclass import QuantizedLinearWeightBase
+from torchao.quantization.autoquant import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV1
+from torchao.dtypes import AffineQuantizedTensor
+from torchao.quantization import LinearActivationQuantizedTensor
 
 logging.basicConfig(level=logging.ERROR)  # Set the root logger level to ERROR
 
@@ -61,7 +65,27 @@ __all__ = [
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "_is_linear",
 ]
+
+def _is_linear(mod, *args):
+    # avoid circular dependencies
+    from torchao.quantization.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+
+    # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
+    # when it is shared by multiple linear modules
+    return (
+        isinstance(mod, torch.nn.Linear)
+        and hasattr(mod, "weight")
+        and not isinstance(mod.weight, QuantizedLinearWeightBase)
+        and not isinstance(mod.weight, AutoQuantizableLinearWeightV1)
+        and not isinstance(mod.weight, AffineQuantizedTensor)
+        and not isinstance(mod.weight, LinearActivationQuantizedTensor)
+        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod, torch.nn.modules.linear.NonDynamicallyQuantizableLinear)
+    )
 
 
 # TODO: use SubgraphMatcher
@@ -88,8 +112,7 @@ AUTOQUANT_CACHE = {}
 # This is a flag to control whether we do some rewrite for graph
 # to account for different batch sizes, it's a temporary solution for llama model
 # we'll need to think about how to support this more generally
-LLAMA = False
-
+LLAMA = True
 
 def check_cache(gm, cls, shapes_and_dtype):
     for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
@@ -981,7 +1004,7 @@ def _change_linears_to_autoquantizable(
     AutoQuantizableLinearWeight tensor subclass. Expectation is that this is followed
     by running the model and then calling _change_autoquantizable_to_quantized
     """
-    from torchao.quantization.quant_api import _is_linear
+    # from torchao.quantization.quant_api import _is_linear
 
     filter_fn = kwargs.pop("filter_fn", _is_linear)
     _ = kwargs.pop(

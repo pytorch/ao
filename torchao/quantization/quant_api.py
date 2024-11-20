@@ -54,8 +54,6 @@ from torchao.utils import (
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
-from torchao.prototype.quantization.autoquant_v2 import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV2
-from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
@@ -92,7 +90,6 @@ __all__ = [
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
     "autoquant",
-    "autoquant_v2",
     "_get_subclass_inserter",
     "quantize_",
     "int8_dynamic_activation_int4_weight",
@@ -252,7 +249,6 @@ def _is_linear(mod, *args):
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
-        and not isinstance(mod.weight, AutoQuantizableLinearWeightV2)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, AffineFakeQuantizedTensor)
