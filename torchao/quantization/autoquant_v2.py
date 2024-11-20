@@ -19,12 +19,12 @@ from torchao.dtypes import (
 )
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
+from torchao.quantization.linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
-)
-from torchao.quantization.linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
 )
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 from torchao.utils import (
