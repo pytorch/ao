@@ -9,7 +9,14 @@ import segment_anything_fast
 import time
 import resource
 
-from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
+import torchao
+from torchao.quantization import (
+    quantize_,
+    int8_dynamic_activation_int8_weight,
+    int4_weight_only,
+    autoquant,
+)
+from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.sparsity import sparsify_, apply_fake_sparsity, semi_sparse_weight
 from torchao.dtypes import SemiSparseLayout, MarlinSparseLayout
 from torchao.utils import unwrap_tensor_subclass
@@ -336,6 +343,29 @@ def run(
                   mlp_lin2_only)
         if not TORCH_VERSION_AT_LEAST_2_5:
             predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
+
+    elif compress is not None and "autoquant_v2" in compress:
+        example_input = torch.randn(1, 3, 1024, 1024, dtype=torch.bfloat16, device=device)
+        if "autoquant_v2-int4" == compress:
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
+        elif "autoquant_v2-float8" == compress:
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST)
+        else:
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True)
+
+        predictor.model.image_encoder(example_input)
+        predictor.model.image_encoder.finalize_autoquant()
+
+    elif compress is not None and "autoquant" in compress:
+        example_input = torch.randn(1, 3, 1024, 1024, dtype=torch.bfloat16, device=device)
+        if "autoquant-int4" == compress:
+            autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
+        elif "autoquant-float8" == compress:
+            autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST)
+        else:
+            autoquant(predictor.model.image_encoder, example_input=example_input, manual=True)
+        predictor.model.image_encoder(example_input)
+        predictor.model.image_encoder.finalize_autoquant()
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
