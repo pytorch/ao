@@ -185,6 +185,7 @@ def simulate_sparsity(model, args):
             conv1x1_sp_tilesize=args.bsr,
             conv_sparsity=args.sparsity_conv,
             conv_sp_tilesize=args.bsr,
+            skip_attention_proj=args.skip_attention_proj,
             skip_last_layer_sparsity=args.skip_last_layer_sparsity,
             skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
             device=args.device,

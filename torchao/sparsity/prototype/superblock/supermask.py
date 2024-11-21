@@ -209,17 +209,19 @@ def apply_supermask(
     conv1x1_sp_tilesize=1,
     conv_sparsity=0.0,
     conv_sp_tilesize=1,
+    skip_attention_proj=False,
     skip_last_layer_sparsity=False,
     skip_first_transformer_sparsity=False,
     device="cuda",
     verbose=False,
 ):
     # create filter function
-    # TODO: it might be better to move the filtering function to the script calling this function
+    # TODO: move the filtering function to the script calling this function and instead pass to apply_supermask the filter_fn
     is_last_layer = lambda module, name: name == "heads.head"
     is_first_transformer_layer = lambda module, name: name == "encoder.layers.encoder_layer_0"
+    is_attn_layer = lambda module, name: "attn" in name or "attention" in name
     # TODO: create condition for ffn, k,v,q,o projections
-    reject_fn = lambda module, name : (skip_last_layer_sparsity and is_last_layer(module, name)) or (skip_first_transformer_sparsity and is_first_transformer_layer(module, name))
+    reject_fn = lambda module, name : (skip_last_layer_sparsity and is_last_layer(module, name)) or (skip_first_transformer_sparsity and is_first_transformer_layer(module, name)) or (skip_attention_proj and is_attn_layer(module, name))
     filter_fn = lambda module, name : not reject_fn(module, name) and isinstance(module, (torch.nn.Linear, torch.nn.Conv2d))
 
     _replace_with_custom_fn_if_matches_filter(
