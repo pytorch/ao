@@ -92,7 +92,10 @@ def blocksparse_linear(
     bias: torch.Tensor,
 ) -> torch.Tensor:
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
-    return torch.nn.functional.linear(A, weight_bsr, bias)
+    if A.dim() == 2:
+        return torch.nn.functional.linear(A, weight_bsr, bias)
+    else:
+        return torch.nn.functional.linear(A.flatten(start_dim=0, end_dim=-2), weight_bsr, bias).view(A.shape[0], A.shape[1], -1)
 
 
 @torch.library.register_fake("blocksparse::linear")

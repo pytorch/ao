@@ -1,5 +1,5 @@
 # torchtune Examples
-Examples to tune language models using ]torchtune](https://github.com/pytorch/torchtune).
+Examples to tune language models using [torchtune](https://github.com/pytorch/torchtune).
 
 ## Setup
 1. Follow the [torchao Installation](../../README.md#installation) steps.
