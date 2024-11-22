@@ -334,10 +334,6 @@ class Float8Linear(torch.nn.Linear):
         # TODO(future PR): add serialization for this flag
         self.is_amax_initialized = not self.config.enable_amax_init
 
-        # This is needed to properly handle autocast in the amax/scale
-        # update function for torch.float16
-        self.last_seen_output_dtype = None
-
         # pre_forward and post_forward are currently broken with FSDP
         # and torch.compile, this option can disable them
         # Note that when using `self.config.enable_pre_and_post_forward = False`,
@@ -627,7 +623,6 @@ class Float8Linear(torch.nn.Linear):
 
         if self.has_any_delayed_scaling:
             self.float8_post_forward()
-        self.last_seen_output_dtype = output.dtype
         return output
 
     def extra_repr(self):

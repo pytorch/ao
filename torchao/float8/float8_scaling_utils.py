@@ -177,9 +177,7 @@ def _maybe_initialize_amaxes_scales_for_float8_cast(
         new_amax = tensor_to_amax(x, reduce_amax=reduce_amax)
         cur_amax.fill_(new_amax)
         amax_history[0] = new_amax
-        new_scale = amax_history_to_scale(
-            amax_history, float8_dtype, x.dtype, scale_fn_name
-        )
+        new_scale = amax_history_to_scale(amax_history, float8_dtype, scale_fn_name)
         scale.copy_(new_scale)
 
 
