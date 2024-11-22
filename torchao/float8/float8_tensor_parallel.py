@@ -8,7 +8,7 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
 )
 
-from torchao.float8.config import e4m3_dtype, ScalingType
+from torchao.float8.config import ScalingType, e4m3_dtype
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
