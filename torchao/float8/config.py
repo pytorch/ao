@@ -170,7 +170,6 @@ class Float8LinearConfig:
     #
     # Per-gemm configuration for gemms calculating `output`, `grad_input` and
     # `grad_weight`
-    # TODO(this PR): throw warning if fast_accum False is used with axiswise scaling
     #
     gemm_config_output: Float8GemmConfig = Float8GemmConfig(use_fast_accum=True)
     gemm_config_grad_input: Float8GemmConfig = Float8GemmConfig()
@@ -320,21 +319,10 @@ def recipe_name_to_linear_config(
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
 
-        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
-        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
-        # accurate than tensorwise scaling, so the overall impact on accuracy
-        # of tensorwise vs rowwise taking this flag into account will vary.
-        gc_o = Float8GemmConfig(use_fast_accum=True)
-        gc_gi = Float8GemmConfig(use_fast_accum=True)
-        gc_gw = Float8GemmConfig(use_fast_accum=True)
-
         return Float8LinearConfig(
             cast_config_input=cc_i,
             cast_config_weight=cc_w,
             cast_config_grad_output=cc_go,
-            gemm_config_output=gc_o,
-            gemm_config_grad_input=gc_gi,
-            gemm_config_grad_weight=gc_gw,
         )
 
     elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
@@ -362,14 +350,6 @@ def recipe_name_to_linear_config(
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
         cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED)
 
-        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
-        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
-        # accurate than tensorwise scaling, so the overall impact on accuracy
-        # of tensorwise vs rowwise taking this flag into account will vary.
-        gc_o = Float8GemmConfig(use_fast_accum=True)
-        gc_gi = Float8GemmConfig(use_fast_accum=True)
-        gc_gw = Float8GemmConfig(use_fast_accum=True)
-
         return Float8LinearConfig(
             cast_config_input=cc_i,
             cast_config_weight=cc_w,
@@ -377,9 +357,6 @@ def recipe_name_to_linear_config(
             cast_config_input_for_grad_weight=cc_i_gw,
             cast_config_weight_for_grad_input=cc_w_gi,
             cast_config_grad_output_for_grad_weight=cc_go_gw,
-            gemm_config_output=gc_o,
-            gemm_config_grad_input=gc_gi,
-            gemm_config_grad_weight=gc_gw,
         )
 
     else:
