@@ -70,7 +70,9 @@ class Float8ColwiseParallel(ColwiseParallel):
             )  # DTensor(torch.Tensor)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype)
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype
+        )
 
         # back to local tensor
         return outputs.to_local() if use_local_output else outputs
@@ -123,7 +125,9 @@ class Float8RowwiseParallel(RowwiseParallel):
             outputs = outputs.redistribute(placements=output_layouts, async_op=True)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype)
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype
+        )
 
         # back to local tensor if use_local_output is True
         return outputs.to_local() if use_local_output else outputs

@@ -54,11 +54,14 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         and isinstance(m.weight._local_tensor, WeightWithDynamicFloat8CastTensor)
     ]
     weights: List[DTensor] = [float8_linear.weight for float8_linear in float8_linears]
-    dtypes: Set[torch.dtype] = {float8_linear.config.cast_config_weight.dtype for float8_linear in float8_linears}
+    dtypes: Set[torch.dtype] = {
+        float8_linear.config.cast_config_weight.dtype
+        for float8_linear in float8_linears
+    }
 
     if not weights:
         return
-    dtype, = dtypes
+    (dtype,) = dtypes
 
     # inf-norm is equivalent to max(abs(w))
     max_weights = torch._foreach_norm(weights, ord=math.inf)  # Partial
@@ -196,7 +199,9 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         if func not in _ops_to_preserve_subclass:
             return out
         return pytree.tree_map_only(
-            torch.Tensor, lambda x: WeightWithDynamicFloat8CastTensor(x, mm_config, dtype), out
+            torch.Tensor,
+            lambda x: WeightWithDynamicFloat8CastTensor(x, mm_config, dtype),
+            out,
         )
 
     def __tensor_flatten__(self):
@@ -502,7 +507,10 @@ class WeightWithStaticFloat8CastTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func == torch.ops.aten.detach.default:
             return WeightWithStaticFloat8CastTensor(
-                args[0]._tensor, args[0]._static_scale, args[0]._linear_mm_config, args[0]._dtype
+                args[0]._tensor,
+                args[0]._static_scale,
+                args[0]._linear_mm_config,
+                args[0]._dtype,
             )
         static_scale: Optional[torch.Tensor] = None
         mm_config: Optional[LinearMMConfig] = None
@@ -532,12 +540,17 @@ class WeightWithStaticFloat8CastTensor(torch.Tensor):
             return out
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: WeightWithStaticFloat8CastTensor(x, static_scale, mm_config, dtype),
+            lambda x: WeightWithStaticFloat8CastTensor(
+                x, static_scale, mm_config, dtype
+            ),
             out,
         )
 
     def __tensor_flatten__(self):
-        return ["_tensor", "_static_scale"], {"mm_config": self._linear_mm_config, "dtype": self._dtype}
+        return ["_tensor", "_static_scale"], {
+            "mm_config": self._linear_mm_config,
+            "dtype": self._dtype,
+        }
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):

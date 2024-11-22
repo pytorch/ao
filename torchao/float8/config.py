@@ -335,9 +335,15 @@ def recipe_name_to_linear_config(
 
     elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype)
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e5m2_dtype)
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e5m2_dtype
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
@@ -359,12 +365,20 @@ def recipe_name_to_linear_config(
         #     which is more amenable to fast kernels
 
         # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype)
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
 
         # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype)
-        cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE, dtype=e4m3_dtype)
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
+        cc_w_gi = CastConfig(
+            scaling_granularity=ScalingGranularity.TENSORWISE, dtype=e4m3_dtype
+        )
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)

@@ -531,7 +531,11 @@ class Float8Linear(torch.nn.Linear):
                 self.config.cast_config_grad_output.dtype,
             )
         elif self.scaling_type_grad_output is ScalingType.DYNAMIC:
-            output = NoopFwToFloat8BwDynamic.apply(output, self.linear_mm_config, self.config.cast_config_grad_output.dtype)
+            output = NoopFwToFloat8BwDynamic.apply(
+                output,
+                self.linear_mm_config,
+                self.config.cast_config_grad_output.dtype,
+            )
         else:
             assert self.scaling_type_grad_output is ScalingType.STATIC
             output = NoopFwToFloat8BwStatic.apply(
@@ -565,7 +569,8 @@ class Float8Linear(torch.nn.Linear):
 
     def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = any(
-            cc.scaling_granularity is ScalingGranularity.AXISWISE for cc in [
+            cc.scaling_granularity is ScalingGranularity.AXISWISE
+            for cc in [
                 self.config.cast_config_input,
                 self.config.cast_config_weight,
                 self.config.cast_config_grad_output,
