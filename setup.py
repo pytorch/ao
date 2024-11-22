@@ -92,6 +92,7 @@ def get_extensions():
             "nvcc": [
                 "-O3" if not debug_mode else "-O0",
                 "-t=0",
+                "-gencode=arch=compute_86,code=sm_86",
             ]
         }
 
