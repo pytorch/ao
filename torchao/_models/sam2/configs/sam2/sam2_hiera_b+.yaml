@@ -2,18 +2,18 @@
 
 # Model
 model:
-  _target_: sam2.modeling.sam2_base.SAM2Base
+  _target_: torchao._models.sam2.modeling.sam2_base.SAM2Base
   image_encoder:
-    _target_: sam2.modeling.backbones.image_encoder.ImageEncoder
+    _target_: torchao._models.sam2.modeling.backbones.image_encoder.ImageEncoder
     scalp: 1
     trunk:
-      _target_: sam2.modeling.backbones.hieradet.Hiera
+      _target_: torchao._models.sam2.modeling.backbones.hieradet.Hiera
       embed_dim: 112
       num_heads: 2
     neck:
-      _target_: sam2.modeling.backbones.image_encoder.FpnNeck
+      _target_: torchao._models.sam2.modeling.backbones.image_encoder.FpnNeck
       position_encoding:
-        _target_: sam2.modeling.position_encoding.PositionEmbeddingSine
+        _target_: torchao._models.sam2.modeling.position_encoding.PositionEmbeddingSine
         num_pos_feats: 256
         normalize: true
         scale: null
@@ -24,17 +24,17 @@ model:
       fpn_interp_model: nearest
 
   memory_attention:
-    _target_: sam2.modeling.memory_attention.MemoryAttention
+    _target_: torchao._models.sam2.modeling.memory_attention.MemoryAttention
     d_model: 256
     pos_enc_at_input: true
     layer:
-      _target_: sam2.modeling.memory_attention.MemoryAttentionLayer
+      _target_: torchao._models.sam2.modeling.memory_attention.MemoryAttentionLayer
       activation: relu
       dim_feedforward: 2048
       dropout: 0.1
       pos_enc_at_attn: false
       self_attention:
-        _target_: sam2.modeling.sam.transformer.RoPEAttention
+        _target_: torchao._models.sam2.modeling.sam.transformer.RoPEAttention
         rope_theta: 10000.0
         feat_sizes: [32, 32]
         embedding_dim: 256
@@ -45,7 +45,7 @@ model:
       pos_enc_at_cross_attn_keys: true
       pos_enc_at_cross_attn_queries: false
       cross_attention:
-        _target_: sam2.modeling.sam.transformer.RoPEAttention
+        _target_: torchao._models.sam2.modeling.sam.transformer.RoPEAttention
         rope_theta: 10000.0
         feat_sizes: [32, 32]
         rope_k_repeat: True
@@ -57,23 +57,23 @@ model:
     num_layers: 4
 
   memory_encoder:
-      _target_: sam2.modeling.memory_encoder.MemoryEncoder
+      _target_: torchao._models.sam2.modeling.memory_encoder.MemoryEncoder
       out_dim: 64
       position_encoding:
-        _target_: sam2.modeling.position_encoding.PositionEmbeddingSine
+        _target_: torchao._models.sam2.modeling.position_encoding.PositionEmbeddingSine
         num_pos_feats: 64
         normalize: true
         scale: null
         temperature: 10000
       mask_downsampler:
-        _target_: sam2.modeling.memory_encoder.MaskDownSampler
+        _target_: torchao._models.sam2.modeling.memory_encoder.MaskDownSampler
         kernel_size: 3
         stride: 2
         padding: 1
       fuser:
-        _target_: sam2.modeling.memory_encoder.Fuser
+        _target_: torchao._models.sam2.modeling.memory_encoder.Fuser
         layer:
-          _target_: sam2.modeling.memory_encoder.CXBlock
+          _target_: torchao._models.sam2.modeling.memory_encoder.CXBlock
           dim: 256
           kernel_size: 7
           padding: 3
