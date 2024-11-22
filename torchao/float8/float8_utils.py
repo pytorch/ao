@@ -9,7 +9,7 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 
-from torchao.float8.config import ScalingGranularity, type_config, e4m3_dtype, e5m2_dtype
+from torchao.float8.config import ScalingGranularity
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html

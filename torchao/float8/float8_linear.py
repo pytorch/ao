@@ -352,9 +352,9 @@ class Float8Linear(torch.nn.Linear):
         # Default values for history buffers, see above TODO
         history_len = self.config.delayed_scaling_config.history_len
         device = self.weight.device
-        default_input = torch.finfo(config.cast_config_input.dtype).max
-        default_weight = torch.finfo(config.cast_config_weight.dtype).max
-        default_grad_output = torch.finfo(config.cast_config_grad_output.dtype).max
+        default_input = torch.finfo(self.config.cast_config_input.dtype).max
+        default_weight = torch.finfo(self.config.cast_config_weight.dtype).max
+        default_grad_output = torch.finfo(self.config.cast_config_grad_output.dtype).max
 
         # Note: for now, create all the buffers if any are needed, to postpone
         # the work to make the scale and amax syncing and history calculation

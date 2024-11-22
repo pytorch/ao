@@ -297,7 +297,7 @@ class Float8LinearConfig:
         ]:
             assert (
                 cc1.dtype == cc2.dtype
-            ), f"{operand_name} must be cast to the same dtype in both the matmuls it's used in"
+            ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
 
         if self.use_fp8_all_gather_only:
             assert self.enable_fsdp_float8_all_gather, "use_fp8_all_gather_only requires enable_fsdp_float8_all_gather to be True"
