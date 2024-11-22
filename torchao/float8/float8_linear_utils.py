@@ -15,8 +15,6 @@ from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_utils import (
     amax_history_to_scale_stack,
-    e4m3_dtype,
-    e5m2_dtype,
 )
 
 log = logging.getLogger(__name__)
@@ -224,6 +222,9 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
         fp8_weight_amax_history_stack = [None] * len(fp8_layers)
         fp8_grad_output_amax_history_stack = [None] * len(fp8_layers)
 
+        input_dtypes = set()
+        weight_dtypes = set()
+        grad_output_dtypes = set()
         x_dtypes = set()
         scale_fn_recipes = set()
 
@@ -236,8 +237,15 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             fp8_weight_amax_history_stack[idx] = child.fp8_amax_history_weight
             fp8_grad_output_amax_history_stack[idx] = child.fp8_amax_history_grad_output
 
+            input_dtypes.add(child.config.cast_config_input.dtype)
+            weight_dtypes.add(child.config.cast_config_weight.dtype)
+            grad_output_dtypes.add(child.config.cast_config_grad_output.dtype)
             x_dtypes.add(child.last_seen_input_dtype)
             scale_fn_recipes.add(child.config.delayed_scaling_config.scale_fn_name)
+
+        input_dtype, = input_dtypes
+        weight_dtype, = weight_dtypes
+        grad_output_dtype, = grad_output_dtypes
 
         # TODO This way to get the activation dtype is not ideal
         if len(x_dtypes) != 1:
@@ -303,13 +311,13 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
 
         # Calculate the new scales from the updated history stacks
         new_input_scales = amax_history_to_scale_stack(
-            fp8_input_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+            fp8_input_amax_history_stack, input_dtype, x_dtype, scale_fn_recipe
         )
         new_weight_scales = amax_history_to_scale_stack(
-            fp8_weight_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+            fp8_weight_amax_history_stack, weight_dtype, x_dtype, scale_fn_recipe
         )
         new_grad_output_scales = amax_history_to_scale_stack(
-            fp8_grad_output_amax_history_stack, e5m2_dtype, x_dtype, scale_fn_recipe
+            fp8_grad_output_amax_history_stack, grad_output_dtype, x_dtype, scale_fn_recipe
         )
 
         # Iterate through the layers and update the scales

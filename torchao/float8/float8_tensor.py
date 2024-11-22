@@ -11,7 +11,6 @@ import torch.distributed._functional_collectives as funcol
 from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
-    e4m3_dtype,
     to_fp8_saturated,
 )
 
@@ -149,7 +148,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         ctx,
         tensor: torch.Tensor,
         scale: torch.Tensor,
-        float8_dtype=e4m3_dtype,
+        float8_dtype: torch.dtype,
         linear_mm_config: Optional[LinearMMConfig] = None,
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
         axiswise_dim: Optional[int] = None,
@@ -229,7 +228,7 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 def hp_tensor_and_scale_to_float8(
     hp_tensor: torch.Tensor,
     s: torch.Tensor,
-    float8_dtype=e4m3_dtype,
+    float8_dtype: torch.dtype,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     axiswise_dim: Optional[int] = None,
