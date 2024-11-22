@@ -76,8 +76,8 @@ class CastConfig:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
             ), "only dynamic scaling type is supported for axiswise scaling granularity"
-        assert (
-            self.dtype is None or (self.dtype.is_floating_point and self.dtype.itemsize == 1)
+        assert self.dtype is None or (
+            self.dtype.is_floating_point and self.dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
 
 
@@ -294,10 +294,11 @@ class Float8LinearConfig:
             (cc_w, cc_w_gi, "weight", e4m3_dtype),
             (cc_go, cc_go_gw, "grad_output", e5m2_dtype),
         ]:
+            # Override the dataclass being frozen
             if cc1.dtype is None:
-                cc1.dtype = default_dtype
+                object.__setattr__(cc1, "dtype", default_dtype)
             if cc2.dtype is None:
-                cc2.dtype = default_dtype
+                object.__setattr__(cc2, "dtype", default_dtype)
             assert (
                 cc1.dtype == cc2.dtype
             ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
@@ -373,7 +374,7 @@ def recipe_name_to_linear_config(
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED)
+        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED, dtype=e4m3_dtype)
 
         return Float8LinearConfig(
             cast_config_input=cc_i,

@@ -48,7 +48,7 @@ class Float8ColwiseParallel(ColwiseParallel):
 
         input_tensor = hp_tensor_to_float8_dynamic(
             input_tensor,
-            mod.cast_config_input.dtype,
+            mod.config.cast_config_input.dtype,
             mod.linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
         )  # DTensor(Float8Tensor)
@@ -70,7 +70,7 @@ class Float8ColwiseParallel(ColwiseParallel):
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
         outputs = NoopFwToFloat8BwDynamic.apply(
-            outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype
+            outputs, mod.linear_mm_config, mod.config.cast_config_grad_output.dtype
         )
 
         # back to local tensor
@@ -104,7 +104,7 @@ class Float8RowwiseParallel(RowwiseParallel):
 
         input_tensor = hp_tensor_to_float8_dynamic(
             input_tensor,
-            mod.cast_config_input.dtype,
+            mod.config.cast_config_input.dtype,
             mod.linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
         )  # DTensor(Float8Tensor)
@@ -125,7 +125,7 @@ class Float8RowwiseParallel(RowwiseParallel):
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
         outputs = NoopFwToFloat8BwDynamic.apply(
-            outputs, mod.linear_mm_config, mod.cast_config_grad_output.dtype
+            outputs, mod.linear_mm_config, mod.config.cast_config_grad_output.dtype
         )
 
         # back to local tensor if use_local_output is True

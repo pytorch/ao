@@ -207,7 +207,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
         ctx.scale_fn_name = scale_fn_name
         ctx.is_amax_initialized = is_amax_initialized
         ctx.linear_mm_config = linear_mm_config
-        ctx.dtype
+        ctx.dtype = dtype
         return tensor
 
     @staticmethod
@@ -240,7 +240,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        empty_grads = None, None, None, None, None, None
+        empty_grads = None, None, None, None, None, None, None
         return res, *empty_grads
 
 
@@ -265,7 +265,7 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
+            return gradY, None, None
         gradY_scale = tensor_to_scale(gradY, ctx.dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
@@ -274,7 +274,7 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None
+        return fp8_tensor, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -300,7 +300,7 @@ class NoopFwToFloat8BwStatic(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
+            return gradY, None, None, None
         (gradY_scale,) = ctx.saved_tensors
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
@@ -309,4 +309,4 @@ class NoopFwToFloat8BwStatic(torch.autograd.Function):
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None, None
+        return fp8_tensor, None, None, None

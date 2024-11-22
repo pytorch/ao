@@ -186,7 +186,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
             else:
                 assert t._linear_mm_config == mm_config
             nonlocal dtype
-            if mm_config is None:
+            if dtype is None:
                 dtype = t._dtype
             else:
                 assert t._dtype == dtype
