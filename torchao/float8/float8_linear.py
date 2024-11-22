@@ -13,6 +13,7 @@ import torch
 import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
+from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8E5M2BwDelayed,
     NoopFwToFloat8E5M2BwDynamic,
@@ -469,7 +470,7 @@ class Float8Linear(torch.nn.Linear):
         return input_fp8
 
     def get_weight_scale(self, weight: torch.Tensor) -> Optional[torch.Tensor]:
-        if isinstance(weight, Float8Tensor):
+        if tensor_already_casted_to_fp8(weight):
             return None
         if self.scaling_type_weight is ScalingType.DELAYED:
             scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
@@ -497,7 +498,7 @@ class Float8Linear(torch.nn.Linear):
         is_amax_initialized: bool,
         weight_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if isinstance(weight, Float8Tensor):
+        if tensor_already_casted_to_fp8(weight):
             return weight.t()
         weight_fp8 = hp_tensor_and_scale_to_float8(
             weight,

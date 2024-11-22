@@ -15,8 +15,6 @@ import os
 
 import pytest
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -49,6 +47,7 @@ from torchao.float8.float8_tensor_parallel import (
 )
 from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
+from torchao.testing.float8.dtensor_utils import ToyModel
 
 
 def setup_distributed():
@@ -57,28 +56,6 @@ def setup_distributed():
     # seed must be the same in all processes
     torch.manual_seed(1)
     return device_mesh
-
-
-class FeedForward(nn.Module):
-    """MLP based model"""
-
-    def __init__(self):
-        super(FeedForward, self).__init__()
-        self.w1 = nn.Linear(16, 32, bias=False)
-        self.w2 = nn.Linear(16, 32, bias=False)
-        self.out_proj = nn.Linear(32, 16, bias=False)
-
-    def forward(self, x):
-        return self.out_proj(F.silu(self.w1(x)) * self.w2(x))
-
-
-class ToyModel(nn.Module):
-    def __init__(self):
-        super(ToyModel, self).__init__()
-        self.ffn = FeedForward()
-
-    def forward(self, x):
-        return self.ffn(x)
 
 
 def _test_scaled_mm(mesh: DeviceMesh, size=16):
