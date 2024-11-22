@@ -27,7 +27,7 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 from torchao.float8 import Float8LinearConfig
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 
-from torchao.float8.config import CastConfig, ScalingType
+from torchao.float8.config import CastConfig, e4m3_dtype, ScalingType
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -40,7 +40,7 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
     PrepareFloat8ModuleInput,
 )
-from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
+from torchao.float8.float8_utils import tensor_to_scale
 from torch.distributed._tensor import distribute_tensor, DTensor, Replicate, Shard
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module

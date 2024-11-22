@@ -22,7 +22,6 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.float8.float8_utils import (
     amax_history_to_scale,
-    e5m2_dtype,
     tensor_to_amax,
     tensor_to_scale,
 )
@@ -267,7 +266,7 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
             return gradY, None
-        gradY_scale = tensor_to_scale(gradY, e5m2_dtype)
+        gradY_scale = tensor_to_scale(gradY, ctx.dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,

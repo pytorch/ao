@@ -8,13 +8,12 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
 )
 
-from torchao.float8.config import ScalingType
+from torchao.float8.config import e4m3_dtype, ScalingType
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole
-from torchao.float8.float8_utils import e4m3_dtype
 
 # subclass the ColwiseParallel and RowwiseParallel classes
 # to add the float8 support

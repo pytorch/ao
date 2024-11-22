@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 from torchao.float8.config import (
     CastConfig,
+    e4m3_dtype,
     Float8LinearConfig,
     ScalingType,
     Float8LinearRecipeName,
@@ -41,7 +42,6 @@ from torchao.float8.float8_tensor import (
     GemmInputRole,
     ScaledMMConfig,
 )
-from torchao.float8.float8_utils import e4m3_dtype
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 from torch._dynamo.test_case import TestCase as DynamoTestCase
