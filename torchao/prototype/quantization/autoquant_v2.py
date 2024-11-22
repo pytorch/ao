@@ -1192,7 +1192,6 @@ def autoquant_v2(
 
     fqn_to_submodule = {}
 
-    print("extraction idxs:", extraction_idxs)
     for extraction_idx in extraction_idxs:
         summary_filename = os.path.join(target_folder, f"summary_{extraction_idx}.csv")
         summary_rows = []
