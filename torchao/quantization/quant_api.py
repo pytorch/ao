@@ -51,6 +51,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_MI300,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -941,7 +942,7 @@ def float8_dynamic_activation_float8_weight(
 
     """
     assert (
-        is_cuda_8_9
+        is_cuda_8_9 or is_MI300
     ), "Float8 dynamic activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
@@ -998,7 +999,7 @@ def float8_static_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
     assert (
-        is_cuda_8_9
+        is_cuda_8_9 or is_MI300
     ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
