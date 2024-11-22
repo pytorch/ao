@@ -13,12 +13,12 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import ScalingGranularity
+from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
     hp_tensor_and_scale_to_float8,
-    tensor_already_casted_to_fp8,
 )
 from torchao.float8.float8_utils import (
     amax_history_to_scale,
