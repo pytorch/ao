@@ -13,6 +13,7 @@ import warnings
 import pytest
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -268,12 +269,12 @@ class TestFloat8Linear:
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(m_fp8)
             if use_ac:
-                y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
+                y_fp8 = checkpoint(m_fp8, x, use_reentrant=False)
             else:
                 y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
             if use_ac:
-                y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
+                y_ref = checkpoint(m_ref, x, use_reentrant=False)
             else:
                 y_ref = m_ref(x)
             y_ref.sum().backward()

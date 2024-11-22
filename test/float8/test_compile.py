@@ -18,6 +18,7 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
@@ -70,12 +71,21 @@ def _test_compile_base(
         copy.deepcopy(m_ref),
         config,
     )
+    # debug only - this unbreaks the tests
+    # m_fp8.is_amax_initialized = True
 
     m_fp8 = torch.compile(m_fp8, backend=backend, fullgraph=fullgraph)
     m_ref = torch.compile(m_ref, backend=backend, fullgraph=fullgraph)
-    y_fp8 = m_fp8(x)
+    use_ac = True
+    if use_ac:
+        y_fp8 = checkpoint(m_fp8, x, use_reentrant=False)
+    else:
+        y_fp8 = m_fp8(x)
     y_fp8.sum().backward()
-    y_ref = m_ref(x_ref)
+    if use_ac:
+        y_ref = checkpoint(m_ref, x_ref, use_reentrant=False)
+    else:
+        y_ref = m_ref(x_ref)
     y_ref.sum().backward()
     # TODO(future PR): can also test fp8 eager vs compile here with a tigher
     # tolerance
