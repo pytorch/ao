@@ -3,7 +3,7 @@ from typing import Type
 import torch
 from torch.optim.optimizer import Optimizer, ParamsT
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import get_available_devices, TORCH_VERSION_AT_LEAST_2_4
 
 
 class CPUOffloadOptimizer:
@@ -13,7 +13,6 @@ class CPUOffloadOptimizer:
         optimizer_class: Type[Optimizer] = torch.optim.AdamW,
         *,
         offload_gradients: bool = False,
-        device: str = "cuda",
         **kwargs,
     ) -> None:
         """Offload optimizer to CPU for single-GPU training. This will reduce GPU memory by the size of optimizer state.
@@ -23,7 +22,6 @@ class CPUOffloadOptimizer:
             params: a list of parameters or parameter groups.
             optimizer_class: constructor of the base optimizer. Defaults to :class:`torch.optim.AdamW`.
             offload_gradients: free GPU gradients once they are moved to CPU. Not compatible with gradient accumulation.
-            device: device type for GPU. Choose from "cuda" and "xpu". Defaults to "cuda".
             kwargs: other keyword arguments to be passed to the base optimizer e.g. `lr`, `weight_decay`.
         """
         # default to fused CPU AdamW
@@ -42,7 +40,8 @@ class CPUOffloadOptimizer:
 
         self.param_d2h_map = dict()
         self.optim_dict = dict()
-        self.device = device
+        self.device = get_available_devices()[-1]
+        assert ("cuda" in self.device or "xpu" in self.device), "CPU Offload currently only supports CUDA & XPU"
         self.stream = getattr(torch, self.device).Stream()
 
         # the queue maintains the order which param we should do optim step on first.
