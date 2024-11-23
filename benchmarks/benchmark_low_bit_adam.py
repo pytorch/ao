@@ -250,13 +250,7 @@ if __name__ == "__main__":
         pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
 
         if args.profile:
-            activities = [torch.profiler.ProfilerActivity.CPU]
-            if args.device == "cuda":
-                activities.append(torch.profiler.ProfilerActivity.CUDA)
-            elif args.device == "xpu":
-                activities.append(torch.profiler.ProfilerActivity.XPU)
-
-            prof = torch.profiler.profile(activities=activities)
+            prof = torch.profiler.profile(activities=torch.profiler.supported_activities())
         else:
             prof = nullcontext()
 
