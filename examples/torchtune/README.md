@@ -12,7 +12,7 @@ pip install torchtune
 ## Run
 1. Download a model (see more details [here](https://github.com/pytorch/torchtune#downloading-a-model)):
 ```
-tune download meta-llama/Llama-2-7b-hf --output-dir /tmp/Llama-2-7b-hf
+tune download meta-llama/Llama-3.2-1B-Instruct --output-dir /tmp/Llama-3.2-1B-Instruct --ignore-patterns "original/consolidated.00.pth"
 ```
 
 2. Finetune:
