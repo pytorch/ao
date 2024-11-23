@@ -43,7 +43,7 @@ class CPUOffloadOptimizer:
         self.param_d2h_map = dict()
         self.optim_dict = dict()
         self.device = device
-        self.stream = torch.Stream(device=self.device)
+        self.stream = getattr(torch, self.device).Stream()
 
         # the queue maintains the order which param we should do optim step on first.
         self.queue = dict()
@@ -53,14 +53,9 @@ class CPUOffloadOptimizer:
                 p_host = self.param_d2h_map[p_device]
 
                 # make sure backward for this param finishes
-                if self.device == "cuda":
-                    self.stream.wait_stream(torch.cuda.current_stream())
-                    with torch.cuda.stream(self.stream):
-                        p_host.grad.copy_(p_device.grad, non_blocking=True)
-                elif self.device == "xpu":
-                    self.stream.wait_stream(torch.xpu.current_stream())
-                    with torch.xpu.stream(self.stream):
-                        p_host.grad.copy_(p_device.grad, non_blocking=True)
+                self.stream.wait_stream(getattr(torch, self.device).current_stream())
+                with getattr(torch, self.device).stream(self.stream):
+                    p_host.grad.copy_(p_device.grad, non_blocking=True)
 
                 # we rely on CPython implementation of dictionary, which preserves insertion order.
                 # if a param is added again (e.g. due to gradient accumulation), it is moved to the
@@ -107,12 +102,8 @@ class CPUOffloadOptimizer:
             # moving param H2D once all backwards finish, since self.stream
             # will wait for current_stream when moving grad D2H.
             p_host = self.param_d2h_map[p_device]
-            if self.device == "cuda":
-                with torch.cuda.stream(self.stream):
-                    p_device.copy_(p_host, non_blocking=True)
-            elif self.device == "xpu":
-                with torch.xpu.stream(self.stream):
-                    p_device.copy_(p_host, non_blocking=True)
+            with getattr(torch, self.device).stream(self.stream):
+                p_device.copy_(p_host, non_blocking=True)
 
         self.queue.clear()
         return loss

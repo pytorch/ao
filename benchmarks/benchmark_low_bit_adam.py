@@ -305,9 +305,6 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    if args.device == "cuda":
-        peak_mem = torch.cuda.max_memory_allocated() / 1e9
-    elif args.device == "xpu":
-        peak_mem = torch.xpu.max_memory_allocated() / 1e9
+    peak_mem = getattr(torch, args.device).max_memory_allocated() / 1e9
     print(f"Max memory used: {peak_mem:.02f} GB")
     logger.log(dict(max_memory_allocated=peak_mem))
