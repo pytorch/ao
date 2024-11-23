@@ -434,9 +434,11 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             )
             init_start = time.perf_counter()
 
-        with training.set_default_dtype(self._dtype), torch.device("meta"):
+        # with training.set_default_dtype(self._dtype), torch.device("meta"):
+        with training.set_default_dtype(self._dtype):
             model = config.instantiate(cfg_model)
 
+        # Apply Sparsity
         if True:
             from torchao.sparsity.prototype.superblock.utils import (
                 accelerate_with_sparsity,
@@ -500,7 +502,8 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             model_state_dict,
             self._device,
             self._is_rank_zero,
-            strict=True,
+            # strict=True,
+            strict=False,
             cpu_offload=fsdp_cpu_offload,
         )
 
@@ -713,11 +716,12 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     }
                 )
 
-            self._checkpointer.save_checkpoint(
-                checkpoint_dict,
-                epoch=epoch,
-                intermediate_checkpoint=intermediate_checkpoint,
-            )
+            torch.save(checkpoint_dict, f"{self._output_dir}/checkpoint_{epoch}.pth")
+            # self._checkpointer.save_checkpoint(
+            #     checkpoint_dict,
+            #     epoch=epoch,
+            #     intermediate_checkpoint=intermediate_checkpoint,
+            # )
             log.info(f"Saving checkpoint took {time.perf_counter() - start:.2f} secs")
 
         torch.distributed.barrier()
