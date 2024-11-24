@@ -38,7 +38,7 @@ from tqdm import tqdm
 from torchao.prototype import low_bit_optim
 
 _DEVICE = get_available_devices()[-1]
-assert ("cuda" in _DEVICE or "xpu" in _DEVICE), "Benchmark currently only supports CUDA & XPU(BF16)"
+assert _DEVICE in ["cuda", "xpu"], "Benchmark currently only supports CUDA & XPU(BF16)"
 
 OPTIM_MAP = dict(
     AdamW=partial(torch.optim.AdamW, fused=True),
