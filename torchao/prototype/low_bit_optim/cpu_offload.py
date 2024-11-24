@@ -41,7 +41,10 @@ class CPUOffloadOptimizer:
         self.param_d2h_map = dict()
         self.optim_dict = dict()
         self.device = get_available_devices()[-1]
-        assert self.device in ["cuda", "xpu"], "CPU Offload currently only supports CUDA & XPU"
+        assert self.device in [
+            "cuda",
+            "xpu",
+        ], "CPU Offload currently only supports CUDA & XPU"
         self.stream = getattr(torch, self.device).Stream()
 
         # the queue maintains the order which param we should do optim step on first.
