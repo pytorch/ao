@@ -41,7 +41,24 @@ The 'ao' mode is a copy of the baseline with modifications to make the code more
 ### 0. Download checkpoints and install requirements
 
 ```
-pip install -r requirements.txt
+# Create and activate a virtual environment
+python -m venv venv && source venv/bin/activate
+
+# Install requirements for this example
+pip install -r examples/sam2_amg_server/requirements.txt
+
+# Install torch and ao nightlies
+#   (try to uninstall first to be safe, use CUDA 12.1 to be safe)
+pip uninstall torch torchao
+
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121
+
+# Build from source
+python setup.py develop
+
+# On your mark, get set...
+cd examples/sam2_amg_server/
 ```
 
 Download `sam2.1_hiera_large.pt` from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints and put it into `~/checkpoints/sam2`
