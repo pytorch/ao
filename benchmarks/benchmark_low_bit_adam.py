@@ -252,12 +252,7 @@ if __name__ == "__main__":
         model.train()
         pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
 
-        if args.profile:
-            prof = torch.profiler.profile(activities=torch.profiler.supported_activities())
-        else:
-            prof = nullcontext()
-
-        with prof:
+        with torch.profiler.profile() if args.profile else nullcontext() as prof:
             for batch in pbar:
                 if args.full_bf16:
                     batch["image"] = batch["image"].bfloat16()
