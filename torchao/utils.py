@@ -131,8 +131,9 @@ def get_available_devices():
         devices.append("cuda")
     elif torch.xpu.is_available():
         devices.append("xpu")
-    elif torch.mps.is_available():
-        devices.append("mps")
+    if TORCH_VERSION_AT_LEAST_2_5:
+        if torch.mps.is_available():
+            devices.append("mps")
     return devices
 
 
