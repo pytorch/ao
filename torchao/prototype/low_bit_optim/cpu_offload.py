@@ -3,7 +3,7 @@ from typing import Type
 import torch
 from torch.optim.optimizer import Optimizer, ParamsT
 
-from torchao.utils import get_available_devices, TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, get_available_devices
 
 
 class CPUOffloadOptimizer:
