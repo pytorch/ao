@@ -41,6 +41,8 @@ The 'ao' mode is a copy of the baseline with modifications to make the code more
 ### 0. Download checkpoints and install requirements
 
 ```
+# From the top-level "ao" directory
+
 # Create and activate a virtual environment
 python -m venv venv && source venv/bin/activate
 
