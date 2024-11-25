@@ -224,7 +224,6 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
         fp8_weight_amax_history_stack = [None] * len(fp8_layers)
         fp8_grad_output_amax_history_stack = [None] * len(fp8_layers)
 
-        x_dtypes = set()
         scale_fn_recipes = set()
 
         for idx, child in enumerate(fp8_layers):
@@ -236,15 +235,7 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             fp8_weight_amax_history_stack[idx] = child.fp8_amax_history_weight
             fp8_grad_output_amax_history_stack[idx] = child.fp8_amax_history_grad_output
 
-            x_dtypes.add(child.last_seen_output_dtype)
             scale_fn_recipes.add(child.config.delayed_scaling_config.scale_fn_name)
-
-        # TODO This way to get the activation dtype is not ideal
-        if len(x_dtypes) != 1:
-            raise ValueError(
-                f"All layers must have the same last seen input_dtype, got {x_dtypes}"
-            )
-        x_dtype = next(iter(x_dtypes))
 
         if len(scale_fn_recipes) != 1:
             raise ValueError(
@@ -303,13 +294,13 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
 
         # Calculate the new scales from the updated history stacks
         new_input_scales = amax_history_to_scale_stack(
-            fp8_input_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+            fp8_input_amax_history_stack, e4m3_dtype, scale_fn_recipe
         )
         new_weight_scales = amax_history_to_scale_stack(
-            fp8_weight_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+            fp8_weight_amax_history_stack, e4m3_dtype, scale_fn_recipe
         )
         new_grad_output_scales = amax_history_to_scale_stack(
-            fp8_grad_output_amax_history_stack, e5m2_dtype, x_dtype, scale_fn_recipe
+            fp8_grad_output_amax_history_stack, e5m2_dtype, scale_fn_recipe
         )
 
         # Iterate through the layers and update the scales

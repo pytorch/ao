@@ -8,7 +8,7 @@ curl -X POST http://127.0.0.1:5000/upload -F 'image=@/path/to/file.jpg' --output
 Start the server
 
 ```
-python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --fast
+python server.py ~/checkpoints/sam2 large --port <your_port> --host <your_hostname> --fast
 ```
 
 Collect the rles
@@ -58,7 +58,7 @@ Make sure you've installed https://github.com/facebookresearch/sam2
 
 Start server
 ```
-python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --baseline
+python server.py ~/checkpoints/sam2 large --port <your_port> --host <your_hostname> --baseline
 ```
 
 Generate and save rles (one line per json via `-w "\n"`)
@@ -73,7 +73,7 @@ sys     0m4.137s
 ### 3. Start server with torchao variant of SAM2
 Start server
 ```
-python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname>
+python server.py ~/checkpoints/sam2 large --port <your_port> --host <your_hostname>
 ```
 
 Generate and save rles (one line per json via `-w "\n"`)
@@ -88,7 +88,7 @@ sys     0m4.350s
 ### 4. Start server with torchao variant of SAM2 and `--fast` optimizations
 Start server
 ```
-python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --fast
+python server.py ~/checkpoints/sam2 large --port <your_port> --host <your_hostname> --fast
 ```
 
 Generate and save rles (one line per json via `-w "\n"`)
@@ -103,7 +103,7 @@ sys     0m4.138s
 ### 5. Start server with torchao variant of SAM2 and `--fast` and `--furious` optimizations
 Start server
 ```
-python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --fast --furious
+python server.py ~/checkpoints/sam2 large --port <your_port> --host <your_hostname> --fast --furious
 ```
 
 Generate and save rles (one line per json via `-w "\n"`)
