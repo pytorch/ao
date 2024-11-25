@@ -193,6 +193,9 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             and we loop over all fp8_layers to sync and update amax scale histories.
             Users can use get_float8_layers to get all fp8 layers.
     """
+    # TODO(future): consider adding a flag to control setting the `is_amax_initialized`
+    # flag only on the first iteration.
+
     if fp8_layers is None:
         fp8_layers = get_float8_layers(model)
 
@@ -309,10 +312,10 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             child.fp8_scale_weight.copy_(new_weight_scales[idx])
             child.fp8_scale_grad_output.copy_(new_grad_output_scales[idx])
 
-    # This allows for the compile to succede on the inner func and fail on the graph breaks
+    # This allows for the compile to succeed on the inner func and fail on the graph breaks
     # at the beginning and and of syncing
     inner_func()
 
     for child in fp8_layers:
-        # Set a flag to signal amaxes/scales are ready
-        child.amax_and_scale_synced = True
+        # Set a flag to signal that initialization is done
+        child.is_amax_initialized = True

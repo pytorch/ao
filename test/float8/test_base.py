@@ -265,13 +265,14 @@ class TestFloat8Linear:
             config,
         )
         for _ in range(2):
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m_fp8)
             if use_ac:
                 y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
             else:
                 y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
+            if linear_requires_sync(config):
+                sync_float8_amax_and_scale_history(m_fp8)
+
             if use_ac:
                 y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
             else:

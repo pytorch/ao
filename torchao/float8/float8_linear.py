@@ -545,7 +545,6 @@ class Float8Linear(torch.nn.Linear):
         # config setting
         if not self.enable_pre_and_post_forward:
             return
-        self.is_amax_initialized = True
 
     def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = (
