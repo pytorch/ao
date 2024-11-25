@@ -32,6 +32,8 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
     "is_MI300",
+    "is_sm_89",
+    "is_sm_90",
 ]
 
 
@@ -597,11 +599,19 @@ def is_MI300():
     return False
 
 
-def is_cuda_8_9():
+def is_sm_89():
     return (
         torch.cuda.is_available()
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (8, 9)
+    )
+
+
+def is_sm_90():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() >= (9, 0)
     )
 
 

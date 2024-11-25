@@ -52,6 +52,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_MI300,
+    is_sm_89,
+    is_sm_90,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -83,7 +85,6 @@ from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
 
 logger = logging.getLogger(__name__)
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -829,10 +830,11 @@ def _normalize_granularity(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ],
 ) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    processed_granularity = None
     if granularity is None:
-        return (PerTensor(), PerTensor())
+        processed_granularity = (PerTensor(), PerTensor())
     elif isinstance(granularity, (PerTensor, PerRow)):
-        return (granularity, granularity)
+        processed_granularity = (granularity, granularity)
     elif isinstance(granularity, tuple) and len(granularity) == 2:
         if not (
             isinstance(granularity[0], (PerTensor, PerRow))
@@ -845,11 +847,25 @@ def _normalize_granularity(
             raise ValueError(
                 f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
             )
-        return granularity
+        processed_granularity = granularity
     else:
         raise ValueError(
             f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
         )
+    # Validate granularity with supported Hardware
+    for _granularity in processed_granularity:
+        if isinstance(_granularity, PerTensor):
+            assert (
+                is_sm_89() or is_MI300()
+            ), "PerTensor quantization only works for CUDA>=8.9 and MI300+"
+        elif isinstance(_granularity, PerRow):
+            assert (
+                is_sm_90() or is_MI300()
+            ), "PerRow quantization only works for CUDA>=9.0 and MI300+"
+        else:
+            raise ValueError(f"Invalid granularity type: {_granularity}")
+
+    return processed_granularity
 
 
 def _input_activation_quant_func_fp8(
@@ -942,7 +958,7 @@ def float8_dynamic_activation_float8_weight(
 
     """
     assert (
-        is_cuda_8_9 or is_MI300()
+        is_sm_89() or is_MI300()
     ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
@@ -999,7 +1015,7 @@ def float8_static_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
     assert (
-        is_cuda_8_9 or is_MI300()
+        is_sm_89() or is_MI300()
     ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
