@@ -8,6 +8,7 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
 from torchao.float8.config import Float8TypeConfig, ScalingGranularity
 
@@ -109,7 +110,11 @@ def tensor_to_amax(
     # happen elsewhere.
     if reduce_amax and dist.is_initialized():
         pg = device_mesh.get_group() if device_mesh is not None else None
-        dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
+        # dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
+        group = list(range(dist.get_world_size())) if pg is None else pg
+        amax = all_reduce(amax, "MAX", group)
+        if isinstance(amax, AsyncCollectiveTensor):
+            amax = amax.wait()
 
     return amax
 
