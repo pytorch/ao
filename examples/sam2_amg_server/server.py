@@ -332,6 +332,39 @@ def model_type_to_paths(checkpoint_path, model_type):
     model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
     return sam2_checkpoint, model_cfg
 
+def set_fast(mask_generator):
+    # TODO: Using CUDA graphs can cause numerical differences?
+    mask_generator.predictor.model.image_encoder = torch.compile(
+        mask_generator.predictor.model.image_encoder,
+        mode="max-autotune",
+        fullgraph=True,
+        dynamic=False,
+    )
+
+    mask_generator.predictor._predict_masks = torch.compile(
+        mask_generator.predictor._predict_masks,
+        mode="max-autotune",
+        fullgraph=True,
+        dynamic=False,
+    )
+
+    # mask_generator.predictor._predict_masks_postprocess = torch.compile(
+    #     mask_generator.predictor._predict_masks_postprocess,
+    #     fullgraph=True,
+    #     dynamic=True,
+    # )
+
+
+def set_furious(mask_generator):
+    mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor._image_dtype = torch.float16
+    mask_generator.predictor._transforms_device = mask_generator.predictor.device
+    torch.set_float32_matmul_precision('high')
+    mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
+
 
 def main(checkpoint_path,
          model_type,
@@ -378,36 +411,10 @@ def main(checkpoint_path,
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.image_encoder = torch.compile(
-            mask_generator.predictor.model.image_encoder,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        mask_generator.predictor._predict_masks = torch.compile(
-            mask_generator.predictor._predict_masks,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        # mask_generator.predictor._predict_masks_postprocess = torch.compile(
-        #     mask_generator.predictor._predict_masks_postprocess,
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
+        set_fast(mask_generator)
 
     if furious:
-        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
-        # NOTE: Not baseline feature
-        mask_generator.predictor._image_dtype = torch.float16
-        mask_generator.predictor._transforms_device = mask_generator.predictor.device
-        torch.set_float32_matmul_precision('high')
-        mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
-        # NOTE: Not baseline feature
-        mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
+        set_furious(mask_generator)
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
