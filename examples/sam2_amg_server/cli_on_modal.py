@@ -34,13 +34,15 @@ image = (
     )
 )
 
-checkpoints = modal.Volume.from_name("checkpoints", create_if_missing=True)
+checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
+data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 
 @app.function(
     image=image,
     gpu="H100",
     volumes={
         TARGET + "checkpoints": checkpoints,
+        TARGET + "data": data,
         # # mount the caches of torch.compile and friends
         # "/root/.nv": modal.Volume.from_name("torchao-sam-2-cli-nv-cache", create_if_missing=True),
         # "/root/.triton": modal.Volume.from_name(
@@ -53,39 +55,26 @@ checkpoints = modal.Volume.from_name("checkpoints", create_if_missing=True)
     timeout=60 * 60,
 )
 def eval(input_bytes, fast, furious):
-    import torch
-    import torchao
     import os
-
     import subprocess
-    from pathlib import Path
-    from git import Repo
 
     def download_file(url, filename):
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
-    os.chdir(Path(TARGET))
-    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal1/examples/sam2_amg_server/cli.py", "cli.py")
-    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal1/examples/sam2_amg_server/server.py", "server.py")
-    # Create a Path object for the current directory
-    current_directory = Path('.')
-
-    with open('/tmp/dog.jpg', 'wb') as file:
-        file.write(input_bytes)
+    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal2/examples/sam2_amg_server/cli.py", TARGET + "data/cli.py")
+    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal2/examples/sam2_amg_server/server.py", TARGET + "data/server.py")
+    os.chdir(Path(TARGET + "data"))
 
     import sys
     sys.path.append(".")
-    from cli import main as cli_main
-    cli_main(Path(TARGET) / Path("checkpoints"),
-             model_type="large",
-             input_path="/tmp/dog.jpg",
-             output_path="/tmp/dog_masked_2.png",
-             verbose=True,
-             fast=fast,
-             furious=furious)
-          
-    return bytearray(open('/tmp/dog_masked_2.png', 'rb').read())
+    from cli import main_headless
+    return main_headless(Path(TARGET) / Path("checkpoints"),
+                         model_type="large",
+                         input_bytes=input_bytes,
+                         verbose=True,
+                         fast=fast,
+                         furious=furious)
 
 @app.local_entrypoint()
 def main(input_path, output_path, fast=False, furious=False):

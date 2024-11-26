@@ -21,7 +21,8 @@ def main_docstring():
         output_path (str): Path to output image
     """
 
-def main(checkpoint_path, model_type, input_path, output_path, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False):
+
+def main_headless(checkpoint_path, model_type, input_bytes, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False):
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     if verbose:
@@ -46,8 +47,20 @@ def main(checkpoint_path, model_type, input_path, output_path, points_per_batch=
     buf = BytesIO()
     plt.savefig(buf, format=output_format)
     buf.seek(0)
+    return buf.getvalue()
+
+def main(checkpoint_path, model_type, input_path, output_path, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False):
+    input_bytes = bytearray(open(input_path, 'rb').read())
+    output_bytes = main_headless(checkpoint_path,
+                                 model_type,
+                                 input_bytes,
+                                 points_per_batch=points_per_batch,
+                                 output_format=output_format,
+                                 verbose=verbose,
+                                 fast=fast,
+                                 furious=furious)
     with open(output_path, "wb") as file:
-        file.write(buf.getvalue())
+        file.write(output_bytes)
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
