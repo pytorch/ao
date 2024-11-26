@@ -45,23 +45,28 @@ class WandaSparsifier(BaseSparsifier):
 
     #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     def prepare(self, model: nn.Module, config: List[Dict]) -> None:
+        # activation: use PerChannelNormObserver
+        # use no-op placeholder weight observer
+        if config is None:
+            # If no config is provided, apply the qconfig to the entire model
+            model.qconfig = QConfig(
+                activation=PerChannelNormObserver, weight=default_placeholder_observer
+            )  # type: ignore[assignment]
+        else:
+            for module_config in config:
+                tensor_fqn = module_config.get("tensor_fqn", None)
+                if tensor_fqn is None:
+                    raise ValueError("Each config must contain a 'tensor_fqn'.")
 
-        for module_config in config:
-            tensor_fqn = module_config.get("tensor_fqn", None)
-            if tensor_fqn is None:
-                raise ValueError("Each config must contain a 'tensor_fqn'.")
+                # Extract module information from tensor_fqn
+                info_from_tensor_fqn = get_arg_info_from_tensor_fqn(model, tensor_fqn)
+                module = info_from_tensor_fqn["module"]
 
-            # Extract module information from tensor_fqn
-            info_from_tensor_fqn = get_arg_info_from_tensor_fqn(model, tensor_fqn)
-            module = info_from_tensor_fqn["module"]
-
-            # Apply the qconfig directly to the module if it exists
-            # activation: use PerChannelNormObserver
-            # use no-op placeholder weight observer
-            if module is not None:
-                module.qconfig = QConfig(
-                    activation=PerChannelNormObserver, weight=default_placeholder_observer
-                )   # type: ignore[assignment]
+                # Apply the qconfig directly to the module if it exists
+                if module is not None:
+                    module.qconfig = QConfig(
+                        activation=PerChannelNormObserver, weight=default_placeholder_observer
+                    )  # type: ignore[assignment]
         torch.ao.quantization.prepare(model, inplace=True)
 
         # call superclass prepare
