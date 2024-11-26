@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import fire
 
 import modal
@@ -157,7 +158,9 @@ def main(input_path, output_path, fast=False, furious=False, model_type="large",
         return
 
     if output_rle:
-        print(model.inference_rle.remote(input_bytes))
+        output_dict = model.inference_rle.remote(input_bytes)
+        with open(output_path, "w") as file:
+            file.write(json.dumps(output_dict, indent=4))
     else:
         output_bytes = model.inference.remote(input_bytes)
         with open(output_path, "wb") as file:
