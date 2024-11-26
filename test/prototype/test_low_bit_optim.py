@@ -26,7 +26,12 @@ from torchao.prototype.low_bit_optim.quant_utils import (
 from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    get_available_devices,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+)
 
 try:
     import bitsandbytes as bnb
@@ -39,7 +44,7 @@ except ImportError:
     lpmm = None
 
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICES = get_available_devices()
 
 
 class TestQuantize(TestCase):
@@ -91,7 +96,9 @@ class TestQuantize(TestCase):
         x = torch.rand(32, device=device) * 100
         x_rep = x.view(-1, 1).repeat(1, 100_000)
 
-        func = torch.compile(_fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile)
+        func = torch.compile(
+            _fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile
+        )
         x_rep_bf16 = func(x_rep)
         assert x_rep_bf16.dtype is torch.bfloat16
 
@@ -166,8 +173,13 @@ class TestOptim(TestCase):
         tensor = subclass.zeros(shape, device=device)
         offset = shape[0] // 2
 
-        torch.testing.assert_close(tensor.dequantize()[:offset], tensor[:offset].dequantize())
-        torch.testing.assert_close(tensor.dequantize()[offset:offset*2], tensor[offset:offset*2].dequantize())
+        torch.testing.assert_close(
+            tensor.dequantize()[:offset], tensor[:offset].dequantize()
+        )
+        torch.testing.assert_close(
+            tensor.dequantize()[offset : offset * 2],
+            tensor[offset : offset * 2].dequantize(),
+        )
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
@@ -185,7 +197,9 @@ class TestOptim(TestCase):
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters(), block_size=block_size)
+        optim2 = getattr(low_bit_optim, optim_name)(
+            model2.parameters(), block_size=block_size
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -241,11 +255,12 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU",
     )
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
 
@@ -276,13 +291,16 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU",
     )
     def test_optim_cpu_offload_save_load(self):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
-        optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
+        optim1 = low_bit_optim.CPUOffloadOptimizer(
+            model1.parameters(), torch.optim.AdamW
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -297,7 +315,9 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(
+            model2.parameters(), torch.optim.AdamW
+        )
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
@@ -380,7 +400,11 @@ class TestFSDP2(FSDPTest):
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
         from torch.distributed.tensor import DTensor
-        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
+        from torch.testing._internal.distributed._tensor.common_dtensor import (
+            ModelArgs,
+            Transformer,
+            TransformerBlock,
+        )
 
         batch_size = 3
         vocab_size = 1024
@@ -453,7 +477,10 @@ class TestFSDP2(FSDPTest):
 
         subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
 
-        for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
+        for v1, v2 in zip(
+            pytree.tree_iter(resumed_fsdp_optim.state_dict()),
+            pytree.tree_iter(fsdp_optim.state_dict()),
+        ):
             assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)
             if isinstance(v1, DTensor):
                 v1 = v1.to_local()
