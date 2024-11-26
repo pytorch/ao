@@ -46,7 +46,7 @@ checkpoints = modal.Volume.from_name("checkpoints", create_if_missing=True)
 
 @app.function(
     image=image,
-    gpu="A100",
+    gpu="H100",
     volumes={
         TARGET + "checkpoints": checkpoints,
     },
@@ -108,15 +108,15 @@ def train(input_bytes):
     sys.path.append(".")
     from cli import main as cli_main
     cli_main(Path(TARGET) / Path("checkpoints"),
-             "large",
-             "/tmp/dog.jpg",
-             "dog_masked_2.png",
+             model_type="large",
+             input_path="/tmp/dog.jpg",
+             output_path="/tmp/dog_masked_2.png",
              verbose=True)
           
-    return bytearray(open('dog_masked_2.png', 'rb').read())
+    return bytearray(open('/tmp/dog_masked_2.png', 'rb').read())
 
 @app.local_entrypoint()
-def main():
-    bytes = train.remote(open('dog.jpg', 'rb').read())
-    with open('dog_masked_2.png', "wb") as file:
+def main(input_path, output_path):
+    bytes = train.remote(open(input_path, 'rb').read())
+    with open(output_path, "wb") as file:
         file.write(bytes)
