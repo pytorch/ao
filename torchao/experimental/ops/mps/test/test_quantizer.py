@@ -11,12 +11,33 @@ import os
 import sys
 
 import torch
-import torchao_mps_ops
 import unittest
 
 from parameterized import parameterized
 from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer
 from torchao.experimental.quant_api import _quantize
+
+libname = "libtorchao_ops_mps_linear_fp_act_xbit_weight_aten.dylib"
+libpath = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
+)
+
+try:
+    for nbit in range(1, 8):
+        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+except AttributeError:
+    try:
+        torch.ops.load_library(libpath)
+    except:
+        raise RuntimeError(f"Failed to load library {libpath}")
+    else:
+        try:
+            for nbit in range(1, 8):
+                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        except AttributeError as e:
+            raise e
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):

@@ -5,43 +5,44 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
-
-#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod.h>
+#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm.h>
 
 #include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 
 namespace torchao::kernels::cpu::aarch64::kleidi {
 namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p {
-namespace neon_dotprod_1x8x32 {
+namespace neon_i8mm_4x8x32 {
+
 const Ukernel get_ukernel() {
   return Ukernel{
       .get_m_step =
-          kai_get_m_step_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_m_step_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_n_step =
-          kai_get_n_step_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_n_step_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_mr =
-          kai_get_mr_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_mr_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_nr =
-          kai_get_nr_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_nr_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_kr =
-          kai_get_kr_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_kr_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_sr =
-          kai_get_sr_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_sr_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_lhs_packed_offset =
-          kai_get_lhs_packed_offset_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_lhs_packed_offset_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_rhs_packed_offset =
-          kai_get_rhs_packed_offset_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_rhs_packed_offset_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_dst_offset =
-          kai_get_dst_offset_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_dst_offset_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .get_dst_size =
-          kai_get_dst_size_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+          kai_get_dst_size_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
       .run_matmul =
-          kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod};
+          kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm};
 }
 
 size_t activation_data_size(int m, int k, int group_size) {
-  (void) group_size; // unused
-  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::activation_data_size(get_ukernel(), m, k);
+  (void)group_size; // unused
+  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::activation_data_size(
+      get_ukernel(), m, k);
 }
 
 void prepare_activation_data(
@@ -50,17 +51,14 @@ void prepare_activation_data(
     int k,
     int group_size,
     const float* activations) {
-  (void) group_size; // unused
+  (void)group_size; // unused
   kai_matmul_clamp_f32_qai8dxp_qsi4c32p::prepare_activation_data(
-      get_ukernel(),
-      prepared_activation_data,
-      m,
-      k,
-      activations);
+      get_ukernel(), prepared_activation_data, m, k, activations);
 }
 
 size_t weight_data_size(int n, int k, int group_size) {
-  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::weight_data_size(get_ukernel(), n, k, group_size);
+  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::weight_data_size(
+      get_ukernel(), n, k, group_size);
 }
 
 void prepare_weight_data(
@@ -95,13 +93,13 @@ void kernel(
     const void* activation_data,
     float clamp_min,
     float clamp_max) {
-    if (clamp_min == 0 && clamp_max == 0) {
-      clamp_min = std::numeric_limits<float>::lowest();
-      clamp_max = std::numeric_limits<float>::max();
-    }
+  if (clamp_min == 0 && clamp_max == 0) {
+    clamp_min = std::numeric_limits<float>::lowest();
+    clamp_max = std::numeric_limits<float>::max();
+  }
 
-    auto ukernel = get_ukernel();
-    ukernel.run_matmul(
+  auto ukernel = get_ukernel();
+  ukernel.run_matmul(
       m,
       n,
       k,
@@ -109,8 +107,8 @@ void kernel(
       activation_data,
       weight_data,
       output,
-      /*dst_stride_row=*/ n * sizeof(float),
-      /*dst_stride_col=*/ sizeof(float),
+      /*dst_stride_row=*/n * sizeof(float),
+      /*dst_stride_col=*/sizeof(float),
       clamp_min,
       clamp_max);
 }
@@ -118,6 +116,7 @@ void kernel(
 size_t get_preferred_alignement() {
   return 16;
 }
-} // namespace neon_dotprod_1x4x32
+
+} // namespace neon_i8mm_4x8x32
 } // namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p
 } // namespace torchao::kernels::cpu::aarch64::kleidi

@@ -13,6 +13,7 @@ import torch
 import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
+from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8E5M2BwDelayed,
     NoopFwToFloat8E5M2BwDynamic,
@@ -334,10 +335,6 @@ class Float8Linear(torch.nn.Linear):
         # TODO(future PR): add serialization for this flag
         self.is_amax_initialized = not self.config.enable_amax_init
 
-        # This is needed to properly handle autocast in the amax/scale
-        # update function for torch.float16
-        self.last_seen_input_dtype = None
-
         # pre_forward and post_forward are currently broken with FSDP
         # and torch.compile, this option can disable them
         # Note that when using `self.config.enable_pre_and_post_forward = False`,
@@ -469,7 +466,7 @@ class Float8Linear(torch.nn.Linear):
         return input_fp8
 
     def get_weight_scale(self, weight: torch.Tensor) -> Optional[torch.Tensor]:
-        if isinstance(weight, Float8Tensor):
+        if tensor_already_casted_to_fp8(weight):
             return None
         if self.scaling_type_weight is ScalingType.DELAYED:
             scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
@@ -497,7 +494,7 @@ class Float8Linear(torch.nn.Linear):
         is_amax_initialized: bool,
         weight_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if isinstance(weight, Float8Tensor):
+        if tensor_already_casted_to_fp8(weight):
             return weight.t()
         weight_fp8 = hp_tensor_and_scale_to_float8(
             weight,
@@ -538,14 +535,16 @@ class Float8Linear(torch.nn.Linear):
         return output
 
     def float8_pre_forward(self, input):
+        # TODO(future PR): deprecate these functions and the corresponding
+        # config setting
         if not self.enable_pre_and_post_forward:
             return
-        self.last_seen_input_dtype = input.dtype
 
     def float8_post_forward(self):
+        # TODO(future PR): deprecate these functions and the corresponding
+        # config setting
         if not self.enable_pre_and_post_forward:
             return
-        self.is_amax_initialized = True
 
     def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = (

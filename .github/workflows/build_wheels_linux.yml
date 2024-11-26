@@ -43,6 +43,8 @@ jobs:
       # triggered daily from main with a schedule
       repository: pytorch/ao
       ref: ""
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
       pre-script: packaging/pre_build_script.sh

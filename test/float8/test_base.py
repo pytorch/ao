@@ -265,13 +265,14 @@ class TestFloat8Linear:
             config,
         )
         for _ in range(2):
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m_fp8)
             if use_ac:
                 y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
             else:
                 y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
+            if linear_requires_sync(config):
+                sync_float8_amax_and_scale_history(m_fp8)
+
             if use_ac:
                 y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
             else:
@@ -424,33 +425,36 @@ class TestFloat8Linear:
         emulate: bool,
         linear_dtype: torch.dtype,
     ):
-        m_ref = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
+        m_ref = nn.Sequential(
+            nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
+            nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
+        )
         config = Float8LinearConfig(
             cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
             cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
             cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
             emulate=emulate,
         )
-        m = Float8Linear.from_float(copy.deepcopy(m_ref), config)
+        m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
 
         # autocast off
         x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
+        y = m(x)
         if linear_requires_sync(config):
             sync_float8_amax_and_scale_history(m)
-        y = m(x)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
         # autocast on
         with torch.autocast("cuda"):
+            y = m(x)
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(m)
-            y = m(x)
         assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
+            y = m(x)
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(m)
-            y = m(x)
         assert (
             y.dtype == torch.bfloat16
         ), f"y.dtype is {y.dtype}, expected {torch.bfloat16}"

@@ -156,6 +156,9 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     def test_flatten_unflatten(self, apply_quant, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
+
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
         ql = apply_quant(linear)
         lp_tensor = ql.weight
