@@ -152,7 +152,7 @@ def main(input_path, output_path, fast=False, furious=False, model_type="large",
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
-        print("Can't find running app. To deploy the app run the following command. Note that this costs money!")
+        print("Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing")
         print("modal deploy cli_on_modal.py")
         return
 
