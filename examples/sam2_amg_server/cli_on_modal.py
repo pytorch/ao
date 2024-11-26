@@ -49,18 +49,16 @@ checkpoints = modal.Volume.from_name("checkpoints", create_if_missing=True)
     gpu="H100",
     volumes={
         TARGET + "checkpoints": checkpoints,
+        # # mount the caches of torch.compile and friends
+        # "/root/.nv": modal.Volume.from_name("torchao-sam-2-cli-nv-cache", create_if_missing=True),
+        # "/root/.triton": modal.Volume.from_name(
+        #     "torchao-sam-2-cli-triton-cache", create_if_missing=True
+        # ),
+        # "/root/.inductor-cache": modal.Volume.from_name(
+        #     "torchao-sam-2-cli-inductor-cache", create_if_missing=True
+        # ),
     },
-    #     TARGET + "logs": logs,
-    #     # mount the caches of torch.compile and friends
-    #     "/root/.nv": modal.Volume.from_name("nanogpt-nv-cache", create_if_missing=True),
-    #     "/root/.triton": modal.Volume.from_name(
-    #         "nanogpt-triton-cache", create_if_missing=True
-    #     ),
-    #     "/root/.inductor-cache": modal.Volume.from_name(
-    #         "nanogpt-inductor-cache", create_if_missing=True
-    #     ),
-    # },
-    timeout=30 * 60,
+    timeout=60 * 60,
 )
 def train(input_bytes):
     import torch
@@ -111,7 +109,9 @@ def train(input_bytes):
              model_type="large",
              input_path="/tmp/dog.jpg",
              output_path="/tmp/dog_masked_2.png",
-             verbose=True)
+             verbose=True,
+             fast=False,
+             furious=True)
           
     return bytearray(open('/tmp/dog_masked_2.png', 'rb').read())
 
