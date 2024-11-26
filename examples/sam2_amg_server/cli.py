@@ -33,7 +33,7 @@ def main_headless(checkpoint_path, model_type, input_bytes, points_per_batch=102
         set_fast(mask_generator)
     if furious:
         set_furious(mask_generator)
-    image_tensor = file_bytes_to_image_tensor(bytearray(open(input_path, 'rb').read()))
+    image_tensor = file_bytes_to_image_tensor(input_bytes)
     if verbose:
         print(f"Loaded image of size {tuple(image_tensor.shape)} and generating mask.")
     masks = mask_generator.generate(image_tensor)
