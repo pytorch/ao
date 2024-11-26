@@ -1,4 +1,5 @@
 import itertools
+import requests
 import uvicorn
 import fire
 import tempfile
@@ -37,6 +38,23 @@ inductorconfig.allow_buffer_reuse = False
 # torch._dynamo.config.capture_dynamic_output_shape_ops = True
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
+def download_file(url, download_dir):
+    # Create the directory if it doesn't exist
+    download_dir = Path(download_dir)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    # Extract the file name from the URL
+    file_name = url.split('/')[-1]
+    # Define the full path for the downloaded file
+    file_path = download_dir / file_name
+    # Download the file
+    response = requests.get(url, stream=True)
+    response.raise_for_status()  # Raise an error for bad responses
+    # Write the file to the specified directory
+    print(f"Downloading '{file_name}' to '{download_dir}'")
+    with open(file_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+    print(f"Downloaded '{file_name}' to '{download_dir}'")
 
 def example_shapes():
     return [(848, 480, 3),
@@ -272,7 +290,51 @@ def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
         print(f"mIoU is {miou} with equal count {equal_count} out of {len(masks)}")
 
 
+MODEL_TYPES_TO_CONFIG = {
+        "tiny": "sam2.1_hiera_t.yaml",
+        "small": "sam2.1_hiera_s.yaml",
+        "plus": "sam2.1_hiera_b+.yaml",
+        "large": "sam2.1_hiera_l.yaml",
+        }
+
+MODEL_TYPES_TO_MODEL = {
+        "tiny": "sam2.1_hiera_tiny.pt",
+        "small": "sam2.1_hiera_small.pt",
+        "plus": "sam2.1_hiera_base_plus.pt",
+        "large": "sam2.1_hiera_large.pt",
+        }
+
+
+MODEL_TYPES_TO_URL = {
+        "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+        "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+        "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
+        "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+        }
+
+
+def main_docstring():
+    return f"""
+    Args:
+        checkpoint_path (str): Path to folder containing checkpoints from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints
+        model_type (str): Choose from one of {", ".join(MODEL_TYPES_TO_MODEL.keys())}
+    """
+
+
+def model_type_to_paths(checkpoint_path, model_type):
+    if model_type not in MODEL_TYPES_TO_CONFIG.keys():
+        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+    sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
+    if not sam2_checkpoint.exists():
+        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
+    assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
+    model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
+    return sam2_checkpoint, model_cfg
+
+
 def main(checkpoint_path,
+         model_type,
          baseline=False,
          fast=False,
          furious=False,
@@ -306,9 +368,7 @@ def main(checkpoint_path,
         from torchao._models.sam2.utils.amg import rle_to_mask
     
     device = "cuda"
-    from pathlib import Path
-    sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
+    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
@@ -450,5 +510,6 @@ def main(checkpoint_path,
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
 
+main.__doc__ = main_docstring()
 if __name__ == "__main__":
     fire.Fire(main)
