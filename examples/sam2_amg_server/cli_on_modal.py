@@ -82,8 +82,8 @@ def train(input_bytes):
         subprocess.run(command, shell=True, check=True)
 
     os.chdir(Path(TARGET))
-    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/cli.py", "cli.py")
-    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/server.py", "server.py")
+    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal1/examples/sam2_amg_server/cli.py", "cli.py")
+    download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal1/examples/sam2_amg_server/server.py", "server.py")
     # Create a Path object for the current directory
     current_directory = Path('.')
     # List all files and directories in the current directory
