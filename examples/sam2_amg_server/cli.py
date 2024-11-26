@@ -37,8 +37,9 @@ def main_headless(checkpoint_path, model_type, input_bytes, points_per_batch=102
     if verbose:
         print(f"Loaded image of size {tuple(image_tensor.shape)} and generating mask.")
     masks = mask_generator.generate(image_tensor)
-    
-    # Save an example
+
+    if verbose:
+        print("Generating mask annotations for input image.")
     plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
     plt.imshow(image_tensor)
     show_anns(masks, rle_to_mask)
