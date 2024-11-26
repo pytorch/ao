@@ -332,6 +332,56 @@ def model_type_to_paths(checkpoint_path, model_type):
     model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
     return sam2_checkpoint, model_cfg
 
+
+def aot_compile(name, fn, sample_args):
+    path = f"{name}.so"
+    print(f"{path=}")
+    options = {
+        "max_autotune": True,
+        "triton.cudagraphs": True,
+    }
+
+    # torch._export.aot_compile(
+    exported = torch.export.export(fn, sample_args)
+    print("exported: ", exported)
+    import os
+    output_path = torch._inductor.aoti_compile_and_package(
+        exported,
+        package_path=os.path.join(os.getcwd(), "model.pt2"),
+        inductor_configs=options,
+    )
+    return output_path
+
+
+def aot_load(path):
+    return torch._export.aot_load(path, "cuda")
+
+
+def set_aot_fast(mask_generator, aot_cache=None):
+    example_input = torch.randn(1, 3, 1024, 1024)
+    example_input = example_input.to(mask_generator.predictor._image_dtype)
+    example_input = example_input.to(mask_generator.predictor.device)
+    aot_compile("sam2_image_encoder",
+                mask_generator.predictor.model.image_encoder,
+                (example_input,))
+
+
+class LoadedModel(torch.nn.Module):
+
+    def __init__(self, aoti_compiled_model):
+        super().__init__()
+        self.aoti_compiled_model = aoti_compiled_model
+
+    def forward(self, *args):
+        return self.aoti_compiled_model(*args)
+
+def load_aot_fast(mask_generator):
+    import os
+    pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "model.pt2"))
+    pkg_m = LoadedModel(pkg)
+    mask_generator.predictor.model.image_encoder = pkg_m
+
+
 def set_fast(mask_generator):
     # TODO: Using CUDA graphs can cause numerical differences?
     mask_generator.predictor.model.image_encoder = torch.compile(
@@ -412,6 +462,7 @@ def main(checkpoint_path,
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         set_fast(mask_generator)
+        set_aot_fast(mask_generator)
 
     if furious:
         set_furious(mask_generator)

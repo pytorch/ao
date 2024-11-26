@@ -169,6 +169,7 @@ class SAM2ImagePredictor:
         ), f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
         logging.info("Computing image embeddings for the provided images...")
         with torch.autograd.profiler.record_function("forward_image"):
+            print("img_batch.size(): ", img_batch.size())
             backbone_out = self.model.forward_image(img_batch)
         with torch.autograd.profiler.record_function("_prepare_backbone_features"):
             _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
