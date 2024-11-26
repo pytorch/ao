@@ -28,7 +28,7 @@ if not _IS_FBCODE:
         torch.ops.load_library(so_files[0])
         from . import ops
     except:
-        logging.info("Skipping import of cpp extensions")
+        logging.debug("Skipping import of cpp extensions")
 
 from torchao.quantization import (
     autoquant,

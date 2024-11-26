@@ -180,15 +180,12 @@ class Float8LinearConfig:
     # Per-linear configuration
     #
 
-    # If True, on the first iteration of Float8Linear the amaxes will be
-    # initialized with the incoming data. As of 2023-12-30, this doesn't work
-    # with autocast + torch.compile + FSDP. Enabling this option is nice for
-    # testing, but this is not necessary for real training jobs.
+    # This configuration option is deprecated and no longer has an effect. It may
+    # be removed in a future release.
     enable_amax_init: bool = True
 
-    # If True, pre-forward and post-forward functions are run. As of 2023-12-30,
-    # this doesn't work with autocast + torch.compile + FSDP. Enabling this
-    # option is useful for safety, but not strictly necessary.
+    # This configuration option is deprecated and no longer has an effect. It may
+    # be removed in a future release.
     enable_pre_and_post_forward: bool = True
 
     # If True, then uses a tensor subclass for the float8 linear module's weight that

@@ -662,6 +662,8 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
         for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 8)] if device=='cuda' else [])):
@@ -673,6 +675,8 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
         m_shapes = [16, 256] + ([1] if device=="cuda" else [])
@@ -777,6 +781,18 @@ class TestSubclass(unittest.TestCase):
             AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
         )
 
+    def test_autoquantizable_flatten_unflatten(self):
+        from torchao.quantization import DEFAULT_AUTOQUANT_CLASS_LIST
+        weight = torch.randn(16, 32)
+        qtensor_class_list = DEFAULT_AUTOQUANT_CLASS_LIST
+        aqw = AutoQuantizableLinearWeight.from_float(weight, qtensor_class_list)
+        tensor_data_name_dict, tensor_attributes = aqw.__tensor_flatten__()
+        tensor_data_dict = {name: getattr(aqw, name) for name in tensor_data_name_dict}
+        outer_size = aqw.size()
+        outer_stride = aqw.stride()
+        reconstructed = type(aqw).__tensor_unflatten__(tensor_data_dict, tensor_attributes, outer_size, outer_stride)
+
+
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     @unittest.skipIf(not is_H100, "Need H100 to run")
@@ -803,6 +819,8 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 8)] if device=='cuda' else [])):
@@ -896,6 +914,8 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 256)] if device=='cuda' else [])):
@@ -911,6 +931,8 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):

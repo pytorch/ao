@@ -7,3 +7,4 @@ hydra-core
 tqdm
 iopath
 python-multipart
+requests

@@ -215,7 +215,8 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor, torch.Tensor):
+@torch.compile(fullgraph=True, dynamic=True)
+def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -224,36 +225,57 @@ def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tenso
     b, h, w = tensor.shape
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: change indices"):
-        # Compute change indices
-        diff = tensor[:, 1:] ^ tensor[:, :-1]
-        a = torch.tensor([[True]])
-        if diff.is_cuda:
-            a = a.pin_memory().cuda()
-            # a = a.to(diff.device)
-        a = a.expand_as(diff.narrow(1, 0, 1))
-        diff = torch.cat([a, diff, a], dim=1)
+    # Compute change indices
+    diff = tensor[:, 1:] ^ tensor[:, :-1]
+    # a = torch.tensor([[True]])
+    a = torch.ones((1, 1), dtype=bool, device=diff.device)
+    # if diff.is_cuda:
+    #     a = a.pin_memory().cuda()
+    #     # a = a.to(diff.device)
+    a = a.expand_as(diff.narrow(1, 0, 1))
+    diff = torch.cat([a, diff, a], dim=1)
+    return diff
+
+
+@torch.compile(fullgraph=True, dynamic=True)
+def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+    tensor = tensor.permute(0, 2, 1).flatten(1)
+
+    alt_lens = diff.sum(dim=1)
+
+    all_cur_idx = change_indices[:, 1]
+    if all_cur_idx.numel() == 0:
+        all_cur_idx_0 = all_cur_idx
+        all_cur_idx_1 = all_cur_idx
+    else:
+        all_cur_idx_0 = all_cur_idx.narrow(0, 1, all_cur_idx.size(0) - 1)
+        all_cur_idx_1 = all_cur_idx.narrow(0, 0, 1)
+    all_btw_idx = torch.cat([all_cur_idx_0, all_cur_idx_1])
+    all_btw_idx = all_btw_idx - all_cur_idx
+
+    alt_lens_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
+    # Encode run length
+    counts_init = (tensor[:, 0] == 0)
+    return alt_lens_nt, counts_init
+
+
+def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
+    b, h, w = tensor.shape
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"):
+        diff = _mask_to_rle_pytorch_2_0_0(tensor)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: nonzero"):
         if diff.numel() > 2147483646:
             num_chunks = (diff.numel() + 2147483646) // 2147483646
             change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
         else:
             change_indices = diff.nonzero()
-
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
-        alt_lens = diff.sum(dim=1)
-
-        all_cur_idx = change_indices[:, 1]
-        all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
-
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
-        alt_lens_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
-        # Encode run length
-        counts_init = (tensor[:, 0] == 0)
-        return RLEData(alt_lens_nt=alt_lens_nt,
-                       counts_init=counts_init,
-                       b=b,
-                       h=h,
-                       w=w)
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
+        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff, change_indices)
+    return RLEData(alt_lens_nt=alt_lens_nt,
+                   counts_init=counts_init,
+                   b=b,
+                   h=h,
+                   w=w)
 
 
 def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
@@ -276,7 +298,8 @@ def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
 
 
 def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
-    return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2"):
+        return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:

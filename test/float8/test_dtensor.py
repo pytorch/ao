@@ -13,27 +13,32 @@ TODO(future): make this run in CI
 import copy
 import os
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 import pytest
+import torch
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-from torchao.float8 import Float8LinearConfig
-from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torch.distributed._tensor import DTensor, Replicate, Shard, distribute_tensor
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+from torch.distributed.tensor.parallel import parallelize_module
+from torch.testing._internal.distributed._tensor.common_dtensor import (
+    ModelArgs,
+    Transformer,
+)
+from tqdm import tqdm
 
+from torchao.float8 import Float8LinearConfig
 from torchao.float8.config import CastConfig, ScalingType
+from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8E5M2BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_tensor_parallel import (
     Float8ColwiseParallel,
@@ -41,15 +46,8 @@ from torchao.float8.float8_tensor_parallel import (
     PrepareFloat8ModuleInput,
 )
 from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
-from torch.distributed._tensor import distribute_tensor, DTensor, Replicate, Shard
-from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-from torch.distributed.tensor.parallel import parallelize_module
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from torch.testing._internal.distributed._tensor.common_dtensor import (
-    ModelArgs,
-    Transformer,
-)
-from tqdm import tqdm
+from torchao.testing.float8.dtensor_utils import ToyModel
 
 
 def setup_distributed():
@@ -58,28 +56,6 @@ def setup_distributed():
     # seed must be the same in all processes
     torch.manual_seed(1)
     return device_mesh
-
-
-class FeedForward(nn.Module):
-    """MLP based model"""
-
-    def __init__(self):
-        super(FeedForward, self).__init__()
-        self.w1 = nn.Linear(16, 32, bias=False)
-        self.w2 = nn.Linear(16, 32, bias=False)
-        self.out_proj = nn.Linear(32, 16, bias=False)
-
-    def forward(self, x):
-        return self.out_proj(F.silu(self.w1(x)) * self.w2(x))
-
-
-class ToyModel(nn.Module):
-    def __init__(self):
-        super(ToyModel, self).__init__()
-        self.ffn = FeedForward()
-
-    def forward(self, x):
-        return self.ffn(x)
 
 
 def _test_scaled_mm(mesh: DeviceMesh, size=16):
@@ -325,9 +301,7 @@ def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     )
     assert (
         isinstance(colwise_param, DTensor)
-        and isinstance(
-            colwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
-        )
+        and isinstance(colwise_param._local_tensor, WeightWithDynamicFloat8CastTensor)
     ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
     # test Float8RowwiseParallel
     rowwise_param = distribute_tensor(
@@ -335,9 +309,7 @@ def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     )
     assert (
         isinstance(rowwise_param, DTensor)
-        and isinstance(
-            rowwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
-        )
+        and isinstance(rowwise_param._local_tensor, WeightWithDynamicFloat8CastTensor)
     ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
 
 

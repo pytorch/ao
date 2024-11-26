@@ -66,6 +66,7 @@ class SAM2ImagePredictor:
         ]
 
         self._image_dtype = torch.float32
+        self._transforms_device = "cpu"
 
     @classmethod
     def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2ImagePredictor":
@@ -110,10 +111,10 @@ class SAM2ImagePredictor:
             raise NotImplementedError("Image format not supported")
 
         input_image = self._transforms.to_tensor(image)
-        # TODO: Doing these transforms on the GPU changes the numerics
+        # NOTE: Doing these transforms on the GPU changes the numerics
+        input_image = input_image.to(device=self._transforms_device)
         input_image = self._transforms.transforms(input_image)
         input_image = input_image.to(device=self.device)
-        # TODO: Doing this here instead causes masks to not match reference exactly
         # input_image = self._transforms.transforms(input_image)
         input_image = input_image[None, ...].to(dtype=self._image_dtype)
 
@@ -167,8 +168,10 @@ class SAM2ImagePredictor:
             len(img_batch.shape) == 4 and img_batch.shape[1] == 3
         ), f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
         logging.info("Computing image embeddings for the provided images...")
-        backbone_out = self.model.forward_image(img_batch)
-        _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
+        with torch.autograd.profiler.record_function("forward_image"):
+            backbone_out = self.model.forward_image(img_batch)
+        with torch.autograd.profiler.record_function("_prepare_backbone_features"):
+            _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
         # Add no_mem_embed, which is added to the lowest rest feat. map during training on videos
         if self.model.directly_add_no_mem_embed:
             vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
@@ -462,11 +465,11 @@ class SAM2ImagePredictor:
             # Upscale the masks to the original image resolution
             if channel_1:
                 masks = self._transforms.postprocess_masks_1_channel(
-                    low_res_masks, self._orig_hw[img_idx]
+                    low_res_masks, self._orig_hw[img_idx], self._image_dtype
                 )
             else:
                 masks = self._transforms.postprocess_masks(
-                    low_res_masks, self._orig_hw[img_idx]
+                    low_res_masks, self._orig_hw[img_idx], self._image_dtype
                 )
         low_res_masks = torch.clamp(low_res_masks, -32.0, 32.0)
         if not return_logits:

@@ -372,3 +372,6 @@ sweep/
 
 # Model checkpoints
 checkpoints/
+
+# Experimental
+torchao/experimental/cmake-out

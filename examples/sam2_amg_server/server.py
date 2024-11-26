@@ -1,4 +1,5 @@
 import itertools
+import requests
 import uvicorn
 import fire
 import tempfile
@@ -37,6 +38,23 @@ inductorconfig.allow_buffer_reuse = False
 # torch._dynamo.config.capture_dynamic_output_shape_ops = True
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
+def download_file(url, download_dir):
+    # Create the directory if it doesn't exist
+    download_dir = Path(download_dir)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    # Extract the file name from the URL
+    file_name = url.split('/')[-1]
+    # Define the full path for the downloaded file
+    file_path = download_dir / file_name
+    # Download the file
+    response = requests.get(url, stream=True)
+    response.raise_for_status()  # Raise an error for bad responses
+    # Write the file to the specified directory
+    print(f"Downloading '{file_name}' to '{download_dir}'")
+    with open(file_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+    print(f"Downloaded '{file_name}' to '{download_dir}'")
 
 def example_shapes():
     return [(848, 480, 3),
@@ -149,6 +167,26 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
+def memory_runner(path, fn, *args, **kwargs):
+    print("Start memory recording")
+    torch.cuda.synchronize()
+    torch.cuda.memory._record_memory_history(
+        True,
+        trace_alloc_max_entries=100000,
+        trace_alloc_record_context=True
+    )
+    result = fn(*args, **kwargs)
+    torch.cuda.synchronize()
+    snapshot = torch.cuda.memory._snapshot()
+    print("Finish memory recording")
+    import pickle
+    with open(path, 'wb') as f:
+        pickle.dump(snapshot, f)
+    # Use to convert pickle file into html
+    # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
+    return result
+
+
 def image_tensor_to_masks(example_image, mask_generator):
     masks = mask_generator.generate(example_image)
     return masks
@@ -187,7 +225,7 @@ def process_batch(batch, mask_generator):
         print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    # max_memory_allocated()
+    max_memory_allocated()
     return masks
 
 
@@ -252,13 +290,91 @@ def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
         print(f"mIoU is {miou} with equal count {equal_count} out of {len(masks)}")
 
 
+MODEL_TYPES_TO_CONFIG = {
+        "tiny": "sam2.1_hiera_t.yaml",
+        "small": "sam2.1_hiera_s.yaml",
+        "plus": "sam2.1_hiera_b+.yaml",
+        "large": "sam2.1_hiera_l.yaml",
+        }
+
+MODEL_TYPES_TO_MODEL = {
+        "tiny": "sam2.1_hiera_tiny.pt",
+        "small": "sam2.1_hiera_small.pt",
+        "plus": "sam2.1_hiera_base_plus.pt",
+        "large": "sam2.1_hiera_large.pt",
+        }
+
+
+MODEL_TYPES_TO_URL = {
+        "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+        "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+        "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
+        "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+        }
+
+
+def main_docstring():
+    return f"""
+    Args:
+        checkpoint_path (str): Path to folder containing checkpoints from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints
+        model_type (str): Choose from one of {", ".join(MODEL_TYPES_TO_MODEL.keys())}
+    """
+
+
+def model_type_to_paths(checkpoint_path, model_type):
+    if model_type not in MODEL_TYPES_TO_CONFIG.keys():
+        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+    sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
+    if not sam2_checkpoint.exists():
+        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
+    assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
+    model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
+    return sam2_checkpoint, model_cfg
+
+def set_fast(mask_generator):
+    # TODO: Using CUDA graphs can cause numerical differences?
+    mask_generator.predictor.model.image_encoder = torch.compile(
+        mask_generator.predictor.model.image_encoder,
+        mode="max-autotune",
+        fullgraph=True,
+        dynamic=False,
+    )
+
+    mask_generator.predictor._predict_masks = torch.compile(
+        mask_generator.predictor._predict_masks,
+        mode="max-autotune",
+        fullgraph=True,
+        dynamic=False,
+    )
+
+    # mask_generator.predictor._predict_masks_postprocess = torch.compile(
+    #     mask_generator.predictor._predict_masks_postprocess,
+    #     fullgraph=True,
+    #     dynamic=True,
+    # )
+
+
+def set_furious(mask_generator):
+    mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor._image_dtype = torch.float16
+    mask_generator.predictor._transforms_device = mask_generator.predictor.device
+    torch.set_float32_matmul_precision('high')
+    mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
+
+
 def main(checkpoint_path,
+         model_type,
          baseline=False,
          fast=False,
          furious=False,
          unittest=False,
          benchmark=False,
          profile=None,
+         memory_profile=None,
          verbose=False,
          points_per_batch=64,
          port=5000,
@@ -285,9 +401,7 @@ def main(checkpoint_path,
         from torchao._models.sam2.utils.amg import rle_to_mask
     
     device = "cuda"
-    from pathlib import Path
-    sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
+    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
@@ -297,42 +411,10 @@ def main(checkpoint_path,
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.image_encoder = torch.compile(
-            mask_generator.predictor.model.image_encoder,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        mask_generator.predictor.model.sam_prompt_encoder.forward = torch.compile(
-            mask_generator.predictor.model.sam_prompt_encoder.forward,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        mask_generator.predictor._predict_masks = torch.compile(
-            mask_generator.predictor._predict_masks,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        # mask_generator.predictor._predict_masks_postprocess = torch.compile(
-        #     mask_generator.predictor._predict_masks_postprocess,
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
+        set_fast(mask_generator)
 
     if furious:
-        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
-        # NOTE: Not baseline feature
-        mask_generator.predictor._image_dtype = torch.float16
-        torch.set_float32_matmul_precision('high')
-        mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
-        # NOTE: Not baseline feature
-        mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
+        set_furious(mask_generator)
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
@@ -363,11 +445,15 @@ def main(checkpoint_path,
         for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
             print(f"batch size {batch_size} example shapes {i} benchmark")
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
+            if batch_size > len(random_images):
+                num_repeat = (len(random_images) + batch_size) // batch_size
+                random_images = num_repeat * random_images
 
             if batch_size == 1:
                 [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
             else:
                 random_images = random_images[:batch_size]
+                print("len(random_images): ", len(random_images))
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
@@ -376,6 +462,13 @@ def main(checkpoint_path,
             profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
         else:
             profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+
+    if memory_profile is not None:
+        print(f"Saving memory profile under {memory_profile}")
+        if batch_size == 1:
+            memory_runner(memory_profile, image_tensor_to_masks, image_tensor, mask_generator)
+        else:
+            memory_runner(memory_profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return
@@ -424,5 +517,6 @@ def main(checkpoint_path,
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
 
+main.__doc__ = main_docstring()
 if __name__ == "__main__":
     fire.Fire(main)

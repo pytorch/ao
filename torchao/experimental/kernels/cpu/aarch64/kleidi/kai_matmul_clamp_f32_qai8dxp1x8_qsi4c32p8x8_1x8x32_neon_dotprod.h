@@ -45,7 +45,7 @@ size_t activation_data_size(int m, int k, int group_size) {
 }
 
 void prepare_activation_data(
-    void* activation_data,
+    void* prepared_activation_data,
     int m,
     int k,
     int group_size,
@@ -53,7 +53,7 @@ void prepare_activation_data(
   (void) group_size; // unused
   kai_matmul_clamp_f32_qai8dxp_qsi4c32p::prepare_activation_data(
       get_ukernel(),
-      activation_data,
+      prepared_activation_data,
       m,
       k,
       activations);
@@ -64,7 +64,7 @@ size_t weight_data_size(int n, int k, int group_size) {
 }
 
 void prepare_weight_data(
-    void* weight_data,
+    void* prepared_weight_data,
     int n,
     int k,
     int group_size,
@@ -74,7 +74,7 @@ void prepare_weight_data(
     const float* bias) {
   kai_matmul_clamp_f32_qai8dxp_qsi4c32p::prepare_weight_data(
       get_ukernel(),
-      weight_data,
+      prepared_weight_data,
       n,
       k,
       group_size,

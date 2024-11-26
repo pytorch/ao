@@ -23,6 +23,10 @@ if(NOT TORCHAO_INCLUDE_DIRS)
 endif()
 
 option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
+if(TORCHAO_BUILD_KLEIDIAI)
+    message(STATUS "Building with Arm KleidiAI library")
+    add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
+endif()
 include(CMakePrintHelpers)
 
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")

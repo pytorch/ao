@@ -95,8 +95,6 @@ config = Float8LinearConfig(
     cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
     cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
     cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-    # enable_amax_init=False,  # only needed for autocast + compile + FSDP +  float8 delayed
-    # enable_pre_and_post_forward=False  # only needed for autocast + compile + FSDP +  float8 delayed
 )
 
 # convert all `torch.nn.Linear` modules to `Float8Linear`, specifying custom scaling behavior
@@ -111,8 +109,11 @@ for _ in range(10):
     y = m(x)
     y.sum().backward()
 
-    # specific to float8 with delayed scaling: separate step to sync scales/amaxes
-    # in the future, this may move to a context manager
+    # Specific to delayed scaling: separate step to sync scales/amaxes.
+    # On the first call, this function also sets the `is_amax_initialized` flag to
+    # mark the amax and scale buffers as initialized.
+    # Make sure you run this after every model forward+backward pass.
+    # In the future, this may move to a context manager.
     sync_float8_amax_and_scale_history(m)
 
     optimizer.step()

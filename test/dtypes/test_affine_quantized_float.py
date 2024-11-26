@@ -134,10 +134,12 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 compute_error(output_original, output_quantized) > 20
             ), f"Quantization error is too high got a SQNR of {error}"
 
+    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
             float8_dynamic_activation_float8_weight(granularity="invalid")
 
+    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
     def test_mismatched_granularity(self):
         with pytest.raises(
             ValueError,
@@ -145,6 +147,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         ):
             float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
 
+    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
     def test_unsupported_granularity(self):
         class UnsupportedGranularity:
             pass

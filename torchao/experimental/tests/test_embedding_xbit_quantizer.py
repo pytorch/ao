@@ -65,7 +65,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         model = torch.nn.Sequential(*[torch.nn.Embedding(num_embeddings, embedding_dim)])
         indices = torch.randint(0, num_embeddings, (7,), dtype=torch.int32)
 
-        for nbit in [1, 2, 3, 4, 5, 6, 7]:
+        for nbit in [1, 2, 3, 4, 5, 6, 7, 8]:
             print(f"Testing nbit={nbit}")
             quantized_model = copy.deepcopy(model)
             quantizer = IntxWeightEmbeddingQuantizer(

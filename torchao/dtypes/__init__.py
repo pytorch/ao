@@ -1,13 +1,7 @@
+from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
-    Float8AQTTensorImpl,
-    Float8Layout,
-    Layout,
-    MarlinQQQLayout,
-    MarlinSparseLayout,
-    PlainLayout,
-    SemiSparseLayout,
-    TensorCoreTiledLayout,
+    MarlinQQQTensor,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     # experimental, will be merged into floatx in the future
@@ -16,15 +10,26 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx_static,
     to_marlinqqq_quantized_intx,
 )
+from .floatx import (
+    Float8Layout,
+)
 from .nf4tensor import NF4Tensor, to_nf4
-
-# from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
-from .uint4 import UInt4Tensor
+from .uintx import (
+    BlockSparseLayout,
+    MarlinQQQLayout,
+    MarlinSparseLayout,
+    SemiSparseLayout,
+    TensorCoreTiledLayout,
+    UintxLayout,
+)
+from .utils import (
+    Layout,
+    PlainLayout,
+)
 
 __all__ = [
     "NF4Tensor",
     "to_nf4",
-    "UInt4Tensor",
     "AffineQuantizedTensor",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",
@@ -37,7 +42,10 @@ __all__ = [
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "Float8Layout",
-    "Float8AQTTensorImpl",
     "MarlinSparseLayout",
+    "affine_quantized_tensor_ops",
+    "BlockSparseLayout",
+    "UintxLayout",
+    "MarlinQQQTensor",
     "MarlinQQQLayout",
 ]

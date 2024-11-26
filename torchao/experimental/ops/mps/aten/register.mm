@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 // clang-format off
-#include <torch/extension.h>
+#include <torch/library.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <torchao/experimental/kernels/mps/src/lowbit.h>
 // clang-format on
@@ -58,6 +58,7 @@ void check_linear_mps_args(
       ": expect S to be 2d tensor with shape [:, ",
       N,
       "]");
+  TORCH_CHECK(S.is_contiguous(), __func__, " : expect S to be contiguous.");
 
   TORCH_CHECK(
       Z.dim() == 2 && Z.size(1) == N,
@@ -65,6 +66,7 @@ void check_linear_mps_args(
       ": expect Z to be 2d tensor with shape [:, ",
       N,
       "]");
+  TORCH_CHECK(Z.is_contiguous(), __func__, " : expect Z to be contiguous.");
 }
 
 template <int nbit>
@@ -144,9 +146,6 @@ Tensor pack_weights_cpu_kernel(const Tensor& W) {
 
   return B;
 }
-
-// Registers _C as a Python extension module.
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
 
 TORCH_LIBRARY(torchao, m) {
   m.def("_pack_weight_1bit(Tensor W) -> Tensor");
