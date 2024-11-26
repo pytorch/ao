@@ -1,8 +1,7 @@
 from pathlib import Path
+import fire
 
 import modal
-
-app = modal.App("torchao-sam-2-cli")
 
 TARGET = "/root/"
 DOWNLOAD_URL_BASE = "https://raw.githubusercontent.com/pytorch/ao/refs/heads"
@@ -35,33 +34,29 @@ image = (
     )
 )
 
+app = modal.App("torchao-sam-2-cli", image=image)
+
 checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 
 
-@app.function(
-    image=image,
+@app.cls(
     gpu="H100",
+    container_idle_timeout=20 * 60,
+    timeout=20 * 60,
     volumes={
         TARGET + "checkpoints": checkpoints,
         TARGET + "data": data,
-        # # mount the caches of torch.compile and friends
-        # "/root/.nv": modal.Volume.from_name("torchao-sam-2-cli-nv-cache", create_if_missing=True),
-        # "/root/.triton": modal.Volume.from_name(
-        #     "torchao-sam-2-cli-triton-cache", create_if_missing=True
-        # ),
-        # "/root/.inductor-cache": modal.Volume.from_name(
-        #     "torchao-sam-2-cli-inductor-cache", create_if_missing=True
-        # ),
     },
-    timeout=60 * 60,
 )
-def inference(input_bytes, fast, furious, model_type):
-    import os
-    import subprocess
-    import hashlib
+class Model:
+    model_type: str = modal.parameter(default="large")
+    points_per_batch: int = modal.parameter(default=1024)
+    fast: int = modal.parameter(default=0)
+    furious: int = modal.parameter(default=0)
 
-    def calculate_file_hash(file_path, hash_algorithm='sha256'):
+    def calculate_file_hash(self, file_path, hash_algorithm='sha256'):
+        import hashlib
         """Calculate the hash of a file."""
         hash_func = hashlib.new(hash_algorithm)
         with open(file_path, 'rb') as f:
@@ -69,41 +64,105 @@ def inference(input_bytes, fast, furious, model_type):
                 hash_func.update(chunk)
         return hash_func.hexdigest()
 
-    def download_file(url, filename):
+    def download_file(self, url, filename):
+        import subprocess
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
-    download_url_branch = "climodal2"
-    download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
-    download_url += "examples/sam2_amg_server/"
+    @modal.build()
+    @modal.enter()
+    def build(self):
+        import os
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-    h = calculate_file_hash(TARGET + "data/cli.py")
-    print("cli.py hash: ", h)
-    if h != "b38d60cb6fad555ad3c33081672ae981a5e4e744199355dfd24d395d20dfefda":
-        download_file(download_url + "cli.py", TARGET + "data/cli.py")
+        download_url_branch = "climodal2"
+        download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
+        download_url += "examples/sam2_amg_server/"
 
-    h = calculate_file_hash(TARGET + "data/server.py")
-    print("server.py hash: ", h)
-    if h != "af33fdb9bcfe668b7764cb9c86f5fa9a799c999306e7c7e5b28c988b2616a0ae":
-        download_file(download_url + "server.py", TARGET + "data/server.py")
+        h = self.calculate_file_hash(TARGET + "data/cli.py")
+        print("cli.py hash: ", h)
+        if h != "b38d60cb6fad555ad3c33081672ae981a5e4e744199355dfd24d395d20dfefda":
+            self.download_file(download_url + "cli.py", TARGET + "data/cli.py")
 
-    os.chdir(Path(TARGET + "data"))
+        h = self.calculate_file_hash(TARGET + "data/server.py")
+        print("server.py hash: ", h)
+        if h != "af33fdb9bcfe668b7764cb9c86f5fa9a799c999306e7c7e5b28c988b2616a0ae":
+            self.download_file(download_url + "server.py", TARGET + "data/server.py")
 
-    import sys
-    sys.path.append(".")
-    from cli import main_headless
-    output_bytes = main_headless(Path(TARGET) / Path("checkpoints"),
-                                 model_type=model_type,
-                                 input_bytes=input_bytes,
-                                 verbose=True,
-                                 fast=fast,
-                                 furious=furious)
-    print("Returning image as bytes.")
-    return output_bytes
+        os.chdir(Path(TARGET + "data"))
+        import sys
+        sys.path.append(".")
+
+        from server import model_type_to_paths
+        from server import set_fast
+        from server import set_furious
 
 
-@app.local_entrypoint()
-def main(input_path, output_path, fast=False, furious=False, model_type="large"):
-    output_bytes = inference.remote(bytearray(open(input_path, 'rb').read()), fast, furious, model_type)
-    with open(output_path, "wb") as file:
-        file.write(output_bytes)
+        device = "cuda"
+        checkpoint_path = Path(TARGET) / Path("checkpoints")
+        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, self.model_type)
+        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
+        mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle")
+        self.mask_generator = mask_generator
+        if self.fast:
+            set_fast(mask_generator)
+        if self.furious:
+            set_furious(mask_generator)
+
+    @modal.method()
+    def inference_rle(self, input_bytes) -> dict:
+        import os
+        os.chdir(Path(TARGET + "data"))
+        import sys
+        sys.path.append(".")
+        from server import file_bytes_to_image_tensor
+        from server import masks_to_rle_dict
+        image_tensor = file_bytes_to_image_tensor(input_bytes)
+        masks = self.mask_generator.generate(image_tensor)
+        return masks_to_rle_dict(masks)
+
+    @modal.method()
+    def inference(self, input_bytes, output_format='png'):
+        import os
+        os.chdir(Path(TARGET + "data"))
+        import sys
+        sys.path.append(".")
+        from server import file_bytes_to_image_tensor
+        from server import show_anns
+        image_tensor = file_bytes_to_image_tensor(input_bytes)
+        masks = self.mask_generator.generate(image_tensor)
+
+        import matplotlib.pyplot as plt
+        from io import BytesIO
+        from torchao._models.sam2.utils.amg import rle_to_mask
+        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
+        plt.axis('off')
+        plt.tight_layout()
+        buf = BytesIO()
+        plt.savefig(buf, format=output_format)
+        buf.seek(0)
+        return buf.getvalue()
+
+
+def main(input_path, output_path, fast=False, furious=False, model_type="large", output_rle=False):
+    input_bytes = bytearray(open(input_path, 'rb').read())
+    try:
+        model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
+    except modal.exception.NotFoundError:
+        print("Can't find running app. To deploy the app run the following command. Note that this costs money!")
+        print("modal deploy cli_on_modal.py")
+        return
+
+    if output_rle:
+        print(model.inference_rle.remote(input_bytes))
+    else:
+        output_bytes = model.inference.remote(input_bytes)
+        with open(output_path, "wb") as file:
+            file.write(output_bytes)
+
+
+if __name__ == "__main__":
+    fire.Fire(main)
