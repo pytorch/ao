@@ -14,6 +14,7 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import WeightWithDelayedFloat8CastTensor
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
+    dequantize_float8_training,
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
@@ -54,5 +55,6 @@ __all__ = [
     "linear_requires_sync",
     "sync_float8_amax_and_scale_history",
     "precompute_float8_dynamic_scale_for_fsdp",
+    "dequantize_float8_training",
     # note: Float8Tensor and Float8Linear are not public APIs
 ]

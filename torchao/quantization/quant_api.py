@@ -39,8 +39,6 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
 )
-from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import dequantize_float8_training
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -224,9 +222,6 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-    # If model is Float8Linear, convert it to Linear before moving forward
-    if isinstance(model, Float8Linear):
-        model = dequantize_float8_training(model)
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization

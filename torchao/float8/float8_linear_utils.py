@@ -59,9 +59,9 @@ def _update_history_stack(
 def swap_linear_layers(
     module: nn.Module,
     from_float_func: Callable[[nn.Linear], nn.Linear],
-    target_module: nn.Module = nn.Linear,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
+    target_module: nn.Module = nn.Linear,
 ) -> nn.Module:
     """
     Generic function to swap linear layers in a module with a new type of linear layer.
@@ -86,7 +86,7 @@ def swap_linear_layers(
     ):
         if len(list(module.children())) > 0:
             raise AssertionError(
-                f"Does not support a root {target_module} with children: {module}"
+                f"Does not support a root {target_module.__module__} with children: {module.__module__}"
             )
         return from_float_func(
             module,
@@ -321,6 +321,7 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
     for child in fp8_layers:
         # Set a flag to signal that initialization is done
         child.is_amax_initialized = True
+
 
 def dequantize_float8_training(model: nn.Module) -> nn.Module:
     """
