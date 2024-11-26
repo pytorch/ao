@@ -25,7 +25,6 @@ from torchao.utils import (
 from .quant_primitives import MappingType
 from .unified import Quantizer
 from .utils import (
-    _lm_eval_available,
     _MultiInput,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
@@ -38,10 +37,6 @@ from .utils import (
 )
 
 aten = torch.ops.aten
-
-
-if not _lm_eval_available:
-    logging.info("lm_eval is not installed, GPTQ may not be usable")
 
 add_ons = []
 
