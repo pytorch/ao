@@ -59,6 +59,7 @@ def _update_history_stack(
 def swap_linear_layers(
     module: nn.Module,
     from_float_func: Callable[[nn.Linear], nn.Linear],
+    target_module: nn.Module = nn.Linear,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
 ) -> nn.Module:
@@ -71,20 +72,21 @@ def swap_linear_layers(
 
     Args:
         module: Module to modify.
-        from_float_func: Function that accepts a linear layer and returns a new type of linear layer.
+        from_float_func: Function that accepts some type of linear layer and returns a new type of linear layer.
         module_filter_fn: If specified, only the `torch.nn.Linear` subclasses that
             that pass the filter function will be swapped. The inputs to the
             filter function are the module instance, and the FQN.
+        target_module: Replace these modules
 
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    if isinstance(module, nn.Linear) and (
+    if isinstance(module, target_module) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
         if len(list(module.children())) > 0:
             raise AssertionError(
-                f"Does not support a root nn.Linear with children: {module}"
+                f"Does not support a root {target_module} with children: {module}"
             )
         return from_float_func(
             module,
@@ -108,12 +110,12 @@ def swap_linear_layers(
 
             post_order_traversal(child_module, new_fqn, module)
 
-        if isinstance(module, nn.Linear) and (
+        if isinstance(module, target_module) and (
             module_filter_fn is None or module_filter_fn(module, cur_fqn)
         ):
             assert (
                 parent_module is not None
-            ), f"Linear root module should return early: {module}"
+            ), f"{target_module} root module should return early: {module}"
             new_linear_module = from_float_func(module)
             cur_module_name = cur_fqn.split(".")[-1]
             setattr(parent_module, cur_module_name, new_linear_module)
@@ -319,3 +321,20 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
     for child in fp8_layers:
         # Set a flag to signal that initialization is done
         child.is_amax_initialized = True
+
+def dequantize_float8_training(model: nn.Module) -> nn.Module:
+    """
+    Converts `Float8Linear` modules in `model` to `torch.nn.Linear`.
+    """
+
+    def dequant_func(mod: Float8Linear) -> nn.Linear:
+        new_module = nn.Linear(mod.in_features, mod.out_features)
+        new_module.weight = mod.weight
+        new_module.bias = mod.bias
+        return new_module
+
+    return swap_linear_layers(
+        model,
+        dequant_func,
+        target_module=Float8Linear,
+    )
