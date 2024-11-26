@@ -5,6 +5,7 @@ import modal
 app = modal.App("torchao-sam-2-cli")
 
 TARGET = "/root/"
+DOWNLOAD_URL_BASE = "https://raw.githubusercontent.com/pytorch/ao/refs/heads"
 
 image = (
     modal.Image.debian_slim(python_version="3.12.7")
@@ -37,6 +38,7 @@ image = (
 checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 
+
 @app.function(
     image=image,
     gpu="H100",
@@ -54,7 +56,7 @@ data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
     },
     timeout=60 * 60,
 )
-def inference(input_bytes, fast, furious):
+def inference(input_bytes, fast, furious, model_type):
     import os
     import subprocess
     import hashlib
@@ -71,15 +73,19 @@ def inference(input_bytes, fast, furious):
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
+    download_url_branch = "climodal2"
+    download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
+    download_url += "examples/sam2_amg_server/"
+
     h = calculate_file_hash(TARGET + "data/cli.py")
     print("cli.py hash: ", h)
-    if h != "256e8236cc5865563906839d373e086e1d5fc5db831b2129ce3f47bc8f24e240":
-        download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal2/examples/sam2_amg_server/cli.py", TARGET + "data/cli.py")
+    if h != "b38d60cb6fad555ad3c33081672ae981a5e4e744199355dfd24d395d20dfefda":
+        download_file(download_url + "cli.py", TARGET + "data/cli.py")
 
     h = calculate_file_hash(TARGET + "data/server.py")
     print("server.py hash: ", h)
     if h != "af33fdb9bcfe668b7764cb9c86f5fa9a799c999306e7c7e5b28c988b2616a0ae":
-        download_file("https://raw.githubusercontent.com/pytorch/ao/refs/heads/climodal2/examples/sam2_amg_server/server.py", TARGET + "data/server.py")
+        download_file(download_url + "server.py", TARGET + "data/server.py")
 
     os.chdir(Path(TARGET + "data"))
 
@@ -87,7 +93,7 @@ def inference(input_bytes, fast, furious):
     sys.path.append(".")
     from cli import main_headless
     output_bytes = main_headless(Path(TARGET) / Path("checkpoints"),
-                                 model_type="large",
+                                 model_type=model_type,
                                  input_bytes=input_bytes,
                                  verbose=True,
                                  fast=fast,
@@ -95,8 +101,9 @@ def inference(input_bytes, fast, furious):
     print("Returning image as bytes.")
     return output_bytes
 
+
 @app.local_entrypoint()
-def main(input_path, output_path, fast=False, furious=False):
-    output_bytes = inference.remote(bytearray(open(input_path, 'rb').read()), fast, furious)
+def main(input_path, output_path, fast=False, furious=False, model_type="large"):
+    output_bytes = inference.remote(bytearray(open(input_path, 'rb').read()), fast, furious, model_type)
     with open(output_path, "wb") as file:
         file.write(output_bytes)
