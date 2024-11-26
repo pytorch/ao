@@ -7,6 +7,7 @@ import pytest
 import torch
 from packaging.version import Version
 from torch import nn
+from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -381,9 +382,9 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required."
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
-    @skip_if_lt_x_gpu(2)
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
@@ -398,7 +399,6 @@ class TestFSDP2(FSDPTest):
         import torch.distributed as dist
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
-        from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed.tensor import DTensor
         from torch.testing._internal.distributed._tensor.common_dtensor import (
             ModelArgs,
@@ -412,7 +412,7 @@ class TestFSDP2(FSDPTest):
         model_args = ModelArgs(
             n_layers=3,
             n_heads=4,
-            dim=1024,
+            dim=512,
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
@@ -490,6 +490,29 @@ class TestFSDP2(FSDPTest):
                 v1 = v1.dequantize()
                 v2 = v2.dequantize()
             self.assertEqual(v1, v2)
+
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
+    )
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    def test_uneven_shard(self):
+        in_dim = 512
+        out_dim = _FSDP_WORLD_SIZE * 16 + 1
+
+        # 1st dim of linear weight will not be divisible by WORLD_SIZE
+        model = nn.Linear(in_dim, out_dim, device="cuda")
+        assert model.weight.shape[0] % _FSDP_WORLD_SIZE != 0
+        fully_shard(model)
+
+        # currently all of our low-bit Adam/AdamW share the same implementation.
+        # thus, we only need to test for 1 optimizer class.
+        optim = low_bit_optim.AdamW8bit(model.parameters())
+
+        for _ in range(2):
+            inputs = torch.randn(2, in_dim, device="cuda")
+            model(inputs).sum().backward()
+            optim.step()
+            optim.zero_grad()
 
 
 instantiate_parametrized_tests(TestQuantize)
