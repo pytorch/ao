@@ -64,14 +64,12 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     # clamp is dispatched through DTensor
     # it will issue a single all-reduce
     amax_tensor = torch.clamp(amax_tensor, EPS)  # Replicate
-    # keep consistent with float8_utils.amax_to_scale
     # torch.compile and eager show different numerics for 1.0 / float32,
     # upcast to float64 to ensure same numeric between compile and eager
-    origin_dtype = amax_tensor.dtype
     amax_tensor = amax_tensor.to(torch.float64)
-    scale_tensor = torch.finfo(torch.float8_e4m3fn).max / amax_tensor  # Replicate
-    if origin_dtype is torch.float16:
-        scale_tensor = torch.clamp(scale_tensor, max=torch.finfo(torch.float16).max)
+    # scale_tensor = torch.finfo(torch.float8_e4m3fn).max / amax_tensor  # Replicate
+    # TODO(future PR): make the e4m3 dtype customizeable here
+    scale_tensor = amax_tensor / torch.finfo(torch.float8_e4m3fn).max   # Replicate
     local_scale_tensor = scale_tensor.to_local().to(torch.float32)
     for i, float8_linear in enumerate(float8_linears):
         float8_linear.weight._local_tensor._precomputed_scale = local_scale_tensor[i]

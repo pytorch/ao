@@ -151,7 +151,8 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
         # upcasted to `float32` to multiply with the scale
         # In order to match numerics between eager and compile, we upcast manually here.
-        tensor_scaled = tensor.to(torch.float32) * scale
+        # tensor_scaled = tensor.to(torch.float32) * scale
+        tensor_scaled = tensor.to(torch.float32) / scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
@@ -203,7 +204,8 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor):
-        return tensor._data.to(tensor._orig_dtype) / tensor._scale
+        # return tensor._data.to(tensor._orig_dtype) / tensor._scale
+        return tensor._data.to(tensor._orig_dtype) * tensor._scale
 
     @staticmethod
     def backward(ctx, g):

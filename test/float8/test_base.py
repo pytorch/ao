@@ -565,8 +565,8 @@ class TestScaledMM:
             use_fast_accum=use_fast_accum,
         )
         out_emulated = torch.mm(
-            a_fp8._data.float() / a_fp8._scale,
-            b_fp8._data.float() / b_fp8._scale,
+            a_fp8._data.float() * a_fp8._scale,
+            b_fp8._data.float() * b_fp8._scale,
         ).to(output_dtype)
 
         if output_dtype != base_dtype:
@@ -841,13 +841,13 @@ class TestFloat8LinearUtils(unittest.TestCase):
             tensor_len = x1_hp.numel()
 
             # Overflow caused by a too large scaling factor
-            s_overflow = torch.tensor(1e9)
+            s_overflow = 1 / torch.tensor(1e9)
             fp8_overflow = hp_tensor_and_scale_to_float8(x1_hp, s_overflow, lp_dtype)
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_overflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (0, tensor_len))
 
             # Underflow caused by a too small scaling factor
-            s_underflow = torch.tensor(1e-9)
+            s_underflow = 1 / torch.tensor(1e-9)
             fp8_underflow = hp_tensor_and_scale_to_float8(x1_hp, s_underflow, lp_dtype)
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_underflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, 0))
