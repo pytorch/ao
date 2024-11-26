@@ -67,7 +67,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         activations = torch.randn(2, 3, m, k, dtype=torch.float32)
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
 
-        for nbit in [1, 2, 3, 4, 5, 6, 7]:
+        for nbit in [1, 2, 3, 4, 5, 6, 7, 8]:
             for has_weight_zeros in [True, False]:
                 print(f"Testing nbit={nbit}, has_weight_zeros={has_weight_zeros}")
                 quantized_model = copy.deepcopy(model)
