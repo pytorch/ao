@@ -31,6 +31,9 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
+    "is_MI300",
+    "is_sm_89",
+    "is_sm_90",
 ]
 
 
@@ -584,6 +587,32 @@ def fill_defaults(args, n, defaults_tail):
 ## Deprecated, will be deleted in the future
 def _torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
+
+
+def is_MI300():
+    if torch.cuda.is_available() and torch.version.hip:
+        mxArchName = ["gfx940", "gfx941", "gfx942"]
+        archName = torch.cuda.get_device_properties().gcnArchName
+        for arch in mxArchName:
+            if arch in archName:
+                return True
+    return False
+
+
+def is_sm_89():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() >= (8, 9)
+    )
+
+
+def is_sm_90():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() >= (9, 0)
+    )
 
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
