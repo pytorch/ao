@@ -333,10 +333,9 @@ def model_type_to_paths(checkpoint_path, model_type):
     return sam2_checkpoint, model_cfg
 
 
-def aot_compile(name, fn, sample_args):
-    import os
-    path = os.path.join(os.getcwd(), f"{name}.pt2")
-    print(f"{path=}")
+def aot_compile(model_directory, name, fn, sample_args):
+    path = Path(model_directory) / Path(f"{name}.pt2")
+    print(f"Saving at {path=}")
     options = {
         "max_autotune": True,
         "triton.cudagraphs": True,
@@ -345,7 +344,7 @@ def aot_compile(name, fn, sample_args):
     exported = torch.export.export_for_inference(fn, sample_args)
     output_path = torch._inductor.aoti_compile_and_package(
         exported,
-        package_path=path,
+        package_path=str(path),
         inductor_configs=options,
     )
     return output_path
@@ -365,15 +364,16 @@ class FunctionModel(torch.nn.Module):
         return getattr(self.module, self.fn_name)(*args)
 
 
-def set_aot_fast(mask_generator, aot_cache=None):
-    # NOTE: THIS WORKS!
-    # example_input = torch.empty(1, 3, 1024, 1024)
-    # example_input = example_input.to(mask_generator.predictor._image_dtype)
-    # example_input = (example_input.to(mask_generator.predictor.device),)
-    # aot_compile("sam2_image_encoder",
-    #             mask_generator.predictor.model.image_encoder,
-    #             example_input)
+def set_aot_fast(mask_generator, model_directory):
+    example_input = torch.empty(1, 3, 1024, 1024)
+    example_input = example_input.to(mask_generator.predictor._image_dtype)
+    example_input = (example_input.to(mask_generator.predictor.device),)
+    aot_compile(model_directory,
+                "sam2_image_encoder",
+                mask_generator.predictor.model.image_encoder,
+                example_input)
 
+    # NOTE: THIS DOESN'T WORK YET!
     # example_input_0_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
     # example_input_0_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
     # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
@@ -402,27 +402,28 @@ def set_aot_fast(mask_generator, aot_cache=None):
     #              None,
     #              None))
 
-    example_input_0 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    example_input_2 = torch.empty(1024, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device)
-    example_input_3 = torch.empty(1024, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # NOTE: THIS DOESN'T WORK YET!
+    # example_input_0 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_2 = torch.empty(1024, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_3 = torch.empty(1024, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
 
-    example_input_4_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    example_input_4_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_4_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_4_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
 
-    example_input = (example_input_0,
-                     example_input_1,
-                     example_input_2,
-                     example_input_3,
-                     True,
-                     True,
-                     [example_input_4_0, example_input_4_1])
-    print("Example")
-    mask_generator.predictor.model.sam_mask_decoder(*example_input)
-    print("Example done")
-    aot_compile("sam2_sam_mask_decoder",
-                mask_generator.predictor.model.sam_mask_decoder,
-                example_input)
+    # example_input = (example_input_0,
+    #                  example_input_1,
+    #                  example_input_2,
+    #                  example_input_3,
+    #                  True,
+    #                  True,
+    #                  [example_input_4_0, example_input_4_1])
+    # print("Example")
+    # mask_generator.predictor.model.sam_mask_decoder(*example_input)
+    # print("Example done")
+    # aot_compile("sam2_sam_mask_decoder",
+    #             mask_generator.predictor.model.sam_mask_decoder,
+    #             example_input)
 
     # example_input_0 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
     # example_input_1 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
@@ -459,13 +460,14 @@ class LoadedDecoder(torch.nn.Module):
     def get_dense_pe(self, *args, **kwargs) -> torch.Tensor:
         return self.other.get_dense_pe(*args, **kwargs)
 
-def load_aot_fast(mask_generator):
-    import os
-    # NOTE: THIS WORKS!
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_image_encoder.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # mask_generator.predictor.model.image_encoder = pkg_m
+def load_aot_fast(mask_generator, model_directory):
+    path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
+    assert path.exists(), f"Expected {path} to exist."
+    pkg = torch._inductor.aoti_load_package(str(path))
+    pkg_m = LoadedModel(pkg)
+    mask_generator.predictor.model.image_encoder = pkg_m
     
+    # NOTE: This doesn't work yet!
     # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2__predict_masks_with_features.pt2"))
     # pkg_m = LoadedModel(pkg)
     # mask_generator.predictor._predict_masks_with_features = pkg_m.forward
@@ -474,28 +476,30 @@ def load_aot_fast(mask_generator):
     # pkg_m = LoadedDecoder(pkg, mask_generator.predictor.model.sam_prompt_encoder)
     # mask_generator.predictor.model.sam_prompt_encoder = pkg_m
 
-    pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder.pt2"))
-    pkg_m = LoadedModel(pkg)
-    pkg_m.conv_s0 = mask_generator.predictor.model.sam_mask_decoder.conv_s0
-    pkg_m.conv_s1 = mask_generator.predictor.model.sam_mask_decoder.conv_s1
-    mask_generator.predictor.model.sam_mask_decoder = pkg_m
+    # NOTE: This doesn't work yet!
+    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder.pt2"))
+    # pkg_m = LoadedModel(pkg)
+    # pkg_m.conv_s0 = mask_generator.predictor.model.sam_mask_decoder.conv_s0
+    # pkg_m.conv_s1 = mask_generator.predictor.model.sam_mask_decoder.conv_s1
+    # mask_generator.predictor.model.sam_mask_decoder = pkg_m
 
     # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder_transformer.pt2"))
     # pkg_m = LoadedModel(pkg)
     # mask_generator.predictor.model.sam_mask_decoder.transformer = pkg_m
 
 
-def set_fast(mask_generator):
-    # TODO: Using CUDA graphs can cause numerical differences?
-    mask_generator.predictor.model.image_encoder = torch.compile(
-        mask_generator.predictor.model.image_encoder,
-        mode="max-autotune",
-        fullgraph=True,
-        dynamic=False,
-    )
+def set_fast(mask_generator, load_fast=False):
+    if not load_fast:
+        # TODO: Using CUDA graphs can cause numerical differences?
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
 
-    mask_generator.predictor._predict_masks_with_features = torch.compile(
-        mask_generator.predictor._predict_masks_with_features,
+    mask_generator.predictor._predict_masks = torch.compile(
+        mask_generator.predictor._predict_masks,
         mode="max-autotune",
         fullgraph=True,
         dynamic=False,
@@ -534,7 +538,8 @@ def main(checkpoint_path,
          host="127.0.0.1",
          dry=False,
          batch_size=1,
-         load_fast=False):
+         load_fast="",
+         save_fast=""):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -566,20 +571,23 @@ def main(checkpoint_path,
     if furious:
         set_furious(mask_generator)
 
-    print("load_fast: ", load_fast)
-    if load_fast:
+    if load_fast != "":
+        print(f"Loading compiled models from {load_fast}")
         import time
         t0 = time.time()
         print(f"Start load. {t0}")
-        load_aot_fast(mask_generator)
+        load_aot_fast(mask_generator, load_fast)
         print(f"End load. {time.time() - t0}")
+
+    if save_fast != "":
+        assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
+        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        print(f"Saving compiled models to {save_fast}")
+        set_aot_fast(mask_generator, save_fast)
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        # set_fast(mask_generator)
-        set_aot_fast(mask_generator)
-        print("Done set_aot_fast")
-        import sys; sys.exit(1)
+        set_fast(mask_generator, load_fast)
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
