@@ -141,6 +141,25 @@ class TestFloat8Tensor:
         fp8_b.copy_(fp8_a)
         torch.testing.assert_close(fp8_a._data, fp8_b._data)
 
+    def test_transpose(self):
+        a = torch.rand((16, 16), dtype=torch.bfloat16)
+        for axiswise_dim in (None, 0, -1):
+            scale_a = tensor_to_scale(a, e4m3_dtype)
+            fp8_a = hp_tensor_and_scale_to_float8(
+                a, scale_a, e4m3_dtype, axiswise_dim=axiswise_dim
+            )
+            fp8_b = hp_tensor_and_scale_to_float8(
+                a, scale_a, e4m3_dtype, axiswise_dim=axiswise_dim
+            )
+
+            fp8_a_transposed = fp8_a.transpose(0, 1)
+            fp8_b_t = fp8_b.t()
+
+            torch.testing.assert_close(
+                (fp8_a_transposed._data, fp8_a_transposed._scale),
+                (fp8_b_t._data, fp8_b_t._scale),
+            )
+
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
     def test_axiswise_dynamic_cast(self, shape, axiswise_dim):
