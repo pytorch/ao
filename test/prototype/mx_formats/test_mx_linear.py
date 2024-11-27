@@ -20,7 +20,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 )
 
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_89
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
 
 
 torch.manual_seed(2)
@@ -99,7 +99,7 @@ def test_linear_compile(elem_dtype, bias):
     Verify that compile does not change numerics of MX linear fw + bw
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_89():
+        if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
     input_shape = (2, 4)
     grad_shape = (2, 6)
@@ -170,7 +170,7 @@ def test_inference_compile_simple(elem_dtype):
     Smoke test for inference compile
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_89():
+        if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
     m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
     m = m.cuda()

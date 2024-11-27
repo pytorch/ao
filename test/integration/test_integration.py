@@ -92,7 +92,7 @@ from torchao.utils import (
     unwrap_tensor_subclass,
     is_fbcode,
     benchmark_model,
-    is_sm_90,
+    is_sm_at_least_90,
 )
 from torchao.dtypes.utils import is_device
 
@@ -779,7 +779,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
-    @unittest.skipIf(not is_sm_90(), "Need H100 to run")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     def test_aq_float8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
@@ -799,7 +799,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
-    @unittest.skipIf(not is_sm_90(), "Need H100 to run")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     def test_aq_float8_dynamic_quant_rowwise_scaling_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             with self.assertRaisesRegex(AssertionError, "PerRow quantization only works for bfloat16 precision"):
@@ -813,7 +813,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
-    @unittest.skipIf(not is_sm_90(), "Need H100 to run")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     def test_aq_float8_dynamic_quant_tensorwise_scaling_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight.from_float, device, 25, test_dtype=dtype

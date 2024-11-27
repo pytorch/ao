@@ -14,7 +14,11 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_89, is_sm_90
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -215,7 +219,7 @@ class TestFloat8Tensor:
         ],
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not is_sm_90(), "Requires CUDA capability >= 9.0")
+    @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
         b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
@@ -329,7 +333,9 @@ class TestFloat8Linear:
             # verify initialization flags got updated
             assert m_fp8.is_amax_initialized, "Amax was not properly initialized"
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_sm_89() else [True])
+    @pytest.mark.parametrize(
+        "emulate", [True, False] if is_sm_at_least_89() else [True]
+    )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
         "scaling_type_input",
@@ -411,7 +417,9 @@ class TestFloat8Linear:
             config,
         )
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_sm_89() else [True])
+    @pytest.mark.parametrize(
+        "emulate", [True, False] if is_sm_at_least_89() else [True]
+    )
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
@@ -458,7 +466,9 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @pytest.mark.parametrize("emulate", [True, False] if is_sm_89() else [True])
+    @pytest.mark.parametrize(
+        "emulate", [True, False] if is_sm_at_least_89() else [True]
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
         m = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
@@ -519,7 +529,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten,w:del_ten,go:dyn_ten" in s
 
-    @unittest.skipIf(not is_sm_89(), "CUDA 8.9 not available")
+    @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -530,7 +540,7 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not is_sm_89(),
+        not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(
@@ -575,7 +585,7 @@ class TestScaledMM:
             atol, rtol = 2e-3, 2e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not is_sm_89(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_89(), "CUDA not available")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device="cuda")
         x_scale = torch.tensor(1.0, device="cuda")
@@ -611,7 +621,7 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not is_sm_89(),
+        not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(

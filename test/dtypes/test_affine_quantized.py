@@ -17,7 +17,11 @@ from torchao.quantization import (
     int8_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6, is_sm_89
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_89,
+)
 
 
 def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cuda"):
@@ -40,7 +44,7 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cu
             int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
         )
 
-    if is_sm_89():
+    if is_sm_at_least_89():
         base_functions.append(float8_weight_only())
 
     return base_functions

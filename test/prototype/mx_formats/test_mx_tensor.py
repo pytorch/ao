@@ -24,7 +24,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_89
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
 
 
 torch.manual_seed(2)
@@ -222,7 +222,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     Verifies that compile does not change numerics of MX casts
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_89():
+        if not is_sm_at_least_89():
             # separate ifs because flake8 is outsmarting me
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 

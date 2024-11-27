@@ -13,7 +13,7 @@ import unittest
 import pytest
 import torch
 from parameterized import parameterized
-from torchao.utils import is_sm_90
+from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,7 +56,7 @@ class TestQuantFlow(unittest.TestCase):
             ("cuda", torch.float16),
         ]
     )
-    @unittest.skipIf(not is_sm_90(), "Needs H100")
+    @unittest.skipIf(not is_sm_at_least_90(), "Needs H100")
     def test_int_mm_float8(self, device, dtype):
         from torchao.kernel import intmm
 
