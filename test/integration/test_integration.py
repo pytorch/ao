@@ -1514,6 +1514,22 @@ class TestAutoQuant(unittest.TestCase):
         assert not isinstance(model.lin1.weight.weight, AutoQuantizableLinearWeight)
         model(x_in)
 
+    @parameterized.expand(list(itertools.product(["cuda"], COMMON_DTYPES)))
+    def test_autoquant_min_sqnr(self, device, dtype):
+        m, k, n = 128, 128, 128
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        out = model(example_input)
+        torchao.autoquant(model, min_sqnr=60)
+        out2 = model(example_input)
+        sqnr = SQNR(out, out2)
+        # without setting min_sqnr to 60, we get around 45-50 final sqnr
+        # setting min_sqnr for individual linear to be 60 allows us to achieve >= 50 final sqnr
+        self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
 
 
 
