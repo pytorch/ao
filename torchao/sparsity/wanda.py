@@ -65,7 +65,8 @@ class WandaSparsifier(BaseSparsifier):
                 # Apply the qconfig directly to the module if it exists
                 if module is not None:
                     module.qconfig = QConfig(
-                        activation=PerChannelNormObserver, weight=default_placeholder_observer
+                        activation=PerChannelNormObserver,
+                        weight=default_placeholder_observer,
                     )  # type: ignore[assignment]
         torch.ao.quantization.prepare(model, inplace=True)
 
