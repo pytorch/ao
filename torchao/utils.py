@@ -13,6 +13,7 @@ import torch.nn.utils.parametrize as parametrize
 __all__ = [
     "benchmark_model",
     "profiler_runner",
+    "get_available_devices",
     "get_compute_capability",
     "skip_if_compute_capability_less_than",
     "benchmark_torch_function_in_microseconds",
@@ -122,6 +123,18 @@ def profiler_runner(path, fn, *args, **kwargs):
         result = fn(*args, **kwargs)
     prof.export_chrome_trace(path)
     return result
+
+
+def get_available_devices():
+    devices = ["cpu"]
+    if torch.cuda.is_available():
+        devices.append("cuda")
+    elif torch.xpu.is_available():
+        devices.append("xpu")
+    if TORCH_VERSION_AT_LEAST_2_5:
+        if torch.mps.is_available():
+            devices.append("mps")
+    return devices
 
 
 def get_compute_capability():

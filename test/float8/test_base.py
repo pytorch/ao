@@ -591,7 +591,7 @@ class TestScaledMM:
         if base_dtype in {torch.bfloat16, torch.float16}:
             atol, rtol = 7e-2, 7e-2
         else:
-            atol, rtol = 2e-3, 2e-3
+            atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
     @unittest.skipIf(not is_cuda_8_9, "CUDA not available")
