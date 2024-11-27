@@ -85,7 +85,7 @@ def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
 )
 def float8_transpose(aten_op, args, kwargs=None):
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
-    if args[0]._scale.ndim == 2:
+    if args[0]._scale.ndim > 1:
         new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
     else:
         new_scale = args[0]._scale
