@@ -646,11 +646,10 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
 
 class AQFloat32LinearWeight(torch.Tensor, AQMixin):
     """
-    A class to be used in concert with AutoQuantizableLinearWeight to provide a
-    default/non-quantized option. Only implements the bare minimum needed to work with the
-    AutoQuantizableLinearWeight class using the same interfaces that would normally be
-    used by QTensor subclasses but for a default linear op instead. Result of from_float
-    is not a tensor subclass, but rather the float tensor.
+    AutoQuantizable version for float32 precision weight
+
+    (also converts input activation and bias to float32, and restores the original precision after
+    linear)
     """
 
     def __init__(self):
@@ -667,11 +666,10 @@ class AQFloat32LinearWeight(torch.Tensor, AQMixin):
 
 class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
     """
-    A class to be used in concert with AutoQuantizableLinearWeight to provide a
-    default/non-quantized option. Only implements the bare minimum needed to work with the
-    AutoQuantizableLinearWeight class using the same interfaces that would normally be
-    used by QTensor subclasses but for a default linear op instead. Result of from_float
-    is not a tensor subclass, but rather the float tensor.
+    AutoQuantizable version for bfloat16 precision weight
+
+    (also converts input activation and bias to bfloat16, and restores the original precision after
+    linear)
     """
 
     def __init__(self):
@@ -688,11 +686,10 @@ class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
 
 class AQFloat16LinearWeight(torch.Tensor, AQMixin):
     """
-    A class to be used in concert with AutoQuantizableLinearWeight to provide a
-    default/non-quantized option. Only implements the bare minimum needed to work with the
-    AutoQuantizableLinearWeight class using the same interfaces that would normally be
-    used by QTensor subclasses but for a default linear op instead. Result of from_float
-    is not a tensor subclass, but rather the float tensor.
+    AutoQuantizable version for float16 precision weight
+
+    (also converts input activation and bias to float16, and restores the original precision after
+    linear)
     """
 
     def __init__(self):
