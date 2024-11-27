@@ -9,7 +9,7 @@ include = [
     "torchao/sparsity/**/*.py",
     "torchao/prototype/low_bit_optim/**.py",
     "test/float8/**/*.py",
-    "test/quantization/test_observer.py",
+    "test/quantization/**/*.py",
     "test/dtypes/**/*.py",
     "test/prototype/low_bit_optim/**.py",
     "torchao/utils.py",
