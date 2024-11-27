@@ -461,8 +461,10 @@ class LoadedDecoder(torch.nn.Module):
         return self.other.get_dense_pe(*args, **kwargs)
 
 def load_aot_fast(mask_generator, model_directory):
+    t0 = time.time()
     path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
     assert path.exists(), f"Expected {path} to exist."
+    print(f"Start load from {path}")
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
@@ -487,9 +489,11 @@ def load_aot_fast(mask_generator, model_directory):
     # pkg_m = LoadedModel(pkg)
     # mask_generator.predictor.model.sam_mask_decoder.transformer = pkg_m
 
+    print(f"End load. Took {time.time() - t0}s")
 
-def set_fast(mask_generator, load_fast=False):
-    if not load_fast:
+
+def set_fast(mask_generator, load_fast=""):
+    if load_fast == "":
         # TODO: Using CUDA graphs can cause numerical differences?
         mask_generator.predictor.model.image_encoder = torch.compile(
             mask_generator.predictor.model.image_encoder,
@@ -569,19 +573,13 @@ def main(checkpoint_path,
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
-
     if load_fast != "":
-        print(f"Loading compiled models from {load_fast}")
-        import time
-        t0 = time.time()
-        print(f"Start load. {t0}")
         load_aot_fast(mask_generator, load_fast)
-        print(f"End load. {time.time() - t0}")
 
     if save_fast != "":
         assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        print(f"Saving compiled models to {save_fast}")
+        print(f"Saving compiled models under directory {save_fast}")
         set_aot_fast(mask_generator, save_fast)
 
     if fast:
@@ -594,9 +592,9 @@ def main(checkpoint_path,
     elif use_autoquant:
         from torchao import autoquant
         from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
-        mask_generator.predictor.model = autoquant(mask_generator.predictor.model, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+        mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
 
-        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
+         #  mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
         # NOTE: Not baseline feature
         mask_generator.predictor._transforms_device = mask_generator.predictor.device
         torch.set_float32_matmul_precision('high')
