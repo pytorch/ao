@@ -371,6 +371,7 @@ def main(checkpoint_path,
          baseline=False,
          fast=False,
          furious=False,
+         use_autoquant=False,
          unittest=False,
          benchmark=False,
          profile=None,
@@ -399,13 +400,13 @@ def main(checkpoint_path,
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
         from torchao._models.sam2.utils.amg import rle_to_mask
-    
+
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
-    
+
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
- 
+
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
@@ -415,6 +416,18 @@ def main(checkpoint_path,
 
     if furious:
         set_furious(mask_generator)
+
+    # since autoquant is replicating what furious mode is doing, don't use these two together
+    elif use_autoquant:
+        from torchao import autoquant
+        from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+        mask_generator.predictor.model = autoquant(mask_generator.predictor.model, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+
+        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
+        # NOTE: Not baseline feature
+        mask_generator.predictor._transforms_device = mask_generator.predictor.device
+        torch.set_float32_matmul_precision('high')
+
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
@@ -494,7 +507,7 @@ def main(checkpoint_path,
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
         return masks_to_rle_dict(masks)
-    
+
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
         image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
@@ -512,7 +525,7 @@ def main(checkpoint_path,
         plt.savefig(buf, format='png')
         buf.seek(0)
         return StreamingResponse(buf, media_type="image/png")
-    
+
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
