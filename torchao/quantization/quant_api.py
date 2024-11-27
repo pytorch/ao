@@ -201,22 +201,6 @@ def change_linear_weights_to_int4_woqtensors(
 ########
 # TO BE DEPRECATED END
 ########
-def dequantize_float8_training(model: nn.Module) -> nn.Module:
-    """
-    Converts `Float8Linear` modules in `model` to `torch.nn.Linear`.
-    """
-
-    def dequant_func(mod: Float8Linear) -> nn.Linear:
-        new_module = nn.Linear(mod.in_features, mod.out_features)
-        new_module.weight = mod.weight
-        new_module.bias = mod.bias
-        return new_module
-
-    return swap_linear_layers(
-        model,
-        dequant_func,
-        target_module=Float8Linear,
-    )
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -240,6 +224,22 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
+
+    def dequantize_float8_training(model: nn.Module) -> nn.Module:
+        """Converts `Float8Linear` modules in `model` to `torch.nn.Linear`."""
+
+        def dequant_func(mod: Float8Linear) -> nn.Linear:
+            new_module = nn.Linear(mod.in_features, mod.out_features)
+            new_module.weight = mod.weight
+            new_module.bias = mod.bias
+            return new_module
+
+        return swap_linear_layers(
+            model,
+            dequant_func,
+            target_module=Float8Linear,
+        )
+
     if isinstance(model, Float8Linear):
         model = dequantize_float8_training(model)
     if filter_fn(model, cur_fqn[:-1]):
