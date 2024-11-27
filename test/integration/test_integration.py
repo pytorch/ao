@@ -1515,6 +1515,7 @@ class TestAutoQuant(unittest.TestCase):
         model(x_in)
 
     @parameterized.expand(list(itertools.product(["cuda"], COMMON_DTYPES)))
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_autoquant_min_sqnr(self, device, dtype):
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
