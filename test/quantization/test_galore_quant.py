@@ -1,6 +1,12 @@
 import itertools
 
 import pytest
+
+# Skip entire test if triton is not available, otherwise CI failure
+try:  # noqa: F401
+    import triton  # noqa: F401
+except ImportError:  # noqa: F401
+    pytest.skip("triton is not installed", allow_module_level=True)  # noqa: F401
 import torch
 from bitsandbytes.functional import (
     create_dynamic_map,
