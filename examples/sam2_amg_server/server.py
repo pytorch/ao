@@ -413,7 +413,7 @@ def main(checkpoint_path,
     # since autoquant is replicating what furious mode is doing, don't use these two together
     elif use_autoquant:
         from torchao import autoquant
-        from torchao.quantization.autoquant import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+        from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
         mask_generator.predictor.model = autoquant(mask_generator.predictor.model, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
 
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
