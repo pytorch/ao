@@ -19,8 +19,8 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.utils import (
-    quantize_activation_per_token_absmax,
     compute_error,
+    quantize_activation_per_token_absmax,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 
@@ -73,7 +73,15 @@ class AutoQuantizableLinearWeight(torch.Tensor):
     """
 
     @staticmethod
-    def __new__(cls, weight, qtensor_class_list, *args, mode=["relu", None], min_sqnr=None, **kwargs):
+    def __new__(
+        cls,
+        weight,
+        qtensor_class_list,
+        *args,
+        mode=["relu", None],
+        min_sqnr=None,
+        **kwargs,
+    ):
         kwargs["device"] = weight.device
         kwargs["layout"] = (
             kwargs.get("layout") if kwargs.get("layout", False) else weight.layout
@@ -86,7 +94,13 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
-        self, weight, qtensor_class_list, *args, mode=["relu", None], min_sqnr=None, **kwargs
+        self,
+        weight,
+        qtensor_class_list,
+        *args,
+        mode=["relu", None],
+        min_sqnr=None,
+        **kwargs,
     ):
         self.weight = weight
         self.qtensor_class_list = qtensor_class_list
@@ -128,10 +142,20 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                     else torch.randn(bias_shape, dtype=act_dtype, device=self.device)
                 )
                 try:
-                    ref_output = AQDefaultLinearWeight._quantized_linear_op(act_mat, self.weight, bias)
-                    q_output = q_cls._quantized_linear_op(act_mat, q_cls.from_float(self.weight), bias)
-                    if self.min_sqnr is not None and (sqnr :=  compute_error(q_output, ref_output)) < self.min_sqnr:
-                        print(f"skipping q_cls: {q_cls} because the sqnr is too small, minimum expected sqnr: {self.min_sqnr}, got {sqnr}")
+                    ref_output = AQDefaultLinearWeight._quantized_linear_op(
+                        act_mat, self.weight, bias
+                    )
+                    q_output = q_cls._quantized_linear_op(
+                        act_mat, q_cls.from_float(self.weight), bias
+                    )
+                    if (
+                        self.min_sqnr is not None
+                        and (sqnr := compute_error(q_output, ref_output))
+                        < self.min_sqnr
+                    ):
+                        print(
+                            f"skipping q_cls: {q_cls} because the sqnr is too small, minimum expected sqnr: {self.min_sqnr}, got {sqnr}"
+                        )
                         res = torch.inf
                     else:
                         res = q_cls._autoquant_test(
@@ -221,11 +245,21 @@ class AutoQuantizableLinearWeight(torch.Tensor):
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.weight), self.qtensor_class_list, dtype=self.dtype, mode=self.mode, min_sqnr=self.min_sqnr
+            fn(self.weight),
+            self.qtensor_class_list,
+            dtype=self.dtype,
+            mode=self.mode,
+            min_sqnr=self.min_sqnr,
         )
 
     def __tensor_flatten__(self):
-        return ["weight"], [self.qtensor_class_list, self.mode, self.min_sqnr, self.dtype, self.shape]
+        return ["weight"], [
+            self.qtensor_class_list,
+            self.mode,
+            self.min_sqnr,
+            self.dtype,
+            self.shape,
+        ]
 
     @classmethod
     def __tensor_unflatten__(
@@ -644,6 +678,7 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
     def from_float(cls, weight):
         return weight
 
+
 class AQFloat32LinearWeight(torch.Tensor, AQMixin):
     """
     AutoQuantizable version for float32 precision weight
@@ -658,11 +693,16 @@ class AQFloat32LinearWeight(torch.Tensor, AQMixin):
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
         orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(act_mat.to(torch.float32), w_qtensor, bias.to(torch.float32) if bias is not None else bias).to(dtype=orig_dtype)
+        return torch.nn.functional.linear(
+            act_mat.to(torch.float32),
+            w_qtensor,
+            bias.to(torch.float32) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
 
     @classmethod
     def from_float(cls, weight):
         return weight.to(torch.float32)
+
 
 class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
     """
@@ -678,11 +718,16 @@ class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
         orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(act_mat.to(torch.bfloat16), w_qtensor, bias.to(torch.bfloat16) if bias is not None else bias).to(dtype=orig_dtype)
+        return torch.nn.functional.linear(
+            act_mat.to(torch.bfloat16),
+            w_qtensor,
+            bias.to(torch.bfloat16) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
 
     @classmethod
     def from_float(cls, weight):
         return weight.to(torch.bfloat16)
+
 
 class AQFloat16LinearWeight(torch.Tensor, AQMixin):
     """
@@ -698,11 +743,16 @@ class AQFloat16LinearWeight(torch.Tensor, AQMixin):
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
         orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(act_mat.to(torch.float16), w_qtensor, bias.to(torch.float16) if bias is not None else bias).to(dtype=orig_dtype)
+        return torch.nn.functional.linear(
+            act_mat.to(torch.float16),
+            w_qtensor,
+            bias.to(torch.float16) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
 
     @classmethod
     def from_float(cls, weight):
         return weight.to(torch.float16)
+
 
 class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     """
