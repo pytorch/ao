@@ -202,7 +202,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
 
 def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
     try:
-        if nbit in [1, 2, 3, 4, 5, 6, 7]:
+        if nbit in [1, 2, 3, 4, 5, 6, 7, 8]:
             wzp_suffix = "" if has_weight_zeros else "0zp"
             return _Int8DynActIntxWeightQuantizedLinearNative(
                 pack_weight_op=getattr(
@@ -234,7 +234,7 @@ def _replace_linear_with_quantized_linear(module: nn.Module, kwargs={}):
     has_weight_zeros = kwargs["has_weight_zeros"]
 
     assert not isinstance(module, nn.Linear)
-    assert nbit >= 1 and nbit <= 7
+    assert nbit >= 1 and nbit <= 8
 
     for name, child in module.named_children():
         if not isinstance(child, nn.Linear):
@@ -370,9 +370,9 @@ class _IntxWeightQuantizedEmbeddingFallback(nn.Module):
         weight_qvals, weight_scales, weight_zeros = _quantize(
             weights, self.group_size, self.nbit, has_weight_zeros=True
         )
-        self.weight_qvals = weight_qvals.to(torch.int8)
+        self.weight_qvals = weight_qvals.to(torch.int32)
         self.weight_scales = weight_scales
-        self.weight_zeros = weight_zeros.to(torch.int8)
+        self.weight_zeros = weight_zeros.to(torch.int32)
 
     def forward(self, x):
         shape = x.shape
@@ -398,7 +398,7 @@ def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
     nbit = kwargs["nbit"]
 
     assert not isinstance(module, nn.Embedding)
-    assert nbit >= 1 and nbit <= 7
+    assert nbit >= 1 and nbit <= 8
 
     for name, child in module.named_children():
         if not isinstance(child, nn.Embedding):

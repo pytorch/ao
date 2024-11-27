@@ -217,7 +217,6 @@ def main(
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
-        from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
         from torchao.utils import unwrap_tensor_subclass
 
         from torchao.quantization.granularity import PerTensor, PerRow
@@ -297,6 +296,29 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        elif "int8_dynamic_activation_intx_weight" in quantization:
+            from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+            assert precision == torch.float32, "int8_dynamic_activation_intx_weight requires fp32 precision"
+
+            # Build kernels in temp location, and load them in torch
+            # This requires an ARM CPU
+            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
+            temp_build_and_load_torchao_ops(cmake_lists_path=os.path.dirname(os.path.realpath(__file__)) + "/../../experimental")
+
+            # Quantize model
+            _quant_args = quantization.split("-")
+            nbit = int(_quant_args[1])
+            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
+            group_size = int(_quant_args[2])
+            has_weight_zeros = bool(_quant_args[3])
+            quantize_(
+                model,
+                int8_dynamic_activation_intx_weight(
+                    group_size=group_size,
+                    nbit=nbit,
+                    has_weight_zeros=has_weight_zeros,
+                ),
+            )
         elif "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         elif "float8dq" in quantization:
@@ -309,6 +331,7 @@ def main(
                 granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         elif "autoquant_v2" in quantization:
+            from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
@@ -379,6 +402,8 @@ def main(
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
             elif "autoquant-float8" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            if "autoquant-fp" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs)
             else:
                 model = autoquant(model, manual=True, example_input=inputs)
 

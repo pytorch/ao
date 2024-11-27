@@ -36,7 +36,7 @@ from torchao._models.sam2.utils.amg import (
 )
 
 
-class SAM2AutomaticMaskGenerator:
+class SAM2AutomaticMaskGenerator(torch.nn.Module):
     def __init__(
         self,
         model: SAM2Base,
@@ -105,7 +105,7 @@ class SAM2AutomaticMaskGenerator:
           use_m2m (bool): Whether to add a one step refinement using previous mask predictions.
           multimask_output (bool): Whether to output multimask at each point of the grid.
         """
-
+        super().__init__()
         assert (points_per_side is None) != (
             point_grids is None
         ), "Exactly one of points_per_side or point_grid must be provided."

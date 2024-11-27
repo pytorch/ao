@@ -201,7 +201,7 @@ If you find the torchao library useful, please cite it in your work as below.
 @software{torchao,
   title = {torchao: PyTorch native quantization and sparsity for training and inference},
   author = {torchao maintainers and contributors},
-  url = {https//github.com/pytorch/torchao},
+  url = {https://github.com/pytorch/torchao},
   license = {BSD-3-Clause},
   month = oct,
   year = {2024}

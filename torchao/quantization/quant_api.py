@@ -51,6 +51,9 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_MI300,
+    is_sm_89,
+    is_sm_90,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -627,7 +630,8 @@ def int4_weight_only(
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
-        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`
+        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference
         of quantization algorithm compared to the more traditional type of integer quantization is the following:
         1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
         2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
@@ -827,10 +831,11 @@ def _normalize_granularity(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ],
 ) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    processed_granularity = None
     if granularity is None:
-        return (PerTensor(), PerTensor())
+        processed_granularity = (PerTensor(), PerTensor())
     elif isinstance(granularity, (PerTensor, PerRow)):
-        return (granularity, granularity)
+        processed_granularity = (granularity, granularity)
     elif isinstance(granularity, tuple) and len(granularity) == 2:
         if not (
             isinstance(granularity[0], (PerTensor, PerRow))
@@ -843,11 +848,25 @@ def _normalize_granularity(
             raise ValueError(
                 f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
             )
-        return granularity
+        processed_granularity = granularity
     else:
         raise ValueError(
             f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
         )
+    # Validate granularity with supported Hardware
+    for _granularity in processed_granularity:
+        if isinstance(_granularity, PerTensor):
+            assert (
+                is_sm_89() or is_MI300()
+            ), "PerTensor quantization only works for CUDA>=8.9 and MI300+"
+        elif isinstance(_granularity, PerRow):
+            assert (
+                is_sm_90() or is_MI300()
+            ), "PerRow quantization only works for CUDA>=9.0 and MI300+"
+        else:
+            raise ValueError(f"Invalid granularity type: {_granularity}")
+
+    return processed_granularity
 
 
 def _input_activation_quant_func_fp8(
@@ -939,6 +958,9 @@ def float8_dynamic_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
+    assert (
+        is_sm_89() or is_MI300()
+    ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -993,6 +1015,9 @@ def float8_static_activation_float8_weight(
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
+    assert (
+        is_sm_89() or is_MI300()
+    ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
