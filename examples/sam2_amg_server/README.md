@@ -54,7 +54,7 @@ pip install -r examples/sam2_amg_server/requirements.txt
 pip uninstall torch
 
 # Install torch nightly
-pip install torch torchvision torchaudio
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
 
 # Build ao from source for now
 python setup.py develop
@@ -66,6 +66,7 @@ cd examples/sam2_amg_server/
 Download `sam2.1_hiera_large.pt` from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints and put it into `~/checkpoints/sam2`
 
 ### 1. Create a random subset of 1000 images
+Using images with corresponding mask annotations, like from the Segment Anything Video (SA-V) [Dataset](https://github.com/facebookresearch/sam2/tree/main/sav_dataset#download-the-dataset) is suggested, to later compare any drop in accuracy using `--furious` (using `torch.float16`).
 ```
 find sav_val -type f > sav_val_image_paths
 shuf -n 1000 sav_val_image_paths > sav_val_image_paths_shuf_1000
