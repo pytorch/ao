@@ -33,6 +33,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     is_fbcode,
 )
+from torchao.dtypes.utils import is_device
 
 _SEED = 1234
 torch.manual_seed(_SEED)
@@ -102,7 +103,8 @@ def _groupwise_affine_quantize_tensor_from_qparams(
         .reshape_as(w)
     )
     if TORCH_VERSION_AT_LEAST_2_5:
-        w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
+        if not (is_device(w.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
+            w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
 
     return w_int4x8
 
@@ -524,8 +526,10 @@ class TestQuantPrimitives(unittest.TestCase):
         groupsize = 128
 
         if TORCH_VERSION_AT_LEAST_2_5:
-            input_uint8 = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
-            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input_uint8, scales, zeros, n_bit, groupsize)
+            input_tmp = input
+            if not (is_device(input.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
+                input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
+            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input_tmp, scales, zeros, n_bit, groupsize)
         else:
             w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
         w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)

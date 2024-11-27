@@ -630,7 +630,8 @@ def int4_weight_only(
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
-        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`
+        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference
         of quantization algorithm compared to the more traditional type of integer quantization is the following:
         1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
         2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
