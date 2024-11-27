@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import SemiSparseLayout
+from torchao.dtypes import Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
     int4_weight_only,
@@ -17,10 +17,10 @@ from torchao.quantization import (
     int8_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_89
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6, is_sm_89
 
 
-def get_quantization_functions(do_sparse: bool, do_int4: bool):
+def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cuda"):
     base_functions = [
         int8_weight_only(),
         int8_dynamic_activation_int4_weight(),
@@ -28,7 +28,12 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool):
         int8_dynamic_activation_int8_weight(act_mapping_type=MappingType.ASYMMETRIC),
     ]
     if do_int4:
-        base_functions.append(int4_weight_only(group_size=32))
+        if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+            base_functions.append(
+                int4_weight_only(group_size=32, layout=Int4CPULayout())
+            )
+        else:
+            base_functions.append(int4_weight_only(group_size=32))
 
     if do_sparse:
         base_functions.append(
@@ -150,30 +155,28 @@ class TestAffineQuantizedBasic(TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.bfloat16]
 
-    @common_utils.parametrize("apply_quant", get_quantization_functions(False, True))
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
-    def test_flatten_unflatten(self, apply_quant, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
-
-        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-        ql = apply_quant(linear)
-        lp_tensor = ql.weight
-        tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
-        tensor_data_dict = {
-            name: getattr(lp_tensor, name) for name in tensor_data_name_dict
-        }
-        outer_size = lp_tensor.size()
-        outer_stride = lp_tensor.stride()
-        reconstructed = type(lp_tensor).__tensor_unflatten__(
-            tensor_data_dict, tensor_attributes, outer_size, outer_stride
-        )
-        example_inputs = (torch.randn(32, 128, dtype=dtype, device=device),)
-        ref = ql(*example_inputs)
-        ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
-        reconstruct_res = ql(*example_inputs)
-        self.assertEqual(reconstruct_res, ref)
+    def test_flatten_unflatten(self, device, dtype):
+        apply_quant_list = get_quantization_functions(False, True, device)
+        for apply_quant in apply_quant_list:
+            linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+            ql = apply_quant(linear)
+            lp_tensor = ql.weight
+            tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
+            tensor_data_dict = {
+                name: getattr(lp_tensor, name) for name in tensor_data_name_dict
+            }
+            outer_size = lp_tensor.size()
+            outer_stride = lp_tensor.stride()
+            reconstructed = type(lp_tensor).__tensor_unflatten__(
+                tensor_data_dict, tensor_attributes, outer_size, outer_stride
+            )
+            example_inputs = (torch.randn(32, 128, dtype=dtype, device=device),)
+            ref = ql(*example_inputs)
+            ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
+            reconstruct_res = ql(*example_inputs)
+            self.assertEqual(reconstruct_res, ref)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
