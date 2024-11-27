@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import SemiSparseLayout, Int4CPULayout
+from torchao.dtypes import Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
     int4_weight_only,
@@ -31,7 +31,9 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cu
     ]
     if do_int4:
         if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
-            base_functions.append(int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            base_functions.append(
+                int4_weight_only(group_size=32, layout=Int4CPULayout())
+            )
         else:
             base_functions.append(int4_weight_only(group_size=32))
 
