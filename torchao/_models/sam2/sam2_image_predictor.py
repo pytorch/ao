@@ -17,7 +17,7 @@ from torchao._models.sam2.modeling.sam2_base import SAM2Base
 from torchao._models.sam2.utils.transforms import SAM2Transforms
 
 
-class SAM2ImagePredictor:
+class SAM2ImagePredictor(torch.nn.Module):
     def __init__(
         self,
         sam_model: SAM2Base,

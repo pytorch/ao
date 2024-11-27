@@ -33,15 +33,17 @@ def main_headless(checkpoint_path, model_type, input_bytes, points_per_batch=102
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
     if furious:
         set_furious(mask_generator)
+    print("load_fast: ", load_fast)
+    if load_fast:
+        import time
+        t0 = time.time()
+        print(f"Start load. {t0}")
+        load_aot_fast(mask_generator)
+        print(f"End load. {time.time() - t0}")
     if fast:
         set_aot_fast(mask_generator)
         import sys; sys.exit(1)
         set_fast(mask_generator)
-    print("load_fast: ", load_fast)
-    if load_fast:
-        print("Start load.")
-        load_aot_fast(mask_generator)
-        print("End load.")
 
     image_tensor = file_bytes_to_image_tensor(input_bytes)
     if verbose:
