@@ -14,7 +14,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -529,6 +529,21 @@ class TestFloat8Linear:
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         with torch.inference_mode(mode=True):
+            m(x)
+
+    @unittest.skipIf(not is_sm_89(), "CUDA arch 8.9 not available")
+    def test_quantize(self):
+        x = torch.randn(32, 32, device="cuda")
+        m = nn.Sequential(nn.Linear(32, 32)).cuda()
+        m = convert_to_float8_training(m)
+        assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+        from torchao.quantization.quant_api import float8_weight_only, quantize_
+
+        quantize_(m, float8_weight_only())
+        assert (
+            m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn
+        ), "Post quantization dtype should be torch.float8_e4m3fn"
+        with torch.no_grad():
             m(x)
 
 

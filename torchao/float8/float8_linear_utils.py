@@ -321,21 +321,3 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
     for child in fp8_layers:
         # Set a flag to signal that initialization is done
         child.is_amax_initialized = True
-
-
-def dequantize_float8_training(model: nn.Module) -> nn.Module:
-    """
-    Converts `Float8Linear` modules in `model` to `torch.nn.Linear`.
-    """
-
-    def dequant_func(mod: Float8Linear) -> nn.Linear:
-        new_module = nn.Linear(mod.in_features, mod.out_features)
-        new_module.weight = mod.weight
-        new_module.bias = mod.bias
-        return new_module
-
-    return swap_linear_layers(
-        model,
-        dequant_func,
-        target_module=Float8Linear,
-    )
