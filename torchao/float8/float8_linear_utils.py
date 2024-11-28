@@ -61,7 +61,6 @@ def swap_linear_layers(
     from_float_func: Callable[[nn.Linear], nn.Linear],
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    target_module: nn.Module = nn.Linear,
 ) -> nn.Module:
     """
     Generic function to swap linear layers in a module with a new type of linear layer.
@@ -72,21 +71,20 @@ def swap_linear_layers(
 
     Args:
         module: Module to modify.
-        from_float_func: Function that accepts some type of linear layer and returns a new type of linear layer.
+        from_float_func: Function that accepts a linear layer and returns a new type of linear layer.
         module_filter_fn: If specified, only the `torch.nn.Linear` subclasses that
             that pass the filter function will be swapped. The inputs to the
             filter function are the module instance, and the FQN.
-        target_module: Replace these modules
 
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    if isinstance(module, target_module) and (
+    if isinstance(module, nn.Linear) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
         if len(list(module.children())) > 0:
             raise AssertionError(
-                f"Does not support a root {target_module.__module__} with children: {module.__module__}"
+                f"Does not support a root nn.Linear with children: {module}"
             )
         return from_float_func(
             module,
@@ -110,12 +108,12 @@ def swap_linear_layers(
 
             post_order_traversal(child_module, new_fqn, module)
 
-        if isinstance(module, target_module) and (
+        if isinstance(module, nn.Linear) and (
             module_filter_fn is None or module_filter_fn(module, cur_fqn)
         ):
             assert (
                 parent_module is not None
-            ), f"{target_module} root module should return early: {module}"
+            ), f"Linear root module should return early: {module}"
             new_linear_module = from_float_func(module)
             cur_module_name = cur_fqn.split(".")[-1]
             setattr(parent_module, cur_module_name, new_linear_module)

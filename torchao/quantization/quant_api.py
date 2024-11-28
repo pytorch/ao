@@ -40,7 +40,6 @@ from torchao.dtypes import (
     to_marlinqqq_quantized_intx,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import swap_linear_layers
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -224,24 +223,12 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
-
-    def dequantize_float8_training(model: nn.Module) -> nn.Module:
-        """Converts `Float8Linear` modules in `model` to `torch.nn.Linear`."""
-
-        def dequant_func(mod: Float8Linear) -> nn.Linear:
-            new_module = nn.Linear(mod.in_features, mod.out_features)
-            new_module.weight = mod.weight
-            new_module.bias = mod.bias
-            return new_module
-
-        return swap_linear_layers(
-            model,
-            dequant_func,
-            target_module=Float8Linear,
-        )
-
     if isinstance(model, Float8Linear):
-        model = dequantize_float8_training(model)
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization

@@ -766,7 +766,7 @@ class TestFloat8LinearUtils(unittest.TestCase):
             config = Float8LinearConfig(emulate=emulate)
             with self.assertRaisesRegex(
                 AssertionError,
-                "Does not support a root torch.nn.modules.linear with children",
+                "Does not support a root nn.Linear with children",
             ):
                 convert_to_float8_training(module, config=config)
 
