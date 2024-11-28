@@ -422,6 +422,7 @@
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
     <span class="n">to_marlinqqq_quantized_intx</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span> <span class="nn">torchao.float8.float8_linear</span> <span class="kn">import</span> <span class="n">Float8Linear</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
 <span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observed_tensor</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
@@ -605,6 +606,12 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+            <span class="n">new_module</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">out_features</span><span class="p">)</span>
+        <span class="n">new_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">weight</span>
+        <span class="n">new_module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">bias</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">new_module</span>
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
