@@ -2,11 +2,18 @@
 # All rights reserved.
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import subprocess
+import sys
 
+try:
+    import torch
+except ImportError:
+    print("Torch is not installed. Attempting to install it...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "torch==2.3.1"])
+    
 import os
 import glob
 from datetime import datetime
-import subprocess
 
 from setuptools import find_packages, setup
 
