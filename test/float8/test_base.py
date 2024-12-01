@@ -13,6 +13,7 @@ import warnings
 import pytest
 import torch
 import torch.nn as nn
+
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
@@ -536,7 +537,7 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
-    @unittest.skipIf(not is_sm_89(), "CUDA arch 8.9 not available")
+    @unittest.skipIf(not is_sm_at_least_89(), "CUDA arch 8.9 not available")
     def test_quantize(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
