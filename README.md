@@ -178,7 +178,7 @@ We're also fortunate to be integrated into some of the leading open-source libra
 3. Mobius HQQ backend leveraged our int4 kernels to get [195 tok/s on a 4090](https://github.com/mobiusml/hqq#faster-inference)
 4. [TorchTune](https://github.com/pytorch/torchtune) for our QLoRA and QAT recipes
 5. [torchchat](https://github.com/pytorch/torchchat) for post training quantization
-6. [SGLang](https://github.com/sgl-project/sglang/pull/1341) for LLM inference quantization
+6. SGLang for LLM serving: [usage](https://github.com/sgl-project/sglang/blob/4f2ee48ed1c66ee0e189daa4120581de324ee814/docs/backend/backend.md?plain=1#L83) and the major [PR](https://github.com/sgl-project/sglang/pull/1341).
 
 ## Videos
 * [Keynote talk at GPU MODE IRL](https://youtu.be/FH5wiwOyPX4?si=VZK22hHz25GRzBG1&t=1009)
@@ -205,4 +205,5 @@ If you find the torchao library useful, please cite it in your work as below.
   license = {BSD-3-Clause},
   month = oct,
   year = {2024}
+}
 ```

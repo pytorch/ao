@@ -33,8 +33,8 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_4",
     "TORCH_VERSION_AFTER_2_5",
     "is_MI300",
-    "is_sm_89",
-    "is_sm_90",
+    "is_sm_at_least_89",
+    "is_sm_at_least_90",
 ]
 
 
@@ -612,7 +612,7 @@ def is_MI300():
     return False
 
 
-def is_sm_89():
+def is_sm_at_least_89():
     return (
         torch.cuda.is_available()
         and torch.version.cuda
@@ -620,7 +620,7 @@ def is_sm_89():
     )
 
 
-def is_sm_90():
+def is_sm_at_least_90():
     return (
         torch.cuda.is_available()
         and torch.version.cuda
