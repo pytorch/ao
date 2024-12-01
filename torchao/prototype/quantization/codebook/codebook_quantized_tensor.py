@@ -8,6 +8,7 @@ from torchao.prototype.quantization.codebook.codebook_ops import (
     dequantize_codebook,
     quantize_codebook,
 )
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
@@ -247,3 +248,40 @@ def function_detach(tensor, *args, **kwargs):
 @implements_torch_function(torch.Tensor.requires_grad_)
 def function_requires_grad_(tensor, *args, **kwargs):
     return tensor.requires_grad_(*args, **kwargs)
+
+
+def codebook_weight_only(
+    dtype=torch.uint4,
+    block_size: Tuple[int, int] = (1, 1),
+    scale_block_size: int = None,
+):
+    """
+    Applies codebook weight-only quantization to linear layers.
+
+    Args:
+        dtype: torch.uint1 to torch.uint8, torch.int32 supported.
+        block_size: Tuple of (out_features, in_features) to control quantization granularity.
+        max_iter: Number of iterations for k-means clustering.
+        devices: Devices to run k-means on.
+
+    Returns:
+        Callable for quantization transformation.
+    """
+
+    def apply_codebook_quantization(weight, scale_block_size):
+        if weight.numel() > 2**27:
+            return weight  # k_means is too numerically unstable
+        if scale_block_size is None:
+            scale_block_size = weight.shape[1]
+        quantized = CodebookQuantizedTensor.from_float(
+            weight,
+            block_size=block_size,
+            code_dtype=dtype,
+            scale_block_size=scale_block_size,
+        )
+        print((quantized.dequantize() - weight).abs().mean())
+        return quantized
+
+    return _get_linear_subclass_inserter(
+        apply_codebook_quantization, scale_block_size=scale_block_size
+    )
