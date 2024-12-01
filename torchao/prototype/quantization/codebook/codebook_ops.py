@@ -4,13 +4,14 @@ import torch
 
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
-    _SUB_BYTE_DTYPE_BOUNDS,
+    _SUB_BYTE_UINT_BOUNDS,
 )
 
 
 def quantize_codebook(
     input: torch.Tensor,
     codebook: torch.Tensor,
+    scales: torch.Tensor,
     chunk_size: int = 1024,
     code_dtype: torch.dtype = torch.uint4,
 ) -> torch.Tensor:
@@ -26,7 +27,7 @@ def quantize_codebook(
     Output:
         codes (torch.Tensor): indices of the closest codebook entries for each block.
     """
-    if code_dtype in _SUB_BYTE_DTYPE_BOUNDS:
+    if code_dtype in _SUB_BYTE_UINT_BOUNDS:
         code_dtype = torch.uint8
     assert (
         input.dim() == 2
@@ -53,6 +54,11 @@ def quantize_codebook(
 
     num_out_blocks = out_features // out_block_size
     num_in_blocks = in_features // in_block_size
+
+    num_scale_blocks = scales.shape[1]
+
+    input = input.view(out_features, num_scale_blocks, -1)
+    input = input / scales
 
     input = input.view(num_out_blocks, out_block_size, num_in_blocks, in_block_size)
     input_flat = input.permute(0, 2, 1, 3).reshape(
@@ -90,6 +96,7 @@ def quantize_codebook(
 def dequantize_codebook(
     codes: torch.Tensor,
     codebook: torch.Tensor,
+    scales: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
@@ -124,14 +131,20 @@ def dequantize_codebook(
         num_out_blocks * out_block_size, num_in_blocks * in_block_size
     )
 
+    dequant = dequant.view(num_out_blocks * out_block_size, scales.shape[1], -1)
+    dequant = dequant * scales
+
+    dequant = dequant.view(num_out_blocks * out_block_size, -1)
+
     return dequant.to(output_dtype)
 
 
 def choose_qparams_codebook(
     input_tensor: torch.Tensor,
     block_size: Tuple[int, ...],
+    scale_block_size: int,
     code_dtype: torch.dtype,
-    max_iter: int = 1000,
+    max_iter: int = 200,
     devices: Optional[List[torch.device]] = None,
 ) -> torch.Tensor:
     """
@@ -157,9 +170,23 @@ def choose_qparams_codebook(
     num_out_blocks = out_features // out_block_size
     num_in_blocks = in_features // in_block_size
 
-    input = input_tensor.view(
-        num_out_blocks, out_block_size, num_in_blocks, in_block_size
-    )
+    assert (
+        in_features % scale_block_size == 0
+    ), f"input_features ({in_features}) must be divisible by scale_block_size ({scale_block_size})."
+    num_scale_blocks = in_features // scale_block_size
+
+    input = input_tensor.view(out_features, num_scale_blocks, scale_block_size)
+
+    # norm or max?
+    scales = input.norm(
+        dim=(-1), keepdim=True
+    )  # Shape: [out_features, num_scale_blocks, 1]
+    scales = torch.clamp(scales, min=1e-9)
+
+    input = input / scales
+
+    input = input.view(num_out_blocks, out_block_size, num_in_blocks, in_block_size)
+
     input = input.permute(0, 2, 1, 3).reshape(
         num_out_blocks * num_in_blocks, out_block_size * in_block_size
     )
@@ -171,13 +198,13 @@ def choose_qparams_codebook(
         devices=devices,
     )
 
-    return codebook.view(codebook_size, out_block_size, in_block_size)
+    return codebook.view(codebook_size, out_block_size, in_block_size), scales
 
 
 def fit_kmeans(
     data: torch.Tensor,
     k: int,
-    max_iter: int = 1000,
+    max_iter: int = 200,
     check_every: int = 10,
     rtol: float = 1e-06,
     atol: float = 1e-08,

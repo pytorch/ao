@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from torchao.dtypes.uintx.uintx import _DTYPE_TO_BIT_WIDTH, UintxTensor
+from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxTensor
 from torchao.prototype.quantization.codebook.codebook_ops import (
     choose_qparams_codebook,
     dequantize_codebook,
@@ -37,6 +37,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         codes: torch.Tensor,
         codebook: torch.Tensor,
         block_size: Tuple[int, ...],
+        scales: torch.Tensor,
         shape: torch.Size,
         dtype=None,
         strides=None,
@@ -57,6 +58,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         codes: torch.Tensor,
         codebook: torch.Tensor,
         block_size: Tuple[int, ...],
+        scales: torch.Tensor,
         shape: torch.Size,
         dtype=None,
         strides=None,
@@ -64,10 +66,12 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         self.codes = codes
         self.codebook = codebook
         self.block_size = block_size
+        self.scales = scales
+        self._dtype = dtype  # not sure this is right
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(codes={self.codes}, codebook={self.codebook}, block_size={self.block_size}, "
+            f"{self.__class__.__name__}(codes={self.codes}, codebook={self.codebook}, block_size={self.block_size}, scales={self.scales}, "
             f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
@@ -76,21 +80,27 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
-            output_dtype = torch.float32
+            output_dtype = self.dtype
 
         if isinstance(self.codes, UintxTensor):
             codes = self.codes.get_plain()
-            codes = codes.to(torch.int32)  # not sure how to index with uint8
         else:
             codes = self.codes
+        if codes.dtype == torch.uint8:
+            codes = codes.to(torch.int32)  # not sure how to index with uint8
         return dequantize_codebook(
             codes,
             self.codebook,
+            self.scales,
             output_dtype=output_dtype,
         )
 
     def __tensor_flatten__(self):
-        return ["codes", "codebook"], [self.block_size, self.shape, self.dtype]
+        return ["codes", "codebook", "scales"], [
+            self.block_size,
+            self.shape,
+            self.dtype,
+        ]
 
     @classmethod
     def __tensor_unflatten__(
@@ -98,11 +108,13 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
     ):
         codes = tensor_data_dict["codes"]
         codebook = tensor_data_dict["codebook"]
+        scales = tensor_data_dict["scales"]
         block_size, shape, dtype = tensor_attributes
         return cls(
             codes,
             codebook,
             block_size,
+            scales,
             shape if outer_size is None else outer_size,
             dtype=dtype,
             strides=outer_stride,
@@ -114,6 +126,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         input_tensor: torch.Tensor,
         block_size: Tuple[int, ...],
         code_dtype: torch.dtype,
+        scale_block_size: int,
         chunk_size: int = 1024,
     ):
         """
@@ -126,9 +139,13 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             chunk_size (int): The chunk size to use during quantization (to control memory usage).
         """
 
-        codebook = choose_qparams_codebook(input_tensor, block_size, code_dtype)
+        codebook, scales = choose_qparams_codebook(
+            input_tensor.to(torch.float64), block_size, scale_block_size, code_dtype
+        )  # .to(torch.float32) because I think k_means isn't numerically stable
 
-        codes = quantize_codebook(input_tensor, codebook, chunk_size, code_dtype)
+        codes = quantize_codebook(
+            input_tensor, codebook, scales, chunk_size, code_dtype
+        )
         if code_dtype in _DTYPE_TO_BIT_WIDTH:
             codes = UintxTensor.from_uint8(codes, dtype=code_dtype)
 
@@ -136,6 +153,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             codes,
             codebook,
             block_size,
+            scales,
             input_tensor.shape,
             dtype=input_tensor.dtype,
         )
@@ -148,6 +166,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             self.codes.to(device),
             self.codebook.to(device),
             self.block_size,
+            self.scales.to(device),
             self.shape,
             **kwargs,
         )
@@ -158,6 +177,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             fn(self.codes),
             self.codebook,
             self.block_size,
+            self.scales,
             self.shape,
             dtype=self.dtype,
         )
@@ -188,6 +208,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             self.codes.detach(),
             self.codebook.detach(),
             self.block_size,
+            self.scales.detach(),
             self.shape,
             dtype=self.dtype,
         )
@@ -198,7 +219,13 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         """
         self.codes.requires_grad_(requires_grad)
         self.codebook.requires_grad_(requires_grad)
+        self.scales.requires_grad_(requires_grad)
         return self
+
+    @property
+    def dtype(self):
+        # Hacky way to avoid recursion with __torch_function__
+        return self._dtype
 
 
 CODEBOOK_TORCH_FUNCTIONS = {}
