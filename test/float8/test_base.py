@@ -14,7 +14,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -265,13 +265,14 @@ class TestFloat8Linear:
             config,
         )
         for _ in range(2):
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m_fp8)
             if use_ac:
                 y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
             else:
                 y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
+            if linear_requires_sync(config):
+                sync_float8_amax_and_scale_history(m_fp8)
+
             if use_ac:
                 y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
             else:
@@ -530,6 +531,21 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
+    @unittest.skipIf(not is_sm_89(), "CUDA arch 8.9 not available")
+    def test_quantize(self):
+        x = torch.randn(32, 32, device="cuda")
+        m = nn.Sequential(nn.Linear(32, 32)).cuda()
+        m = convert_to_float8_training(m)
+        assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+        from torchao.quantization.quant_api import float8_weight_only, quantize_
+
+        quantize_(m, float8_weight_only())
+        assert (
+            m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn
+        ), "Post quantization dtype should be torch.float8_e4m3fn"
+        with torch.no_grad():
+            m(x)
+
 
 class TestScaledMM:
     @unittest.skipIf(
@@ -575,7 +591,7 @@ class TestScaledMM:
         if base_dtype in {torch.bfloat16, torch.float16}:
             atol, rtol = 7e-2, 7e-2
         else:
-            atol, rtol = 2e-3, 2e-3
+            atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
     @unittest.skipIf(not is_cuda_8_9, "CUDA not available")

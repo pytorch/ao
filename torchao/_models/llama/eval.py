@@ -10,27 +10,22 @@ from typing import List, Optional
 from generate import (
     _load_model,
     device_sync,
-
 )
-from torchao.quantization.quant_api import (
+from torchao.quantization import (
     quantize_,
     int4_weight_only,
     int8_weight_only,
     int8_dynamic_activation_int8_weight,
     fpx_weight_only,
     uintx_weight_only,
-    unwrap_tensor_subclass,
     float8_weight_only,
     float8_dynamic_activation_float8_weight,
-    float8_static_activation_float8_weight,
 )
-from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from torchao._models.llama.model import prepare_inputs_for_model
-from torchao.quantization.granularity import PerRow, PerTensor
-
+from torchao.quantization import PerRow, PerTensor
 from tokenizer import get_tokenizer
 import time
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
 
 def run_evaluation(
     checkpoint_path: Path,

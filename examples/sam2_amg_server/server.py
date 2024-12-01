@@ -1,4 +1,5 @@
 import itertools
+import requests
 import uvicorn
 import fire
 import tempfile
@@ -37,6 +38,23 @@ inductorconfig.allow_buffer_reuse = False
 # torch._dynamo.config.capture_dynamic_output_shape_ops = True
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
+def download_file(url, download_dir):
+    # Create the directory if it doesn't exist
+    download_dir = Path(download_dir)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    # Extract the file name from the URL
+    file_name = url.split('/')[-1]
+    # Define the full path for the downloaded file
+    file_path = download_dir / file_name
+    # Download the file
+    response = requests.get(url, stream=True)
+    response.raise_for_status()  # Raise an error for bad responses
+    # Write the file to the specified directory
+    print(f"Downloading '{file_name}' to '{download_dir}'")
+    with open(file_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+    print(f"Downloaded '{file_name}' to '{download_dir}'")
 
 def example_shapes():
     return [(848, 480, 3),
@@ -272,10 +290,249 @@ def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
         print(f"mIoU is {miou} with equal count {equal_count} out of {len(masks)}")
 
 
+MODEL_TYPES_TO_CONFIG = {
+        "tiny": "sam2.1_hiera_t.yaml",
+        "small": "sam2.1_hiera_s.yaml",
+        "plus": "sam2.1_hiera_b+.yaml",
+        "large": "sam2.1_hiera_l.yaml",
+        }
+
+MODEL_TYPES_TO_MODEL = {
+        "tiny": "sam2.1_hiera_tiny.pt",
+        "small": "sam2.1_hiera_small.pt",
+        "plus": "sam2.1_hiera_base_plus.pt",
+        "large": "sam2.1_hiera_large.pt",
+        }
+
+
+MODEL_TYPES_TO_URL = {
+        "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+        "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+        "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
+        "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+        }
+
+
+def main_docstring():
+    return f"""
+    Args:
+        checkpoint_path (str): Path to folder containing checkpoints from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints
+        model_type (str): Choose from one of {", ".join(MODEL_TYPES_TO_MODEL.keys())}
+    """
+
+
+def model_type_to_paths(checkpoint_path, model_type):
+    if model_type not in MODEL_TYPES_TO_CONFIG.keys():
+        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+    sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
+    if not sam2_checkpoint.exists():
+        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
+    assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
+    model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
+    return sam2_checkpoint, model_cfg
+
+
+def aot_compile(model_directory, name, fn, sample_args):
+    path = Path(model_directory) / Path(f"{name}.pt2")
+    print(f"Saving at {path=}")
+    options = {
+        "max_autotune": True,
+        "triton.cudagraphs": True,
+    }
+
+    exported = torch.export.export_for_inference(fn, sample_args)
+    output_path = torch._inductor.aoti_compile_and_package(
+        exported,
+        package_path=str(path),
+        inductor_configs=options,
+    )
+    return output_path
+
+
+def aot_load(path):
+    return torch._export.aot_load(path, "cuda")
+
+class FunctionModel(torch.nn.Module):
+
+    def __init__(self, module, fn_name):
+        super().__init__()
+        self.module = module
+        self.fn_name = fn_name
+
+    def forward(self, *args):
+        return getattr(self.module, self.fn_name)(*args)
+
+
+def set_aot_fast(mask_generator, model_directory):
+    example_input = torch.empty(1, 3, 1024, 1024)
+    example_input = example_input.to(mask_generator.predictor._image_dtype)
+    example_input = (example_input.to(mask_generator.predictor.device),)
+    aot_compile(model_directory,
+                "sam2_image_encoder",
+                mask_generator.predictor.model.image_encoder,
+                example_input)
+
+    # NOTE: THIS DOESN'T WORK YET!
+    # example_input_0_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_0_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
+    # example_input = ([example_input_0_0, example_input_0_1],
+    #                  example_input_1,
+    #                  example_input_2,
+    #                  example_input_3,
+    #                  None,
+    #                  None,
+    #                  True,
+    #                  True,
+    #                  -1)
+    # mask_generator.forward = mask_generator.predictor._predict_masks_with_features
+    # mask_generator(*example_input)
+    # aot_compile("sam2__predict_masks_with_features",
+    #             mask_generator,
+    #             example_input)
+
+    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
+    # aot_compile("sam2_sam_prompt_encoder",
+    #             mask_generator.predictor.model.sam_prompt_encoder,
+    #             ((example_input_2, example_input_3),
+    #              None,
+    #              None))
+
+    # NOTE: THIS DOESN'T WORK YET!
+    # example_input_0 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_2 = torch.empty(1024, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device)
+    # example_input_3 = torch.empty(1024, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
+
+    # example_input_4_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_4_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
+
+    # example_input = (example_input_0,
+    #                  example_input_1,
+    #                  example_input_2,
+    #                  example_input_3,
+    #                  True,
+    #                  True,
+    #                  [example_input_4_0, example_input_4_1])
+    # print("Example")
+    # mask_generator.predictor.model.sam_mask_decoder(*example_input)
+    # print("Example done")
+    # aot_compile("sam2_sam_mask_decoder",
+    #             mask_generator.predictor.model.sam_mask_decoder,
+    #             example_input)
+
+    # example_input_0 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_1 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input_2 = torch.empty(1024, 8, 256, dtype=torch.float16, device=mask_generator.predictor.device)
+    # example_input = (example_input_0, example_input_1, example_input_2)
+
+    # mask_generator.predictor.model.sam_mask_decoder.transformer(*example_input)
+    # aot_compile("sam2_sam_mask_decoder_transformer",
+    #             mask_generator.predictor.model.sam_mask_decoder.transformer,
+    #             example_input)
+
+
+
+
+class LoadedModel(torch.nn.Module):
+
+    def __init__(self, aoti_compiled_model):
+        super().__init__()
+        self.aoti_compiled_model = aoti_compiled_model
+
+    def forward(self, *args):
+        return self.aoti_compiled_model(*args)
+
+class LoadedDecoder(torch.nn.Module):
+
+    def __init__(self, aoti_compiled_model, other):
+        super().__init__()
+        self.aoti_compiled_model = aoti_compiled_model
+        self.other = other
+
+    def forward(self, *args):
+        return self.aoti_compiled_model(*args)
+
+    def get_dense_pe(self, *args, **kwargs) -> torch.Tensor:
+        return self.other.get_dense_pe(*args, **kwargs)
+
+def load_aot_fast(mask_generator, model_directory):
+    t0 = time.time()
+    path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
+    assert path.exists(), f"Expected {path} to exist."
+    print(f"Start load from {path}")
+    pkg = torch._inductor.aoti_load_package(str(path))
+    pkg_m = LoadedModel(pkg)
+    mask_generator.predictor.model.image_encoder = pkg_m
+    
+    # NOTE: This doesn't work yet!
+    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2__predict_masks_with_features.pt2"))
+    # pkg_m = LoadedModel(pkg)
+    # mask_generator.predictor._predict_masks_with_features = pkg_m.forward
+
+    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_prompt_encoder.pt2"))
+    # pkg_m = LoadedDecoder(pkg, mask_generator.predictor.model.sam_prompt_encoder)
+    # mask_generator.predictor.model.sam_prompt_encoder = pkg_m
+
+    # NOTE: This doesn't work yet!
+    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder.pt2"))
+    # pkg_m = LoadedModel(pkg)
+    # pkg_m.conv_s0 = mask_generator.predictor.model.sam_mask_decoder.conv_s0
+    # pkg_m.conv_s1 = mask_generator.predictor.model.sam_mask_decoder.conv_s1
+    # mask_generator.predictor.model.sam_mask_decoder = pkg_m
+
+    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder_transformer.pt2"))
+    # pkg_m = LoadedModel(pkg)
+    # mask_generator.predictor.model.sam_mask_decoder.transformer = pkg_m
+
+    print(f"End load. Took {time.time() - t0}s")
+
+
+def set_fast(mask_generator, load_fast=""):
+    if load_fast == "":
+        # TODO: Using CUDA graphs can cause numerical differences?
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+    mask_generator.predictor._predict_masks = torch.compile(
+        mask_generator.predictor._predict_masks,
+        mode="max-autotune",
+        fullgraph=True,
+        dynamic=False,
+    )
+
+    # mask_generator.predictor._predict_masks_postprocess = torch.compile(
+    #     mask_generator.predictor._predict_masks_postprocess,
+    #     fullgraph=True,
+    #     dynamic=True,
+    # )
+
+
+def set_furious(mask_generator):
+    mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor._image_dtype = torch.float16
+    mask_generator.predictor._transforms_device = mask_generator.predictor.device
+    torch.set_float32_matmul_precision('high')
+    mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
+    # NOTE: Not baseline feature
+    mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
+
+
 def main(checkpoint_path,
+         model_type,
          baseline=False,
          fast=False,
          furious=False,
+         use_autoquant=False,
          unittest=False,
          benchmark=False,
          profile=None,
@@ -285,7 +542,9 @@ def main(checkpoint_path,
          port=5000,
          host="127.0.0.1",
          dry=False,
-         batch_size=1):
+         batch_size=1,
+         load_fast="",
+         save_fast=""):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -304,50 +563,41 @@ def main(checkpoint_path,
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
         from torchao._models.sam2.utils.amg import rle_to_mask
-    
+
     device = "cuda"
-    from pathlib import Path
-    sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-    
+    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
+
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
- 
+
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
+    if load_fast != "":
+        load_aot_fast(mask_generator, load_fast)
+
+    if save_fast != "":
+        assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
+        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        print(f"Saving compiled models under directory {save_fast}")
+        set_aot_fast(mask_generator, save_fast)
+
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.image_encoder = torch.compile(
-            mask_generator.predictor.model.image_encoder,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        mask_generator.predictor._predict_masks = torch.compile(
-            mask_generator.predictor._predict_masks,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        # mask_generator.predictor._predict_masks_postprocess = torch.compile(
-        #     mask_generator.predictor._predict_masks_postprocess,
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
+        set_fast(mask_generator, load_fast)
 
     if furious:
-        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
+        set_furious(mask_generator)
+    # since autoquant is replicating what furious mode is doing, don't use these two together
+    elif use_autoquant:
+        from torchao import autoquant
+        from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+        mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+
+         #  mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
         # NOTE: Not baseline feature
-        mask_generator.predictor._image_dtype = torch.float16
         mask_generator.predictor._transforms_device = mask_generator.predictor.device
         torch.set_float32_matmul_precision('high')
-        mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
-        # NOTE: Not baseline feature
-        mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
@@ -427,7 +677,7 @@ def main(checkpoint_path,
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
         return masks_to_rle_dict(masks)
-    
+
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
         image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
@@ -445,10 +695,11 @@ def main(checkpoint_path,
         plt.savefig(buf, format='png')
         buf.seek(0)
         return StreamingResponse(buf, media_type="image/png")
-    
+
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
 
+main.__doc__ = main_docstring()
 if __name__ == "__main__":
     fire.Fire(main)

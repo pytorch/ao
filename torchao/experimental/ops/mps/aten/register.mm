@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 // clang-format off
-#include <torch/extension.h>
+#include <torch/library.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <torchao/experimental/kernels/mps/src/lowbit.h>
 // clang-format on
@@ -146,9 +146,6 @@ Tensor pack_weights_cpu_kernel(const Tensor& W) {
 
   return B;
 }
-
-// Registers _C as a Python extension module.
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
 
 TORCH_LIBRARY(torchao, m) {
   m.def("_pack_weight_1bit(Tensor W) -> Tensor");

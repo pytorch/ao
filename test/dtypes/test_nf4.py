@@ -504,17 +504,22 @@ class TestFSDPOps(TestCase):
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to("cuda", non_blocking=True)
         self.assertEqual(nf4_tensor.device.type, "cuda")
+        self.assertEqual(type(nf4_tensor), NF4Tensor)
+        nf4_tensor.get_original_weight()  # make sure we can dequantize
 
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to("cuda")
         self.assertEqual(nf4_tensor.device.type, "cuda")
+        self.assertEqual(type(nf4_tensor), NF4Tensor)
+        nf4_tensor.get_original_weight()
 
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to("cuda", torch.bfloat16)
         self.assertEqual(nf4_tensor.device.type, "cuda")
         self.assertEqual(nf4_tensor.dtype, torch.bfloat16)
+        self.assertEqual(type(nf4_tensor), torch.Tensor)  # dequantized
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cpu(self):
@@ -524,6 +529,37 @@ class TestFSDPOps(TestCase):
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor, attr)
             self.assertEqual(inner_tensor.device.type, "cpu")
+        nf4_tensor.get_original_weight()  # make sure we can dequantize
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_to_module(self):
+        linear = nn.Linear(512, 512, bias=False)
+        linear.weight = nn.Parameter(
+            to_nf4(linear.weight.detach()), requires_grad=False
+        )
+        linear.cuda()
+        self.assertEqual(linear.weight.device.type, "cuda")
+        weight = linear.weight.get_original_weight()
+        self.assertEqual(weight.device.type, "cuda")
+
+        linear.cpu()
+        self.assertEqual(linear.weight.device.type, "cpu")
+        weight = linear.weight.get_original_weight()
+        self.assertEqual(weight.device.type, "cpu")
+
+        linear = nn.Linear(512, 512, bias=False)
+        linear.weight = nn.Parameter(
+            to_nf4(linear.weight.detach()), requires_grad=False
+        )
+        linear.to("cuda")
+        self.assertEqual(linear.weight.device.type, "cuda")
+        weight = linear.weight.get_original_weight()
+        self.assertEqual(weight.device.type, "cuda")
+
+        linear.to("cpu")
+        self.assertEqual(linear.weight.device.type, "cpu")
+        weight = linear.weight.get_original_weight()
+        self.assertEqual(weight.device.type, "cpu")
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])

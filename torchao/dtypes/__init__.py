@@ -16,6 +16,7 @@ from .floatx import (
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     BlockSparseLayout,
+    Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     SemiSparseLayout,
@@ -48,4 +49,5 @@ __all__ = [
     "UintxLayout",
     "MarlinQQQTensor",
     "MarlinQQQLayout",
+    "Int4CPULayout",
 ]
