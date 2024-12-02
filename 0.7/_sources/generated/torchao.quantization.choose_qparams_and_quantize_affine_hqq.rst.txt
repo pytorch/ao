@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+choose_qparams_and_quantize_affine_hqq
+======================================
+
+.. autofunction:: choose_qparams_and_quantize_affine_hqq
