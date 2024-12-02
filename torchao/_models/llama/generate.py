@@ -18,6 +18,18 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
+def device_timer(device):
+    if "cuda" in device:
+        return torch.cuda.Event(enable_timing=True)
+    else:
+        return time.perf_counter
+
+def device_record_event(event):
+    if isinstance(event, torch.cuda.Event):
+        event.record()
+    else:
+        return event()
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -96,6 +108,8 @@ def generate(
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
+    prefill_start_event=None,
+    prefill_end_event=None,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -125,9 +139,14 @@ def generate(
     x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
 
     # execute prefill
+    if prefill_start_event is not None:
+        device_record_event(prefill_start_event)
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
+    if prefill_end_event is not None:
+        device_record_event(prefill_end_event)
     # execute token generation
+
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
 
@@ -184,7 +203,6 @@ def main(
 
     if prefill_size > 0:
         print("Running TTFT benchmark!")
-        assert max_new_tokens == 1, "prefill_size only supports max_new_tokens=1"
         # create prompt of prefill size ttft
         prompt = "prompt " * (int(prefill_size)-3)
 
@@ -390,6 +408,8 @@ def main(
         else:
             callback = lambda x : x
         t0 = time.perf_counter()
+        prefill_start_event = device_timer(device)
+        prefill_end_event = device_timer(device)
         import contextlib
         if (i != num_samples - 1 or not profile):
             prof = contextlib.nullcontext()
@@ -408,6 +428,8 @@ def main(
                 kv_cache_quantization=kv_cache_quantization,
                 cache_size=cache_size,
                 linear_causal_mask=linear_causal_mask,
+                prefill_start_event=prefill_start_event,
+                prefill_end_event=prefill_end_event,
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
@@ -429,6 +451,7 @@ def main(
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         aggregate_metrics['time'].append(t)
         print(f"Time for inference {i + 1}: {t:.04f} sec total, {tokens_sec:.02f} tokens/sec")
+        print(f"Time for prefill{i + 1}: {prefill_start_event.elapsed_time(prefill_end_event):.04f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
