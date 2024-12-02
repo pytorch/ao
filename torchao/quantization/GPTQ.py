@@ -580,8 +580,6 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
-            from .utils import find_multiple
-
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
 
@@ -760,8 +758,6 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 ):
                     if self.padding_allowed:
                         import torch.nn.functional as F
-
-                        from .utils import find_multiple
 
                         logging.warn(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
@@ -1150,8 +1146,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 if not _check_linear_int4_k(in_features, self.groupsize):
                     if self.padding_allowed:
                         import torch.nn.functional as F
-
-                        from .utils import find_multiple
 
                         logging.warn(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
