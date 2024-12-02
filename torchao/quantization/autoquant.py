@@ -682,9 +682,10 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
     def from_float(cls, weight):
         return weight
 
+
 class Float32Tensor(TorchAOBaseTensor):
-    """ Tensor subclass tensor for fp32 dtype
-    """
+    """Tensor subclass tensor for fp32 dtype"""
+
     def __init__(self, weight):
         self.weight = weight.to(torch.float32)
 
@@ -779,6 +780,7 @@ class AQFloat32LinearWeight(Float32Tensor, AQMixin):
     (also converts input activation and bias to float32, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQFloat32LinearWeight, cls).from_float(weight)
@@ -791,6 +793,7 @@ class AQBFloat16LinearWeight(BFloat16Tensor, AQMixin):
     (also converts input activation and bias to bfloat16, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQBFloat16LinearWeight, cls).from_float(weight)
@@ -803,6 +806,7 @@ class AQFloat16LinearWeight(Float16Tensor, AQMixin):
     (also converts input activation and bias to float16, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQFloat16LinearWeight, cls).from_float(weight)
