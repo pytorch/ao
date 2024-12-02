@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -40,8 +40,7 @@ from torchao.float8.float8_tensor import GemmInputRole
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
 
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
-if not is_cuda_8_9:
+if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 

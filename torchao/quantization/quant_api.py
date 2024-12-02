@@ -39,6 +39,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
 )
+from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -52,8 +53,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_MI300,
-    is_sm_89,
-    is_sm_90,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -222,6 +223,12 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
+    if isinstance(model, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -857,11 +864,11 @@ def _normalize_granularity(
     for _granularity in processed_granularity:
         if isinstance(_granularity, PerTensor):
             assert (
-                is_sm_89() or is_MI300()
+                is_sm_at_least_89() or is_MI300()
             ), "PerTensor quantization only works for CUDA>=8.9 and MI300+"
         elif isinstance(_granularity, PerRow):
             assert (
-                is_sm_90() or is_MI300()
+                is_sm_at_least_90() or is_MI300()
             ), "PerRow quantization only works for CUDA>=9.0 and MI300+"
         else:
             raise ValueError(f"Invalid granularity type: {_granularity}")
@@ -959,7 +966,7 @@ def float8_dynamic_activation_float8_weight(
 
     """
     assert (
-        is_sm_89() or is_MI300()
+        is_sm_at_least_89() or is_MI300()
     ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
@@ -1016,7 +1023,7 @@ def float8_static_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
     assert (
-        is_sm_89() or is_MI300()
+        is_sm_at_least_89() or is_MI300()
     ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)

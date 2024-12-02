@@ -11,7 +11,11 @@ from io import StringIO
 
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -45,10 +49,6 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.float8.float8_utils import e4m3_dtype
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
-
-# TODO(future PR): standardize IS_H100 with the rest of the codebase
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 
 def _test_compile_base(
@@ -99,7 +99,7 @@ def _test_compile_base(
     "scaling_type_grad_output",
     [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
 )
-@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_eager_only(
@@ -126,7 +126,7 @@ def test_eager_only(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
@@ -177,7 +177,7 @@ def test_aot_eager(
     [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
 )
 @unittest.skipIf(
-    not torch.cuda.is_available() or not is_cuda_8_9,
+    not torch.cuda.is_available() or not is_sm_at_least_89(),
     "CUDA with float8 support not available",
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
@@ -215,7 +215,9 @@ def test_inductor_from_config_params(
         Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
     ],
 )
-@unittest.skipIf(not is_H100, "CUDA with capability 9.0 or greater not available")
+@unittest.skipIf(
+    not is_sm_at_least_90(), "CUDA with capability 9.0 or greater not available"
+)
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
     config = recipe_name_to_linear_config(recipe_name)
@@ -253,7 +255,7 @@ class TestGraphBreaks(DynamoTestCase):
 
     # TODO(future): figure out why the test below fails on CUDA capability 8.9
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_H100,
+        not torch.cuda.is_available() or not is_sm_at_least_90(),
         "CUDA with capability 9.0 or greater not available",
     )
     def test_float8_with_graph_break_in_the_middle(self):
@@ -269,7 +271,7 @@ class TestGraphBreaks(DynamoTestCase):
         torch.testing.assert_close(y_eager, y_compiled)
 
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_cuda_8_9,
+        not torch.cuda.is_available() or not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
     def test_float8_graph_input(self):
@@ -293,7 +295,7 @@ class TestGraphBreaks(DynamoTestCase):
         torch.testing.assert_close(y2_eager, y2_compiled)
 
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_cuda_8_9,
+        not torch.cuda.is_available() or not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
     def test_float8_graph_output(self):
@@ -323,7 +325,7 @@ class TestGraphBreaks(DynamoTestCase):
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or not is_cuda_8_9,
+    not torch.cuda.is_available() or not is_sm_at_least_89(),
     "CUDA with float8 support not available",
 )
 def test_sync_amax_func():
@@ -364,7 +366,7 @@ class capture_stderr(list):
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or not is_cuda_8_9,
+    not torch.cuda.is_available() or not is_sm_at_least_89(),
     "CUDA with float8 support not available",
 )
 def test_sync_amax_func_cuda_graph_success():
@@ -396,7 +398,7 @@ def test_sync_amax_func_cuda_graph_success():
 
 
 @unittest.skipIf(
-    not is_cuda_8_9,
+    not is_sm_at_least_89(),
     "CUDA not available",
 )
 @pytest.mark.parametrize(
