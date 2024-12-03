@@ -2,9 +2,9 @@
 
 ## Performance Profiling Example
 
-An minimal version of `gpt-fast generate.py` that demonstrates usage of `torchao.profiler.TransformerPerformanceCounter`.
+An minimal version of `gpt-fast generate.py` that demonstrates usage of `torchao.prototype.profiler.TransformerPerformanceCounter`.
 - Outputs from gpt-fast are prefixed with GPT-Fast
-- Outputs from `torchao.profiler.TransformerPerformanceCounter` are prefixed with `TransformerPerfCounter`.
+- Outputs from `torchao.prototype.profiler.TransformerPerformanceCounter` are prefixed with `TransformerPerfCounter`.
 
 ## Usage
 ```python
@@ -118,7 +118,7 @@ from torch.nn.attention import SDPBackend
 
 from torchao._models.llama.model import Transformer
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.profiler import (
+from torchao.prototype.profiler import (
     CUDADeviceSpec,
     TransformerPerformanceCounter,
     total_model_params,
