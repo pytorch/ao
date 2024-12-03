@@ -5,9 +5,9 @@ from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
 
 from torchao.quantization.quant_api import (
+    quantize_, 
     _get_linear_subclass_inserter,
     _is_linear,
-    quantize_, 
 )
 
 
