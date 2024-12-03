@@ -17,36 +17,11 @@ from torch._inductor.fx_passes.fuse_attention import (
 from torchao.ops import scaled_dot_product_int8
 
 __all__ = [
-    # "_sfdp_pattern_int8",
-    # "_sfdp_replacement_int8",
-    # "_gen_sfdp_patterns_int8",
     "_sfdp_init_int8",
 ]
 
 aten = torch.ops.aten
-# scaled_dot_product_int8 = torch.ops.torchao.scaled_dot_product_int8
 patterns = PatternMatcherPass()
-
-# def _sfdp_pattern_int8(query, key, value, inv_scale):
-#     return (
-#         torch.matmul(query, key.transpose(-2, -1))
-#         .div(inv_scale)
-#         .softmax(dim=-1)
-#         .matmul(value)
-#     )
-
-# def _sfdp_replacement_int8(query, key, value, inv_scale):
-#     print("*** enter _sfdp_replacement in torchao ***")
-#     counters["inductor"]["fuse_attention_int8"] += 1
-#     return torch.nn.functional.scaled_dot_product_attention(
-#         query,
-#         key,
-#         value,
-#         attn_mask=None,
-#         dropout_p=0.0,
-#         is_causal=False,
-#         scale=1.0 / inv_scale,
-#     )
 
 def _sfdp_pattern_int8_1(
     query,
@@ -476,17 +451,6 @@ def _gen_sfdp_patterns_int8():
     )
     m_bs1_inp = functools.partial(torch.empty, (1, 1, 1, 4), device=device)
     for dtype in [torch.float, torch.half]:
-        # g = functools.partial(g_inp, dtype=dtype)
-        # c = functools.partial(c_inp, dtype=dtype)
-        # candidates = [
-        #     (
-        #         _sfdp_pattern_int8,
-        #         _sfdp_replacement_int8,
-        #         [g(), g(), g(), c()],
-        #         {},
-        #         _sfdp_extra_check_int8(aten.div.Tensor),
-        #     ),
-        # ]
         g_u8 = functools.partial(g_inp, dtype=torch.uint8, requires_grad=False)
         g_u8_bs1 = functools.partial(g_bs1_inp, dtype=torch.uint8, requires_grad=False)
         m = functools.partial(m_inp, dtype=dtype)
@@ -696,16 +660,6 @@ def _gen_sfdp_patterns_int8():
         name = pattern.__name__
 
         if len(workaround) >= 1:
-            # if "dropout_p" in workaround:
-            #     # functools.partial insufficient because we look at signature downstream
-            #     pattern = partialize_and_update_signature(pattern, dropout_p=0.0)
-            #     replacement = partialize_and_update_signature(
-            #         replacement, dropout_p=0.0
-            #     )
-            #     workaround = {}
-            # else:
-            # for uint8 pattern with more workarounds other than dropout,
-            # we need to rename it to avoid influcing other patterns
             pattern = partialize_and_update_signature(pattern, dropout=0.0)
             replacement = partialize_and_update_signature(
                 replacement, dropout=0.0
@@ -730,4 +684,3 @@ def _sfdp_init_int8():
     for key, register_replacement_kwargs in _gen_sfdp_patterns_int8():
         register_replacement(**register_replacement_kwargs)
     config.joint_custom_pre_pass = patterns.apply
-    # print("\n\njoint_custom_pre_pass:", config.joint_custom_pre_pass)
