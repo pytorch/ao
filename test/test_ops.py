@@ -7,6 +7,7 @@ import itertools
 import sys
 
 import pytest
+import math
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -108,6 +109,127 @@ class TestOps(TestCase):
         relative_error = error / gt
         rtol = 1e-2 if dtype == torch.bfloat16 else 1e-3
         assert relative_error < rtol
+
+    def _scaled_dot_product_int8_op_ref(
+            self,
+            q,
+            k,
+            v,
+            attn_mask=None,
+            dropout_p=0,
+            is_causal=False,
+            q_zp=0,
+            q_scale=1.0,
+            k_zp=0,
+            k_scale=1.0,
+            v_zp=0,
+            v_scale=1.0,
+            a_zp=0,
+            a_scale=1.0,
+            o_zp=0,
+            o_scale=1.0):
+        q = q.to(torch.float)
+        k = k.to(torch.float)
+        v = v.to(torch.float)
+        scale_factor = 1 / math.sqrt(q.size(-1))
+        attn = q @ k.transpose(-2, -1)
+        attn = attn * scale_factor
+        if attn_mask is not None:
+            attn = attn + attn_mask
+        attn_max = attn.max(dim=-1, keepdim=True).values
+        attn = attn - attn_max
+        attn = torch.exp(attn)
+        attn_sum = torch.sum(attn, dim=-1, keepdim=True)
+        attn  = attn / attn_sum
+        math_ref = attn @ v
+        return math_ref.to(torch.uint8)
+
+    SDPA_INT8_BATCH_SIZE = [56]
+    SDPA_INT8_NUM_HEADS = [16]
+    SDPA_INT8_Q_SEQ_LEN = [188]
+    SDPA_INT8_KV_SEQ_LEN = [253]
+    SDPA_INT8_HEAD_DIM = [64]
+    SDPA_INT8_MASK_DTYPE = [torch.bfloat16]
+
+    SDPA_INT8_TEST_PARAMS = list(
+        itertools.product(
+            SDPA_INT8_BATCH_SIZE,
+            SDPA_INT8_NUM_HEADS,
+            SDPA_INT8_Q_SEQ_LEN,
+            SDPA_INT8_KV_SEQ_LEN,
+            SDPA_INT8_HEAD_DIM,
+            SDPA_INT8_MASK_DTYPE,
+        )
+    )
+
+    @parametrize("batch_size", SDPA_INT8_BATCH_SIZE)
+    @parametrize("n_head", SDPA_INT8_NUM_HEADS)
+    @parametrize("q_seq_len", SDPA_INT8_Q_SEQ_LEN)
+    @parametrize("kv_seq_len", SDPA_INT8_KV_SEQ_LEN)
+    @parametrize("head_dim", SDPA_INT8_HEAD_DIM)
+    @parametrize("mask_dtype", SDPA_INT8_MASK_DTYPE)
+    def test_scaled_dot_product_int8_op(self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype):
+        device = "cpu"
+        q_zp = int(127)
+        q_scale = float(1.7907238006591797)
+        k_zp = int(125)
+        k_scale = float(1.8039721250534058)
+        v_zp = int(127)
+        v_scale = float(1.839004635810852)
+        a_zp = int(120)
+        a_scale = float(0.003919653594493866)
+        o_zp = int(128)
+        o_scale = float(1.8191684484481812)
+        q_shape = [batch_size, n_head, q_seq_len, head_dim]
+        kv_shape = [batch_size, n_head, kv_seq_len, head_dim]
+        mask_shape = [batch_size, 1, q_seq_len, kv_seq_len]
+        q = torch.randn(q_shape, dtype=torch.float, device=device)
+        k = torch.randn(kv_shape, dtype=torch.float, device=device)
+        v = torch.randn(kv_shape, dtype=torch.float, device=device)
+        q = q.to(torch.uint8)
+        k = k.to(torch.uint8)
+        v = v.to(torch.uint8)
+        attn_mask = torch.randn(mask_shape, dtype=mask_dtype, device=device)
+        q2, k2, v2, attn_mask_2 = q.clone(), k.clone(), v.clone(), attn_mask.clone()
+        
+        math_ref = self._scaled_dot_product_int8_op_ref(
+            q2,
+            k2,
+            v2,
+            attn_mask=attn_mask_2,
+            dropout_p=0.0,
+            is_causal=False,
+            q_zp=q_zp,
+            q_scale=q_scale,
+            k_zp=k_zp,
+            k_scale=k_scale,
+            v_zp=v_zp,
+            v_scale=v_scale,
+            a_zp=a_zp,
+            a_scale=a_scale,
+            o_zp=o_zp,
+            o_scale=o_scale
+        )        
+        actual = torch.ops.torchao.scaled_dot_product_int8(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask,
+            dropout_p=0.0,
+            is_causal=False,
+            q_zp=q_zp,
+            q_scale=q_scale,
+            k_zp=k_zp,
+            k_scale=k_scale,
+            v_zp=v_zp,
+            v_scale=v_scale,
+            a_zp=a_zp,
+            a_scale=a_scale,
+            o_zp=o_zp,
+            o_scale=o_scale
+        )
+
+        self.assertEqual(actual, math_ref, atol=3.0, rtol=5e-6)
 
 
 instantiate_parametrized_tests(TestOps)
