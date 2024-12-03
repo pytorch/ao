@@ -17,6 +17,7 @@ from torch import nn, Tensor
 from torchao._models.sam2.modeling.position_encoding import apply_rotary_enc, compute_axial_cis
 from torchao._models.sam2.modeling.sam2_utils import MLP
 from torchao._models.sam2.utils.misc import get_sdpa_settings
+from torchao.quantization.quant_api import _float8_symmetric_per_token_quant
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 # Check whether Flash Attention is available (and use it by default)
@@ -263,6 +264,11 @@ class Attention(nn.Module):
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
 
+        # quantize q/k/v
+        q = _float8_symmetric_per_token_quant(q)
+        k = _float8_symmetric_per_token_quant(k)
+        v = _float8_symmetric_per_token_quant(v)
+
         dropout_p = self.dropout_p if self.training else 0.0
         # # Attention
         # try:
@@ -322,6 +328,11 @@ class RoPEAttention(Attention):
         q = self._separate_heads(q, self.num_heads)
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
+
+        # quantize q/k/v
+        q = _float8_symmetric_per_token_quant(q)
+        k = _float8_symmetric_per_token_quant(k)
+        v = _float8_symmetric_per_token_quant(v)
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])

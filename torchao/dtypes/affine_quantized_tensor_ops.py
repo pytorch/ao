@@ -177,45 +177,6 @@ def _(func, types, args, kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements(torch.nn.functional.embedding)
-def _(func, types, args, kwargs):
-    # new_arg1 = args[1].dequantize()
-    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
-    assert isinstance(
-        args[1].tensor_impl, PlainAQTTensorImpl
-    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
-    assert (
-        kwargs["padding_idx"] is None
-        and kwargs["max_norm"] is None
-        and not kwargs["scale_grad_by_freq"]
-        and not kwargs["sparse"]
-        and kwargs["norm_type"] == 2.0
-    )
-    idx = args[0]
-    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
-
-    sliced_data, sliced_scale, sliced_zero_point = (
-        int_data[idx],
-        scale[idx],
-        zero_point[idx],
-    )
-    # Block size is expecting 2 dimensions [1, group size] but
-    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
-    # we need to increase block size to correct dim
-    new_blocks = idx.dim() - 1
-    return dequantize_affine(
-        sliced_data,
-        new_blocks * [1] + list(args[1].block_size),
-        sliced_scale,
-        sliced_zero_point,
-        sliced_data.dtype,
-        args[1].quant_min,
-        args[1].quant_max,
-        args[1].zero_point_domain,
-        output_dtype=sliced_scale.dtype,
-    )
-
-
 @implements(aten.addmm.default)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
@@ -275,6 +236,70 @@ def _(func, types, args, kwargs):
         if isinstance(weight_tensor, AffineQuantizedTensor):
             weight_tensor = weight_tensor.dequantize()
         return func(input_tensor, weight_tensor)
+
+
+@implements(torch.nn.functional.embedding)
+def _(func, types, args, kwargs):
+    # new_arg1 = args[1].dequantize()
+    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
+    assert isinstance(
+        args[1].tensor_impl, PlainAQTTensorImpl
+    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    assert (
+        kwargs["padding_idx"] is None
+        and kwargs["max_norm"] is None
+        and not kwargs["scale_grad_by_freq"]
+        and not kwargs["sparse"]
+        and kwargs["norm_type"] == 2.0
+    )
+    idx = args[0]
+    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
+
+    sliced_data, sliced_scale, sliced_zero_point = (
+        int_data[idx],
+        scale[idx],
+        zero_point[idx],
+    )
+    # Block size is expecting 2 dimensions [1, group size] but
+    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
+    # we need to increase block size to correct dim
+    new_blocks = idx.dim() - 1
+    return dequantize_affine(
+        sliced_data,
+        new_blocks * [1] + list(args[1].block_size),
+        sliced_scale,
+        sliced_zero_point,
+        sliced_data.dtype,
+        args[1].quant_min,
+        args[1].quant_max,
+        args[1].zero_point_domain,
+        output_dtype=sliced_scale.dtype,
+    )
+
+
+@implements([torch.nn.functional.scaled_dot_product_attention])
+def _(func, types, args, kwargs):
+    from flash_attn.hopper.flash_attn_interface import flash_attn_func
+    q, k, v = args[:3]
+    q_tensor_impl = q.tensor_impl
+    assert not q_tensor_impl.transposed
+    q_float8_data = q_tensor_impl.float8_data
+    q_scale = q.scale
+
+    k_tensor_impl = k.tensor_impl
+    assert not k_tensor_impl.transposed
+    k_float8_data = k_tensor_impl.float8_data
+    k_scale = k.scale
+
+    v_tensor_impl = v.tensor_impl
+    assert not v_tensor_impl.transposed
+    v_float8_data = v_tensor_impl.float8_data
+    v_scale = v.scale
+
+    softmax_scale = kwargs.get("scale", None)
+    dropout_p = kwargs.get("dropout_p", None)
+    assert dropout_p is None or dropout_p == 0.0, "dropout_p should be set to 0.0 during inference"
+    return flash_attn_func(q_float8_data, k_float8_data, v_float8_data, softmax_scale=softmax_scale, descale_q=q_scale, descale_k=k_scale, descale_v=v_scale)
 
 
 @implements(aten.detach.default)
