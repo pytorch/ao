@@ -287,8 +287,8 @@ def main(
                 use_hqq=True
             else:
                 use_hqq=False
-            groupsize=int(quantization.split("-")[1])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            group_size=int(quantization.split("-")[1])
+            assert group_size in [32,64,128,256], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
         if "marlin" in quantization:
             if "qqq" in quantization:
@@ -303,8 +303,8 @@ def main(
                     ),
                 )
             elif "semi" in sparsity:
-                    from torchao.dtypes import MarlinSparseLayout
-                    quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+                from torchao.dtypes import MarlinSparseLayout
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         elif "embed-int8wo" in quantization:
@@ -692,8 +692,6 @@ if __name__ == '__main__':
             'Which sparsity techniques to apply: semi-structured'
         )
     )
-    parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
-    parser.add_argument("--calibration_seq_length", type=int, default=256, help="Sequence length for calibration")
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
