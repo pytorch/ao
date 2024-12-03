@@ -272,7 +272,6 @@ def main(
         from torchao.utils import unwrap_tensor_subclass
 
         from torchao.quantization.granularity import PerTensor, PerRow
-        from torchao.dtypes import SemiSparseLayout
         from torchao.utils import unwrap_tensor_subclass
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
@@ -281,6 +280,7 @@ def main(
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             if sparsity and "semi" in sparsity:
+                from torchao.dtypes import SemiSparseLayout
                 quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
                 quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
             else:
