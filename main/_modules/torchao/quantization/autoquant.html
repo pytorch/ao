@@ -405,7 +405,11 @@
     <span class="n">compute_error</span><span class="p">,</span>
     <span class="n">quantize_activation_per_token_absmax</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
+<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
+    <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">.granularity</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">PerRow</span><span class="p">,</span>
@@ -1062,7 +1066,97 @@
         <span class="k">return</span> <span class="n">weight</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat32LinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">Float32Tensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tensor subclass tensor for fp32 dtype&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+        <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
+            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">),</span>
+            <span class="n">w_qtensor</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
+            <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+
+
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_quantized_linear_op</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
+
+
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">_to_copy</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span>
+        <span class="n">args</span><span class="p">,</span>
+        <span class="n">kwargs</span><span class="p">,</span>
+        <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">BFloat16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+        <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
+            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">),</span>
+            <span class="n">w_qtensor</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">Float16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+        <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span>
+        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
+            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">),</span>
+            <span class="n">w_qtensor</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">AQFloat32LinearWeight</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for float32 precision weight</span>
 
@@ -1070,24 +1164,12 @@
 <span class="sd">    linear)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
-            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
-            <span class="n">w_qtensor</span><span class="p">,</span>
-            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
-        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
-
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQFloat32LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQBFloat16LinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">AQBFloat16LinearWeight</span><span class="p">(</span><span class="n">BFloat16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for bfloat16 precision weight</span>
 
@@ -1095,24 +1177,12 @@
 <span class="sd">    linear)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
-            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">),</span>
-            <span class="n">w_qtensor</span><span class="p">,</span>
-            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
-        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
-
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQBFloat16LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat16LinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">AQFloat16LinearWeight</span><span class="p">(</span><span class="n">Float16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for float16 precision weight</span>
 
@@ -1120,21 +1190,9 @@
 <span class="sd">    linear)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-        <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
-            <span class="n">act_mat</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">),</span>
-            <span class="n">w_qtensor</span><span class="p">,</span>
-            <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
-        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
-
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQFloat16LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
 <span class="k">class</span> <span class="nc">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
