@@ -248,10 +248,13 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and "w1" in fqn
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn 
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
+
+    def ffn_or_attn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and ("feed_forward" in fqn or "attention" in fqn)   
 
     if quantization:
         from torchao.quantization import (
@@ -304,7 +307,7 @@ def main(
                 )
             elif "semi" in sparsity:
                 from torchao.dtypes import MarlinSparseLayout
-                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()), filter_fn=ffn_or_attn_only)
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         elif "embed-int8wo" in quantization:
