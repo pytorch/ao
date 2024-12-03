@@ -288,7 +288,7 @@ def float8_mm(aten_op, args, kwargs=None):
         b._linear_mm_config,
     )
     if scaled_mm_config.emulate:
-        return torch.mm(a._data.float() / a._scale, b._data.float() / b._scale).to(
+        return torch.mm(a._data.float() * a._scale, b._data.float() * b._scale).to(
             output_dtype
         )
     tensor_out = addmm_float8_unwrapped(

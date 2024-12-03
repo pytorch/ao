@@ -45,7 +45,8 @@ def amax_to_scale(amax: torch.Tensor, float8_dtype: torch.dtype):
     # upcast to float64 to ensure same numeric between compile and eager
     amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
-        res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+        # res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+        res = torch.clamp(amax, min=EPS) / torch.finfo(float8_dtype).max
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
 

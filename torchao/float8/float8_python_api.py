@@ -34,8 +34,10 @@ def addmm_float8_unwrapped(
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
-    a_inverse_scale = a_scale.reciprocal()
-    b_inverse_scale = b_scale.reciprocal()
+    # a_inverse_scale = a_scale.reciprocal()
+    # b_inverse_scale = b_scale.reciprocal()
+    a_inverse_scale = a_scale
+    b_inverse_scale = b_scale
 
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by _scaled_mm when output is fp32
