@@ -21,7 +21,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
 
-from torch.sparse import SparseSemiStructuredTensor
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -71,7 +70,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
-        input = torch.rand((1, 128)).half().cuda()
+        input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
