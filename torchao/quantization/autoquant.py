@@ -22,7 +22,11 @@ from torchao.quantization.utils import (
     compute_error,
     quantize_activation_per_token_absmax,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
 from .granularity import (
     PerRow,
@@ -679,7 +683,97 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
         return weight
 
 
-class AQFloat32LinearWeight(torch.Tensor, AQMixin):
+class Float32Tensor(TorchAOBaseTensor):
+    """Tensor subclass tensor for fp32 dtype"""
+
+    def __init__(self, weight):
+        self.weight = weight.to(torch.float32)
+
+    @staticmethod
+    def _quantized_linear_op(act_mat, w_qtensor, bias):
+        _DTYPE = torch.float32
+        orig_dtype = act_mat.dtype
+        return torch.nn.functional.linear(
+            act_mat.to(_DTYPE),
+            w_qtensor.weight,
+            bias.to(_DTYPE) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.weight),
+        )
+
+    @classmethod
+    def from_float(cls, weight):
+        return cls(weight)
+
+
+@Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor, bias = (
+        args[0],
+        args[1],
+        args[2] if len(args) > 2 else None,
+    )
+    return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+
+
+@Float32Tensor.implements(aten.detach.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+    )
+
+
+@Float32Tensor.implements(aten.clone.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
+
+
+@Float32Tensor.implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+    )
+
+
+class BFloat16Tensor(Float32Tensor):
+    def __init__(self, weight):
+        self.weight = weight.to(torch.bfloat16)
+
+    @staticmethod
+    def _quantized_linear_op(act_mat, w_qtensor, bias):
+        _DTYPE = torch.bfloat16
+        orig_dtype = act_mat.dtype
+        return torch.nn.functional.linear(
+            act_mat.to(_DTYPE),
+            w_qtensor.weight,
+            bias.to(_DTYPE) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
+
+
+class Float16Tensor(Float32Tensor):
+    def __init__(self, weight):
+        self.weight = weight.to(torch.float16)
+
+    @staticmethod
+    def _quantized_linear_op(act_mat, w_qtensor, bias):
+        _DTYPE = torch.float16
+        orig_dtype = act_mat.dtype
+        return torch.nn.functional.linear(
+            act_mat.to(_DTYPE),
+            w_qtensor.weight,
+            bias.to(_DTYPE) if bias is not None else bias,
+        ).to(dtype=orig_dtype)
+
+
+class AQFloat32LinearWeight(Float32Tensor, AQMixin):
     """
     AutoQuantizable version for float32 precision weight
 
@@ -687,24 +781,12 @@ class AQFloat32LinearWeight(torch.Tensor, AQMixin):
     linear)
     """
 
-    def __init__(self):
-        super().__init__()
-
-    @staticmethod
-    def _quantized_linear_op(act_mat, w_qtensor, bias):
-        orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(
-            act_mat.to(torch.float32),
-            w_qtensor,
-            bias.to(torch.float32) if bias is not None else bias,
-        ).to(dtype=orig_dtype)
-
     @classmethod
     def from_float(cls, weight):
-        return weight.to(torch.float32)
+        return super(AQFloat32LinearWeight, cls).from_float(weight)
 
 
-class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
+class AQBFloat16LinearWeight(BFloat16Tensor, AQMixin):
     """
     AutoQuantizable version for bfloat16 precision weight
 
@@ -712,24 +794,12 @@ class AQBFloat16LinearWeight(torch.Tensor, AQMixin):
     linear)
     """
 
-    def __init__(self):
-        super().__init__()
-
-    @staticmethod
-    def _quantized_linear_op(act_mat, w_qtensor, bias):
-        orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(
-            act_mat.to(torch.bfloat16),
-            w_qtensor,
-            bias.to(torch.bfloat16) if bias is not None else bias,
-        ).to(dtype=orig_dtype)
-
     @classmethod
     def from_float(cls, weight):
-        return weight.to(torch.bfloat16)
+        return super(AQBFloat16LinearWeight, cls).from_float(weight)
 
 
-class AQFloat16LinearWeight(torch.Tensor, AQMixin):
+class AQFloat16LinearWeight(Float16Tensor, AQMixin):
     """
     AutoQuantizable version for float16 precision weight
 
@@ -737,21 +807,9 @@ class AQFloat16LinearWeight(torch.Tensor, AQMixin):
     linear)
     """
 
-    def __init__(self):
-        super().__init__()
-
-    @staticmethod
-    def _quantized_linear_op(act_mat, w_qtensor, bias):
-        orig_dtype = act_mat.dtype
-        return torch.nn.functional.linear(
-            act_mat.to(torch.float16),
-            w_qtensor,
-            bias.to(torch.float16) if bias is not None else bias,
-        ).to(dtype=orig_dtype)
-
     @classmethod
     def from_float(cls, weight):
-        return weight.to(torch.float16)
+        return super(AQFloat16LinearWeight, cls).from_float(weight)
 
 
 class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):

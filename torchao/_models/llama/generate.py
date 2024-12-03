@@ -357,11 +357,19 @@ def main(
                 )
 
             if "autoquant_v2-int4" == quantization:
-                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
             elif "autoquant_v2-float8" == quantization:
-                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
+            elif "autoquant_v2-fp" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
+            elif "autoquant_v2-all" == quantization:
+                all_qtensor_classes = torchao.prototype.quantization.autoquant_v2.DEFAULT_AUTOQUANT_CLASS_LIST + torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST + torchao.prototype.quantization.autoquant_v2.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+                if torchao.utils.is_sm_89():
+                    # this is fp8 related subclasses, should rename
+                    all_qtensor_classes += torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST
+                model = autoquant_v2(model, manual=True, qtensor_class_list = all_qtensor_classes, example_input=inputs, batch_size=calibration_seq_length)
             else:
-                model = autoquant_v2(model, manual=True, example_input=inputs)
+                model = autoquant_v2(model, manual=True, example_input=inputs, batch_size=calibration_seq_length)
 
             print("running generate")
             generate(
@@ -406,6 +414,12 @@ def main(
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
             if "autoquant-fp" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            if "autoquant-all" == quantization:
+                all_qtensor_classes = torchao.quantization.DEFAULT_AUTOQUANT_CLASS_LIST + torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST + torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+                if torchao.utils.is_sm_89():
+                    # this is fp8 related subclasses, should rename
+                    all_qtensor_classes += torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST
+                model = autoquant(model, manual=True, qtensor_class_list = all_qtensor_classes, example_input=inputs)
             else:
                 model = autoquant(model, manual=True, example_input=inputs)
 
