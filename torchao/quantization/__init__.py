@@ -78,6 +78,9 @@ from .smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
+from .sfdp_int8_fx_pass import (
+    _sfdp_init_int8,
+)
 from .subclass import *  # noqa: F403
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
@@ -150,4 +153,5 @@ __all__ = [
     "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
+    "_sfdp_init_int8",
 ]
