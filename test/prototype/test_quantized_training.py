@@ -159,8 +159,9 @@ class TestQuantizedTraining(TestCase):
             Int8MixedPrecisionTrainingConfig(grad_weight=False),
         ],
     )
+    @parametrize("module_swap", [False, True])
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_int8_mixed_precision_training(self, compile, config):
+    def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
         embed_dim = 64
@@ -168,7 +169,8 @@ class TestQuantizedTraining(TestCase):
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
-        quantize_(linear_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
+        apply_func = int8_mixed_precision_training(config, module_swap=module_swap)
+        quantize_(linear_int8mp, apply_func, set_inductor_config=False)
 
         if compile:
             linear.compile()
@@ -269,9 +271,10 @@ class TestFSDP2(FSDPTest):
         # quantize_fn, mp_policy, tolerance
         test_args = [
             # high tolerance due to stochastic rounding
-            (int8_weight_only_quantized_training, mp_policy, 0.05),
-            (int8_mixed_precision_training, mp_policy, 1e-6),
-            (bitnet_training, mp_policy, 1e-5),
+            (int8_weight_only_quantized_training(), mp_policy, 0.05),
+            (int8_mixed_precision_training(), mp_policy, 1e-6),
+            (int8_mixed_precision_training(module_swap=True), mp_policy, 1e-6),
+            (bitnet_training(), mp_policy, 1e-5),
         ]
 
         # FSDP2 mixed-precision requires https://github.com/pytorch/pytorch/pull/136129
@@ -284,9 +287,9 @@ class TestFSDP2(FSDPTest):
             bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
 
             extra_args = [
-                (int8_weight_only_quantized_training, bf16_mp_policy, 1e-2),
-                (int8_mixed_precision_training, bf16_mp_policy, 1e-2),
-                (bitnet_training, bf16_mp_policy, 1e-2),
+                (int8_weight_only_quantized_training(), bf16_mp_policy, 1e-2),
+                (int8_mixed_precision_training(), bf16_mp_policy, 1e-2),
+                (bitnet_training(), bf16_mp_policy, 1e-2),
             ]
             test_args.extend(extra_args)
 
@@ -312,8 +315,8 @@ class TestFSDP2(FSDPTest):
         base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
-        quantize_(base_model.layers, quantize_fn(), set_inductor_config=False)
-        quantize_(fsdp_model.layers, quantize_fn(), set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
+        quantize_(fsdp_model.layers, quantize_fn, set_inductor_config=False)
 
         for layer in fsdp_model.layers:
             fully_shard(layer, mp_policy=mp_policy)

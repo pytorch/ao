@@ -14,6 +14,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
+from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
@@ -42,12 +43,14 @@ def device_timer(device):
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
+    elif "xpu" in device:
+        torch.xpu.synchronize(device)
     elif ("cpu" in device) or ("mps" in device):
         pass
     else:
         print(f"device={device} is not yet suppported")
 
-default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+default_device = 'cuda' if torch.cuda.is_available() else 'xpu' if torch.xpu.is_available() else 'cpu'
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
@@ -71,7 +74,7 @@ def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = Non
     return probs
 
 def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
-    probs = logits_to_probs(logits[0, -1], temperature, top_k)
+    probs = logits_to_probs(logits[:, -1], temperature, top_k)
     idx_next = multinomial_sample_one_no_sync(probs)
     return idx_next, probs
 
@@ -89,7 +92,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
     for i in range(num_new_tokens):
-        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
@@ -98,7 +101,7 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
             new_tokens.append(next_token)
             callback(new_tokens[-1])
             new_probs.append(next_prob)
-            cur_token = next_token.view(1, -1)
+            cur_token = next_token
 
     return new_tokens, new_probs
 
@@ -111,6 +114,7 @@ def generate(
     model: Transformer,
     prompt: torch.Tensor,
     max_new_tokens: int,
+    batch_size: int,
     *,
     interactive: bool,
     callback = lambda x: x,
@@ -129,31 +133,32 @@ def generate(
 
     # create an empty tensor of the expected final shape and fill in the current tokens
     device = prompt.device
-    T = prompt.numel()
+    T = prompt.size(-1)
 
     # calculate how many tokens to generate based on max_new_tokens and model's upper bound (block_size)
     max_seq_length = min(T + max_new_tokens, model.config.block_size) if not interactive else 350
     new_tokens = max_seq_length - T
 
+    # format model input
+    prompt, input_pos = prepare_inputs_for_model(prompt)
+    prompt = prompt.repeat(batch_size, 1) # expand prompt based on batchsize
+
     # full prompt+output will be stored in seq
-    seq = torch.empty(max_seq_length, dtype=prompt.dtype, device=device)
-    seq[:T] = prompt.view(-1)
+    seq = torch.empty(batch_size, max_seq_length, dtype=prompt.dtype, device=device)
+    seq[:, :T] = prompt
 
     # setup model caches
     with torch.device(device):
         if cache_size is None:
             cache_size = max_seq_length
         assert cache_size >= max_seq_length, "need cache_size to be greater than max_new_tokens + size-of-prompt"
-        model.setup_caches(max_batch_size=1, max_seq_length=cache_size, kv_cache_quantization=kv_cache_quantization, linear_causal_mask=linear_causal_mask, prompt_length=T)
-
-    # format model input
-    x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
+        model.setup_caches(max_batch_size=batch_size, max_seq_length=cache_size, kv_cache_quantization=kv_cache_quantization, linear_causal_mask=linear_causal_mask, prompt_length=T)
 
     # execute prefill
     if prefill_start_event is not None:
         prefill_start_event.record()
-    next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
-    seq[T] = next_token
+    next_token = prefill(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
+    seq[:, T] = next_token.squeeze()
     if prefill_end_event is not None:
         prefill_end_event.record()
 
@@ -161,10 +166,10 @@ def generate(
     if decode_start_event is not None:
         decode_start_event.record()
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
-    generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
+    generated_tokens, _ = decode_n_tokens(model, next_token.view(batch_size, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
+    seq = torch.cat((seq[:, :T+1], *generated_tokens), dim=-1)
     if decode_end_event is not None:
         decode_end_event.record()
-    seq = torch.cat((seq[:T+1], *generated_tokens))
 
     return seq
 
@@ -178,8 +183,8 @@ def _load_model(checkpoint_path, device, precision):
     checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
-
-    model = Transformer.from_name(checkpoint_path.parent.name)
+    with torch.device("meta"):
+        model = Transformer.from_name(checkpoint_path.parent.name)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
@@ -193,13 +198,12 @@ def main(
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
+    batch_size: int = 1,
     top_k: int = 200,
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
     sparsity: Optional[str] = None,
-    calibration_limit: int = 10,
-    calibration_seq_length: int = 256,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
@@ -250,20 +254,23 @@ def main(
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
 
     if quantization:
-        from torchao.quantization.quant_api import (
+        from torchao.quantization import (
             quantize_,
+            autoquant,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
+            int8_dynamic_activation_int4_weight,
             fpx_weight_only,
             uintx_weight_only,
-            autoquant,
-            unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
+        from torchao.utils import unwrap_tensor_subclass
+
         from torchao.quantization.granularity import PerTensor, PerRow
-        from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
+        from torchao.dtypes import SemiSparseLayout
+        from torchao.utils import unwrap_tensor_subclass
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
@@ -282,13 +289,27 @@ def main(
                 use_hqq=False
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            if sparsity and "semi" in sparsity:
-                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
-            else:
-                quantize_(model, int4_weight_only(group_size=groupsize))
+            quantize_(model, int4_weight_only(group_size=group_size))
+        if "marlin" in quantization:
+            if "qqq" in quantization:
+                from torchao.dtypes import MarlinQQQLayout
+                quantize_(
+                    model,
+                    int8_dynamic_activation_int4_weight(
+                        group_size=128,
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=MarlinQQQLayout(),
+                    ),
+                )
+            elif "semi" in sparsity:
+                    from torchao.dtypes import MarlinSparseLayout
+                    quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
-        if quantization.startswith("awq"):
+        elif "embed-int8wo" in quantization:
+            quantize_(model, int8_weight_only(group_size=64), filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding))
+        elif quantization.startswith("awq"):
             from torchao._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
             from torchao.prototype.awq.example import get_calib_dataset
@@ -301,24 +322,24 @@ def main(
             quant_dtype = getattr(torch, quant_dtype, torch.uint8)
             model=model.to(device)
             # get calibration data
-            insert_awq_observer_(model, calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+            insert_awq_observer_(model, 1, 256, quant_dtype=quant_dtype, group_size=group_size)
             TransformerEvalWrapper(
                 model=model.to(device),
                 tokenizer=tokenizer,
-                max_seq_length=calibration_seq_length,
+                max_seq_length=256,
                 input_prep_func=prepare_inputs_for_model,
                 device=device,
             ).run_eval(
-                tasks=['wikitext'], 
-                limit=calibration_limit,
+                tasks=['wikitext'],
+                limit=1,
             )
             is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
             use_hqq = "hqq" in quantization
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, use_hqq=use_hqq), is_observed_linear)
-        if "uintx" in quantization:
-            # uintx-nbits-groupsize, e.g. "uintx-2-64"
+        elif "uintx" in quantization:
+            # uintx-nbits-group_size, e.g. "uintx-2-64"
             if "hqq" in quantization:
-                # uintx-nbits-groupsize-hqq
+                # uintx-nbits-group_size-hqq
                 use_hqq = True
             else:
                 use_hqq = False
@@ -329,9 +350,32 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
-        if "float8wo" in quantization:
+        elif "int8_dynamic_activation_intx_weight" in quantization:
+            from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+            assert precision == torch.float32, "int8_dynamic_activation_intx_weight requires fp32 precision"
+
+            # Build kernels in temp location, and load them in torch
+            # This requires an ARM CPU
+            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
+            temp_build_and_load_torchao_ops(cmake_lists_path=os.path.dirname(os.path.realpath(__file__)) + "/../../experimental")
+
+            # Quantize model
+            _quant_args = quantization.split("-")
+            nbit = int(_quant_args[1])
+            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
+            group_size = int(_quant_args[2])
+            has_weight_zeros = bool(_quant_args[3])
+            quantize_(
+                model,
+                int8_dynamic_activation_intx_weight(
+                    group_size=group_size,
+                    nbit=nbit,
+                    has_weight_zeros=has_weight_zeros,
+                ),
+            )
+        elif "float8wo" in quantization:
             quantize_(model, float8_weight_only())
-        if "float8dq" in quantization:
+        elif "float8dq" in quantization:
             granularity = str(quantization.split("-")[-1])
             if granularity=="tensor":
                 granularity = PerTensor()
@@ -340,18 +384,88 @@ def main(
             else:
                 granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
-        if "autoquant" in quantization:
-            if "autoquant-int4" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
-            elif "autoquant-float8" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST)
+        elif "autoquant_v2" in quantization:
+            from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            calibration_seq_length = 256
+            calibration_limit = 1
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant_v2-int4" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            elif "autoquant_v2-float8" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
             else:
-                model = autoquant(model, manual=True)
+                model = autoquant_v2(model, manual=True, example_input=inputs)
+
+            print("running generate")
+            generate(
+                model,
+                encode_tokens(tokenizer, prompt, bos=True, device=device),
+                max_new_tokens,
+                batch_size,
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
+            )
+
+            print("running finalize autoquant")
+            # do autoquantization
+            model.finalize_autoquant()
+        elif "autoquant" in quantization:
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            calibration_seq_length = 256
+            calibration_limit = 1
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant-int4" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            elif "autoquant-float8" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            if "autoquant-fp" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            else:
+                model = autoquant(model, manual=True, example_input=inputs)
 
             generate(
                 model,
                 encode_tokens(tokenizer, prompt, bos=True, device=device),
                 max_new_tokens,
+                batch_size,
                 interactive=False,
                 temperature=temperature,
                 top_k=top_k,
@@ -359,6 +473,7 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
+
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
@@ -386,7 +501,13 @@ def main(
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     if memory_profile:
-        torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        if device == "cuda":
+            torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        elif device == "xpu":
+            torch.xpu.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        else:
+            print("Memory profiling only works on CUDA or XPU devices")
+    
     aggregate_metrics = {
         'tokens_per_sec': [],
         'time': [],
@@ -397,7 +518,10 @@ def main(
 
     for i in range(start, num_samples):
         if i==0:
-            torch.cuda.reset_peak_memory_stats()
+            if device == "cuda":
+                torch.cuda.reset_peak_memory_stats() # MKG
+            elif device == "xpu":
+                torch.xpu.reset_peak_memory_stats() # MKG
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -436,6 +560,7 @@ def main(
                 model,
                 encoded,
                 max_new_tokens,
+                batch_size,
                 interactive=interactive,
                 callback=callback,
                 temperature=temperature,
@@ -457,13 +582,13 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive and prefill_size is None:
-                tok_list = y.tolist()
+                tok_list = y[0].tolist()
                 # truncate text after end of string token
-                tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
+                tokens = tok_list if not tokenizer.eos_id() in tok_list else tok_list[:tok_list.index(tokenizer.eos_id())]
                 print(tokenizer.decode(tokens))
         else:
             print()
-        tokens_generated = y.size(0) - prompt_length
+        tokens_generated = (y.size(-1) - prompt_length)
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         aggregate_metrics['time'].append(t)
@@ -477,7 +602,13 @@ def main(
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
-            snapshot = torch.cuda.memory._snapshot()
+            if device == "cuda":
+                snapshot = torch.cuda.memory._snapshot()
+            elif device == "xpu":
+                snapshot = torch.xpu.memory._snapshot()
+            else:
+                print("Memory profiling only works on CUDA or XPU devices")
+    
             with open(f"{memory_profile}.pickle", 'wb') as f:
                 from pickle import dump
                 dump(snapshot, f)
@@ -486,7 +617,6 @@ def main(
                 "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
             )
             break
-
     print("==========")
 
     #ignore first sample for warmup
@@ -498,6 +628,13 @@ def main(
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
     print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
+    if device == "cuda": 
+        mem = torch.cuda.max_memory_reserved() /1e9
+    elif device == "xpu":
+        mem = torch.xpu.max_memory_reserved() /1e9
+    print(f"Average tokens/sec: {tokpersec:.2f}")
+    if batch_size > 1:
+        print(f"Average tokens/sec including batches {batch_size*tokpersec:.2f}")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
@@ -518,6 +655,7 @@ def main(
         result_txt += f"--interactive " if interactive else ""
         result_txt += f"--num_samples {num_samples} "
         result_txt += f"--max_new_tokens {max_new_tokens} "
+        result_txt += f"--batch_size {batch_size} "
         result_txt += f"--top_k {top_k} "
         result_txt += f"--temperature {temperature} "
         result_txt += f"--cache_size {cache_size}" if cache_size else ""
@@ -538,13 +676,15 @@ if __name__ == '__main__':
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size to benchmark with')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, 
+    parser.add_argument('-q', '--quantization', type=str,
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
-            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant'
+            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, '
+            +'embed-int8wo, marlin_qqq'
         )
     )
     parser.add_argument('-s', '--sparsity', type=str, 
@@ -568,6 +708,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
+        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )

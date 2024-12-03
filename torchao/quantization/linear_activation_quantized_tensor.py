@@ -1,9 +1,11 @@
+from typing import Any, Callable, Dict, Optional
+
 import torch
-from typing import Callable, Dict, Any, Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.utils import (
-    TorchAOBaseTensor,
     TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
 )
 
 __all__ = [
@@ -13,10 +15,11 @@ __all__ = [
 
 aten = torch.ops.aten
 
+
 class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
     Applies activation quantization for linear operator, this is used to support
-    dynamic quantization or static quantization, user can pass in a `input_quant_func`
+    dynamic quantization, user can pass in a `input_quant_func`
     that is used to quantize the activation
 
     Args:
@@ -29,13 +32,14 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
       `quant_kwargs` (Dict[str, Any]): Additional keyword arguments for the quantization function.
         Restriction: Must not contain tensor values.
     """
+
     quant_kwargs: Dict[str, Any]
-    
+
     def __new__(
         cls,
         original_weight_tensor: torch.Tensor,
         input_quant_func: Callable,
-        quant_kwargs: Dict[str, Any]
+        quant_kwargs: Dict[str, Any],
     ):
         kwargs = {}
         dtype = original_weight_tensor.dtype
@@ -56,7 +60,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         self.quant_kwargs = quant_kwargs
 
     def __repr__(self):
-        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
+        return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
 
     def __tensor_flatten__(self):
         return ["original_weight_tensor"], [self.input_quant_func, self.quant_kwargs]
@@ -67,14 +71,12 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
         input_quant_func, quant_kwargs = tensor_attributes
-        return cls(
-            original_weight_tensor,
-            input_quant_func,
-            quant_kwargs
-        )
+        return cls(original_weight_tensor, input_quant_func, quant_kwargs)
 
     @staticmethod
-    def _quantized_linear_op(input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor):
+    def _quantized_linear_op(
+        input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
+    ):
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
@@ -82,10 +84,12 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
     @classmethod
-    def from_float(cls, 
-                   input_float: torch.Tensor, 
-                   input_quant_func: Callable, 
-                   quant_kwargs: Optional[Dict[str, Any]] = None):
+    def from_float(
+        cls,
+        input_float: torch.Tensor,
+        input_quant_func: Callable,
+        quant_kwargs: Optional[Dict[str, Any]] = None,
+    ):
         if quant_kwargs is None:
             quant_kwargs = {}
         return cls(input_float, input_quant_func, quant_kwargs)
@@ -105,7 +109,9 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
             self.quant_kwargs,
         )
 
+
 implements = LinearActivationQuantizedTensor.implements
+
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
@@ -117,12 +123,17 @@ def _(func, types, args, kwargs):
     if isinstance(weight_tensor, LinearActivationQuantizedTensor):
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
-    raise NotImplementedError("LinearActivationQuantizedTensor: No specialized dispatch found for linear op")
+    raise NotImplementedError(
+        "LinearActivationQuantizedTensor: No specialized dispatch found for linear op"
+    )
+
 
 @implements([aten.mm.default, aten.addmm.default])
 def _(func, types, args, kwargs):
     if not args[0].is_floating_point():
-        raise NotImplementedError(f"LinearActivationQuantizedTensor: expecting a floating point input")
+        raise NotImplementedError(
+            "LinearActivationQuantizedTensor: expecting a floating point input"
+        )
 
     if func == aten.addmm.default:
         assert args[1].shape[-1] == args[2].shape[0], (
@@ -160,11 +171,13 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
+
 @implements(aten.clone.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
+
 
 @implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
@@ -175,25 +188,38 @@ def _(func, types, args, kwargs):
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
     )
 
+
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
 
+
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, LinearActivationQuantizedTensor(
-        func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+        func,
+        args,
+        kwargs,
+        LinearActivationQuantizedTensor(
+            func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func
+        ),
     )
+
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, LinearActivationQuantizedTensor(func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+        func,
+        args,
+        kwargs,
+        LinearActivationQuantizedTensor(
+            func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func
+        ),
     )
+
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
 

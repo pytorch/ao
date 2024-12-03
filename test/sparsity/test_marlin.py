@@ -1,28 +1,24 @@
-import torch
 import copy
-import pytest
 
+import pytest
+import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
 from torchao.dtypes import MarlinSparseLayout
-from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.quantization.quant_api import int4_weight_only, quantize_
-from torchao.sparsity.marlin import (
-    pack_to_marlin_24,
-    unpack_from_marlin_24,
-    inject_24
-)
 from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
     choose_qparams_affine,
     quantize_affine,
-    ZeroPointDomain,
-    MappingType,
 )
+from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
+from torchao.sparsity.sparse_api import apply_fake_sparsity
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class SparseMarlin24(TestCase):
-
     def setUp(self):
         super().setUp()
         torch.manual_seed(0)
@@ -53,7 +49,9 @@ class SparseMarlin24(TestCase):
         quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
         sparse_result = self.model(self.input)
 
-        assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
+        assert torch.allclose(
+            dense_result, sparse_result, atol=3e-1
+        ), "Results are not close"
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
@@ -71,7 +69,9 @@ class SparseMarlin24(TestCase):
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 
-        assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
+        assert torch.allclose(
+            dense_result, sparse_result, atol=3e-1
+        ), "Results are not close"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_pack_unpack_equivalence(self):
@@ -94,9 +94,30 @@ class SparseMarlin24(TestCase):
         # Inject 2:4 sparsity mask
         w_24, _ = inject_24(w, *w.shape)
 
-        # Quantize weights 
-        scales, zeros = choose_qparams_affine(w_24, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-        w_q_24 = quantize_affine(w_24, block_size, scales, zeros, target_dtype, quant_min, quant_max, zero_point_domain)
+        # Quantize weights
+        scales, zeros = choose_qparams_affine(
+            w_24,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+        w_q_24 = quantize_affine(
+            w_24,
+            block_size,
+            scales,
+            zeros,
+            target_dtype,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
         scales = scales.reshape(-1, w_q_24.shape[1])
 
         # Test pack/unpack equivalence
@@ -107,8 +128,12 @@ class SparseMarlin24(TestCase):
             q_w_comp, packed_scales, meta, shape, group_size, num_bits
         )
 
-        assert torch.equal(w_q_24, unpacked_q_w), "Unpacked weights do not match original weights"
-        assert torch.equal(scales, unpacked_scales), "Unpacked scales do not match original scales"
+        assert torch.equal(
+            w_q_24, unpacked_q_w
+        ), "Unpacked weights do not match original weights"
+        assert torch.equal(
+            scales, unpacked_scales
+        ), "Unpacked scales do not match original scales"
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayout
+from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.granularity import Granularity
 from torchao.quantization.quant_primitives import (

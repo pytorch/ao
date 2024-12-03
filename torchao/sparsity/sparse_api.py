@@ -3,10 +3,10 @@ from typing import Callable, Optional
 import torch
 from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
+
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
     _is_linear,
-    int8_dynamic_activation_int8_semi_sparse_weight,
     quantize_, 
 )
 

@@ -4,10 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-
-option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library" OFF)
-
-if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+if ((CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64") OR (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64"))
   add_library(
     torchao_kernels_aarch64
     ${CMAKE_CURRENT_SOURCE_DIR}/reduction/find_min_and_max.cpp
@@ -27,8 +24,7 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
 
     # Temporarily exposing this to the parent scope until we wire
     # this up properly from the top level
-    set(TORCHAO_ENABLE_KLEIDI ON PARENT_SCOPE)
-    message(STATUS "Building with Kleidi")
+    set(TORCHAO_BUILD_KLEIDI ON PARENT_SCOPE)
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
   endif()
 endif()

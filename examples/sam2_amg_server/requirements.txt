@@ -1,0 +1,10 @@
+uvicorn
+fire
+fastapi
+opencv-python
+matplotlib
+hydra-core
+tqdm
+iopath
+python-multipart
+requests

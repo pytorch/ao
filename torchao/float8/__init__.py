@@ -11,7 +11,7 @@ from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
 )
-from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.float8_linear import WeightWithDelayedFloat8CastTensor
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,
@@ -23,16 +23,24 @@ from torchao.float8.float8_tensor import (
     LinearMMConfig,
     ScaledMMConfig,
 )
-from torchao.float8.inference import Float8MMConfig
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
-
+from torchao.float8.inference import Float8MMConfig
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Needed to load Float8Tensor with weights_only = True
     from torch.serialization import add_safe_globals
-    add_safe_globals([Float8Tensor, ScaledMMConfig, GemmInputRole, LinearMMConfig, Float8MMConfig])
+
+    add_safe_globals(
+        [
+            Float8Tensor,
+            ScaledMMConfig,
+            GemmInputRole,
+            LinearMMConfig,
+            Float8MMConfig,
+            WeightWithDelayedFloat8CastTensor,
+        ]
+    )
 
 __all__ = [
     # configuration
