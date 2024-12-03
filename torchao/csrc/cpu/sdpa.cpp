@@ -1,30 +1,3 @@
-// // #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
-// #include <torch/extension.h>
-// #include <ATen/core/Tensor.h>
-
-// #include <ATen/Dispatch.h>
-// #include <ATen/Parallel.h>
-// #include <ATen/cpu/vec/vec.h>
-// #include <ATen/cpu/vec/functional.h>
-// #include <ATen/native/CPUBlas.h>
-// #include <ATen/native/cpu/utils.h>
-// #include <ATen/native/transformers/attention.h>
-// #include <ATen/native/transformers/sdp_utils_cpp.h>
-// #include <c10/util/irange.h>
-// #include <oneapi/dnnl/dnnl_ukernel.hpp>
-// #include <iostream>
-// #include <cpu/x64/brgemm/brgemm.hpp>
-// // #include <cpu/x64/amx_tile_configure.hpp>
-// // #include <oneapi/dnnl/dnnl.hpp>
-// #include <ATen/ATen.h>
-// #include <torch/library.h>
-
-// #ifndef AT_PER_OPERATOR_HEADERS
-// #include <ATen/Functions.h>
-// #else
-// #include <ATen/ops/empty.h>
-// #endif
-
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/Dispatch.h>
