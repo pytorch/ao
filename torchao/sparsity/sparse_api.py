@@ -1,14 +1,15 @@
-from typing import Callable, Optional
-
 import torch
+
 from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
 
 from torchao.quantization.quant_api import (
-    quantize_, 
     _get_linear_subclass_inserter,
     _is_linear,
+    quantize_, 
 )
+
+from typing import Callable, Optional
 
 
 # Sparsity helper functions
