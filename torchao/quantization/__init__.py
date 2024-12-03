@@ -94,6 +94,9 @@ from .smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
+from .sfdp_int8_fx_pass import (
+    _sfdp_init_int8,
+)
 from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
@@ -192,4 +195,5 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
+    "_sfdp_init_int8",
 ]

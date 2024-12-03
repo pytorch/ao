@@ -55,7 +55,9 @@ lib.define(
     "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
-
+lib.define(
+    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=1.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor"
+)
 
 def register_custom_op(name):
     def decorator(func):
@@ -157,6 +159,57 @@ def _(
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def scaled_dot_product_int8(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float = 1.0,
+    q_zp: int = 0,
+    q_scale: float = 1.0,
+    k_zp: int = 0,
+    k_scale: float = 1.0,
+    v_zp: int = 0,
+    v_scale: float = 1.0,
+    a_zp: int = 0,
+    a_scale: float = 1.0,
+    o_zp: int = 0,
+    o_scale: float = 1.0,
+) -> Tensor:
+    return torch.ops.torchao.scaled_dot_product_int8.default(query, key, value,
+            attn_mask, dropout_p, is_causal, scale,
+            q_zp, q_scale,
+            k_zp, k_scale,
+            v_zp, v_scale,
+            a_zp, a_scale,
+            o_zp, o_scale)
+
+
+@register_custom_op("torchao::scaled_dot_product_int8")
+def _(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float = 1.0,
+    q_zp: int = 0,
+    q_scale: float = 1.0,
+    k_zp: int = 0,
+    k_scale: float = 1.0,
+    v_zp: int = 0,
+    v_scale: float = 1.0,
+    a_zp: int = 0,
+    a_scale: float = 1.0,
+    o_zp: int = 0,
+    o_scale: float = 1.0,
+) -> Tensor:
+    return query
 
 
 def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
