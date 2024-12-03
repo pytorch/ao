@@ -18,17 +18,26 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
+class HostEvent:
+    def __init__(self):
+        self.event_time = None
+
+    def record(self):
+        self.event_time = time.perf_counter()
+
+    def elapsed_time(self, other_event):
+        if self.event_time is None:
+            raise ValueError("Event not recorded!")
+        # return ms to match cuda event
+        return abs(other_event.event_time - self.event_time) * 1000
+
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
+    elif ("cpu" in device) or ("mps" in device):
+        return HostEvent()
     else:
-        return time.perf_counter
-
-def device_record_event(event):
-    if isinstance(event, torch.cuda.Event):
-        event.record()
-    else:
-        return event()
+        print(f"device={device} is not yet suppported")
 
 def device_sync(device):
     if "cuda" in device:
@@ -108,8 +117,10 @@ def generate(
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
-    prefill_start_event=None,
-    prefill_end_event=None,
+    prefill_start_event: Optional[torch.cuda.Event]=None,
+    prefill_end_event: Optional[torch.cuda.Event]=None,
+    decode_start_event: Optional[torch.cuda.Event]=None,
+    decode_end_event: Optional[torch.cuda.Event]=None,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -140,16 +151,19 @@ def generate(
 
     # execute prefill
     if prefill_start_event is not None:
-        device_record_event(prefill_start_event)
+        prefill_start_event.record()
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
     if prefill_end_event is not None:
-        device_record_event(prefill_end_event)
-    # execute token generation
+        prefill_end_event.record()
 
+    # execute token generation
+    if decode_start_event is not None:
+        decode_start_event.record()
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
-
+    if decode_end_event is not None:
+        decode_end_event.record()
     seq = torch.cat((seq[:T+1], *generated_tokens))
 
     return seq
@@ -174,7 +188,7 @@ def _load_model(checkpoint_path, device, precision):
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
-    prefill_size: int = 0,
+    prefill_size: Optional[int] = None,
     prompt: str = "Hello, my name is",
     interactive: bool = False,
     num_samples: int = 5,
@@ -201,9 +215,8 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
-    if prefill_size > 0:
-        print("Running TTFT benchmark!")
-        # create prompt of prefill size ttft
+    if prefill_size is not None and prefill_size > 0:
+        # create prompt of prefill size 
         prompt = "prompt " * (int(prefill_size)-3)
 
     torchao.quantization.utils.recommended_inductor_config_setter()
@@ -370,13 +383,15 @@ def main(
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
         if compile_prefill:
-            prefill = torch.compile(prefill, mode="max-autotune", fullgraph=True, dynamic=True)
+            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     if memory_profile:
         torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
         'time': [],
+        'decode_tokens_per_sec': [],
+        'prefill_time': [],
     }
     start = -1 if compile else 0
 
@@ -408,8 +423,8 @@ def main(
         else:
             callback = lambda x : x
         t0 = time.perf_counter()
-        prefill_start_event = device_timer(device)
-        prefill_end_event = device_timer(device)
+        prefill_start_event, prefill_end_event = device_timer(device), device_timer(device)
+        decode_start_event, decode_end_event = device_timer(device), device_timer(device)
         import contextlib
         if (i != num_samples - 1 or not profile):
             prof = contextlib.nullcontext()
@@ -430,6 +445,8 @@ def main(
                 linear_causal_mask=linear_causal_mask,
                 prefill_start_event=prefill_start_event,
                 prefill_end_event=prefill_end_event,
+                decode_start_event=decode_start_event,
+                decode_end_event=decode_end_event,
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
@@ -439,7 +456,7 @@ def main(
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and prefill_size == 0:
+        if not interactive and prefill_size is None:
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
@@ -450,8 +467,13 @@ def main(
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         aggregate_metrics['time'].append(t)
-        print(f"Time for inference {i + 1}: {t:.04f} sec total, {tokens_sec:.02f} tokens/sec")
-        print(f"Time for prefill{i + 1}: {prefill_start_event.elapsed_time(prefill_end_event):.04f} sec total, {tokens_sec:.02f} tokens/sec")
+        decode_time = decode_start_event.elapsed_time(decode_end_event) / 1000
+        decode_tokens_sec = tokens_generated / decode_time
+        aggregate_metrics['decode_tokens_per_sec'].append(decode_tokens_sec)
+        prefill_time = prefill_start_event.elapsed_time(prefill_end_event) / 1000
+        aggregate_metrics['prefill_time'].append(prefill_time)
+        print(f"Sample {i+1} | overall time {t:.04f} s {tokens_sec:.02f} tokens/sec",
+              f"| prefill time {prefill_time:.04f} s decode {decode_tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
@@ -468,17 +490,19 @@ def main(
     print("==========")
 
     #ignore first sample for warmup
-    avg_time = torch.mean(torch.tensor(aggregate_metrics['time'][1:])).item()
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
+    ttft = torch.mean(torch.tensor(aggregate_metrics['prefill_time'])).item()
+    decode_tokpersec = torch.mean(torch.tensor(aggregate_metrics['decode_tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() /1e9
-    print(f"Average tokens/sec: {tokpersec:.2f}")
+    print(f"Average overall tokens/sec: {tokpersec:.2f}")
+    print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
+    print(f"Average TTFT: {ttft:.04f} s")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
-    print(f"Average time: {avg_time:.04f} s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
-        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, time={t:5.4f} sec, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
+        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, tok/s_decode={decode_tokpersec:6.2f}, ttft={ttft:5.4f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
         result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
