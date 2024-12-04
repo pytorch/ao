@@ -30,6 +30,7 @@ from torchao.float8.config import (
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingType,
+    e4m3_dtype,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
@@ -47,7 +48,6 @@ from torchao.float8.float8_tensor import (
     LinearMMConfig,
     ScaledMMConfig,
 )
-from torchao.float8.float8_utils import e4m3_dtype
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 
