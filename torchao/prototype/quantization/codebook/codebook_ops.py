@@ -177,10 +177,15 @@ def choose_qparams_codebook(
 
     input = input_tensor.view(out_features, num_scale_blocks, scale_block_size)
 
-    # norm or max?
-    scales = input.norm(
-        dim=(-1), keepdim=True
-    )  # Shape: [out_features, num_scale_blocks, 1]
+    # Not sure if I should make scales max only when block_size is (1, 1)
+    if block_size == (1, 1):
+        scales = input.max(
+            dim=(-1), keepdim=True
+        ).values  # Shape: [out_features, num_scale_blocks, 1]
+    else:
+        scales = input.norm(
+            dim=(-1), keepdim=True
+        )  # Shape: [out_features, num_scale_blocks, 1]
     scales = torch.clamp(scales, min=1e-9)
 
     input = input / scales
