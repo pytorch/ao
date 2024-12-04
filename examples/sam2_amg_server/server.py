@@ -468,7 +468,7 @@ def load_aot_fast(mask_generator, model_directory):
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
-    
+
     # NOTE: This doesn't work yet!
     # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2__predict_masks_with_features.pt2"))
     # pkg_m = LoadedModel(pkg)
@@ -526,6 +526,18 @@ def set_furious(mask_generator):
     # NOTE: Not baseline feature
     mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
 
+def set_autoquant(mask_generator):
+    from torchao import autoquant
+    from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+    # NOTE: Not baseline feature
+    mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+    mask_generator.predictor._transforms_device = mask_generator.predictor.device
+    torch.set_float32_matmul_precision('high')
+    # NOTE: this fails when we run
+    # python server.py ~/checkpoints/sam2 large --port 8000 --host localhost --fast --use_autoquant --unittest
+    # https://gist.github.com/jerryzh168/d337cb5de0a1dec306069fe48ac8225e
+    # mask_generator.predictor.model.sam_mask_decoder = autoquant(mask_generator.predictor.model.sam_mask_decoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+
 
 def main(checkpoint_path,
          model_type,
@@ -576,6 +588,12 @@ def main(checkpoint_path,
     if load_fast != "":
         load_aot_fast(mask_generator, load_fast)
 
+    if furious:
+        set_furious(mask_generator)
+    # since autoquant is replicating what furious mode is doing, don't use these two together
+    elif use_autoquant:
+        set_autoquant(mask_generator)
+
     if save_fast != "":
         assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
@@ -585,19 +603,6 @@ def main(checkpoint_path,
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         set_fast(mask_generator, load_fast)
-
-    if furious:
-        set_furious(mask_generator)
-    # since autoquant is replicating what furious mode is doing, don't use these two together
-    elif use_autoquant:
-        from torchao import autoquant
-        from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
-        mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
-
-         #  mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16, min_sqnr=40)
-        # NOTE: Not baseline feature
-        mask_generator.predictor._transforms_device = mask_generator.predictor.device
-        torch.set_float32_matmul_precision('high')
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
