@@ -62,6 +62,7 @@ class CastConfig:
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
+    dtype: Optional[torch.dtype] = None
 
     def short_str(self):
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}"
@@ -75,6 +76,9 @@ class CastConfig:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
             ), "only dynamic scaling type is supported for axiswise scaling granularity"
+        assert self.dtype is None or (
+            self.dtype.is_floating_point and self.dtype.itemsize == 1
+        ), "must specify a 8-bit floating-point dtype"
 
 
 @dataclass(frozen=True)
@@ -122,6 +126,12 @@ class Float8TypeConfig:
             if prop.gcnArchName.split(":")[0] in MI300_ARCH:
                 self.e4m3_dtype = torch.float8_e4m3fnuz
                 self.e5m2_dtype = torch.float8_e5m2fnuz
+
+
+# User defined type for using the individual F8 type based on config
+type_config = Float8TypeConfig()
+e4m3_dtype = type_config.e4m3_dtype
+e5m2_dtype = type_config.e5m2_dtype
 
 
 @dataclass(frozen=True)
@@ -276,6 +286,20 @@ class Float8LinearConfig:
                 is_disabled_1 == is_disabled_2
             ), f"incompatible operand precision for {gemm_name}"
 
+        for cc1, cc2, operand_name, default_dtype in [
+            (cc_i, cc_i_gw, "input", e4m3_dtype),
+            (cc_w, cc_w_gi, "weight", e4m3_dtype),
+            (cc_go, cc_go_gw, "grad_output", e5m2_dtype),
+        ]:
+            # Override the dataclass being frozen
+            if cc1.dtype is None:
+                object.__setattr__(cc1, "dtype", default_dtype)
+            if cc2.dtype is None:
+                object.__setattr__(cc2, "dtype", default_dtype)
+            assert (
+                cc1.dtype == cc2.dtype
+            ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
+
         if self.use_fp8_all_gather_only:
             assert self.enable_fsdp_float8_all_gather, "use_fp8_all_gather_only requires enable_fsdp_float8_all_gather to be True"
 
@@ -340,12 +364,14 @@ def recipe_name_to_linear_config(
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
 
         # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+        )
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED)
+        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED, dtype=e4m3_dtype)
 
         return Float8LinearConfig(
             cast_config_input=cc_i,

@@ -31,9 +31,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from tqdm import tqdm
 
 from torchao.float8 import Float8LinearConfig
-from torchao.float8.config import CastConfig, ScalingType
+from torchao.float8.config import CastConfig, e4m3_dtype, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_scaling_utils import NoopFwToFloat8E5M2BwDynamic
+from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -45,7 +45,7 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
     PrepareFloat8ModuleInput,
 )
-from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
+from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.float8.dtensor_utils import ToyModel
 
@@ -173,7 +173,7 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     )
 
     out = torch.nn.functional.linear(dist_x_fp8, dist_weight_fp8)
-    out = NoopFwToFloat8E5M2BwDynamic.apply(out, LinearMMConfig())
+    out = NoopFwToFloat8BwDynamic.apply(out, LinearMMConfig(), fp8_dtype)
     assert isinstance(out, DTensor), f"Expected DTensor, got {type(out)}"
     loss = torch.sum(torch.abs(out - dist_target))
     loss.backward()
