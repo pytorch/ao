@@ -8,13 +8,12 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
 )
 
-from torchao.float8.config import ScalingType
+from torchao.float8.config import ScalingType, e4m3_dtype
 from torchao.float8.float8_scaling_utils import (
-    NoopFwToFloat8E5M2BwDynamic,
+    NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole
-from torchao.float8.float8_utils import e4m3_dtype
 
 # subclass the ColwiseParallel and RowwiseParallel classes
 # to add the float8 support
@@ -49,7 +48,7 @@ class Float8ColwiseParallel(ColwiseParallel):
 
         input_tensor = hp_tensor_to_float8_dynamic(
             input_tensor,
-            e4m3_dtype,
+            mod.config.cast_config_input.dtype,
             mod.linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
         )  # DTensor(Float8Tensor)
@@ -70,7 +69,9 @@ class Float8ColwiseParallel(ColwiseParallel):
             )  # DTensor(torch.Tensor)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8E5M2BwDynamic.apply(outputs, mod.linear_mm_config)
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs, mod.linear_mm_config, mod.config.cast_config_grad_output.dtype
+        )
 
         # back to local tensor
         return outputs.to_local() if use_local_output else outputs
@@ -103,7 +104,7 @@ class Float8RowwiseParallel(RowwiseParallel):
 
         input_tensor = hp_tensor_to_float8_dynamic(
             input_tensor,
-            e4m3_dtype,
+            mod.config.cast_config_input.dtype,
             mod.linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
         )  # DTensor(Float8Tensor)
@@ -123,7 +124,9 @@ class Float8RowwiseParallel(RowwiseParallel):
             outputs = outputs.redistribute(placements=output_layouts, async_op=True)
 
         # fwd noop bwd cast to DTensor(Float8Tensor)
-        outputs = NoopFwToFloat8E5M2BwDynamic.apply(outputs, mod.linear_mm_config)
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs, mod.linear_mm_config, mod.config.cast_config_grad_output.dtype
+        )
 
         # back to local tensor if use_local_output is True
         return outputs.to_local() if use_local_output else outputs
