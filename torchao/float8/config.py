@@ -91,10 +91,10 @@ class CastConfig:
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
-    dtype: Optional[torch.dtype] = None
+    target_dtype: Optional[torch.dtype] = None
 
     def short_str(self):
-        dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.dtype]
+        dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.target_dtype]
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
@@ -106,8 +106,8 @@ class CastConfig:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
             ), "only dynamic scaling type is supported for axiswise scaling granularity"
-        assert self.dtype is None or (
-            self.dtype.is_floating_point and self.dtype.itemsize == 1
+        assert self.target_dtype is None or (
+            self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
 
 
@@ -293,12 +293,12 @@ class Float8LinearConfig:
             (cc_go, cc_go_gw, "grad_output", e5m2_dtype),
         ]:
             # Override the dataclass being frozen
-            if cc1.dtype is None:
-                object.__setattr__(cc1, "dtype", default_dtype)
-            if cc2.dtype is None:
-                object.__setattr__(cc2, "dtype", default_dtype)
+            if cc1.target_dtype is None:
+                object.__setattr__(cc1, "target_dtype", default_dtype)
+            if cc2.target_dtype is None:
+                object.__setattr__(cc2, "target_dtype", default_dtype)
             assert (
-                cc1.dtype == cc2.dtype
+                cc1.target_dtype == cc2.target_dtype
             ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
 
         if self.use_fp8_all_gather_only:
@@ -367,13 +367,15 @@ def recipe_name_to_linear_config(
 
         # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
         cc_go = CastConfig(
-            scaling_granularity=ScalingGranularity.AXISWISE, dtype=e4m3_dtype
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
         )
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED, dtype=e4m3_dtype)
+        cc_go_gw = CastConfig(
+            scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,

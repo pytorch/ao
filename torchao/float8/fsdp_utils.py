@@ -54,14 +54,14 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         and isinstance(m.weight._local_tensor, WeightWithDynamicFloat8CastTensor)
     ]
     weights: List[DTensor] = [float8_linear.weight for float8_linear in float8_linears]
-    dtypes: Set[torch.dtype] = {
-        float8_linear.config.cast_config_weight.dtype
+    target_dtypes: Set[torch.dtype] = {
+        float8_linear.config.cast_config_weight.target_dtype
         for float8_linear in float8_linears
     }
 
     if not weights:
         return
-    (dtype,) = dtypes
+    (target_dtype,) = target_dtypes
 
     # inf-norm is equivalent to max(abs(w))
     max_weights = torch._foreach_norm(weights, ord=math.inf)  # Partial
@@ -74,7 +74,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     # upcast to float64 to ensure same numeric between compile and eager
     origin_dtype = amax_tensor.dtype
     amax_tensor = amax_tensor.to(torch.float64)
-    scale_tensor = torch.finfo(dtype).max / amax_tensor  # Replicate
+    scale_tensor = torch.finfo(target_dtype).max / amax_tensor  # Replicate
     if origin_dtype is torch.float16:
         scale_tensor = torch.clamp(scale_tensor, max=torch.finfo(torch.float16).max)
     local_scale_tensor = scale_tensor.to_local().to(torch.float32)

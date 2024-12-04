@@ -134,7 +134,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         else:
             input_maybe_fp8 = hp_tensor_to_float8_dynamic(
                 input_hp,
-                c.cast_config_input.dtype,
+                c.cast_config_input.target_dtype,
                 linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=c.cast_config_input.scaling_granularity,
@@ -148,7 +148,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         else:
             weight_maybe_fp8_t = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
-                c.cast_config_weight.dtype,
+                c.cast_config_weight.target_dtype,
                 linear_mm_config,
                 gemm_input_role=GemmInputRole.WEIGHT,
                 scaling_granularity=c.cast_config_weight.scaling_granularity,
@@ -184,7 +184,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         else:
             grad_output_reshaped_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
-                c.cast_config_grad_output.dtype,
+                c.cast_config_grad_output.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
                 scaling_granularity=c.cast_config_grad_output.scaling_granularity,
@@ -202,7 +202,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
             # the entire tensor.
             weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
-                c.cast_config_weight_for_grad_input.dtype,
+                c.cast_config_weight_for_grad_input.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.WEIGHT,
                 scaling_granularity=c.cast_config_weight_for_grad_input.scaling_granularity,
@@ -234,7 +234,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         else:
             grad_output_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
-                c.cast_config_grad_output_for_grad_weight.dtype,
+                c.cast_config_grad_output_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
                 scaling_granularity=c.cast_config_grad_output_for_grad_weight.scaling_granularity,
@@ -248,7 +248,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         else:
             input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
                 input_hp_reshaped,
-                c.cast_config_input_for_grad_weight.dtype,
+                c.cast_config_input_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
@@ -345,9 +345,11 @@ class Float8Linear(torch.nn.Linear):
         # Default values for history buffers, see above TODO
         history_len = self.config.delayed_scaling_config.history_len
         device = self.weight.device
-        default_input = torch.finfo(self.config.cast_config_input.dtype).max
-        default_weight = torch.finfo(self.config.cast_config_weight.dtype).max
-        default_grad_output = torch.finfo(self.config.cast_config_grad_output.dtype).max
+        default_input = torch.finfo(self.config.cast_config_input.target_dtype).max
+        default_weight = torch.finfo(self.config.cast_config_weight.target_dtype).max
+        default_grad_output = torch.finfo(
+            self.config.cast_config_grad_output.target_dtype
+        ).max
 
         # Note: for now, create all the buffers if any are needed, to postpone
         # the work to make the scale and amax syncing and history calculation
@@ -434,14 +436,14 @@ class Float8Linear(torch.nn.Linear):
                 self.fp8_amax_history_input,
                 self.fp8_scale_input,
                 scale_fn_name,
-                self.config.cast_config_input.dtype,
+                self.config.cast_config_input.target_dtype,
                 is_amax_initialized,
                 reduce_amax=True,
             )
             input_fp8 = hp_tensor_to_float8_delayed(
                 input,
                 self.fp8_scale_input,
-                self.config.cast_config_input.dtype,
+                self.config.cast_config_input.target_dtype,
                 self.fp8_amax_input,
                 linear_mm_config=self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
@@ -449,7 +451,7 @@ class Float8Linear(torch.nn.Linear):
         elif self.scaling_type_input is ScalingType.DYNAMIC:
             input_fp8 = hp_tensor_to_float8_dynamic(
                 input,
-                self.config.cast_config_input.dtype,
+                self.config.cast_config_input.target_dtype,
                 self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
             )
@@ -458,7 +460,7 @@ class Float8Linear(torch.nn.Linear):
             input_fp8 = hp_tensor_to_float8_static(
                 input,
                 self.fp8_static_scale_input,
-                self.config.cast_config_input.dtype,
+                self.config.cast_config_input.target_dtype,
                 self.linear_mm_config,
             )
 
@@ -475,14 +477,14 @@ class Float8Linear(torch.nn.Linear):
                 self.fp8_amax_history_weight,
                 self.fp8_scale_weight,
                 scale_fn_name,
-                self.config.cast_config_weight.dtype,
+                self.config.cast_config_weight.target_dtype,
                 self.is_amax_initialized,
                 reduce_amax=True,
             )
             self.fp8_amax_weight.fill_(tensor_to_amax(weight))
             return self.fp8_scale_weight
         elif self.scaling_type_weight is ScalingType.DYNAMIC:
-            return tensor_to_scale(weight, self.config.cast_config_weight.dtype)
+            return tensor_to_scale(weight, self.config.cast_config_weight.target_dtype)
         else:
             assert self.scaling_type_weight is ScalingType.STATIC
             return self.fp8_static_scale_weight
@@ -498,7 +500,7 @@ class Float8Linear(torch.nn.Linear):
         weight_fp8 = hp_tensor_and_scale_to_float8(
             weight,
             weight_scale,
-            self.config.cast_config_weight.dtype,
+            self.config.cast_config_weight.target_dtype,
             self.linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         )
@@ -521,13 +523,13 @@ class Float8Linear(torch.nn.Linear):
                 scale_fn_name,
                 self.is_amax_initialized,
                 self.linear_mm_config,
-                self.config.cast_config_grad_output.dtype,
+                self.config.cast_config_grad_output.target_dtype,
             )
         elif self.scaling_type_grad_output is ScalingType.DYNAMIC:
             output = NoopFwToFloat8BwDynamic.apply(
                 output,
                 self.linear_mm_config,
-                self.config.cast_config_grad_output.dtype,
+                self.config.cast_config_grad_output.target_dtype,
             )
         else:
             assert self.scaling_type_grad_output is ScalingType.STATIC
@@ -535,7 +537,7 @@ class Float8Linear(torch.nn.Linear):
                 output,
                 self.fp8_static_scale_grad_output,
                 self.linear_mm_config,
-                self.config.cast_config_grad_output.dtype,
+                self.config.cast_config_grad_output.target_dtype,
             )
         return output
 
@@ -684,7 +686,7 @@ class Float8Linear(torch.nn.Linear):
                     WeightWithDynamicFloat8CastTensor(
                         new_mod.weight,
                         new_mod.linear_mm_config,
-                        new_mod.config.cast_config_weight.dtype,
+                        new_mod.config.cast_config_weight.target_dtype,
                     )
                 )
             elif config.cast_config_weight.scaling_type is ScalingType.DELAYED:
@@ -695,7 +697,7 @@ class Float8Linear(torch.nn.Linear):
                         new_mod.fp8_amax_history_weight,
                         new_mod.fp8_scale_weight,
                         new_mod.linear_mm_config,
-                        new_mod.config.cast_config_weight.dtype,
+                        new_mod.config.cast_config_weight.target_dtype,
                         new_mod.is_amax_initialized,
                     )
                 )
@@ -706,7 +708,7 @@ class Float8Linear(torch.nn.Linear):
                         new_mod.weight,
                         new_mod.fp8_static_scale_weight,
                         new_mod.linear_mm_config,
-                        new_mod.config.cast_config_weight.dtype,
+                        new_mod.config.cast_config_weight.target_dtype,
                     )
                 )
 

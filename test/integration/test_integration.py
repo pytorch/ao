@@ -885,7 +885,6 @@ class TestSubclass(unittest.TestCase):
 
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_4, "skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             _int8da_int8w_api, device, 35, test_dtype=dtype

@@ -197,7 +197,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
         scale_fn_name,
         is_amax_initialized,
         linear_mm_config: LinearMMConfig,
-        dtype: torch.dtype,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(
             fp8_amax_grad_output, fp8_amax_history_grad_output, fp8_scale_grad_output
@@ -205,7 +205,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
         ctx.scale_fn_name = scale_fn_name
         ctx.is_amax_initialized = is_amax_initialized
         ctx.linear_mm_config = linear_mm_config
-        ctx.dtype = dtype
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
@@ -224,7 +224,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
             fp8_amax_history_grad_output,
             fp8_scale_grad_output,
             scale_fn_name,
-            ctx.dtype,
+            ctx.target_dtype,
             is_amax_initialized,
             reduce_amax=True,
         )
@@ -234,7 +234,7 @@ class NoopFwToFloat8BwDelayed(torch.autograd.Function):
         res = hp_tensor_and_scale_to_float8(
             go,
             fp8_scale_grad_output,
-            ctx.dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
@@ -254,21 +254,21 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
         ctx,
         tensor,
         linear_mm_config: LinearMMConfig,
-        dtype: torch.dtype,
+        target_dtype: torch.dtype,
     ):
         ctx.linear_mm_config = linear_mm_config
-        ctx.dtype = dtype
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
             return gradY, None, None
-        gradY_scale = tensor_to_scale(gradY, ctx.dtype)
+        gradY_scale = tensor_to_scale(gradY, ctx.target_dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            ctx.dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
@@ -288,11 +288,11 @@ class NoopFwToFloat8BwStatic(torch.autograd.Function):
         tensor,
         scale,
         linear_mm_config: LinearMMConfig,
-        dtype: torch.dtype,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(scale)
         ctx.linear_mm_config = linear_mm_config
-        ctx.dtype = dtype
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
@@ -303,7 +303,7 @@ class NoopFwToFloat8BwStatic(torch.autograd.Function):
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            ctx.dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )

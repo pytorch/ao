@@ -239,9 +239,9 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             fp8_weight_amax_history_stack[idx] = child.fp8_amax_history_weight
             fp8_grad_output_amax_history_stack[idx] = child.fp8_amax_history_grad_output
 
-            input_dtypes.add(child.config.cast_config_input.dtype)
-            weight_dtypes.add(child.config.cast_config_weight.dtype)
-            grad_output_dtypes.add(child.config.cast_config_grad_output.dtype)
+            input_dtypes.add(child.config.cast_config_input.target_dtype)
+            weight_dtypes.add(child.config.cast_config_weight.target_dtype)
+            grad_output_dtypes.add(child.config.cast_config_grad_output.target_dtype)
             scale_fn_recipes.add(child.config.delayed_scaling_config.scale_fn_name)
 
         (input_dtype,) = input_dtypes
