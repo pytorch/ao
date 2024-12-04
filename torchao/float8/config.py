@@ -53,6 +53,35 @@ class ScalingGranularity(enum.Enum):
             return "axs"
 
 
+@dataclass
+class Float8TypeConfig:
+    """
+    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
+
+    Currently, ROCm only supports fnuz variants.
+    """
+
+    # The preferred e4m3 type.
+    e4m3_dtype = torch.float8_e4m3fn
+
+    # The preferred e5m2 type.
+    e5m2_dtype = torch.float8_e5m2
+
+    def __post_init__(self):
+        if torch.version.hip and torch.cuda.is_available():
+            prop = torch.cuda.get_device_properties(0)
+            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
+            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
+                self.e4m3_dtype = torch.float8_e4m3fnuz
+                self.e5m2_dtype = torch.float8_e5m2fnuz
+
+
+# User defined type for using the individual F8 type based on config
+type_config = Float8TypeConfig()
+e4m3_dtype = type_config.e4m3_dtype
+e5m2_dtype = type_config.e5m2_dtype
+
+
 @dataclass(frozen=True)
 class CastConfig:
     """
@@ -65,7 +94,8 @@ class CastConfig:
     dtype: Optional[torch.dtype] = None
 
     def short_str(self):
-        return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}"
+        dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.dtype]
+        return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
@@ -103,35 +133,6 @@ class DelayedScalingConfig:
         assert (
             self.scale_fn_name == "max"
         ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
-
-
-@dataclass
-class Float8TypeConfig:
-    """
-    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
-
-    Currently, ROCm only supports fnuz variants.
-    """
-
-    # The preferred e4m3 type.
-    e4m3_dtype = torch.float8_e4m3fn
-
-    # The preferred e5m2 type.
-    e5m2_dtype = torch.float8_e5m2
-
-    def __post_init__(self):
-        if torch.version.hip and torch.cuda.is_available():
-            prop = torch.cuda.get_device_properties(0)
-            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
-            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
-                self.e4m3_dtype = torch.float8_e4m3fnuz
-                self.e5m2_dtype = torch.float8_e5m2fnuz
-
-
-# User defined type for using the individual F8 type based on config
-type_config = Float8TypeConfig()
-e4m3_dtype = type_config.e4m3_dtype
-e5m2_dtype = type_config.e5m2_dtype
 
 
 @dataclass(frozen=True)
@@ -358,6 +359,7 @@ def recipe_name_to_linear_config(
         #   * `input`, `weight` and `grad_output` now only need to be scaled
         #     axiswise across a single dim compared to vanilla all-axiswise,
         #     which is more amenable to fast kernels
+        #   * the e4m3 dtype is used across the board, including for gradients
 
         # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)

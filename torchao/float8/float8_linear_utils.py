@@ -311,7 +311,7 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
             fp8_weight_amax_history_stack, weight_dtype, scale_fn_recipe
         )
         new_grad_output_scales = amax_history_to_scale_stack(
-            fp8_grad_output_amax_history_stack, grad_output_dtype, scale_fn_recipe,
+            fp8_grad_output_amax_history_stack, grad_output_dtype, scale_fn_recipe
         )
 
         # Iterate through the layers and update the scales

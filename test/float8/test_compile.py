@@ -27,10 +27,10 @@ from torch._dynamo.testing import CompileCounterWithBackend
 
 from torchao.float8.config import (
     CastConfig,
-    e4m3_dtype,
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingType,
+    e4m3_dtype,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear

@@ -26,12 +26,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 from torchao.float8.config import (
     CastConfig,
-    e4m3_dtype,
-    e5m2_dtype,
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingGranularity,
     ScalingType,
+    e4m3_dtype,
+    e5m2_dtype,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear

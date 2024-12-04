@@ -31,7 +31,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from tqdm import tqdm
 
 from torchao.float8 import Float8LinearConfig
-from torchao.float8.config import CastConfig, e4m3_dtype, ScalingType
+from torchao.float8.config import CastConfig, ScalingType, e4m3_dtype
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
