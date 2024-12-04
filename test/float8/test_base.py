@@ -30,6 +30,8 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingGranularity,
     ScalingType,
+    e4m3_dtype,
+    e5m2_dtype,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
@@ -53,8 +55,6 @@ from torchao.float8.float8_tensor import (
 from torchao.float8.float8_utils import (
     FP8_TYPES,
     compute_error,
-    e4m3_dtype,
-    e5m2_dtype,
     fp8_tensor_statistics,
     tensor_to_scale,
 )
@@ -546,7 +546,7 @@ class TestFloat8Linear:
             config=config,
         )
         s = m.__repr__()
-        assert "i:dyn_ten,w:del_ten,go:dyn_ten" in s
+        assert "i:dyn_ten_e4m3,w:del_ten_e4m3,go:dyn_ten_e5m2" in s
 
     @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
