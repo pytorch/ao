@@ -3,13 +3,16 @@ import itertools
 import pytest
 
 # Skip entire test if triton is not available, otherwise CI failure
-try:
-    import triton
-except ImportError:
-    pytest.skip("triton is not installed", allow_module_level=True)
-
-import bitsandbytes.functional as F
+try:  # noqa: F401
+    import triton  # noqa: F401
+except ImportError:  # noqa: F401
+    pytest.skip("triton is not installed", allow_module_level=True)  # noqa: F401
 import torch
+from bitsandbytes.functional import (
+    create_dynamic_map,
+    dequantize_blockwise,
+    quantize_blockwise,
+)
 
 from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,
@@ -36,9 +39,9 @@ TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
 def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 
-    qmap = F.create_dynamic_map(signed).to(g.device)
+    qmap = create_dynamic_map(signed).to(g.device)
 
-    ref_bnb, qstate = F.quantize_blockwise(g, code=qmap, blocksize=blocksize)
+    ref_bnb, qstate = quantize_blockwise(g, code=qmap, blocksize=blocksize)
     bnb_norm = (g.reshape(-1, blocksize) / qstate.absmax[:, None]).reshape(g.shape)
 
     tt_q, tt_norm, tt_absmax = triton_quantize_blockwise(
@@ -82,10 +85,10 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 
-    qmap = F.create_dynamic_map(signed).to(g.device)
+    qmap = create_dynamic_map(signed).to(g.device)
 
-    q, qstate = F.quantize_blockwise(g, code=qmap, blocksize=blocksize)
+    q, qstate = quantize_blockwise(g, code=qmap, blocksize=blocksize)
 
-    dq_ref = F.dequantize_blockwise(q, qstate)
+    dq_ref = dequantize_blockwise(q, qstate)
     dq = triton_dequant_blockwise(q, qmap, qstate.absmax, group_size=blocksize)
     assert torch.allclose(dq, dq_ref)

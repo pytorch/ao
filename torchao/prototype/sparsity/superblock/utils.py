@@ -387,7 +387,7 @@ def accelerate_with_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_sparsity(model)
         if args.quantization:
-            from torchao.dtypes.affine_quantized_tensor import BlockSparseLayout
+            from torchao.dtypes import BlockSparseLayout
 
             quantize_(
                 model,
@@ -401,7 +401,7 @@ def accelerate_with_sparsity(model, args):
             sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
     elif args.sparsity == "semi_structured":
         if args.quantization:
-            from torchao.dtypes.affine_quantized_tensor import SemiSparseLayout
+            from torchao.dtypes import SemiSparseLayout
 
             quantize_(
                 model,

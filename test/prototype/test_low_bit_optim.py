@@ -7,6 +7,7 @@ import pytest
 import torch
 from packaging.version import Version
 from torch import nn
+from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -26,6 +27,7 @@ from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
 from torchao.utils import (
+    get_available_devices,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -42,7 +44,7 @@ except ImportError:
     lpmm = None
 
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICES = get_available_devices()
 
 
 class TestQuantize(TestCase):
@@ -94,7 +96,9 @@ class TestQuantize(TestCase):
         x = torch.rand(32, device=device) * 100
         x_rep = x.view(-1, 1).repeat(1, 100_000)
 
-        func = torch.compile(_fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile)
+        func = torch.compile(
+            _fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile
+        )
         x_rep_bf16 = func(x_rep)
         assert x_rep_bf16.dtype is torch.bfloat16
 
@@ -169,8 +173,13 @@ class TestOptim(TestCase):
         tensor = subclass.zeros(shape, device=device)
         offset = shape[0] // 2
 
-        torch.testing.assert_close(tensor.dequantize()[:offset], tensor[:offset].dequantize())
-        torch.testing.assert_close(tensor.dequantize()[offset:offset*2], tensor[offset:offset*2].dequantize())
+        torch.testing.assert_close(
+            tensor.dequantize()[:offset], tensor[:offset].dequantize()
+        )
+        torch.testing.assert_close(
+            tensor.dequantize()[offset : offset * 2],
+            tensor[offset : offset * 2].dequantize(),
+        )
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
@@ -188,7 +197,9 @@ class TestOptim(TestCase):
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters(), block_size=block_size)
+        optim2 = getattr(low_bit_optim, optim_name)(
+            model2.parameters(), block_size=block_size
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -244,11 +255,12 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU",
     )
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
 
@@ -279,13 +291,16 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU",
     )
     def test_optim_cpu_offload_save_load(self):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
-        optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
+        optim1 = low_bit_optim.CPUOffloadOptimizer(
+            model1.parameters(), torch.optim.AdamW
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -300,7 +315,9 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(
+            model2.parameters(), torch.optim.AdamW
+        )
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
@@ -365,9 +382,9 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required."
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
-    @skip_if_lt_x_gpu(2)
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
@@ -382,9 +399,12 @@ class TestFSDP2(FSDPTest):
         import torch.distributed as dist
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
-        from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed.tensor import DTensor
-        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
+        from torch.testing._internal.distributed._tensor.common_dtensor import (
+            ModelArgs,
+            Transformer,
+            TransformerBlock,
+        )
 
         batch_size = 3
         vocab_size = 1024
@@ -392,7 +412,7 @@ class TestFSDP2(FSDPTest):
         model_args = ModelArgs(
             n_layers=3,
             n_heads=4,
-            dim=1024,
+            dim=512,
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
@@ -457,7 +477,10 @@ class TestFSDP2(FSDPTest):
 
         subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
 
-        for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
+        for v1, v2 in zip(
+            pytree.tree_iter(resumed_fsdp_optim.state_dict()),
+            pytree.tree_iter(fsdp_optim.state_dict()),
+        ):
             assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)
             if isinstance(v1, DTensor):
                 v1 = v1.to_local()
@@ -467,6 +490,29 @@ class TestFSDP2(FSDPTest):
                 v1 = v1.dequantize()
                 v2 = v2.dequantize()
             self.assertEqual(v1, v2)
+
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
+    )
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    def test_uneven_shard(self):
+        in_dim = 512
+        out_dim = _FSDP_WORLD_SIZE * 16 + 1
+
+        # 1st dim of linear weight will not be divisible by WORLD_SIZE
+        model = nn.Linear(in_dim, out_dim, device="cuda")
+        assert model.weight.shape[0] % _FSDP_WORLD_SIZE != 0
+        fully_shard(model)
+
+        # currently all of our low-bit Adam/AdamW share the same implementation.
+        # thus, we only need to test for 1 optimizer class.
+        optim = low_bit_optim.AdamW8bit(model.parameters())
+
+        for _ in range(2):
+            inputs = torch.randn(2, in_dim, device="cuda")
+            model(inputs).sum().backward()
+            optim.step()
+            optim.zero_grad()
 
 
 instantiate_parametrized_tests(TestQuantize)

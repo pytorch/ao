@@ -980,35 +980,44 @@ def implements_torch_function(torch_function):
 @implements_torch_function(torch.Tensor.to)
 def function_to_dtype(*args, **kwargs):
     tensor = args[0]
-    if isinstance(args[1], torch.dtype):
-        # Tensor.to(dtype, non_blocking, copy, memory_format)
-        return tensor.get_original_weight().to(*args[1:], **kwargs)
-    elif (
-        isinstance(args[1], torch.device)
-        or (
-            isinstance(args[1], str)
-            and (args[1] == "cpu" or args[1].startswith("cuda"))
+    device, dtype, non_blocking, convert_to_format = torch._C._nn._parse_to(
+        *args[1:], **kwargs
+    )
+
+    # dtype is specified -> dequantize
+    if dtype is not None:
+        return tensor.get_original_weight().to(
+            device, dtype, non_blocking, memory_format=convert_to_format
         )
-    ) and len(args) == 2:
-        # Tensor.to(device, non_blocking)
-        device = args[1]
-        updated_attrs = call_from_inner_tensors(tensor, "to", args[1:], kwargs)
-        updated_attrs["device"] = device
-        return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
-    else:
-        # Tensor.to(device, dtype, non_blocking, copy, memory_format)
-        # Tensor.to(other, non_blocking, copy)
-        raise NotImplementedError(
-            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported, passing to dispatch"
+
+    # dtype is not specified -> keep NF4
+    updated_attrs = dict(device=device)
+    tensor_attrs, _ = tensor.__tensor_flatten__()
+    for attr in tensor_attrs:
+        inner_tensor = getattr(tensor, attr)
+        updated_attrs[attr] = inner_tensor.to(
+            device, dtype, non_blocking, memory_format=convert_to_format
         )
+    return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
 
 
 @implements_torch_function(torch.Tensor.cpu)
 def function_cpu(*args, **kwargs):
-    nf4tensor = args[0]
-    updated_attrs = call_from_inner_tensors(nf4tensor, "cpu", args[1:], kwargs)
-    updated_attrs["device"] = "cpu"
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+    # Tensor.cpu(self, memory_format)
+    return args[0].to("cpu", *args[1:], **kwargs)
+
+
+@implements_torch_function(torch.Tensor.cuda)
+def function_cuda(*args, **kwargs):
+    # Tensor.cuda(self, device, non_blocking, memory_format)
+    tensor = args[0]
+    updated_attrs = dict()
+    tensor_attrs, _ = tensor.__tensor_flatten__()
+    for attr in tensor_attrs:
+        inner_tensor = getattr(tensor, attr)
+        updated_attrs[attr] = inner_tensor.cuda(*args[1:], **kwargs)
+    updated_attrs["device"] = updated_attrs[tensor_attrs[0]].device
+    return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
 
 
 @implements_torch_function(F.linear)

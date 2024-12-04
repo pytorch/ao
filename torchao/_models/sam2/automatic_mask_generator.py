@@ -36,7 +36,7 @@ from torchao._models.sam2.utils.amg import (
 )
 
 
-class SAM2AutomaticMaskGenerator:
+class SAM2AutomaticMaskGenerator(torch.nn.Module):
     def __init__(
         self,
         model: SAM2Base,
@@ -105,7 +105,7 @@ class SAM2AutomaticMaskGenerator:
           use_m2m (bool): Whether to add a one step refinement using previous mask predictions.
           multimask_output (bool): Whether to output multimask at each point of the grid.
         """
-
+        super().__init__()
         assert (points_per_side is None) != (
             point_grids is None
         ), "Exactly one of points_per_side or point_grid must be provided."
@@ -381,7 +381,6 @@ class SAM2AutomaticMaskGenerator:
         i = 0
         batch_features = self.predictor._features
         all_crop_data = []
-        all_all_batch_iterator_data = []
         for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
             cropped_im_size = cropped_im.shape[:2]
             self.predictor.reset_predictor()
@@ -425,9 +424,6 @@ class SAM2AutomaticMaskGenerator:
                     data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
                     all_batch_iterator_data.append(data)
                 self.predictor.reset_predictor()
-            all_all_batch_iterator_data.append(all_batch_iterator_data)
-
-        for all_batch_iterator_data in all_all_batch_iterator_data:
 
             result_data = None
             with torch.autograd.profiler.record_function("all mask_to_rle_pytorch_2"):

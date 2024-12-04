@@ -12,10 +12,10 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.affine_quantized_tensor import (
-    AQTTensorImpl,
-    register_aqt_quantized_linear_dispatch,
     register_layout,
 )
+from torchao.dtypes.utils import AQTTensorImpl
+from torchao.dtypes.affine_quantized_tensor_ops import register_aqt_quantized_linear_dispatch
 from torchao.dtypes.utils import Layout
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -65,7 +65,7 @@ class Linear8BitActXBitWeightLayout(Layout):
         group_size: int,
         target: str,
     ):
-        assert nbit <= 7
+        assert nbit <= 8
         self.nbit = nbit
         self.group_size = group_size
         self.target = target_from_str(target)
@@ -182,7 +182,7 @@ class Linear8BitActXBitWeightAQTTensorImpl(AQTTensorImpl):
 
         # Fallback
         assert layout.target == Target.FALLBACK
-        packed_weight = int_data.to(torch.int8)
+        packed_weight = int_data.to(torch.int32)
         return cls(packed_weight, scale, zero_point, layout)
 
     def _apply_fn_to_data(self, fn):
