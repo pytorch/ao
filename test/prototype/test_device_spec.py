@@ -8,7 +8,7 @@ import itertools
 import torch
 from utils import patch_device
 
-from torchao.profiler.device_spec import (
+from torchao.prototype.profiler.device_spec import (
     _AVAILABLE_GPU_SPECS,
     CUDADeviceSpec,
     get_chip_name,

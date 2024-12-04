@@ -1,8 +1,9 @@
 import copy
-import pytest
 from typing import Optional
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+import pytest
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -11,15 +12,6 @@ import torch
 import torch._dynamo.testing
 import torch.distributed as dist
 import torch.nn as nn
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
-from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
-from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
-from torch.distributed._tensor import DTensor, init_device_mesh
-from torchao.float8.float8_tensor import GemmInputRole
-from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
@@ -28,6 +20,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
     Transformer,
 )
+
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -37,8 +30,7 @@ from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import GemmInputRole
 from torchao.testing.float8.fsdp2_utils import check_parity_fp8_comm_only
 
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
-if not is_cuda_8_9:
+if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 
@@ -47,7 +39,7 @@ class Float8CommTestLinear(torch.nn.Linear):
         fp8_param = hp_tensor_to_float8_dynamic(
             self.weight,
             torch.float8_e4m3fn,
-            None, # mm_linear_config,
+            None,  # mm_linear_config,
             reduce_amax=False,
             gemm_input_role=GemmInputRole.WEIGHT,
         )
@@ -56,7 +48,7 @@ class Float8CommTestLinear(torch.nn.Linear):
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)
         return output
-    
+
     @classmethod
     def from_float(
         cls,
@@ -92,7 +84,9 @@ class TestFloat8Common:
         for param in module.parameters():
             dist.broadcast(param, src=0)
 
-    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
+    def init_transformer(
+        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
+    ) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
@@ -113,7 +107,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     @property
     def world_size(self) -> int:
         return min(torch.cuda.device_count(), 2)
-
 
     @skip_if_lt_x_gpu(2)
     def test_transformer_parity(self):
@@ -166,7 +159,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             fully_shard(transformer_block)
             module.layers.register_module(layer_id, transformer_block)
         fully_shard(module)
-        
+
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
         optim = torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True)
 
@@ -181,7 +174,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             precompute=precompute,
             compile=compile_transformer_block,
         )
-
 
 
 if __name__ == "__main__":

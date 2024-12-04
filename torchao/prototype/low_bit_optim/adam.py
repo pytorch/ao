@@ -55,23 +55,29 @@ class _AdamBase(Optimizer):
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         raise NotImplementedError
 
-    # follow bitsandbytes, only quantize tensors >= 4096 values
-    # also wrap subclass in DTensor when needed
     def _new_buffer(self, p: Tensor, signed: bool):
-        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
-            if isinstance(p, DTensor):
-                out = DTensor.from_local(
-                    local_tensor=self._subclass_zeros(
-                        p.to_local(), signed, self.block_size
-                    ),
-                    device_mesh=p.device_mesh,
-                    placements=p.placements,
-                    run_check=False,
-                )
-            else:
-                out = self._subclass_zeros(p, signed, self.block_size)
+        local_p = p.to_local() if isinstance(p, DTensor) else p
+
+        # follow bitsandbytes, only quantize tensors >= 4096 values
+        if local_p.numel() >= 4096 and local_p.numel() % self.block_size == 0:
+            out = self._subclass_zeros(local_p, signed, self.block_size)
         else:
-            out = torch.zeros_like(p)
+            out = torch.zeros_like(local_p)
+
+        # wrap subclass in DTensor as needed
+        # NOTE: local tensor may have different shapes across ranks.
+        # this happens when the 1st dim is not divisible by WORLD_SIZE.
+        # thus, we must supply shape (and stride) to DTensor.from_local()
+        if isinstance(p, DTensor):
+            out = DTensor.from_local(
+                local_tensor=out,
+                device_mesh=p.device_mesh,
+                placements=p.placements,
+                run_check=False,
+                shape=p.shape,
+                stride=p.stride(),
+            )
+
         return out
 
     @torch.no_grad()
@@ -111,8 +117,12 @@ class _AdamBase(Optimizer):
                             "optim.param_groups[0]['lr'].fill_(new_lr)"
                         )
 
+                    # without calling p.detach(), torch.compile() will have issues with FSDP2 in some cases
+                    # https://github.com/pytorch/ao/issues/652#issuecomment-2285040894
+                    # thus, by calling p.detach(), DTensor won't have .grad anymore, which is ok since we
+                    # are passing grad separately anyway.
                     torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
-                        p,
+                        p.detach(),
                         grad,
                         state["step"],
                         state["exp_avg"],

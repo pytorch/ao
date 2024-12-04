@@ -1,4 +1,5 @@
 import copy
+import unittest
 
 import pytest
 import torch
@@ -18,10 +19,14 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_and_quantize_affine_qqq,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
 
 
-class MarlinQQQ(TestCase):
+@unittest.skipIf(
+    is_fbcode(),
+    "Skipping the test in fbcode since we don't have TARGET file for kernels",
+)
+class TestMarlinQQQ(TestCase):
     def setUp(self):
         super().setUp()
         torch.manual_seed(0)

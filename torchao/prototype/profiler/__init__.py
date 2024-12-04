@@ -1,4 +1,3 @@
-
 # Re-exports
 from .device_spec import CUDADeviceSpec, DeviceSpec
 from .performance_counter import (
@@ -20,4 +19,3 @@ __all__ = [
     "DeviceSpec",
     "total_model_params",
 ]
-

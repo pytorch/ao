@@ -9,7 +9,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayout
+from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.dtypes import( 
     to_affine_quantized_intx,
     TensorCoreTiledLayout,
