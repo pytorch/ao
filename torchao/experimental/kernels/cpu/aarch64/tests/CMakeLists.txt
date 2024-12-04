@@ -15,6 +15,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+if (ANDROID_ABI)
+  # We are cross compiling, delay test discovery till runtime
+  set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
+endif()
+
 add_compile_options("-Wall" "-Werror")
 
 include(CMakePrintHelpers)
@@ -35,12 +40,28 @@ endif()
 
 add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
-# The TORCHAO_ENABLE_KLEIDI cmake variable should be set by `torchao_kernels_aarch64"
-if(TORCHAO_ENABLE_KLEIDI)
+# The TORCHAO_BUILD_KLEIDI cmake variable should be set by `torchao_kernels_aarch64"
+if(TORCHAO_BUILD_KLEIDI)
   add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
 endif()
 
+if(TORCHAO_BUILD_ARM_I8MM)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_I8MM)
+endif()
+
 enable_testing()
+
+if (ANDROID_ABI)
+  # Given where we are today this is sufficent. But needs to be revisited.
+  # This is also needed for native builds, but keeping it only for cross builds
+  # for now given the hacky nature.
+  file(GLOB DOTPROD_SRC_FILES test*.cpp)
+  message(SRC_FILES: ${DOTPROD_SRC_FILES})
+  set_property(SOURCE
+    ${DOTPROD_SRC_FILES}
+    APPEND_STRING PROPERTY
+    COMPILE_FLAGS " -march=armv8.2-a+dotprod ")
+endif()
 
 add_executable(test_quantization test_quantization.cpp)
 target_link_libraries(

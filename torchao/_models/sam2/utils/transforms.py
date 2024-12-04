@@ -73,7 +73,7 @@ class SAM2Transforms(nn.Module):
         boxes = self.transform_coords(boxes.reshape(-1, 2, 2), normalize, orig_hw)
         return boxes
 
-    def postprocess_masks(self, masks: torch.Tensor, orig_hw) -> torch.Tensor:
+    def postprocess_masks(self, masks: torch.Tensor, orig_hw, output_dtype) -> torch.Tensor:
         """
         Perform PostProcessing on output masks.
         """
@@ -114,10 +114,11 @@ class SAM2Transforms(nn.Module):
             )
             masks = input_masks
 
+        masks = masks.to(output_dtype)
         masks = F.interpolate(masks, orig_hw, mode="bilinear", align_corners=False)
         return masks
 
-    def postprocess_masks_1_channel(self, masks: torch.Tensor, orig_hw) -> torch.Tensor:
+    def postprocess_masks_1_channel(self, masks: torch.Tensor, orig_hw, output_dtype) -> torch.Tensor:
         """
         Perform PostProcessing on output masks.
         """
@@ -161,5 +162,6 @@ class SAM2Transforms(nn.Module):
             )
             masks = input_masks
 
+        masks = masks.to(output_dtype)
         masks = F.interpolate(masks, orig_hw, mode="bilinear", align_corners=False)
         return masks

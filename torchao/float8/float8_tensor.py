@@ -7,7 +7,6 @@ import enum
 from typing import Dict, NamedTuple, Optional
 
 import torch
-import torch.distributed._functional_collectives as funcol
 from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
@@ -119,21 +118,6 @@ def choose_scaled_mm_config(
         return a_linear_mm_config.grad_weight
     else:
         raise AssertionError(f"unexpected a_role {a_role} and b_role {b_role}")
-
-
-def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
-    """
-    Check if the tensor is already casted to fp8
-    """
-    if isinstance(tensor, Float8Tensor):
-        return True
-    elif isinstance(tensor, DTensor):
-        # TODO: shall we stick to public API and directly use tensor.to_local() here?
-        return tensor_already_casted_to_fp8(tensor._local_tensor)
-    elif isinstance(tensor, funcol.AsyncCollectiveTensor):
-        return tensor_already_casted_to_fp8(tensor.elem)
-
-    return False
 
 
 @torch._dynamo.allow_in_graph
