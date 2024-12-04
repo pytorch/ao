@@ -2,13 +2,12 @@ import torch
 from torchao.prototype.hqq.core import HQQQuantizer
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
-    ZeroPointDomain,
-    PlainAQTTensorImpl,
-    PlainLayout,
-    TensorCoreTiledAQTTensorImpl,
-    TensorCoreTiledLayout,
-    MappingType,
 )
+from torchao.quantization import (
+        ZeroPointDomain,
+        MappingType,
+)
+from torchao.dtypes import TensorCoreTiledLayout, PlainLayout
 
 #Parameters
 device, compute_dtype = "cuda:0", torch.bfloat16

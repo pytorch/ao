@@ -37,12 +37,13 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
 )
+from torchao.utils import (
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 random.seed(0)
 torch.manual_seed(0)
-
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -59,12 +60,14 @@ class ToyLinearModel(torch.nn.Module):
 
 class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
-        "granularity", [PerTensor(), PerRow()] if is_H100 else [PerTensor()]
+        "granularity", [PerTensor(), PerRow()] if is_sm_at_least_90() else [PerTensor()]
     )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
@@ -134,10 +137,16 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 compute_error(output_original, output_quantized) > 20
             ), f"Quantization error is too high got a SQNR of {error}"
 
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
             float8_dynamic_activation_float8_weight(granularity="invalid")
 
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     def test_mismatched_granularity(self):
         with pytest.raises(
             ValueError,
@@ -145,6 +154,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         ):
             float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
 
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     def test_unsupported_granularity(self):
         class UnsupportedGranularity:
             pass
@@ -155,7 +167,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     def test_per_row_with_float32(self):
         with pytest.raises(
             AssertionError,
@@ -167,7 +181,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
@@ -237,7 +253,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 ), f"Scales do not match for {layer_name}"
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
     def test_fp8_weight_dimension_warning(self):
         # Create model with incompatible dimensions (not multiples of 16)
         model = ToyLinearModel(10, 25).cuda()  # 10x25 and 25x10 weights

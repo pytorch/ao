@@ -17,15 +17,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
+from torchao.dtypes.utils import is_device
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_6,
     find_multiple,
 )
 
 from .quant_primitives import MappingType
 from .unified import Quantizer
 from .utils import (
-    _lm_eval_available,
     _MultiInput,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
@@ -38,10 +39,6 @@ from .utils import (
 )
 
 aten = torch.ops.aten
-
-
-if not _lm_eval_available:
-    logging.info("lm_eval is not installed, GPTQ may not be usable")
 
 add_ons = []
 
@@ -542,12 +539,20 @@ def linear_forward_int4(
 ):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
-    c = torch.ops.aten._weight_int4pack_mm(
-        x.to(precision),
-        weight_int4pack,
-        groupsize,
-        scales_and_zeros.to(scales_precision),
-    ).to(dtype=x.dtype)
+    if is_device(x.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+        c = torch.ops.aten._weight_int4pack_mm_for_cpu(
+            x.to(precision),
+            weight_int4pack,
+            groupsize,
+            scales_and_zeros.to(scales_precision),
+        ).to(dtype=x.dtype)
+    else:
+        c = torch.ops.aten._weight_int4pack_mm(
+            x.to(precision),
+            weight_int4pack,
+            groupsize,
+            scales_and_zeros.to(scales_precision),
+        ).to(dtype=x.dtype)
     new_shape = origin_x_size[:-1] + (out_features,)
     c = c.reshape(new_shape)
     return c
@@ -575,8 +580,6 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
-            from .utils import find_multiple
-
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
 
@@ -596,19 +599,32 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         assert (
             in_features % (inner_k_tiles * 16) == 0
         ), "require in_features % (innerKTiles * 16) == 0"
-        self.register_buffer(
-            "weight",
-            torch.zeros(
-                (
-                    out_features // 8,
-                    in_features // (inner_k_tiles * 16),
-                    32,
-                    inner_k_tiles // 2,
+        if is_device(device.type, "cpu"):
+            self.register_buffer(
+                "weight",
+                torch.zeros(
+                    (
+                        out_features,
+                        in_features // 2,
+                    ),
+                    dtype=torch.uint8,
+                    device=device,
                 ),
-                dtype=torch.int32,
-                device=device,
-            ),
-        )
+            )
+        else:
+            self.register_buffer(
+                "weight",
+                torch.zeros(
+                    (
+                        out_features // 8,
+                        in_features // (inner_k_tiles * 16),
+                        32,
+                        inner_k_tiles // 2,
+                    ),
+                    dtype=torch.int32,
+                    device=device,
+                ),
+            )
         self.dtype = dtype
         self.register_buffer(
             "scales_and_zeros",
@@ -743,8 +759,6 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     if self.padding_allowed:
                         import torch.nn.functional as F
 
-                        from .utils import find_multiple
-
                         logging.warn(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
                         )
@@ -765,9 +779,19 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     self.precision,  # dtype for scales_and_zeros
                 )
                 # TODO: just get the device from mod.weight.device?
-                weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(
-                    w_int4x8.to(self.device), self.inner_k_tiles
-                )
+                if (
+                    is_device(w_int4x8.device.type, "cpu")
+                    and TORCH_VERSION_AT_LEAST_2_6
+                ):
+                    weight_int4pack = (
+                        torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+                            w_int4x8.to(self.device), self.inner_k_tiles
+                        )
+                    )
+                else:
+                    weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(
+                        w_int4x8.to(self.device), self.inner_k_tiles
+                    )
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to(self.device)
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to(
                     self.device
@@ -851,9 +875,14 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             # how much we need to pad the weight
             delta_k = int((new_k - k) / 2)
             q = q.to(self.device)
-            final_q = torch.ops.aten._convert_weight_to_int4pack(
-                F.pad(q, pad=(0, delta_k)), inner_k_tiles
-            )
+            if is_device(self.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+                final_q = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+                    F.pad(q, pad=(0, delta_k)), inner_k_tiles
+                )
+            else:
+                final_q = torch.ops.aten._convert_weight_to_int4pack(
+                    F.pad(q, pad=(0, delta_k)), inner_k_tiles
+                )
             scales = qparams[0].to(torch.bfloat16).to(self.device)
             zeros = qparams[1].to(torch.bfloat16).to(self.device)
             scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
@@ -1117,8 +1146,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 if not _check_linear_int4_k(in_features, self.groupsize):
                     if self.padding_allowed:
                         import torch.nn.functional as F
-
-                        from .utils import find_multiple
 
                         logging.warn(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"

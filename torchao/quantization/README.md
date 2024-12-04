@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Benchmarks
 Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
-
+### CUDA backend
 | Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-2-7B  | Base (bfloat16)         | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
@@ -20,9 +20,16 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+### XPU backend
+| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)         | NA              |  42.20       | 557.71                 | 13.89            | 13.21           |
+|             | int8dq                  | NA              |    9.87       |   65.35                 |  14.60            |  6.62           |
+|             | int8wo                  | NA              |  66.24       | 438.61                 |  14.60            |  6.62
 
-Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
+
+### CUDA backend
 | Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3.1-8B  | Base (bfloat16)         |  7.54               |  126.90       | 1904.75                 | 16.75            | 15.01           |
@@ -31,6 +38,15 @@ Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a ma
 |               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
 |               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
 |               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
+### XPU backend
+| Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3-8.1B  | Base (bfloat16)         |  7.441              |   40.36       | 605.77                 | 16.35            | 15.01           |
+|             | int8dq                  |  7.581              |    13.60       |   102.28                 |  18.69            |  7.52           |
+|             | int8wo                  |  7.447              |  59.49       | 447.27                 | 18.60            |  7.52
+
+
+Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU or Intel-Max1100 using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -77,7 +93,7 @@ import torchao.quantization
 # After the first forward pass (when quantization was done)
 from torchao.quantization.autoquant import AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "wb") as f:
-    pickle.dump(AUTOQUANT_CACHE)
+    pickle.dump(AUTOQUANT_CACHE, f)
 
 # On load
 from torchao.quantization.autoquant import AUTOQUANT_CACHE
@@ -96,7 +112,7 @@ be applied individually. While there are a large variety of quantization apis, t
 from torchao.quantization import quantize_, int4_weight_only
 group_size = 32
 
-# you can enable [hqq](https://ithub.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
+# you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
 # use_hqq flag for `int4_weight_only` quantization
 use_hqq = False
 quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
@@ -333,7 +349,16 @@ We're trying to develop kernels for low bit quantization for intx quantization f
 
 You try can out these apis with the `quantize_` api as above alongside the constructor `uintx_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
 
+### int8_dynamic_activation_intx_weight Quantization
+We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
 
+| Model         | Technique                                        | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ------------- | -------------------------------------------------| --------------| ------------------------| ---------------- | ----------------|
+| Llama-3.1-8B  | Base (bfloat16)                                  |  1.24         |  18.62                  |  NA              | 15.01           |
+|               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
+|               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
+
+You try can out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
 
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.

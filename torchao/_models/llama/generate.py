@@ -17,15 +17,40 @@ from torchao.utils import get_model_size_in_bytes
 from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+
+class HostEvent:
+    def __init__(self):
+        self.event_time = None
+
+    def record(self):
+        self.event_time = time.perf_counter()
+
+    def elapsed_time(self, other_event):
+        if self.event_time is None:
+            raise ValueError("Event not recorded!")
+        # return ms to match cuda event
+        return abs(other_event.event_time - self.event_time) * 1000
+
+def device_timer(device):
+    if "cuda" in device:
+        return torch.cuda.Event(enable_timing=True)
+    elif ("cpu" in device) or ("mps" in device):
+        return HostEvent()
+    else:
+        print(f"device={device} is not yet suppported")
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
+    elif "xpu" in device:
+        torch.xpu.synchronize(device)
     elif ("cpu" in device) or ("mps" in device):
         pass
     else:
         print(f"device={device} is not yet suppported")
 
-default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+default_device = 'cuda' if torch.cuda.is_available() else 'xpu' if torch.xpu.is_available() else 'cpu'
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
@@ -67,7 +92,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
     for i in range(num_new_tokens):
-        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
@@ -96,6 +121,10 @@ def generate(
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
+    prefill_start_event: Optional[torch.cuda.Event]=None,
+    prefill_end_event: Optional[torch.cuda.Event]=None,
+    decode_start_event: Optional[torch.cuda.Event]=None,
+    decode_end_event: Optional[torch.cuda.Event]=None,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -126,12 +155,21 @@ def generate(
         model.setup_caches(max_batch_size=batch_size, max_seq_length=cache_size, kv_cache_quantization=kv_cache_quantization, linear_causal_mask=linear_causal_mask, prompt_length=T)
 
     # execute prefill
+    if prefill_start_event is not None:
+        prefill_start_event.record()
     next_token = prefill(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
     seq[:, T] = next_token.squeeze()
+    if prefill_end_event is not None:
+        prefill_end_event.record()
+
     # execute token generation
+    if decode_start_event is not None:
+        decode_start_event.record()
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     generated_tokens, _ = decode_n_tokens(model, next_token.view(batch_size, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
     seq = torch.cat((seq[:, :T+1], *generated_tokens), dim=-1)
+    if decode_end_event is not None:
+        decode_end_event.record()
 
     return seq
 
@@ -155,6 +193,7 @@ def _load_model(checkpoint_path, device, precision):
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
+    prefill_size: Optional[int] = None,
     prompt: str = "Hello, my name is",
     interactive: bool = False,
     num_samples: int = 5,
@@ -164,8 +203,7 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
-    calibration_limit: int = 10,
-    calibration_seq_length: int = 256,
+    sparsity: Optional[str] = None,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
@@ -180,6 +218,10 @@ def main(
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
+
+    if prefill_size is not None and prefill_size > 0:
+        # create prompt of prefill size 
+        prompt = "prompt " * (int(prefill_size)-3)
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -205,29 +247,44 @@ def main(
 
     torch.manual_seed(1234)
 
+    def ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn 
+
+    def not_ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
+
+    def ffn_or_attn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and ("feed_forward" in fqn or "attention" in fqn)   
 
     if quantization:
-        from torchao.quantization.quant_api import (
+        from torchao.quantization import (
             quantize_,
+            autoquant,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
             int8_dynamic_activation_int4_weight,
             fpx_weight_only,
             uintx_weight_only,
-            autoquant,
-            unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
+        from torchao.utils import unwrap_tensor_subclass
+
         from torchao.quantization.granularity import PerTensor, PerRow
+        from torchao.utils import unwrap_tensor_subclass
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            if sparsity and "semi" in sparsity:
+                from torchao.dtypes import SemiSparseLayout
+                quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
+                quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -248,14 +305,14 @@ def main(
                         layout=MarlinQQQLayout(),
                     ),
                 )
-            else:  
+            elif "semi" in sparsity:
                 from torchao.dtypes import MarlinSparseLayout
-                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()), filter_fn=ffn_or_attn_only)
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
-        if "embed-int8wo" in quantization:
+        elif "embed-int8wo" in quantization:
             quantize_(model, int8_weight_only(group_size=64), filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding))
-        if quantization.startswith("awq"):
+        elif quantization.startswith("awq"):
             from torchao._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
             from torchao.prototype.awq.example import get_calib_dataset
@@ -268,21 +325,21 @@ def main(
             quant_dtype = getattr(torch, quant_dtype, torch.uint8)
             model=model.to(device)
             # get calibration data
-            insert_awq_observer_(model, calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+            insert_awq_observer_(model, 1, 256, quant_dtype=quant_dtype, group_size=group_size)
             TransformerEvalWrapper(
                 model=model.to(device),
                 tokenizer=tokenizer,
-                max_seq_length=calibration_seq_length,
+                max_seq_length=256,
                 input_prep_func=prepare_inputs_for_model,
                 device=device,
             ).run_eval(
-                tasks=['wikitext'], 
-                limit=calibration_limit,
+                tasks=['wikitext'],
+                limit=1,
             )
             is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
             use_hqq = "hqq" in quantization
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, use_hqq=use_hqq), is_observed_linear)
-        if "uintx" in quantization:
+        elif "uintx" in quantization:
             # uintx-nbits-group_size, e.g. "uintx-2-64"
             if "hqq" in quantization:
                 # uintx-nbits-group_size-hqq
@@ -296,9 +353,32 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
-        if "float8wo" in quantization:
+        elif "int8_dynamic_activation_intx_weight" in quantization:
+            from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+            assert precision == torch.float32, "int8_dynamic_activation_intx_weight requires fp32 precision"
+
+            # Build kernels in temp location, and load them in torch
+            # This requires an ARM CPU
+            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
+            temp_build_and_load_torchao_ops(cmake_lists_path=os.path.dirname(os.path.realpath(__file__)) + "/../../experimental")
+
+            # Quantize model
+            _quant_args = quantization.split("-")
+            nbit = int(_quant_args[1])
+            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
+            group_size = int(_quant_args[2])
+            has_weight_zeros = bool(_quant_args[3])
+            quantize_(
+                model,
+                int8_dynamic_activation_intx_weight(
+                    group_size=group_size,
+                    nbit=nbit,
+                    has_weight_zeros=has_weight_zeros,
+                ),
+            )
+        elif "float8wo" in quantization:
             quantize_(model, float8_weight_only())
-        if "float8dq" in quantization:
+        elif "float8dq" in quantization:
             granularity = str(quantization.split("-")[-1])
             if granularity=="tensor":
                 granularity = PerTensor()
@@ -307,13 +387,96 @@ def main(
             else:
                 granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
-        if "autoquant" in quantization:
-            if "autoquant-int4" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
-            elif "autoquant-float8" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST)
+        elif "autoquant_v2" in quantization:
+            from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            calibration_seq_length = 256
+            calibration_limit = 1
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant_v2-int4" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
+            elif "autoquant_v2-float8" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
+            elif "autoquant_v2-fp" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.prototype.quantization.autoquant_v2.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs, batch_size=calibration_seq_length)
+            elif "autoquant_v2-all" == quantization:
+                all_qtensor_classes = torchao.prototype.quantization.autoquant_v2.DEFAULT_AUTOQUANT_CLASS_LIST + torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST + torchao.prototype.quantization.autoquant_v2.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+                if torchao.utils.is_sm_89():
+                    # this is fp8 related subclasses, should rename
+                    all_qtensor_classes += torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST
+                model = autoquant_v2(model, manual=True, qtensor_class_list = all_qtensor_classes, example_input=inputs, batch_size=calibration_seq_length)
             else:
-                model = autoquant(model, manual=True)
+                model = autoquant_v2(model, manual=True, example_input=inputs, batch_size=calibration_seq_length)
+
+            print("running generate")
+            generate(
+                model,
+                encode_tokens(tokenizer, prompt, bos=True, device=device),
+                max_new_tokens,
+                batch_size,
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
+            )
+
+            print("running finalize autoquant")
+            # do autoquantization
+            model.finalize_autoquant()
+        elif "autoquant" in quantization:
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            calibration_seq_length = 256
+            calibration_limit = 1
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant-int4" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            elif "autoquant-float8" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            if "autoquant-fp" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            if "autoquant-all" == quantization:
+                all_qtensor_classes = torchao.quantization.DEFAULT_AUTOQUANT_CLASS_LIST + torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST + torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+                if torchao.utils.is_sm_89():
+                    # this is fp8 related subclasses, should rename
+                    all_qtensor_classes += torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST
+                model = autoquant(model, manual=True, qtensor_class_list = all_qtensor_classes, example_input=inputs)
+            else:
+                model = autoquant(model, manual=True, example_input=inputs)
 
             generate(
                 model,
@@ -327,9 +490,17 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
+
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
+
+    # standalone sparsity
+    elif sparsity:
+        from torchao.sparsity import semi_sparse_weight, sparsify_
+        if "semi" in sparsity:
+            #TODO there is a bug here, need to fix
+            sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -347,15 +518,27 @@ def main(
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     if memory_profile:
-        torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        if device == "cuda":
+            torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        elif device == "xpu":
+            torch.xpu.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+        else:
+            print("Memory profiling only works on CUDA or XPU devices")
+    
     aggregate_metrics = {
         'tokens_per_sec': [],
+        'time': [],
+        'decode_tokens_per_sec': [],
+        'prefill_time': [],
     }
     start = -1 if compile else 0
 
     for i in range(start, num_samples):
         if i==0:
-            torch.cuda.reset_peak_memory_stats()
+            if device == "cuda":
+                torch.cuda.reset_peak_memory_stats() # MKG
+            elif device == "xpu":
+                torch.xpu.reset_peak_memory_stats() # MKG
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -381,6 +564,8 @@ def main(
         else:
             callback = lambda x : x
         t0 = time.perf_counter()
+        prefill_start_event, prefill_end_event = device_timer(device), device_timer(device)
+        decode_start_event, decode_end_event = device_timer(device), device_timer(device)
         import contextlib
         if (i != num_samples - 1 or not profile):
             prof = contextlib.nullcontext()
@@ -400,6 +585,10 @@ def main(
                 kv_cache_quantization=kv_cache_quantization,
                 cache_size=cache_size,
                 linear_causal_mask=linear_causal_mask,
+                prefill_start_event=prefill_start_event,
+                prefill_end_event=prefill_end_event,
+                decode_start_event=decode_start_event,
+                decode_end_event=decode_end_event,
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
@@ -409,7 +598,7 @@ def main(
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
-        if not interactive:
+        if not interactive and prefill_size is None:
                 tok_list = y[0].tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in tok_list else tok_list[:tok_list.index(tokenizer.eos_id())]
@@ -419,11 +608,24 @@ def main(
         tokens_generated = (y.size(-1) - prompt_length)
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
-        print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
+        aggregate_metrics['time'].append(t)
+        decode_time = decode_start_event.elapsed_time(decode_end_event) / 1000
+        decode_tokens_sec = tokens_generated / decode_time
+        aggregate_metrics['decode_tokens_per_sec'].append(decode_tokens_sec)
+        prefill_time = prefill_start_event.elapsed_time(prefill_end_event) / 1000
+        aggregate_metrics['prefill_time'].append(prefill_time)
+        print(f"Sample {i+1} | overall time {t:.04f} s {tokens_sec:.02f} tokens/sec",
+              f"| prefill time {prefill_time:.04f} s decode {decode_tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
-            snapshot = torch.cuda.memory._snapshot()
+            if device == "cuda":
+                snapshot = torch.cuda.memory._snapshot()
+            elif device == "xpu":
+                snapshot = torch.xpu.memory._snapshot()
+            else:
+                print("Memory profiling only works on CUDA or XPU devices")
+    
             with open(f"{memory_profile}.pickle", 'wb') as f:
                 from pickle import dump
                 dump(snapshot, f)
@@ -432,12 +634,21 @@ def main(
                 "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
             )
             break
-
     print("==========")
 
+    #ignore first sample for warmup
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
+    ttft = torch.mean(torch.tensor(aggregate_metrics['prefill_time'])).item()
+    decode_tokpersec = torch.mean(torch.tensor(aggregate_metrics['decode_tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() /1e9
+    print(f"Average overall tokens/sec: {tokpersec:.2f}")
+    print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
+    print(f"Average TTFT: {ttft:.04f} s")
+    if device == "cuda": 
+        mem = torch.cuda.max_memory_reserved() /1e9
+    elif device == "xpu":
+        mem = torch.xpu.max_memory_reserved() /1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     if batch_size > 1:
         print(f"Average tokens/sec including batches {batch_size*tokpersec:.2f}")
@@ -445,15 +656,17 @@ def main(
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
-        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
-        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
+        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, tok/s_decode={decode_tokpersec:6.2f}, ttft={ttft:5.4f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
+        result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
+        result_txt += f"--sparsity {sparsity} " if sparsity else ""
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
+        result_txt += f"--prefill_size {prefill_size}" if prefill_size else ""
         result_txt += f"--profile {profile} " if profile else ""
         result_txt += f"--profile {memory_profile} " if memory_profile else ""
         result_txt += f"--interactive " if interactive else ""
@@ -475,7 +688,7 @@ def main(
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Your CLI description.')
-
+    parser.add_argument('--prefill_size', type=int, default=0, help='Whether to run in ttft mode')
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
@@ -484,15 +697,18 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, 
+    parser.add_argument('-q', '--quantization', type=str,
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, '
             +'embed-int8wo, marlin_qqq'
         )
     )
-    parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
-    parser.add_argument("--calibration_seq_length", type=int, default=256, help="Sequence length for calibration")
+    parser.add_argument('-s', '--sparsity', type=str, 
+        help=(
+            'Which sparsity techniques to apply: semi-structured'
+        )
+    )
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
@@ -507,6 +723,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
+        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )

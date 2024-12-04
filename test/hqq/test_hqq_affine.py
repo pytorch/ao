@@ -1,12 +1,7 @@
 import unittest
 import torch
-from torchao.dtypes.affine_quantized_tensor import (
-    to_affine_quantized_intx,
+from torchao.quantization import (
     ZeroPointDomain,
-    PlainAQTTensorImpl,
-    PlainLayout,
-    TensorCoreTiledAQTTensorImpl,
-    TensorCoreTiledLayout,
     MappingType,
 )
 
