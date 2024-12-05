@@ -423,7 +423,6 @@ class TestOptim(TestCase):
                 param_state = state[param]
                 exp_avg = param_state['exp_avg']
                 exp_avg_sq = param_state['exp_avg_sq']
-
                 self.assertTrue(exp_avg.__class__ != torch.Tensor)
                 self.assertTrue(exp_avg_sq.__class__ != torch.Tensor)
 
