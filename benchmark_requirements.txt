@@ -17,8 +17,8 @@ markdown-it-py==2.2.0
 MarkupSafe==2.1.5
 mdurl==0.1.0
 mkl_fft
-mkl_random==1.2.8
-mkl-service==2.4.0
+mkl_random
+mkl-service
 mpmath==1.3.0
 mypy==1.11.2
 mypy-extensions==1.0.0
