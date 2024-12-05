@@ -373,11 +373,9 @@ class TestOptim(TestCase):
             optim2.step()
             optim2.zero_grad()
 
-            torch.testing.assert_close(loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}")
-            
-
-
-_FSDP_WORLD_SIZE = 2
+            torch.testing.assert_close(
+                loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}"
+            )
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
