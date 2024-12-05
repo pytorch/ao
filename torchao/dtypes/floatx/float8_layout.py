@@ -317,6 +317,7 @@ def _sdpa_float8_check(
     q: Union[torch.Tensor, "AffineQuantizedTensor"],
     k: Union[torch.Tensor, "AffineQuantizedTensor"],
     v: Union[torch.Tensor, "AffineQuantizedTensor"],
+    args,
     kwargs,
 ) -> bool:
     def is_compatible_per_tensor_float8_aqt(t):
@@ -344,13 +345,27 @@ def _sdpa_float8_impl(
     q: Union[torch.Tensor, "AffineQuantizedTensor"],
     k: Union[torch.Tensor, "AffineQuantizedTensor"],
     v: Union[torch.Tensor, "AffineQuantizedTensor"],
+    args,
     kwargs,
 ) -> torch.Tensor:
-    # requires build from source
-    # https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release
-    # for libc10.so
-    import torch
-    from hopper.flash_attn_interface import flash_attn_func
+    try:
+        # requires build from source
+        # https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release
+        # for libc10.so
+        import torch
+        from hopper.flash_attn_interface import flash_attn_func
+    except ImportError:
+        # fallback
+        # dequantize and call original op
+        if hasattr(q, "dequantize"):
+            q = q.dequantize()
+        if hasattr(k, "dequantize"):
+            k = k.dequantize()
+        if hasattr(v, "dequantize"):
+            v = v.dequantize()
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, *args[3:], **kwargs
+        )
 
     q_tensor_impl = q.tensor_impl
     assert not q_tensor_impl.transposed
