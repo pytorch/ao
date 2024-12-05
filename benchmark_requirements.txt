@@ -1,59 +1,56 @@
-Package             Version                    Editable project location
-------------------- -------------------------- -------------------------
-attrs               24.2.0
-black               24.8.0
-blobfile            3.0.0
-certifi             2024.8.30
-cffi                1.17.1
-charset-normalizer  3.4.0
-click               8.1.7
-expecttest          0.2.1
-filelock            3.16.1
-fsspec              2024.10.0
-huggingface-hub     0.26.2
-hypothesis          6.115.6
-idna                3.10
-Jinja2              3.1.4
-lxml                5.3.0
-markdown-it-py      2.2.0
-MarkupSafe          2.1.5
-mdurl               0.1.0
-mkl_fft             1.3.11
-mkl_random          1.2.8
-mkl-service         2.4.0
-mpmath              1.3.0
-mypy                1.11.2
-mypy-extensions     1.0.0
-networkx            3.4.2
-numpy               2.0.1
-packaging           24.1
-pathspec            0.10.3
-pillow              11.0.0
-pip                 24.3.1
-platformdirs        3.10.0
-protobuf            4.25.3
-psutil              5.9.0
-pycparser           2.21
-pycryptodomex       3.21.0
-Pygments            2.15.1
-pytorch-triton-rocm 3.1.0+cf34004b8a
-PyYAML              6.0.2
-regex               2024.11.6
-requests            2.32.3
-rich                13.7.1
-safetensors         0.4.5
-setuptools          75.1.0
-six                 1.16.0
-sortedcontainers    2.4.0
-sympy               1.13.1
-tiktoken            0.8.0
-tokenizers          0.20.3
-torch               2.6.0.dev20241122+rocm6.2
-torchao             0.7.0+git9bb1b230          /data/users/jessecai/ao
-torchaudio          2.5.0.dev20241125+rocm6.2
-torchvision         0.20.0.dev20241125+rocm6.2
-tqdm                4.67.1
-transformers        4.46.3
-typing_extensions   4.11.0
-urllib3             2.2.3
-wheel               0.44.0
+attrs @ file:///croot/attrs_1729089401488/work
+black @ file:///croot/black_1725573853246/work
+blobfile==3.0.0
+certifi==2024.8.30
+cffi @ file:///croot/cffi_1726856441404/work
+charset-normalizer==3.4.0
+click @ file:///work/perseverance-python-buildout/croot/click_1698845879718/work
+expecttest==0.2.1
+filelock==3.16.1
+fsspec==2024.10.0
+huggingface-hub==0.26.2
+hypothesis @ file:///croot/hypothesis_1730479536060/work
+idna==3.10
+Jinja2==3.1.4
+lxml==5.3.0
+markdown-it-py @ file:///work/perseverance-python-buildout/croot/markdown-it-py_1698846045803/work
+MarkupSafe==2.1.5
+mdurl @ file:///work/perseverance-python-buildout/croot/mdurl_1698845653285/work
+mkl-service==2.4.0
+mkl_fft @ file:///io/mkl313/mkl_fft_1730824109137/work
+mkl_random @ file:///io/mkl313/mkl_random_1730823916628/work
+mpmath==1.3.0
+mypy @ file:///croot/mypy-split_1725573876658/work
+mypy-extensions @ file:///work/perseverance-python-buildout/croot/mypy_extensions_1698863276135/work
+networkx==3.4.2
+numpy @ file:///croot/numpy_and_numpy_base_1725470312869/work/dist/numpy-2.0.1-cp312-cp312-linux_x86_64.whl#sha256=e2374991344fa2241a2153ef3d550d3a1cd2d50cb1f1d51eddc82870abc88021
+packaging @ file:///croot/packaging_1720101850331/work
+pathspec @ file:///work/perseverance-python-buildout/croot/pathspec_1698805478393/work
+pillow==11.0.0
+platformdirs @ file:///work/perseverance-python-buildout/croot/platformdirs_1701732573265/work
+protobuf==4.25.3
+psutil @ file:///work/perseverance-python-buildout/croot/psutil_1698863411559/work
+pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
+pycryptodomex==3.21.0
+Pygments @ file:///work/perseverance-python-buildout/croot/pygments_1698846270603/work
+pytorch-triton-rocm==3.1.0+cf34004b8a
+PyYAML @ file:///croot/pyyaml_1728657952215/work
+regex==2024.11.6
+requests==2.32.3
+rich @ file:///croot/rich_1720637495510/work
+safetensors==0.4.5
+setuptools==75.1.0
+six==1.16.0
+sortedcontainers @ file:///tmp/build/80754af9/sortedcontainers_1623949099177/work
+sympy==1.13.1
+tiktoken==0.8.0
+tokenizers==0.20.3
+torch==2.6.0.dev20241122+rocm6.2
+-e git+ssh://git@github.com/pytorch/ao.git@a60980573f50f4dcd502232708c9d20af8cfbb67#egg=torchao
+torchaudio==2.5.0.dev20241125+rocm6.2
+torchvision==0.20.0.dev20241125+rocm6.2
+tqdm==4.67.1
+transformers==4.46.3
+typing_extensions @ file:///croot/typing_extensions_1715268824938/work
+urllib3==2.2.3
+wheel==0.44.0
