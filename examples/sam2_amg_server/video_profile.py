@@ -90,7 +90,7 @@ def synthesize_video_data(
 
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
     print(f"Generate {n_frames} frames")
-    if not synthesize_overwrite and os.listdir(out_dir) > 0:
+    if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
         raise ValueError("Expected folder to be empty unless --synthesize-overwrite is specified.")
     # Generate 100 frames
     for i in range(n_frames):
@@ -114,11 +114,12 @@ def synthesize_video_data(
             vy *= -1
 
 
-def profiler_runner(fn, *args, **kwargs):
-    path = os.path.join(
-        os.path.expanduser("~/traces"),
-        f'{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.json.gz',
-    )
+def profiler_runner(path, fn, *args, **kwargs):
+    if path is None:
+        path = os.path.join(
+            os.path.expanduser("~/traces"),
+            f'{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.json.gz',
+        )
     with torch.profiler.profile(
         activities=[
             torch.profiler.ProfilerActivity.CPU,
@@ -277,14 +278,15 @@ def run_test(
 
     global_timer.reset()
     print("\nProfile round.")
-    if profile:
+    if profile is None:
+        main_loop(predictor=predictor, inference_state=inference_state)
+    else:
         profiler_runner(
+            profile,
             main_loop,
             predictor=predictor,
             inference_state=inference_state,
         )
-    else:
-        main_loop(predictor=predictor, inference_state=inference_state)
     if print_all_timings:
         global_timer.print_all_timings()
 
@@ -309,10 +311,10 @@ if __name__ == "__main__":
         help="Directory to store the synthetic video",
     )
     parser.add_argument(
-        "--no-torch-profiling",
-        action="store_false",
+        "--profile",
+        type=str,
         dest="profile",
-        help="If true, only run timings. Otherwise un torch profiler.",
+        help="If specified stores profile at given path.",
     )
     parser.add_argument(
         "--radius",
