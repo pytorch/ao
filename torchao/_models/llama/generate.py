@@ -298,7 +298,7 @@ def main(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         elif "float8wo" in quantization:
-            quantize_(model, float8_weight_only())
+            quantize_(model, float8_weight_only(weight_dtype=torch.float8_e4m3fnuz))
         elif "float8dq" in quantization:
             granularity = str(quantization.split("-")[-1])
             if granularity=="tensor":
@@ -307,7 +307,7 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, weight_dtype=torch.float8_e4m3fnuz, activation_dtype=torch.float8_e4m3fnuz))
         elif "autoquant_v2" in quantization:
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model

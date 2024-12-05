@@ -86,8 +86,8 @@ def convert_hf_checkpoint(
            state_dict = torch.load(str(file), map_location="cpu", mmap=True, weights_only=True)
            merged_result.update(state_dict)
     
-    if config.tie_word_embeddings:
-        merged_result["lm_head.weight"] = merged_result["model.embed_tokens.weight"].clone()
+    # if config.tie_word_embeddings:
+        # merged_result["lm_head.weight"] = merged_result["model.embed_tokens.weight"].clone()
 
     final_result = {}
     for key, value in merged_result.items():
