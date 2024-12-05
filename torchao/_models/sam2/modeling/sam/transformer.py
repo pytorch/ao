@@ -281,6 +281,9 @@ class Attention(nn.Module):
                 padded = True
 
             if q.shape[-1] in [64, 128, 256]:
+                q = q.transpose(1, 2)
+                k = k.transpose(1, 2)
+                v = v.transpose(1, 2)
                 q = _float8_symmetric_per_tensor_quant(q)
                 k = _float8_symmetric_per_tensor_quant(k)
                 v = _float8_symmetric_per_tensor_quant(v)

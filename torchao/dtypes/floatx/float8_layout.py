@@ -349,22 +349,12 @@ def _sdpa_float8_impl(
     kwargs,
 ) -> torch.Tensor:
     try:
-        # requires build from source
-        # https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release
         # for libc10.so
         import torch
         from hopper.flash_attn_interface import flash_attn_func
-    except ImportError:
-        # fallback
-        # dequantize and call original op
-        if hasattr(q, "dequantize"):
-            q = q.dequantize()
-        if hasattr(k, "dequantize"):
-            k = k.dequantize()
-        if hasattr(v, "dequantize"):
-            v = v.dequantize()
-        return torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, *args[3:], **kwargs
+    except ImportError as e:
+        raise ImportError(
+            f"please install FlashAttention 3 before using float8 sdpa: https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release, original import error {e}"
         )
 
     q_tensor_impl = q.tensor_impl
@@ -392,14 +382,20 @@ def _sdpa_float8_impl(
     ), "dropout_p should be set to 0.0 during inference"
     causal = kwargs.get("causal", False)
 
-    out = flash_attn_func(
+    out, _ = flash_attn_func(
         q_float8_data,
         k_float8_data,
         v_float8_data,
         causal=causal,
+        window_size=(-1, -1),
         descale_q=q_scale,
         descale_k=k_scale,
         descale_v=v_scale,
     )
 
-    return out[0]
+    # F.scaled_dot_product_attention is using (batch_size, nheads, seqlen, headdim)
+    # while flash attention kernel has (batch_size, seqlen, nheads, headdim)
+    # so we need to transpose output to match the expected dimension
+    out = out.transpose(1, 2)
+
+    return out

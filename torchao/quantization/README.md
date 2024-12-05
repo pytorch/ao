@@ -305,7 +305,9 @@ Note that the workaround will not be needed after https://github.com/pytorch/pyt
 
 Note that the workaround is also required for `torch.compile` with `freezing` (`torch._inductor.config.freezing=True`) until https://github.com/pytorch/pytorch/pull/136265 is fixed.
 
-## Other Available Quantization Techniques
+## [Prototype Features] Other Available Quantization Techniques
+
+Note: APIs in this section are prototype and subject to change.
 
 ### KV Cache Quantization
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.

@@ -91,6 +91,12 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
+class QuantizedSDPANotImplementedError(NotImplementedError):
+    """Thin wrapper around NotImplementedError to make it easier to catch this error during dispatch"""
+
+    pass
+
+
 @staticmethod
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
@@ -282,19 +288,12 @@ def _(func, types, args, kwargs):
 @implements(torch.nn.functional.scaled_dot_product_attention)
 def _(func, types, args, kwargs):
     q, k, v = args[:3]
-    if not _sdpa_float8_check(q, k, v, args, kwargs):
-        # dequantize and call original op
-        if hasattr(q, "dequantize"):
-            q = q.dequantize()
-        if hasattr(k, "dequantize"):
-            k = k.dequantize()
-        if hasattr(v, "dequantize"):
-            v = v.dequantize()
-        return torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, *args[3:], **kwargs
-        )
+    if _sdpa_float8_check(q, k, v, args, kwargs):
+        return _sdpa_float8_impl(q, k, v, args, kwargs)
     else:
-        return _sdpa_float8_impl(k, q, v, args, kwargs)
+        raise QuantizedSDPANotImplementedError(
+            "No specialized dispatch found for quantized sdpa"
+        )
 
 
 @implements(aten.detach.default)

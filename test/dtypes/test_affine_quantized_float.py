@@ -9,7 +9,6 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 import copy
 import io
-import math
 import random
 import unittest
 from contextlib import nullcontext
@@ -18,7 +17,6 @@ from typing import Tuple
 
 import pytest
 import torch
-from einops import rearrange, repeat
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils
 
@@ -290,149 +288,6 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
 
-# copied from https://github.com/Dao-AILab/flash-attention/blob/1feb711f46563960fc10a8e659c93c300619504b/tests/test_util.py#L185
-
-
-def construct_local_mask(
-    seqlen_q,
-    seqlen_k,
-    window_size=(-1, -1),  # -1 means infinite window size
-    query_padding_mask=None,
-    key_padding_mask=None,
-    device=None,
-    key_leftpad=None,
-):
-    row_idx = rearrange(
-        torch.arange(seqlen_q, device=device, dtype=torch.long), "s -> s 1"
-    )
-    col_idx = torch.arange(seqlen_k, device=device, dtype=torch.long)
-    if key_leftpad is not None:
-        key_leftpad = rearrange(key_leftpad, "b -> b 1 1 1")
-        col_idx = repeat(col_idx, "s -> b 1 1 s", b=key_leftpad.shape[0])
-        col_idx = torch.where(col_idx >= key_leftpad, col_idx - key_leftpad, 2**32)
-    sk = (
-        seqlen_k
-        if key_padding_mask is None
-        else rearrange(key_padding_mask.sum(-1), "b -> b 1 1 1")
-    )
-    sq = (
-        seqlen_q
-        if query_padding_mask is None
-        else rearrange(query_padding_mask.sum(-1), "b -> b 1 1 1")
-    )
-    if window_size[0] < 0:
-        return col_idx > row_idx + sk - sq + window_size[1]
-    else:
-        sk = torch.full_like(col_idx, seqlen_k) if key_padding_mask is None else sk
-        return torch.logical_or(
-            col_idx > torch.minimum(row_idx + sk - sq + window_size[1], sk),
-            col_idx < row_idx + sk - sq - window_size[0],
-        )
-
-
-def attention_ref(
-    q,
-    k,
-    v,
-    query_padding_mask=None,
-    key_padding_mask=None,
-    attn_bias=None,
-    dropout_p=0.0,
-    dropout_mask=None,
-    causal=False,
-    window_size=(-1, -1),  # -1 means infinite window size
-    softcap=0.0,
-    upcast=True,
-    reorder_ops=False,
-    key_leftpad=None,
-):
-    """
-    Arguments:
-        q: (batch_size, seqlen_q, nheads, head_dim)
-        k: (batch_size, seqlen_k, nheads_k, head_dim)
-        v: (batch_size, seqlen_k, nheads_k, head_dim)
-        query_padding_mask: (batch_size, seqlen_q)
-        key_padding_mask: (batch_size, seqlen_k)
-        attn_bias: broadcastable to (batch_size, nheads, seqlen_q, seqlen_k)
-        dropout_p: float
-        dropout_mask: (batch_size, nheads, seqlen_q, seqlen_k)
-        causal: whether to apply causal masking
-        window_size: (int, int), left and right window size
-        upcast: whether to cast all inputs to fp32, do all computation in fp32, then cast
-            output back to fp16/bf16.
-        reorder_ops: whether to change the order of operations (scaling k instead of scaling q, etc.)
-            without changing the math. This is to estimate the numerical error from operation
-            reordering.
-    Output:
-        output: (batch_size, seqlen_q, nheads, head_dim)
-        attention: (batch_size, nheads, seqlen_q, seqlen_k), softmax after dropout
-    """
-    if causal:
-        window_size = (window_size[0], 0)
-    dtype_og = q.dtype
-    if upcast:
-        q, k, v = q.float(), k.float(), v.float()
-    seqlen_q, seqlen_k = q.shape[1], k.shape[1]
-    k = repeat(k, "b s h d -> b s (h g) d", g=q.shape[2] // k.shape[2])
-    v = repeat(v, "b s h d -> b s (h g) d", g=q.shape[2] // v.shape[2])
-    d = q.shape[-1]
-    if not reorder_ops:
-        scores = torch.einsum("bthd,bshd->bhts", q / math.sqrt(d), k)
-    else:
-        scores = torch.einsum("bthd,bshd->bhts", q, k / math.sqrt(d))
-    if softcap > 0:
-        scores /= softcap
-        scores = scores.tanh()
-        scores *= softcap
-    if key_padding_mask is not None:
-        scores.masked_fill_(
-            rearrange(~key_padding_mask, "b s -> b 1 1 s"), float("-inf")
-        )
-    if window_size[0] >= 0 or window_size[1] >= 0:
-        local_mask = construct_local_mask(
-            seqlen_q,
-            seqlen_k,
-            window_size,
-            query_padding_mask,
-            key_padding_mask,
-            q.device,
-            key_leftpad=key_leftpad,
-        )
-        scores.masked_fill_(local_mask, float("-inf"))
-    if attn_bias is not None:
-        scores = scores + attn_bias
-    attention = torch.softmax(scores, dim=-1).to(v.dtype)
-    # Some rows might be completely masked out so we fill them with zero instead of NaN
-    if window_size[0] >= 0 or window_size[1] >= 0:
-        attention = attention.masked_fill(
-            torch.all(local_mask, dim=-1, keepdim=True), 0.0
-        )
-    # We want to mask here so that the attention matrix doesn't have any NaNs
-    # Otherwise we'll get NaN in dV
-    if query_padding_mask is not None:
-        attention = attention.masked_fill(
-            rearrange(~query_padding_mask, "b s -> b 1 s 1"), 0.0
-        )
-    dropout_scaling = 1.0 / (1 - dropout_p)
-    # attention_drop = attention.masked_fill(~dropout_mask, 0.0) * dropout_scaling
-    # output = torch.einsum('bhts,bshd->bthd', attention_drop , v)
-    if dropout_mask is not None:
-        attention_drop = attention.masked_fill(~dropout_mask, 0.0)
-    else:
-        attention_drop = attention
-    output = torch.einsum("bhts,bshd->bthd", attention_drop, v * dropout_scaling)
-    if query_padding_mask is not None:
-        output.masked_fill_(rearrange(~query_padding_mask, "b s -> b s 1 1"), 0.0)
-    if key_padding_mask is not None:
-        output.masked_fill_(
-            rearrange(
-                torch.logical_not(torch.any(key_padding_mask, 1)), "b -> b 1 1 1"
-            ),
-            0.0,
-        )
-    return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
-
-
 class TestAffineQuantizedFloat8Attention(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_float8_attention(self):
@@ -443,29 +298,36 @@ class TestAffineQuantizedFloat8Attention(common_utils.TestCase):
         class MyModel(torch.nn.Module):
             def forward(self, q, k, v, float8_quantize=False):
                 if float8_quantize:
+                    # F.scaled_dot_product_attention is using (batch_size, nheads, seqlen, headdim)
+                    # while flash attention kernel has (batch_size, seqlen, nheads, headdim)
+                    q = q.transpose(1, 2)
+                    k = k.transpose(1, 2)
+                    v = v.transpose(1, 2)
                     q = _float8_symmetric_per_tensor_quant(q)
                     k = _float8_symmetric_per_tensor_quant(k)
                     v = _float8_symmetric_per_tensor_quant(v)
+
                 return F.scaled_dot_product_attention(q, k, v)
 
-        # note: last headdim must be 64, 128, 256
+        # note: last dim headdim must be 64, 128 or 256
         q = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
         k = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
         v = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
 
         m = MyModel().eval()
-        # it differs a lot from the non-quantized implementation
-        # sqnr = -2.5
-        # ref = m(q, k, v)
 
-        # but matches the custom attention implementation in flash attention repo
-        ref = attention_ref(q, k, v)[0]
+        # bfloat16 ref result
+        ref = m(q, k, v)
+
+        # float8 quantized result
         quantized = m(q, k, v, True)
-        assert compute_error(ref, quantized) > 25.0
+
+        sqnr = compute_error(ref, quantized)
+        assert sqnr > 25.0, f"Got sqnr: {sqnr}"
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    # pytest.main([__file__])
     common_utils.run_tests()
