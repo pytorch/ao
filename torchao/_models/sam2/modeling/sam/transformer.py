@@ -267,6 +267,7 @@ class Attention(nn.Module):
         v = self._separate_heads(v, self.num_heads)
 
         # quantize q/k/v
+        padded = False
         if _QUANTIZE_ATTN:
             from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
             original_head_dim = list(q.shape)[-1]
@@ -345,11 +346,6 @@ class RoPEAttention(Attention):
         q = self._separate_heads(q, self.num_heads)
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
-
-        # quantize q/k/v
-        q = _float8_symmetric_per_token_quant(q)
-        k = _float8_symmetric_per_token_quant(k)
-        v = _float8_symmetric_per_token_quant(v)
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])

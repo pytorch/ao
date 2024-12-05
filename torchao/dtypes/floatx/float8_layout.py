@@ -371,7 +371,6 @@ def _sdpa_float8_impl(
     ), "dropout_p should be set to 0.0 during inference"
     causal = kwargs.get("causal", False)
 
-    gqa_parallel = False
     out = flash_attn_func(
         q_float8_data,
         k_float8_data,
