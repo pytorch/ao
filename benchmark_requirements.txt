@@ -34,7 +34,6 @@ psutil==5.9.0
 pycparser==2.21
 pycryptodomex==3.21.0
 Pygments==2.15.1
-pytorch-triton-rocm==3.1.0+cf34004b8a
 PyYAML==6.0.2
 regex==2024.11.6
 requests==2.32.3
@@ -46,10 +45,6 @@ sortedcontainers==2.4.0
 sympy==1.13.1
 tiktoken==0.8.0
 tokenizers==0.20.3
-torch==2.6.0.dev20241122+rocm6.2
-torchao==0.7.0+git9bb1b230
-torchaudio==2.5.0.dev20241125+rocm6.2
-torchvision==0.20.0.dev20241125+rocm6.2
 tqdm==4.67.1
 transformers==4.46.3
 typing_extensions==4.11.0
