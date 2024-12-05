@@ -282,7 +282,7 @@ def _(func, types, args, kwargs):
 @implements(torch.nn.functional.scaled_dot_product_attention)
 def _(func, types, args, kwargs):
     q, k, v = args[:3]
-    if not _sdpa_float8_check(q, k, v):
+    if not _sdpa_float8_check(q, k, v, kwargs):
         # dequantize and call original op
         if hasattr(q, "dequantize"):
             q = q.dequantize()
@@ -294,6 +294,7 @@ def _(func, types, args, kwargs):
             q, k, v, *args[3:], **kwargs
         )
     else:
+        print("calling float8 impl")
         return _sdpa_float8_impl(k, q, v, kwargs)
 
 

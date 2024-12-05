@@ -317,20 +317,27 @@ def _sdpa_float8_check(
     q: Union[torch.Tensor, "AffineQuantizedTensor"],
     k: Union[torch.Tensor, "AffineQuantizedTensor"],
     v: Union[torch.Tensor, "AffineQuantizedTensor"],
+    kwargs,
 ) -> bool:
-    def is_per_tensor_float8_aqt(t):
+
+    def is_compatible_per_tensor_float8_aqt(t):
         # tensor is float8 quantized affine quantized tensor
         return (
             isinstance(t, AffineQuantizedTensor)
             and isinstance(t._layout, Float8Layout)
             and t.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
-            and (t.shape == t.block_size)
+            and (t.shape == t.block_size) and
+            t.shape[-1] in [64, 128, 256]
         )
 
+    dropout_p = kwargs.get("dropout_p", 0.0)
+
     return (
-        is_per_tensor_float8_aqt(q)
-        and is_per_tensor_float8_aqt(k)
-        and is_per_tensor_float8_aqt(v)
+        is_compatible_per_tensor_float8_aqt(q) and
+        is_compatible_per_tensor_float8_aqt(k) and
+        is_compatible_per_tensor_float8_aqt(v) and
+        "attn_mask" not in kwargs and
+        dropout_p == 0.0
     )
 
 

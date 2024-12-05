@@ -266,11 +266,12 @@ class Attention(nn.Module):
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
 
-        # quantize q/k/v
+        # quantize q/k/v with per tensor float8 quantization
         padded = False
         if _QUANTIZE_ATTN:
             from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
             original_head_dim = list(q.shape)[-1]
+            original_dtype = v.dtype
             padded = False
             # padding:
             if q.shape[-1] == 32:
