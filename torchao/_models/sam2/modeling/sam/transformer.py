@@ -17,13 +17,15 @@ from torch import nn, Tensor
 from torchao._models.sam2.modeling.position_encoding import apply_rotary_enc, compute_axial_cis
 from torchao._models.sam2.modeling.sam2_utils import MLP
 from torchao._models.sam2.utils.misc import get_sdpa_settings
-from torchao.quantization.quant_api import _float8_symmetric_per_token_quant
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 # Check whether Flash Attention is available (and use it by default)
 OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
 # A fallback setting to allow all available kernels if Flash Attention fails
 ALLOW_ALL_KERNELS = False
+
+# whether to turn on float8 quantization for sdpa or not
+_QUANTIZE_ATTN = False
 
 
 def sdp_kernel_context(dropout_p):
@@ -265,9 +267,21 @@ class Attention(nn.Module):
         v = self._separate_heads(v, self.num_heads)
 
         # quantize q/k/v
-        q = _float8_symmetric_per_token_quant(q)
-        k = _float8_symmetric_per_token_quant(k)
-        v = _float8_symmetric_per_token_quant(v)
+        if _QUANTIZE_ATTN:
+            from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
+            original_head_dim = list(q.shape)[-1]
+            padded = False
+            # padding:
+            if q.shape[-1] == 32:
+                q = F.pad(q, (0, 32))
+                k = F.pad(k, (0, 32))
+                v = F.pad(v, (0, 32))
+                padded = True
+
+            if q.shape[-1] in [64, 128, 256]:
+                q = _float8_symmetric_per_tensor_quant(q)
+                k = _float8_symmetric_per_tensor_quant(k)
+                v = _float8_symmetric_per_tensor_quant(v)
 
         dropout_p = self.dropout_p if self.training else 0.0
         # # Attention
@@ -287,6 +301,9 @@ class Attention(nn.Module):
         #     out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
         # TODO: This scale should not be needed. But without it compile causes a NaN.
         out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
+        if _QUANTIZE_ATTN and padded:
+            out = out[:, :, :, :original_head_dim]
+            out = out.to(v.dtype)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)

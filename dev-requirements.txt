@@ -14,6 +14,8 @@ matplotlib
 pandas
 fire  # QOL for commandline scripts
 tabulate  # QOL for printing tables to stdout
+einops  # for testing flash attention 3
+
 
 # Custom CUDA Extensions
 ninja

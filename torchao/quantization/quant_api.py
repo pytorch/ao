@@ -803,7 +803,9 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
 
-def _float8_symmetric_per_token_quant(x: torch.Tensor, dtype: torch.dtype = torch.float8_e4m3fn):
+def _float8_symmetric_per_token_quant(
+    x: torch.Tensor, dtype: torch.dtype = torch.float8_e4m3fn
+):
     from torchao.dtypes import to_affine_quantized_floatx
 
     return to_affine_quantized_floatx(
@@ -813,6 +815,23 @@ def _float8_symmetric_per_token_quant(x: torch.Tensor, dtype: torch.dtype = torc
         scale_dtype=None,
         _layout=Float8Layout(mm_config=None),
     )
+
+
+def _float8_symmetric_per_tensor_quant(
+    x: torch.Tensor,
+    dtype: torch.dtype = torch.float8_e4m3fn,
+    mm_config: Optional[Float8MMConfig] = None,
+):
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    return to_affine_quantized_floatx(
+        input_float=x,
+        block_size=tuple(x.shape),
+        target_dtype=dtype,
+        scale_dtype=torch.float32,
+        _layout=Float8Layout(mm_config=mm_config),
+    )
+
 
 def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     """
@@ -825,6 +844,7 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
         The actual matmul will be computed in original precision of the weight tensor.
 
     """
+
     def apply_float8wo_quant(weight):
         return _float8_symmetric_per_token_quant(weight, weight_dtype)
 

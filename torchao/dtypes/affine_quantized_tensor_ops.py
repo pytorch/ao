@@ -11,6 +11,8 @@ from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_impl,
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
+    _sdpa_float8_check,
+    _sdpa_float8_impl,
 )
 from torchao.dtypes.floatx.floatx_tensor_core_layout import (
     _linear_f16_bf16_act_floatx_weight_check,
@@ -277,33 +279,22 @@ def _(func, types, args, kwargs):
     )
 
 
-@implements([torch.nn.functional.scaled_dot_product_attention])
+@implements(torch.nn.functional.scaled_dot_product_attention)
 def _(func, types, args, kwargs):
-    # for libc10.so
-    import torch
-    from hopper.flash_attn_interface import flash_attn_func
     q, k, v = args[:3]
-    q_tensor_impl = q.tensor_impl
-    assert not q_tensor_impl.transposed
-    q_float8_data = q_tensor_impl.float8_data
-    q_scale = q.scale
-
-    k_tensor_impl = k.tensor_impl
-    assert not k_tensor_impl.transposed
-    k_float8_data = k_tensor_impl.float8_data
-    k_scale = k.scale
-
-    v_tensor_impl = v.tensor_impl
-    assert not v_tensor_impl.transposed
-    v_float8_data = v_tensor_impl.float8_data
-    v_scale = v.scale
-
-    softmax_scale = kwargs.get("scale", None)
-    dropout_p = kwargs.get("dropout_p", None)
-    assert dropout_p is None or dropout_p == 0.0, "dropout_p should be set to 0.0 during inference"
-
-    breakpoint()
-    return flash_attn_func(q_float8_data, k_float8_data, v_float8_data, softmax_scale=softmax_scale, descale_q=q_scale, descale_k=k_scale, descale_v=v_scale)
+    if not _sdpa_float8_check(q, k, v):
+        # dequantize and call original op
+        if hasattr(q, "dequantize"):
+            q = q.dequantize()
+        if hasattr(k, "dequantize"):
+            k = k.dequantize()
+        if hasattr(v, "dequantize"):
+            v = v.dequantize()
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, *args[3:], **kwargs
+        )
+    else:
+        return _sdpa_float8_impl(k, q, v, kwargs)
 
 
 @implements(aten.detach.default)

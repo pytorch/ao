@@ -311,3 +311,75 @@ def _linear_fp_act_fp8_weight_impl(
     bias: Optional[torch.Tensor],
 ):
     return torch.nn.functional.linear(input_tensor, weight_tensor.dequantize(), bias)
+
+
+def _sdpa_float8_check(
+    q: Union[torch.Tensor, "AffineQuantizedTensor"],
+    k: Union[torch.Tensor, "AffineQuantizedTensor"],
+    v: Union[torch.Tensor, "AffineQuantizedTensor"],
+) -> bool:
+    def is_per_tensor_float8_aqt(t):
+        # tensor is float8 quantized affine quantized tensor
+        return (
+            isinstance(t, AffineQuantizedTensor)
+            and isinstance(t._layout, Float8Layout)
+            and t.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+            and (t.shape == t.block_size)
+        )
+
+    return (
+        is_per_tensor_float8_aqt(q)
+        and is_per_tensor_float8_aqt(k)
+        and is_per_tensor_float8_aqt(v)
+    )
+
+
+def _sdpa_float8_impl(
+    q: Union[torch.Tensor, "AffineQuantizedTensor"],
+    k: Union[torch.Tensor, "AffineQuantizedTensor"],
+    v: Union[torch.Tensor, "AffineQuantizedTensor"],
+    kwargs,
+) -> torch.Tensor:
+    # requires build from source
+    # https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release
+    # for libc10.so
+    import torch
+    from hopper.flash_attn_interface import flash_attn_func
+
+    q_tensor_impl = q.tensor_impl
+    assert not q_tensor_impl.transposed
+    q_float8_data = q_tensor_impl.float8_data
+    # change from scalar to tensor of size [1]
+    q_scale = q_tensor_impl.scale
+    q_scale = torch.tensor([q_scale], device=q_scale.device)
+
+    k_tensor_impl = k.tensor_impl
+    assert not k_tensor_impl.transposed
+    k_float8_data = k_tensor_impl.float8_data
+    k_scale = k_tensor_impl.scale
+    k_scale = torch.tensor([k_scale], device=k_scale.device)
+
+    v_tensor_impl = v.tensor_impl
+    assert not v_tensor_impl.transposed
+    v_float8_data = v_tensor_impl.float8_data
+    v_scale = v_tensor_impl.scale
+    v_scale = torch.tensor([v_scale], device=v_scale.device)
+
+    dropout_p = kwargs.get("dropout_p", None)
+    assert (
+        dropout_p is None or dropout_p == 0.0
+    ), "dropout_p should be set to 0.0 during inference"
+    causal = kwargs.get("causal", False)
+
+    gqa_parallel = False
+    out = flash_attn_func(
+        q_float8_data,
+        k_float8_data,
+        v_float8_data,
+        causal=causal,
+        descale_q=q_scale,
+        descale_k=k_scale,
+        descale_v=v_scale,
+    )
+
+    return out[0]

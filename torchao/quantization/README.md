@@ -360,6 +360,36 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 
 You try can out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
 
+### Float8 `scaled_dot_product_attention` Support
+We also have initial support for per tensor float8 `scaled_dot_product_attention`, using flash attention 3 (optimized for H100 GPUs). To use the feature:
+
+1. Install from source:
+https://github.com/Dao-AILab/flash-attention/tree/main?tab=readme-ov-file#flashattention-3-beta-release
+
+2. Modify the model to quantize q/k/v to per tensor float8 tensors
+```
+from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
+import torch.nn.functional as F
+
+class MyModel(torch.nn.Module):
+    def forward(self, q, k, v, float8_quantize=False):
+        if float8_quantize:
+            q = _float8_symmetric_per_tensor_quant(q)
+            k = _float8_symmetric_per_tensor_quant(k)
+            v = _float8_symmetric_per_tensor_quant(v)
+        return F.scaled_dot_product_attention(q, k, v)
+
+# note: (last dimension) headdim must be 64, 128, 256
+q = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+k = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+v = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+```
+See `test_float8_attention` in `test/dtypes/test_affine_quantized_float.py` on the full test.
+
+Note that right now the float8 attention implementation differs a lot from the original unquantized version, but matches more closely with their reference attention implementation in [flash attention repo](https://github.com/Dao-AILab/flash-attention/blob/1feb711f46563960fc10a8e659c93c300619504b/tests/test_util.py#L185) we still need to invetigate why.
+
+We might be adding new variations of attention implementation in the future (per row, per column, per block scaling etc.).
+
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
