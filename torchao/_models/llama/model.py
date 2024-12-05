@@ -13,7 +13,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from torchao.utils import find_multiple
 
-_QUANTIZE_ATTN = True
+_QUANTIZE_ATTN = False
 
 # TODO remove suplerfluous arg
 def prepare_inputs_for_model(inps, max_new_tokens=1):
