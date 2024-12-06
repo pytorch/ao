@@ -909,6 +909,7 @@ class SAM2VideoPredictor(SAM2Base):
         features = (expanded_image,) + features
         return features
 
+    @torch.autograd.profiler.record_function("_run_single_frame_inference")
     def _run_single_frame_inference(
         self,
         inference_state,
