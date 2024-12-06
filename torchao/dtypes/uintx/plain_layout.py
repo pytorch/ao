@@ -264,5 +264,5 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     output_dtype = input_tensor.dtype
     y = y.to(output_dtype)
     if bias is not None:
-        y += bias
+        y = y + bias
     return y
