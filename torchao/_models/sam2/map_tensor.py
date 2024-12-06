@@ -466,7 +466,7 @@ def ops_impl(cls, func, types, args, kwargs=None):
 class MapTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elems):
-        print("elems.layout: ", elems.layout)
+        # print("elems.layout: ", elems.layout)
         return torch.Tensor._make_wrapper_subclass(cls,
                                                    elems.shape[1:],
                                                    dtype=elems.dtype,
@@ -481,12 +481,12 @@ class MapTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
-        print("func: ", func)
+        # print("func: ", func)
         # print("func: ", func, "args: ", [type(a.elems) if isinstance(a, MapTensor) else None for a in args])
         # if func == torch.ops.aten.gt.Scalar:
         #     import pdb; pdb.set_trace()
         # print("func: ", func, "args: ", [a.size() if isinstance(a, torch.Tensor) else a for a in args])
-        # return ops_impl(cls, func, types, args, kwargs)
+        return ops_impl(cls, func, types, args, kwargs)
         res = ops_impl(cls, func, types, args, kwargs)
         if isinstance(res, torch.Tensor):
             unwrapped_args_0 = tree_map(lambda x: unwrap_i(x, 0), args)
@@ -512,7 +512,7 @@ class MapTensor(torch.Tensor):
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
-        print("TF func: ", func)
+        # print("TF func: ", func)
         if torch._C.TensorBase.flatten == func:
             # import pdb; pdb.set_trace()
             pass
