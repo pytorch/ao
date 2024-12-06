@@ -15,7 +15,6 @@ pandas
 fire  # QOL for commandline scripts
 tabulate  # QOL for printing tables to stdout
 
-
 # Custom CUDA Extensions
 ninja
 

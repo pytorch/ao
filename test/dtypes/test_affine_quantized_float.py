@@ -329,5 +329,5 @@ class TestAffineQuantizedFloat8Attention(common_utils.TestCase):
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
 
 if __name__ == "__main__":
-    # pytest.main([__file__])
+    pytest.main([__file__])
     common_utils.run_tests()
