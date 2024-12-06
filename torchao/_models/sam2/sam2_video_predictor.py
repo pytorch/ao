@@ -42,12 +42,20 @@ class SAM2VideoPredictor(SAM2Base):
 
     @staticmethod
     def batch_inference_states(inference_states: list):
-        from torchao._models.sam2.map_tensor import to_map_tensor
-        print(f"BATCHIINGGG {len(inference_states)}")
-        import pdb; pdb.set_trace()
-        return inference_states[0]
+        assert all(dict == type(state) for state in inference_states)
+        num_states = len(inference_states)
+        assert num_states > 0
+        import copy
+        batched_inference_state = copy.copy(inference_states[0])
 
-    @torch.inference_mode()
+        from torchao._models.sam2.map_tensor import to_map_tensor
+        # NOTE: Making a build assumption only images differs
+        all_images = torch.stack([state["images"] for state in inference_states])
+        batched_inference_state["images"] = to_map_tensor(all_images)
+        print(f"BATCHIINGGG {num_states} num_states")
+        return batched_inference_state
+
+    @torch.no_grad()
     def init_state(
         self,
         video_path,
@@ -176,7 +184,7 @@ class SAM2VideoPredictor(SAM2Base):
         """Get the total number of unique object ids received so far in this session."""
         return len(inference_state["obj_idx_to_id"])
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def add_new_points_or_box(
         self,
         inference_state,
@@ -324,7 +332,7 @@ class SAM2VideoPredictor(SAM2Base):
         """Deprecated method. Please use `add_new_points_or_box` instead."""
         return self.add_new_points_or_box(*args, **kwargs)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def add_new_mask(
         self,
         inference_state,
@@ -596,7 +604,7 @@ class SAM2VideoPredictor(SAM2Base):
         )
         return current_out["obj_ptr"]
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def propagate_in_video_preflight(self, inference_state):
         """Prepare inference_state and consolidate temporary outputs before tracking."""
         # Tracking has started and we don't allow adding new objects until session is reset.
@@ -666,7 +674,7 @@ class SAM2VideoPredictor(SAM2Base):
             input_frames_inds.update(mask_inputs_per_frame.keys())
         assert all_consolidated_frame_inds == input_frames_inds
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def propagate_in_video(
         self,
         inference_state,
@@ -780,7 +788,7 @@ class SAM2VideoPredictor(SAM2Base):
                 obj_out["maskmem_pos_enc"] = [x[obj_slice] for x in maskmem_pos_enc]
             obj_output_dict[storage_key][frame_idx] = obj_out
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def clear_all_prompts_in_frame(
         self, inference_state, frame_idx, obj_id, need_output=True
     ):
@@ -851,7 +859,7 @@ class SAM2VideoPredictor(SAM2Base):
         )
         return frame_idx, obj_ids, video_res_masks
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def reset_state(self, inference_state):
         """Remove all input points or mask in all frames throughout the video."""
         self._reset_tracking_results(inference_state)
@@ -1046,7 +1054,7 @@ class SAM2VideoPredictor(SAM2Base):
             expanded_maskmem_pos_enc = None
         return expanded_maskmem_pos_enc
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def remove_object(self, inference_state, obj_id, strict=False, need_output=True):
         """
         Remove an object id from the tracking state. If strict is True, we check whether

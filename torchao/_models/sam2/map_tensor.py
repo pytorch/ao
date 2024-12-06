@@ -77,7 +77,7 @@ def ops_impl(cls, func, types, args, kwargs=None):
 
     if func in [torch.ops.aten.cat.default, torch.ops.aten.stack.default]:
         assert len(unwrapped_kwargs) == 0
-        assert len(unwrapped_args) == 2, f"args: {unwrapped_args}"
+        assert len(unwrapped_args) <= 2, f"args: {unwrapped_args}"
         # TODO: Use MapTensor type for filter
         # First argument's dim
         dim = unwrapped_args[0][0].dim()
@@ -93,7 +93,8 @@ def ops_impl(cls, func, types, args, kwargs=None):
             else:
                 assert a.dim() + 1 == dim
                 new_args.append(a.unsqueeze(0).expand((size[0],) + a.size()))
-        return wrap(func(new_args, wrap_dim(unwrapped_args[1], dim - 1) + 1))
+        orig_dim = unwrapped_args[1] if len(unwrapped_args) == 2 else 0
+        return wrap(func(new_args, wrap_dim(orig_dim, dim - 1) + 1))
 
     if func == torch.ops.aten.select.int:
         assert len(unwrapped_kwargs) == 0
@@ -111,6 +112,7 @@ def ops_impl(cls, func, types, args, kwargs=None):
 
     if func in [torch.ops.aten.mean.dim,
                 torch.ops.aten.max.dim,
+                torch.ops.aten.argmax.default,
                 torch.ops.aten.min.dim,
                 torch.ops.aten.any.dim,
                 torch.ops.aten.amax.default,
@@ -226,6 +228,13 @@ def ops_impl(cls, func, types, args, kwargs=None):
         return wrap(func(unwrapped_args[0],
                          wrap_dim(unwrapped_args[1], dim - 1) + 1,
                          wrap_dim(unwrapped_args[2], dim - 1) + 1))
+
+    if func == torch.ops.aten.unbind.int:
+        assert len(unwrapped_kwargs) == 0
+        assert len(unwrapped_args) == 2, f"args: {unwrapped_args}"
+        dim = unwrapped_args[0].dim()
+        return wrap(func(unwrapped_args[0],
+                         wrap_dim(unwrapped_args[1], dim - 1) + 1))
 
     if func == torch.ops.aten.permute.default:
         assert len(unwrapped_kwargs) == 0
@@ -368,6 +377,11 @@ def ops_impl(cls, func, types, args, kwargs=None):
             return wrap(nt)
         if isinstance(args[0], MapTensor) and not isinstance(args[1][0], MapTensor) and len(args[1]) == 1:
             return wrap(func(args[0].elems, [args[1][0].unsqueeze(0)]))
+        if isinstance(args[0], MapTensor) and not isinstance(args[1][0], MapTensor) and isinstance(args[1][1], MapTensor)and len(args[1]) == 2:
+            res = []
+            for a0, a11 in zip(args[0].elems.unbind(), args[1][1].elems.unbind()):
+                res.append(func(a0, [args[1][0], a11]))
+            return wrap(torch.stack(res))
         if isinstance(args[0], MapTensor) and isinstance(args[1][0], MapTensor) and len(args[1]) == 1:
             tensors = [func(args[0].elems[i], [args[1][0].elems[i]]) for i in range(len(args[0].elems))]
             values = torch.cat(tensors)
@@ -431,6 +445,10 @@ def ops_impl(cls, func, types, args, kwargs=None):
                        torch.ops.aten.abs.default,
                        torch.ops.aten.ne.Scalar,
                        torch.ops.aten.le.Tensor,
+                       torch.ops.aten.view_as_complex.default,
+                       torch.ops.aten.view_as_real.default,
+                       torch.ops.aten.neg.default,
+                       torch.ops.aten.le.Scalar,
                        # Sketchy new in place ops
                        torch.ops.aten.bitwise_and_.Tensor,
                        torch.ops.aten.bitwise_or_.Tensor,
@@ -468,7 +486,7 @@ class MapTensor(torch.Tensor):
         # if func == torch.ops.aten.gt.Scalar:
         #     import pdb; pdb.set_trace()
         # print("func: ", func, "args: ", [a.size() if isinstance(a, torch.Tensor) else a for a in args])
-        return ops_impl(cls, func, types, args, kwargs)
+        # return ops_impl(cls, func, types, args, kwargs)
         res = ops_impl(cls, func, types, args, kwargs)
         if isinstance(res, torch.Tensor):
             unwrapped_args_0 = tree_map(lambda x: unwrap_i(x, 0), args)
@@ -481,7 +499,7 @@ class MapTensor(torch.Tensor):
                 import pdb; pdb.set_trace()
                 print("02390")
             if not torch.allclose(res.elems[0], res_0, atol=1e-3, rtol=1e-3):
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 print("SDJFKL")
         else:
             pass

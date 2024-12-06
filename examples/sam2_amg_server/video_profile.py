@@ -93,7 +93,7 @@ def synthesize_video_data(
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
     print(f"Generate {n_frames} frames")
     if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
-        raise ValueError("Expected folder to be empty unless --synthesize-overwrite is specified.")
+        raise ValueError(f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified.")
     # Generate 100 frames
     for i in range(n_frames):
         # Create a new image with a black background
@@ -138,7 +138,9 @@ def profiler_runner(path, fn, *args, **kwargs):
 def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False, count_result=False):
     results = []
     num_output_frames = 0
-    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
+    # with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
+    import contextlib
+    with contextlib.nullcontext():
         with torch.autograd.profiler.record_function("main_loop"):
             for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
                 inference_state
@@ -219,20 +221,29 @@ def run_test(
         inference_state = predictor.init_state(
             video_path=video_dir, async_loading_frames=False
         )
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points(
+            inference_state=inference_state,
+            frame_idx=0,
+            obj_id=1,
+            points=np.array([[start_x, start_y]], dtype=np.float32),
+            labels=np.array([1], dtype=np.int32),
+        )
     else:
         inference_states = []
-        for _ in range(batch_size):
-            inference_states.append(predictor.init_state(
+        for i in range(batch_size):
+            print("i: ", i)
+            inference_state = predictor.init_state(
                 video_path=video_dir, async_loading_frames=False
-            ))
+            )
+            _, out_obj_ids, out_mask_logits = predictor.add_new_points(
+                inference_state=inference_state,
+                frame_idx=0,
+                obj_id=1,
+                points=np.array([[start_x, start_y]], dtype=np.float32),
+                labels=np.array([1], dtype=np.int32),
+            )
+            inference_states.append(inference_state)
         inference_state = predictor.batch_inference_states(inference_states)
-    _, out_obj_ids, out_mask_logits = predictor.add_new_points(
-        inference_state=inference_state,
-        frame_idx=0,
-        obj_id=1,
-        points=np.array([[start_x, start_y]], dtype=np.float32),
-        labels=np.array([1], dtype=np.int32),
-    )
 
     if use_compile:
         print("Using torch.compile")
