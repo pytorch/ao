@@ -7,6 +7,9 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 from torchao._models.sam2.build_sam import build_sam2_video_predictor
+from server import MODEL_TYPES_TO_MODEL
+from server import model_type_to_paths
+from pathlib import Path
 
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True
@@ -153,6 +156,8 @@ def main_loop(predictor, inference_state, time_profile=True, accumulate_result=F
 
 
 def run_test(
+    checkpoint_path: str,
+    model_type: str,
     profile: bool,
     video_dir: str,
     radius: int,
@@ -191,12 +196,8 @@ def run_test(
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
-    # sam2_checkpoint = "/home/cpuhrsch/checkpoints/sam2/sam2.1_hiera_large.pt"
-    sam2_checkpoint = "/home/cpuhrsch/checkpoints/sam2/sam2.1_hiera_base_plus.pt"
+    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
 
-    # model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-    model_cfg = "configs/sam2.1/sam2.1_hiera_b+.yaml"
-    # model_cfg = "file://data/users/jdgreer/fbsource/third-party/segment-anything-2/sam2/configs/sam2/sam2_hiera_l.yaml"
     device = "cuda:0"
     # hydra_overrides_extra = ["++model.compile_image_encoder=true"]
     predictor = build_sam2_video_predictor(
@@ -312,6 +313,16 @@ def run_test(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "checkpoint_path",
+        type=str,
+        help="Path to folder containing checkpoints from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints",
+    )
+    parser.add_argument(
+        "model_type",
+        type=str,
+        help=f"Choose one of {list(MODEL_TYPES_TO_MODEL.keys())}",
+    )
+    parser.add_argument(
         "--video_dir",
         type=str,
         default="/tmp/segment-anything-2/synth_video",
@@ -396,6 +407,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_test(
+        args.checkpoint_path,
+        args.model_type,
         profile=args.profile,
         video_dir=args.video_dir,
         radius=args.radius,
