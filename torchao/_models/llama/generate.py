@@ -18,6 +18,8 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(False)
 
 class HostEvent:
     def __init__(self):
@@ -142,7 +144,6 @@ def generate(
     # format model input
     prompt, input_pos = prepare_inputs_for_model(prompt)
     prompt = prompt.repeat(batch_size, 1) # expand prompt based on batchsize
-
     # full prompt+output will be stored in seq
     seq = torch.empty(batch_size, max_seq_length, dtype=prompt.dtype, device=device)
     seq[:, :T] = prompt
@@ -221,7 +222,7 @@ def main(
 
     if prefill_size is not None and prefill_size > 0:
         # create prompt of prefill size 
-        prompt = "prompt " * (int(prefill_size)-3)
+        prompt = "prompt " * (int(prefill_size)-2)
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -285,6 +286,8 @@ def main(
                 quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
             else:
                 quantize_(model, int8_dynamic_activation_int8_weight())
+            if "optim" in quantization:
+                quantize_(model, int8_dynamic_activation_int8_weight(optimize_prefill=True)) 
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -293,6 +296,7 @@ def main(
             group_size=int(quantization.split("-")[1])
             assert group_size in [32,64,128,256], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
+
         if "marlin" in quantization:
             if "qqq" in quantization:
                 from torchao.dtypes import MarlinQQQLayout
@@ -305,6 +309,10 @@ def main(
                         layout=MarlinQQQLayout(),
                     ),
                 )
+            if "optim" in quantization:
+                from torchao.quantization.quant_api import int8_dynamic_prefill_int4_weight_only_decode
+                quantize_(model, int8_dynamic_prefill_int4_weight_only_decode(), filter_fn=ffn_or_attn_only)
+
             elif "semi" in sparsity:
                 from torchao.dtypes import MarlinSparseLayout
                 quantize_(model, int4_weight_only(layout=MarlinSparseLayout()), filter_fn=ffn_or_attn_only)
@@ -386,7 +394,12 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+            if sparsity and "semi" in sparsity:
+                from torchao.experimental.sparse import SemiSparseFloat8Layout 
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseFloat8Layout()))
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         elif "autoquant_v2" in quantization:
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
             from torchao._models._eval import InputRecorder
@@ -482,11 +495,11 @@ def main(
                 unwrap_tensor_subclass(model)
 
     # standalone sparsity
-    elif sparsity:
-        from torchao.sparsity import semi_sparse_weight, sparsify_
-        if "semi" in sparsity:
-            #TODO there is a bug here, need to fix
-            sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
+    # elif sparsity:
+    #     from torchao.sparsity import semi_sparse_weight, sparsify_
+    #     if "semi" in sparsity:
+    #         #TODO there is a bug here, need to fix
+    #         sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -501,7 +514,7 @@ def main(
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
         if compile_prefill:
-            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
+            prefill = torch.compile(prefill, mode="max-autotune", fullgraph=True, dynamic=True)
 
     if memory_profile:
         if device == "cuda":
@@ -517,7 +530,7 @@ def main(
         'decode_tokens_per_sec': [],
         'prefill_time': [],
     }
-    start = -1 if compile else 0
+    start = -2 if compile else 0
 
     for i in range(start, num_samples):
         if i==0:
@@ -576,7 +589,7 @@ def main(
                 decode_start_event=decode_start_event,
                 decode_end_event=decode_end_event,
             )
-        if i == -1:
+        if i < 0:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
@@ -585,12 +598,11 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive and prefill_size is None:
-                tok_list = y[0].tolist()
-                # truncate text after end of string token
-                tokens = tok_list if not tokenizer.eos_id() in tok_list else tok_list[:tok_list.index(tokenizer.eos_id())]
-                print(tokenizer.decode(tokens))
-        else:
-            print()
+            tok_list = y[0].tolist()
+            # truncate text after end of string token
+            tokens = tok_list if not tokenizer.eos_id() in tok_list else tok_list[:tok_list.index(tokenizer.eos_id())]
+            print(tokenizer.decode(tokens))
+
         tokens_generated = (y.size(-1) - prompt_length)
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
@@ -624,12 +636,14 @@ def main(
 
     #ignore first sample for warmup
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
+    overall_time = torch.mean(torch.tensor(aggregate_metrics['time'])).item()
     ttft = torch.mean(torch.tensor(aggregate_metrics['prefill_time'])).item()
     decode_tokpersec = torch.mean(torch.tensor(aggregate_metrics['decode_tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() /1e9
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
     print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
+    print(f"Average overall time: {overall_time:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
     if device == "cuda": 
         mem = torch.cuda.max_memory_reserved() /1e9
@@ -642,7 +656,7 @@ def main(
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
-        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, tok/s_decode={decode_tokpersec:6.2f}, ttft={ttft:5.4f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
+        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, tok/s_decode={decode_tokpersec:6.2f}, time={overall_time:5.4f}, ttft={ttft:5.4f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
         result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""

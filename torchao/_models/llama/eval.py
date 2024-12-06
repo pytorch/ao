@@ -34,6 +34,7 @@ def run_evaluation(
     device = "cuda",
     precision = torch.bfloat16,
     quantization: Optional[str] = None,
+    sparsity:Optional[str] = None,
     compile=False,
     max_length=None,
     calibration_tasks: Optional[List[str]] = None,
@@ -44,7 +45,7 @@ def run_evaluation(
     """Runs the evaluation of a model using LM Eval."""
     print(
         f"\nEvaluating model {checkpoint_path} on tasks: {tasks}, limit: {limit}, device: {device}, precision: {precision}, "
-        +f"quantization: {quantization}, compile: {compile}, max_length: {max_length}, calibration_tasks: {calibration_tasks}, "
+        +f"quantization: {quantization}, sparsity: {sparsity}, compile: {compile}, max_length: {max_length}, calibration_tasks: {calibration_tasks}, "
         +f"calibration_seq_length: {calibration_seq_length}, pad_calibration_inputs: {pad_calibration_inputs}\n"
     )
     torchao.quantization.utils.recommended_inductor_config_setter()
@@ -232,6 +233,13 @@ if __name__ == '__main__':
             "float8wo, float8dq, float8saq"
         ),
     )
+    parser.add_argument(
+        "--sparsity",
+        type=str,
+        help=(
+            "Which sparsity techniques to apply: semi-structured"
+        ),
+    )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
@@ -247,6 +255,7 @@ if __name__ == '__main__':
         args.device,
         args.precision,
         args.quantization,
+        args.sparstiy,
         args.compile,
         args.max_length,
         args.calibration_tasks,

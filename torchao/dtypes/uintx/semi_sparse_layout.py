@@ -55,6 +55,7 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(
     y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
         *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
     )
+    print("HERE")
     output_dtype = input_tensor.dtype
     # TODO: waiting for jesse's test/fix
     y = y.to(output_dtype).contiguous()

@@ -16,6 +16,7 @@ and mixed GEMM kernels
 """
 
 import logging
+from re import I
 import types
 import warnings
 from typing import Callable, Optional, Tuple, Union
@@ -629,6 +630,58 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
+from torchao.experimental.sparse.dynamic_wo import MarlinSparseLayoutDecodeSemiStructuredPrefillLayout
+
+def int8_dynamic_prefill_int4_weight_only_decode(
+    group_size=128, 
+):
+    def apply_int4_weight_only_quant(weight):
+        if weight.shape[-1] % group_size != 0:
+            logger.info(
+                f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
+            )
+            return weight
+
+        in_features = weight.shape[1]
+        # int8 dynamic quantization only has benefit when in_feature > 16
+        if in_features <= 16:
+            logger.info(
+                f"Skipping applying int8_dynamic_activation_int8_weight to weight of shape {weight.shape}"
+                f" because `in_feature` is <= 16: {in_features}"
+            )
+            return weight
+
+        mapping_type = MappingType.SYMMETRIC
+        block_size = (1, group_size)
+        target_dtype = torch.int32
+        quant_min = 0
+        quant_max = 15
+        eps = 1e-6
+        preserve_zero = True
+        zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.INT
+
+        input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
+        layout = MarlinSparseLayoutDecodeSemiStructuredPrefillLayout()
+
+        weight = to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=preserve_zero,
+            zero_point_domain=zero_point_domain,
+            _layout=layout,
+        )
+        weight = to_linear_activation_quantized(weight, input_quant_func)
+        return weight
+
+    return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
+
 def int4_weight_only(
     group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False
 ):
@@ -738,8 +791,29 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _int8_symm_per_token_reduced_range_quant_noop_decode(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    if x.shape[1] == 1:
+        return x
+    else:
+        return to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            eps=eps,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
+        )
+
+
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC
+    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC, optimize_prefill=False
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -766,11 +840,14 @@ def int8_dynamic_activation_int8_weight(
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
 
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if optimize_prefill:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
         else:
-            input_quant_func = _int8_asymm_per_token_quant
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(
@@ -950,7 +1027,9 @@ def float8_dynamic_activation_float8_weight(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ] = None,
     mm_config: Optional[Float8MMConfig] = None,
+    layout=None,
 ):
+    from torchao.experimental.sparse import SemiSparseFloat8Layout
     """
     Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
@@ -973,6 +1052,12 @@ def float8_dynamic_activation_float8_weight(
 
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
 
+    if layout is None:
+        layout = Float8Layout(mm_config=mm_config)
+    elif isinstance(layout, SemiSparseFloat8Layout):
+        assert activation_granularity == weight_granularity == PerTensor(), "SemiSparseFoat8Layout only supports PerTensor granularity for activations and weights"
+        layout = SemiSparseFloat8Layout(mm_config=mm_config)
+
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
         if not _fp8_mm_compat(weight):
             return weight
@@ -987,7 +1072,7 @@ def float8_dynamic_activation_float8_weight(
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            _layout=Float8Layout(mm_config=mm_config),
+            _layout=layout,
         )
 
         input_quant_func = _input_activation_quant_func_fp8
