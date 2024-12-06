@@ -138,9 +138,7 @@ def profiler_runner(path, fn, *args, **kwargs):
 def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False, count_result=False):
     results = []
     num_output_frames = 0
-    # with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
-    import contextlib
-    with contextlib.nullcontext():
+    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
         with torch.autograd.profiler.record_function("main_loop"):
             for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
                 inference_state
