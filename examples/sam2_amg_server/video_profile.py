@@ -133,8 +133,9 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
-def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False):
+def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False, count_result=False):
     results = []
+    num_output_frames = 0
     with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
         with torch.autograd.profiler.record_function("main_loop"):
             for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
@@ -142,8 +143,13 @@ def main_loop(predictor, inference_state, time_profile=True, accumulate_result=F
             ):
                 if accumulate_result:
                     results.append(out_mask_logits)
+                if count_result:
+                    num_output_frames += 1
+    assert not (accumulate_result and count_result)
     if accumulate_result:
         return torch.cat(results)
+    if count_result:
+        return num_output_frames
 
 
 def run_test(
@@ -295,8 +301,9 @@ def run_test(
     torch.cuda.reset_peak_memory_stats()
     global_timer.reset()
     t0 = time.time()
-    main_loop(predictor=predictor, inference_state=inference_state)
-    print(f"main_loop took {time.time() - t0}s")
+    num_output_frames = main_loop(predictor=predictor, inference_state=inference_state, count_result=True)
+    t = time.time() - t0
+    print(f"main_loop took {t}s for {num_output_frames} frames at {num_output_frames / t}fps")
     max_memory_allocated()
     if print_all_timings:
         global_timer.print_all_timings()
