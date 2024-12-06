@@ -288,6 +288,8 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
 
+@unittest.skip("Only running locally so we don't need to add installation of fa3 "
+               "hopper kernels to CI, we'll probably copy paste kernel in the future")
 class TestAffineQuantizedFloat8Attention(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_float8_attention(self):
