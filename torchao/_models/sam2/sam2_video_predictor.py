@@ -11,8 +11,8 @@ import torch
 
 from tqdm import tqdm
 
-from sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
-from sam2.utils.misc import concat_points, fill_holes_in_mask_scores, load_video_frames
+from torchao._models.sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
+from torchao._models.sam2.utils.misc import concat_points, fill_holes_in_mask_scores, load_video_frames
 
 
 class SAM2VideoPredictor(SAM2Base):
@@ -909,6 +909,7 @@ class SAM2VideoPredictor(SAM2Base):
         features = (expanded_image,) + features
         return features
 
+    @torch.autograd.profiler.record_function("_run_single_frame_inference")
     def _run_single_frame_inference(
         self,
         inference_state,
