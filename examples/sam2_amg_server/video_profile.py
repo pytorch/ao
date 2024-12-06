@@ -6,7 +6,6 @@ from datetime import datetime
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from torchao._models.sam2.build_sam import build_sam2_video_predictor
 from server import MODEL_TYPES_TO_MODEL
 from server import model_type_to_paths
 from pathlib import Path
@@ -173,6 +172,7 @@ def run_test(
     store_output: str,
     compare_output: str,
     print_all_timings: bool,
+    use_baseline: bool,
 ):
     np.random.seed(seed)
     start_x = np.random.randint(radius, width - radius)
@@ -197,6 +197,12 @@ def run_test(
     torch.backends.cudnn.allow_tf32 = True
 
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
+
+    build_sam2_video_predictor = None
+    if use_baseline:
+        from sam2.build_sam import build_sam2_video_predictor
+    else:
+        from torchao._models.sam2.build_sam import build_sam2_video_predictor
 
     device = "cuda:0"
     # hydra_overrides_extra = ["++model.compile_image_encoder=true"]
@@ -403,6 +409,12 @@ if __name__ == "__main__":
         dest="print_all_timings",
         help="Use torch.compile to speed things up. First iteration will be much slower.",
     )
+    parser.add_argument(
+        "--use-baseline",
+        action="store_true",
+        dest="use_baseline",
+        help="Use sam2 package instead of torchao._models.sam2",
+    )
 
     args = parser.parse_args()
 
@@ -424,4 +436,5 @@ if __name__ == "__main__":
         store_output=args.store_output,
         compare_output=args.compare_output,
         print_all_timings=args.print_all_timings,
+        use_baseline=args.use_baseline,
     )
