@@ -285,9 +285,10 @@ def main(
                 quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
                 quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
             else:
-                quantize_(model, int8_dynamic_activation_int8_weight())
-            if "optim" in quantization:
-                quantize_(model, int8_dynamic_activation_int8_weight(optimize_prefill=True)) 
+                if "optim" in quantization:
+                    quantize_(model, int8_dynamic_activation_int8_weight(optimize_prefill=True)) 
+                else:
+                    quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -313,7 +314,7 @@ def main(
                 from torchao.quantization.quant_api import int8_dynamic_prefill_int4_weight_only_decode
                 quantize_(model, int8_dynamic_prefill_int4_weight_only_decode(), filter_fn=ffn_or_attn_only)
 
-            elif "semi" in sparsity:
+            elif sparsity and "semi" in sparsity:
                 from torchao.dtypes import MarlinSparseLayout
                 quantize_(model, int4_weight_only(layout=MarlinSparseLayout()), filter_fn=ffn_or_attn_only)
         if "fp6" in quantization:
