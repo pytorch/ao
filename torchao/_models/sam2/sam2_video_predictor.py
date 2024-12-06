@@ -40,6 +40,13 @@ class SAM2VideoPredictor(SAM2Base):
         self.clear_non_cond_mem_for_multi_obj = clear_non_cond_mem_for_multi_obj
         self.add_all_frames_to_correct_as_cond = add_all_frames_to_correct_as_cond
 
+    @staticmethod
+    def batch_inference_states(inference_states: list):
+        from torchao._models.sam2.map_tensor import to_map_tensor
+        print(f"BATCHIINGGG {len(inference_states)}")
+        import pdb; pdb.set_trace()
+        return inference_states[0]
+
     @torch.inference_mode()
     def init_state(
         self,

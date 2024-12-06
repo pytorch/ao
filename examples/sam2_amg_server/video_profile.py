@@ -167,6 +167,7 @@ def run_test(
     n_frames: int,
     use_compile: bool,
     frame_batch_size: int,
+    batch_size: int,
     synthesize: bool,
     synthesize_overwrite: bool,
     store_output: str,
@@ -214,9 +215,17 @@ def run_test(
     )
     predictor._frame_batch_size = frame_batch_size
 
-    inference_state = predictor.init_state(
-        video_path=video_dir, async_loading_frames=False
-    )
+    if batch_size == 1:
+        inference_state = predictor.init_state(
+            video_path=video_dir, async_loading_frames=False
+        )
+    else:
+        inference_states = []
+        for _ in range(batch_size):
+            inference_states.append(predictor.init_state(
+                video_path=video_dir, async_loading_frames=False
+            ))
+        inference_state = predictor.batch_inference_states(inference_states)
     _, out_obj_ids, out_mask_logits = predictor.add_new_points(
         inference_state=inference_state,
         frame_idx=0,
@@ -374,7 +383,13 @@ if __name__ == "__main__":
         help="Use torch.compile to speed things up. First iteration will be much slower.",
     )
     parser.add_argument(
-        "--frame_batch_size",
+        "--batch-size",
+        type=int,
+        default=1,
+        help="batch_size",
+    )
+    parser.add_argument(
+        "--frame-batch-size",
         type=int,
         default=1,
         help="frame_batch_size",
@@ -431,6 +446,7 @@ if __name__ == "__main__":
         n_frames=args.n_frames,
         use_compile=args.use_compile,
         frame_batch_size=args.frame_batch_size,
+        batch_size=args.batch_size,
         synthesize=args.synthesize,
         synthesize_overwrite=args.synthesize_overwrite,
         store_output=args.store_output,
