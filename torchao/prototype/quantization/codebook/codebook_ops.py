@@ -19,21 +19,17 @@ def quantize_codebook(
     code modified from: https://github.com/Vahe1994/AQLM/blob/main/src/kmeans.py
 
     Args:
-        input (torch.Tensor): Input tensor to quantize, shape (out_features, in_features).
-        codebook (torch.Tensor): Codebook tensor for quantization, shape (k, out_block_size, in_block_size).
+        input (torch.Tensor): Input tensor to quantize, shape (d1, d2, ..., dN).
+        codebook (torch.Tensor): Codebook tensor for quantization, shape (k, b1, b2, ..., bN) where b_i are block sizes.
+        scales (torch.Tensor): Scales, shape (d1, d2, ..., dN // scale_block_size, 1).
         chunk_size (int): Number of elements to process per chunk to control memory usage.
         code_dtype (torch.dtype): dtype for the codes.
 
     Output:
-        codes (torch.Tensor): indices of the closest codebook entries for each block.
+        codes (torch.Tensor): indices of the closest codebook entries for each block, shape (d1//b1, d2//b2, ..., dN//bN).
     """
     if code_dtype in _SUB_BYTE_UINT_BOUNDS:
         code_dtype = torch.uint8
-    assert (
-        input.dim() == 2
-    ), (
-        f"expect input tensor dim == 2 but got dim = {input.dim()}"
-    )  # not sure if I should do this
     assert input.dtype in [
         torch.float32,
         torch.float16,
@@ -43,29 +39,29 @@ def quantize_codebook(
         codebook.dim() == input.dim() + 1
     ), f"codebook dim ({codebook.dim()}) must be input dim + 1 ({input.dim() + 1})"
 
-    k, out_block_size, in_block_size = codebook.shape
-    out_features, in_features = input.shape
-    assert (
-        out_features % out_block_size == 0
-    ), f"out_features ({out_features}) must be divisible by out_block_size ({out_block_size})."
-    assert (
-        in_features % in_block_size == 0
-    ), f"in_features ({in_features}) must be divisible by in_block_size ({in_block_size})."
+    k = codebook.shape[0]
+    block_size = codebook.shape[1:]
+    input_size = input.shape
+    D = input.dim()
+    for i in range(D):
+        assert (
+            (input_size[i] % block_size[i]) == 0
+        ), f"dimension {i} of input ({input_size[i]}) must be divisible by block_size ({block_size[i]})."
 
-    num_out_blocks = out_features // out_block_size
-    num_in_blocks = in_features // in_block_size
+    num_scale_blocks = scales.shape[-2]
 
-    num_scale_blocks = scales.shape[1]
+    new_shape = input_size[:-1] + (num_scale_blocks, -1)
+    input_reshaped = input.view(
+        *new_shape
+    )  # shape: (d1, d2, ..., num_scale_blocks, scale_block_size)
+    input_reshaped = input_reshaped / scales
 
-    input = input.view(out_features, num_scale_blocks, -1)
-    input = input / scales
+    input = input_reshaped.view(*input_size)
+    input_flat = _reshape_into_blocks(
+        input, block_size
+    )  # shape: (num_blocks, block_vector_size)
 
-    input = input.view(num_out_blocks, out_block_size, num_in_blocks, in_block_size)
-    input_flat = input.permute(0, 2, 1, 3).reshape(
-        num_out_blocks * num_in_blocks, out_block_size * in_block_size
-    )
-
-    codebook_flat = codebook.reshape(k, out_block_size * in_block_size)
+    codebook_flat = codebook.reshape(k, -1)
 
     codes = torch.empty(input_flat.size(0), dtype=torch.int64, device=input.device)
 
@@ -88,7 +84,8 @@ def quantize_codebook(
 
         codes[chunk_start:chunk_end] = distances.argmax(dim=1)
 
-    codes = codes.view(num_out_blocks, num_in_blocks)
+    block_grid_shape = [input_size[i] // block_size[i] for i in range(D)]
+    codes = codes.view(*block_grid_shape)  # shape: (d1//b1, d2//b2, ..., dN//bN)
 
     return codes.to(code_dtype)
 
@@ -104,14 +101,13 @@ def dequantize_codebook(
 
     Args:
         codes (torch.Tensor): Indices of codebook entries for each block,
-                                          shape (num_out_blocks, num_in_blocks).
+                                          shape (d1//b1, d2//b2, ..., dN//bN).
         codebook (torch.Tensor): Codebook tensor used for quantization,
-                                 shape (k, out_block_size, in_block_size).
+                                 shape (k, b1, b2, ..., bN) where b_i are block sizes.
         output_dtype (torch.dtype): dtype for the output tensor.
 
     Returns:
-        dequant (torch.Tensor): Reconstructed tensor, shape (out_features, in_features), where
-                      out_features = num_out_blocks * out_block_size and in_features = num_in_blocks * in_block_size.
+        dequant (torch.Tensor): Reconstructed tensor, shape (out_features, in_features)
     """
     assert output_dtype in [
         torch.float32,
@@ -119,26 +115,35 @@ def dequantize_codebook(
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
 
-    _, out_block_size, in_block_size = codebook.shape
-    num_out_blocks, num_in_blocks = codes.shape
+    block_size = codebook.shape[1:]
+    block_grid_shape = codes.shape
+    D = codebook.dim() - 1
+    original_shape = [block_grid_shape[i] * block_size[i] for i in range(D)]
 
     # Use codes to lookup corresponding codebook entries and reshape
-    dequant = codebook[
-        codes
-    ]  # shape: [num_out_blocks, num_in_blocks, out_block_size, in_block_size]
+    dequant = codebook[codes]  # shape: (*block_grid_shape, *block_size)
 
-    dequant = dequant.permute(0, 2, 1, 3).reshape(
-        num_out_blocks * out_block_size, num_in_blocks * in_block_size
+    # probably can make this simpler
+    dequant = _reshape_from_blocks(
+        dequant.view(-1, int(torch.prod(torch.tensor(block_size)))),
+        block_size,
+        tuple(original_shape),
     )
 
-    dequant = dequant.view(num_out_blocks * out_block_size, scales.shape[1], -1)
+    num_scale_blocks = scales.shape[-2]
+
+    new_shape = dequant.shape[:-1] + (num_scale_blocks, -1)
+    dequant = dequant.view(
+        *new_shape
+    )  # (d1, d2, ..., num_scale_blocks, scale_block_size)
     dequant = dequant * scales
 
-    dequant = dequant.view(num_out_blocks * out_block_size, -1)
+    dequant = dequant.view(*original_shape)
 
     return dequant.to(output_dtype)
 
 
+@torch.no_grad()
 def choose_qparams_codebook(
     input_tensor: torch.Tensor,
     block_size: Tuple[int, ...],
@@ -153,48 +158,52 @@ def choose_qparams_codebook(
     Args:
         input_tensor (torch.Tensor): The input tensor to be quantized.
         block_size (Tuple[int, ...],): The size of the blocks for k-means clustering.
+        scale_block_size (int): The size of the blocks that share a scale
         code_dtype (torch.dtype): The dtype for the codes.
         max_iter (int): Maximum number of k-means iterations.
         devices (List[torch.device]): Devices to run k-means on.
 
     Returns:
-        torch.Tensor: The codebook tensor, shape (codebook_size, block_height, block_width).
+        torch.Tensor: The codebook tensor, shape (codebook_size, *block_size).
     """
     if code_dtype == torch.int32:
         codebook_size = 2**16
     else:
         codebook_size = _DTYPE_TO_QVALUE_BOUNDS[code_dtype][1] + 1
 
-    out_block_size, in_block_size = block_size
-    out_features, in_features = input_tensor.shape
-    num_out_blocks = out_features // out_block_size
-    num_in_blocks = in_features // in_block_size
+    input_size = input_tensor.shape
+    D = input_tensor.dim()
+    for i in range(D):
+        assert (
+            input_size[i] % block_size[i] == 0
+        ), f"Dimension {i} must be divisible by block_size {block_size[i]}."
 
     assert (
-        in_features % scale_block_size == 0
-    ), f"input_features ({in_features}) must be divisible by scale_block_size ({scale_block_size})."
-    num_scale_blocks = in_features // scale_block_size
+        input_tensor.shape[-1] % scale_block_size == 0
+    ), f"input_features ({input_tensor.shape[-1]}) must be divisible by scale_block_size ({scale_block_size})."
+    num_scale_blocks = input_tensor.shape[-1] // scale_block_size
 
-    input = input_tensor.view(out_features, num_scale_blocks, scale_block_size)
+    new_shape = list(input_size[:-1]) + [num_scale_blocks, scale_block_size]
+    input = input_tensor.view(*new_shape)
 
     # Not sure if I should make scales max only when block_size is (1, 1)
     if block_size == (1, 1):
         scales = input.max(
             dim=(-1), keepdim=True
-        ).values  # Shape: [out_features, num_scale_blocks, 1]
+        ).values  # Shape: [*input_size[:-1], num_scale_blocks, 1]
     else:
         scales = input.norm(
             dim=(-1), keepdim=True
-        )  # Shape: [out_features, num_scale_blocks, 1]
+        )  # Shape: [*input_size[:-1], num_scale_blocks, 1]
     scales = torch.clamp(scales, min=1e-9)
 
     input = input / scales
 
-    input = input.view(num_out_blocks, out_block_size, num_in_blocks, in_block_size)
+    input = input.view(*input_size)
 
-    input = input.permute(0, 2, 1, 3).reshape(
-        num_out_blocks * num_in_blocks, out_block_size * in_block_size
-    )
+    input = _reshape_into_blocks(
+        input, block_size
+    )  # Shape: (num_blocks, block_vector_size)
 
     codebook, _, _ = fit_kmeans(
         input,
@@ -203,7 +212,7 @@ def choose_qparams_codebook(
         devices=devices,
     )
 
-    return codebook.view(codebook_size, out_block_size, in_block_size), scales
+    return codebook.view(codebook_size, *block_size), scales
 
 
 def fit_kmeans(
@@ -315,3 +324,89 @@ def fit_kmeans(
     )
     reconstructed_data = clusters[nearest_indices]
     return clusters, nearest_indices, reconstructed_data
+
+
+def _reshape_into_blocks(
+    input: torch.Tensor, block_size: Tuple[int, ...]
+) -> torch.Tensor:
+    """
+    Reshape an N-D input tensor into a 2D tensor where each row corresponds to one block.
+    """
+    assert (
+        len(block_size) == input.dim()
+    ), f"block_size {block_size} must match the input dimension {input.dim()}"
+    input_size = input.shape
+
+    # Create shape with alternating (num_blocks_along_dim, block_size_dim)
+    reshaped_dims = []
+    for i in range(input.dim()):
+        assert (
+            input_size[i] % block_size[i] == 0
+        ), f"Input size at dim {i} ({input_size[i]}) must be divisible by block_size[i] ({block_size[i]})."
+        reshaped_dims.extend([input_size[i] // block_size[i], block_size[i]])
+
+    input_reshaped = input.view(*reshaped_dims)  # Shape: [g1, b1, g2, b2, ..., gD, bD]
+
+    D = input.dim()
+    perm_order = list(range(2 * D))
+    grid_dims = perm_order[0::2]
+    block_dims = perm_order[1::2]
+    perm_order = grid_dims + block_dims
+
+    input_reshaped = input_reshaped.permute(
+        *perm_order
+    )  # Shape: [g1, g2, ..., gD, b1, b2, ..., bD]
+
+    num_blocks = 1
+    for i in range(D):
+        num_blocks *= input_size[i] // block_size[i]
+    block_vector_size = 1
+    for b in block_size:
+        block_vector_size *= b
+
+    input_flat = input_reshaped.reshape(num_blocks, block_vector_size)
+    return input_flat
+
+
+def _reshape_from_blocks(
+    blocks: torch.Tensor, block_size: Tuple[int, ...], original_shape: Tuple[int, ...]
+) -> torch.Tensor:
+    """
+    Reshape from the 2D block form (num_blocks, block_vector_size) back to the original N-D shape.
+    """
+    D = len(block_size)
+
+    reshaped_dims = []
+    num_blocks = 1
+    for i in range(D):
+        reshaped_dims.extend([original_shape[i] // block_size[i], block_size[i]])
+        num_blocks *= original_shape[i] // block_size[i]
+    block_vector_size = 1
+    for b in block_size:
+        block_vector_size *= b
+
+    perm_order = []
+    for i in range(D):
+        perm_order.append(i * 2)  # grid dim indices first
+    for i in range(D):
+        perm_order.append(i * 2 + 1)  # block dim indices after
+
+    perm_inverse = [0] * (2 * D)
+    for idx, val in enumerate(perm_order):
+        perm_inverse[val] = idx
+
+    input_permuted_shape = []
+    for i in range(D):
+        input_permuted_shape.append(original_shape[i] // block_size[i])
+    for i in range(D):
+        input_permuted_shape.append(block_size[i])
+
+    blocks_permuted = blocks.view(
+        *input_permuted_shape
+    )  # Shape: [g1, g2, ..., gD, b1, b2, ..., bD]
+
+    blocks_unpermuted = blocks_permuted.permute(
+        *perm_inverse
+    )  # Shape: [g1, b1, g2, b2, ..., gD, bD]
+
+    return blocks_unpermuted.reshape(*original_shape)

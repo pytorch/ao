@@ -141,11 +141,11 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         """
 
         codebook, scales = choose_qparams_codebook(
-            input_tensor.to(torch.float64), block_size, scale_block_size, code_dtype
+            input_tensor.to(torch.float32), block_size, scale_block_size, code_dtype
         )  # .to(torch.float32) because I think k_means isn't numerically stable
 
         codes = quantize_codebook(
-            input_tensor, codebook, scales, chunk_size, code_dtype
+            input_tensor.to(torch.float32), codebook, scales, chunk_size, code_dtype
         )
         if code_dtype in _DTYPE_TO_BIT_WIDTH:
             codes = UintxTensor.from_uint8(codes, dtype=code_dtype)
@@ -261,9 +261,7 @@ def codebook_weight_only(
     Args:
         dtype: torch.uint1 to torch.uint8, torch.int32 supported.
         block_size: Tuple of (out_features, in_features) to control quantization granularity.
-        max_iter: Number of iterations for k-means clustering.
-        devices: Devices to run k-means on.
-
+        scale_block_size (int): The size of the blocks that share a scale
     Returns:
         Callable for quantization transformation.
     """
@@ -279,7 +277,6 @@ def codebook_weight_only(
             code_dtype=dtype,
             scale_block_size=scale_block_size,
         )
-        print((quantized.dequantize() - weight).abs().mean())
         return quantized
 
     return _get_linear_subclass_inserter(
