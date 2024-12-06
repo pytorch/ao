@@ -20,6 +20,57 @@ logger = logging.getLogger(__name__)
 aten = torch.ops.aten
 
 
+class MarlinQQQTensor(AffineQuantizedTensor):
+    """
+    MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
+
+    To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
+    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
+    and check the two quant primitive ops: choose_qparams_and_quantize_affine_qqq and dequantize_affine_qqq
+    """
+
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if output_dtype is None:
+            output_dtype = self.dtype
+
+        int_data, s_group, s_channel = self.tensor_impl.get_plain()
+        nbits = int(math.log2(self.quant_max - self.quant_min + 1))
+        group_size = max(self.block_size)
+        return dequantize_affine_qqq(
+            int_data, s_group, s_channel, nbits, group_size, output_dtype
+        )
+
+    @classmethod
+    def from_hp_to_intx(
+        cls,
+        input_float: torch.Tensor,
+        block_size: Tuple[int, ...],
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        _layout: Optional[Layout] = None,
+    ):
+        original_shape = input_float.shape
+        input_float = _layout.pre_process(input_float)
+        nbits = int(math.log2(quant_max - quant_min + 1))
+        group_size = max(block_size)
+        data, s_group, s_channel, _ = choose_qparams_and_quantize_affine_qqq(
+            input_float, nbits, group_size
+        )
+        data = _layout.post_process(data)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+        tensor_impl = tensor_impl_ctr(data, s_group, s_channel, _layout)
+        return cls(
+            tensor_impl,
+            block_size,
+            original_shape,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+            dtype=input_float.dtype,
+        )
+
+
 @dataclass(frozen=True)
 class MarlinQQQLayout(Layout):
     pass
@@ -279,3 +330,6 @@ def _linear_int8_act_int4_weight_marlin_qqq_impl(input_tensor, weight_tensor, bi
     if bias is not None:
         out += bias.to(out.dtype)
     return out
+
+
+to_marlinqqq_quantized_intx = MarlinQQQTensor.from_hp_to_intx
