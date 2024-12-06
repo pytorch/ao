@@ -1,5 +1,7 @@
 import logging
+import math
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import (
@@ -8,12 +10,18 @@ from torch.utils._python_dispatch import (
 
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
+    get_tensor_impl_constructor,
     register_layout,
 )
 from torchao.dtypes.uintx.plain_layout import (
     _aqt_is_int8_reduced_range,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    choose_qparams_and_quantize_affine_qqq,
+    dequantize_affine_qqq,
+)
 
 logger = logging.getLogger(__name__)
 

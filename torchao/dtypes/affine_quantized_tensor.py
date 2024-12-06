@@ -16,10 +16,8 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
-    choose_qparams_and_quantize_affine_qqq,
     dequantize_affine,
     dequantize_affine_floatx,
-    dequantize_affine_qqq,
     quantize_affine,
     quantize_affine_floatx,
 )
