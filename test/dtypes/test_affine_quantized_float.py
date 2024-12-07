@@ -288,7 +288,50 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
 
+@unittest.skip(
+    "Only running locally so we don't need to add installation of fa3 "
+    "hopper kernels to CI, we'll probably copy paste kernel in the future"
+)
+class TestAffineQuantizedFloat8Attention(common_utils.TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_float8_attention(self):
+        import torch.nn.functional as F
+
+        from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
+
+        class MyModel(torch.nn.Module):
+            def forward(self, q, k, v, float8_quantize=False):
+                if float8_quantize:
+                    # F.scaled_dot_product_attention is using (batch_size, nheads, seqlen, headdim)
+                    # while flash attention kernel has (batch_size, seqlen, nheads, headdim)
+                    q = q.transpose(1, 2)
+                    k = k.transpose(1, 2)
+                    v = v.transpose(1, 2)
+                    q = _float8_symmetric_per_tensor_quant(q)
+                    k = _float8_symmetric_per_tensor_quant(k)
+                    v = _float8_symmetric_per_tensor_quant(v)
+
+                return F.scaled_dot_product_attention(q, k, v)
+
+        # note: last dim headdim must be 64, 128 or 256
+        q = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+        k = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+        v = torch.randn([64, 8, 8, 64], dtype=torch.bfloat16, device="cuda")
+
+        m = MyModel().eval()
+
+        # bfloat16 ref result
+        ref = m(q, k, v)
+
+        # float8 quantized result
+        quantized = m(q, k, v, True)
+
+        sqnr = compute_error(ref, quantized)
+        assert sqnr > 25.0, f"Got sqnr: {sqnr}"
+
+
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
 
 if __name__ == "__main__":
     pytest.main([__file__])
+    common_utils.run_tests()

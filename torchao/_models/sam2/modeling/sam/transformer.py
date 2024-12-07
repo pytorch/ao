@@ -24,6 +24,9 @@ OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
 # A fallback setting to allow all available kernels if Flash Attention fails
 ALLOW_ALL_KERNELS = False
 
+# whether to turn on float8 quantization for sdpa or not
+_QUANTIZE_ATTN = False
+
 
 def sdp_kernel_context(dropout_p):
     """
@@ -263,6 +266,28 @@ class Attention(nn.Module):
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
 
+        # quantize q/k/v with per tensor float8 quantization
+        padded = False
+        if _QUANTIZE_ATTN:
+            from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
+            original_head_dim = list(q.shape)[-1]
+            original_dtype = v.dtype
+            padded = False
+            # padding:
+            if q.shape[-1] == 32:
+                q = F.pad(q, (0, 32))
+                k = F.pad(k, (0, 32))
+                v = F.pad(v, (0, 32))
+                padded = True
+
+            if q.shape[-1] in [64, 128, 256]:
+                q = q.transpose(1, 2)
+                k = k.transpose(1, 2)
+                v = v.transpose(1, 2)
+                q = _float8_symmetric_per_tensor_quant(q)
+                k = _float8_symmetric_per_tensor_quant(k)
+                v = _float8_symmetric_per_tensor_quant(v)
+
         dropout_p = self.dropout_p if self.training else 0.0
         # # Attention
         # try:
@@ -281,6 +306,9 @@ class Attention(nn.Module):
         #     out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
         # TODO: This scale should not be needed. But without it compile causes a NaN.
         out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
+        if _QUANTIZE_ATTN and padded:
+            out = out[:, :, :, :original_head_dim]
+            out = out.to(v.dtype)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)

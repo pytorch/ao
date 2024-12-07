@@ -11,6 +11,8 @@ from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_impl,
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
+    _sdpa_float8_check,
+    _sdpa_float8_impl,
 )
 from torchao.dtypes.floatx.floatx_tensor_core_layout import (
     _linear_f16_bf16_act_floatx_weight_check,
@@ -85,6 +87,12 @@ def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
 
 class QuantizedLinearNotImplementedError(NotImplementedError):
     """Thin wrapper around NotImplementedError to make it easier to catch this error in the dispatch table"""
+
+    pass
+
+
+class QuantizedSDPANotImplementedError(NotImplementedError):
+    """Thin wrapper around NotImplementedError to make it easier to catch this error during dispatch"""
 
     pass
 
@@ -177,45 +185,6 @@ def _(func, types, args, kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 
-@implements(torch.nn.functional.embedding)
-def _(func, types, args, kwargs):
-    # new_arg1 = args[1].dequantize()
-    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
-    assert isinstance(
-        args[1].tensor_impl, PlainAQTTensorImpl
-    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
-    assert (
-        kwargs["padding_idx"] is None
-        and kwargs["max_norm"] is None
-        and not kwargs["scale_grad_by_freq"]
-        and not kwargs["sparse"]
-        and kwargs["norm_type"] == 2.0
-    )
-    idx = args[0]
-    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
-
-    sliced_data, sliced_scale, sliced_zero_point = (
-        int_data[idx],
-        scale[idx],
-        zero_point[idx],
-    )
-    # Block size is expecting 2 dimensions [1, group size] but
-    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
-    # we need to increase block size to correct dim
-    new_blocks = idx.dim() - 1
-    return dequantize_affine(
-        sliced_data,
-        new_blocks * [1] + list(args[1].block_size),
-        sliced_scale,
-        sliced_zero_point,
-        sliced_data.dtype,
-        args[1].quant_min,
-        args[1].quant_max,
-        args[1].zero_point_domain,
-        output_dtype=sliced_scale.dtype,
-    )
-
-
 @implements(aten.addmm.default)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
@@ -275,6 +244,56 @@ def _(func, types, args, kwargs):
         if isinstance(weight_tensor, AffineQuantizedTensor):
             weight_tensor = weight_tensor.dequantize()
         return func(input_tensor, weight_tensor)
+
+
+@implements(torch.nn.functional.embedding)
+def _(func, types, args, kwargs):
+    # new_arg1 = args[1].dequantize()
+    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
+    assert isinstance(
+        args[1].tensor_impl, PlainAQTTensorImpl
+    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    assert (
+        kwargs["padding_idx"] is None
+        and kwargs["max_norm"] is None
+        and not kwargs["scale_grad_by_freq"]
+        and not kwargs["sparse"]
+        and kwargs["norm_type"] == 2.0
+    )
+    idx = args[0]
+    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
+
+    sliced_data, sliced_scale, sliced_zero_point = (
+        int_data[idx],
+        scale[idx],
+        zero_point[idx],
+    )
+    # Block size is expecting 2 dimensions [1, group size] but
+    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
+    # we need to increase block size to correct dim
+    new_blocks = idx.dim() - 1
+    return dequantize_affine(
+        sliced_data,
+        new_blocks * [1] + list(args[1].block_size),
+        sliced_scale,
+        sliced_zero_point,
+        sliced_data.dtype,
+        args[1].quant_min,
+        args[1].quant_max,
+        args[1].zero_point_domain,
+        output_dtype=sliced_scale.dtype,
+    )
+
+
+@implements(torch.nn.functional.scaled_dot_product_attention)
+def _(func, types, args, kwargs):
+    q, k, v = args[:3]
+    if _sdpa_float8_check(q, k, v, args, kwargs):
+        return _sdpa_float8_impl(q, k, v, args, kwargs)
+    else:
+        raise QuantizedSDPANotImplementedError(
+            "No specialized dispatch found for quantized sdpa"
+        )
 
 
 @implements(aten.detach.default)

@@ -13,6 +13,8 @@ from torch import Tensor
 from torch.nn import functional as F
 from torchao.utils import find_multiple
 
+_QUANTIZE_ATTN = False
+
 # TODO remove suplerfluous arg
 def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
@@ -85,7 +87,7 @@ transformer_configs = {
     ),
 }
 
-# this is a model specific variable that controls whether index_put is used for the kv_cache update, 
+# this is a model specific variable that controls whether index_put is used for the kv_cache update,
 # it is needed for GPTQ but otherwise attenuates perf so the default is to not use it
 use_index_put_for_kv_cache = False
 
@@ -124,7 +126,7 @@ class AffineQuantizedKVCache(nn.Module):
         self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=torch.int8))
         self.register_buffer('k_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
         self.register_buffer('v_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
-    
+
     def update(self, input_pos, k_val, v_val):
         # quantize current k_val and store it in the cache
         q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
@@ -138,7 +140,7 @@ class AffineQuantizedKVCache(nn.Module):
         self.v_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
         v_out = self.v_cache*self.v_cache_scale
         v_out[:, :, input_pos] = v_val
-        
+
         return k_out, v_out
 
     @classmethod
@@ -194,16 +196,16 @@ class Transformer(nn.Module):
                 else:
                     b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
         self.freqs_cis = precompute_freqs_cis(
-            self.config.block_size, 
-            self.config.dim // self.config.n_head, 
-            self.config.rope_base, 
-            dtype, 
+            self.config.block_size,
+            self.config.dim // self.config.n_head,
+            self.config.rope_base,
+            dtype,
             use_scaled=self.config.use_scaled_rope
         )
 
     def reset_caches(self):
         """Reset caches.
-        
+
         The caches used by training stage and inference stage may be different, reset them before switching.
         """
         self.max_batch_size = -1
@@ -215,7 +217,7 @@ class Transformer(nn.Module):
         """Forward pass of the model.
 
         Args:
-            idx  (`torch.LongTensor` of shape `(batch_size, seq_length)`): 
+            idx  (`torch.LongTensor` of shape `(batch_size, seq_length)`):
                 Indices of input sequence tokens in the vocabulary.
             input_pos (`torch.LongTensor` of shape `(batch_size, seq_length)`, *optional*):
                 Indices of positions of each input sequence tokens in the position embeddings.
@@ -227,7 +229,7 @@ class Transformer(nn.Module):
         """
         assert self.freqs_cis is not None, "Caches must be initialized first"
 
-        if input_pos is None: 
+        if input_pos is None:
             mask = None
             freqs_cis = self.freqs_cis[:idx.shape[1]]
         else:
@@ -311,10 +313,24 @@ class Attention(nn.Module):
 
         k = k.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
         v = v.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
+
+        # quantize q/k/v with per tensor float8 quantization
+        padded = False
+        if _QUANTIZE_ATTN:
+            from torchao.quantization.quant_api import _float8_symmetric_per_tensor_quant
+            original_dtype = v.dtype
+            if q.shape[-1] in [64, 128, 256]:
+                q = _float8_symmetric_per_tensor_quant(q)
+                k = _float8_symmetric_per_tensor_quant(k)
+                v = _float8_symmetric_per_tensor_quant(v)
+
         if mask is not None:
             y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
         else:
             y = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0, is_causal=True)
+
+        if _QUANTIZE_ATTN:
+            y = y.to(original_dtype)
 
         y = y.transpose(1, 2).contiguous().view(bsz, seqlen, self.dim)
 
@@ -371,8 +387,8 @@ def apply_scaling(freqs: torch.Tensor):
     return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
 
 def precompute_freqs_cis(
-    seq_len: int, 
-    n_elem: int, 
+    seq_len: int,
+    n_elem: int,
     base: int = 10000,
     dtype: torch.dtype = torch.bfloat16,
     use_scaled: bool=False

@@ -510,9 +510,9 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         )
 
 
-######################################################
+###############################################
 # Layout and TensorImpl Subclass Registration #
-######################################################
+###############################################
 register_layout = AffineQuantizedTensor.register_layout
 get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 

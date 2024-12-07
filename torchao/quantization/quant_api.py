@@ -803,6 +803,36 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
 
+def _float8_symmetric_per_token_quant(
+    x: torch.Tensor, dtype: torch.dtype = torch.float8_e4m3fn
+):
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    return to_affine_quantized_floatx(
+        input_float=x,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=dtype,
+        scale_dtype=None,
+        _layout=Float8Layout(mm_config=None),
+    )
+
+
+def _float8_symmetric_per_tensor_quant(
+    x: torch.Tensor,
+    dtype: torch.dtype = torch.float8_e4m3fn,
+    mm_config: Optional[Float8MMConfig] = None,
+):
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    return to_affine_quantized_floatx(
+        input_float=x,
+        block_size=tuple(x.shape),
+        target_dtype=dtype,
+        scale_dtype=torch.float32,
+        _layout=Float8Layout(mm_config=mm_config),
+    )
+
+
 def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
@@ -814,17 +844,9 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
         The actual matmul will be computed in original precision of the weight tensor.
 
     """
-    from torchao.dtypes import to_affine_quantized_floatx
 
     def apply_float8wo_quant(weight):
-        block_size = (1, weight.shape[1])
-        return to_affine_quantized_floatx(
-            input_float=weight,
-            block_size=block_size,
-            target_dtype=weight_dtype,
-            scale_dtype=None,
-            _layout=Float8Layout(mm_config=None),
-        )
+        return _float8_symmetric_per_token_quant(weight, weight_dtype)
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
@@ -1172,5 +1194,6 @@ if TORCH_VERSION_AT_LEAST_2_5:
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
             _input_activation_quant_func_fp8,
+            _float8_symmetric_per_token_quant,
         ]
     )
