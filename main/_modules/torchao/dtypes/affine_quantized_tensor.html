@@ -399,10 +399,8 @@
     <span class="n">choose_qparams_affine</span><span class="p">,</span>
     <span class="n">choose_qparams_affine_floatx</span><span class="p">,</span>
     <span class="n">choose_qparams_and_quantize_affine_hqq</span><span class="p">,</span>
-    <span class="n">choose_qparams_and_quantize_affine_qqq</span><span class="p">,</span>
     <span class="n">dequantize_affine</span><span class="p">,</span>
     <span class="n">dequantize_affine_floatx</span><span class="p">,</span>
-    <span class="n">dequantize_affine_qqq</span><span class="p">,</span>
     <span class="n">quantize_affine</span><span class="p">,</span>
     <span class="n">quantize_affine_floatx</span><span class="p">,</span>
 <span class="p">)</span>
@@ -416,14 +414,12 @@
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;AffineQuantizedTensor&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;MarlinQQQTensor&quot;</span><span class="p">,</span>
     <span class="s2">&quot;register_layout&quot;</span><span class="p">,</span>
     <span class="s2">&quot;to_affine_quantized_intx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;to_affine_quantized_floatx&quot;</span><span class="p">,</span>
     <span class="s2">&quot;to_affine_quantized_intx_static&quot;</span><span class="p">,</span>
     <span class="s2">&quot;to_affine_quantized_floatx_static&quot;</span><span class="p">,</span>
     <span class="s2">&quot;to_affine_quantized_fpx&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;to_marlinqqq_quantized_intx&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -842,57 +838,6 @@
     <span class="c1"># 2 - we&#39;re given non-floats - quantizing long to int8 is crazy</span>
 
 
-<span class="k">class</span> <span class="nc">MarlinQQQTensor</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.</span>
-
-<span class="sd">    To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,</span>
-<span class="sd">    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py</span>
-<span class="sd">    and check the two quant primitive ops: choose_qparams_and_quantize_affine_qqq and dequantize_affine_qqq</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span> <span class="nf">dequantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">output_dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
-
-        <span class="n">int_data</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
-        <span class="n">nbits</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
-        <span class="n">group_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">dequantize_affine_qqq</span><span class="p">(</span>
-            <span class="n">int_data</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">nbits</span><span class="p">,</span> <span class="n">group_size</span><span class="p">,</span> <span class="n">output_dtype</span>
-        <span class="p">)</span>
-
-    <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_hp_to_intx</span><span class="p">(</span>
-        <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
-        <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">quant_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
-        <span class="n">_layout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Layout</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">):</span>
-        <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
-        <span class="n">input_float</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
-        <span class="n">nbits</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
-        <span class="n">group_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span>
-        <span class="n">data</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">choose_qparams_and_quantize_affine_qqq</span><span class="p">(</span>
-            <span class="n">input_float</span><span class="p">,</span> <span class="n">nbits</span><span class="p">,</span> <span class="n">group_size</span>
-        <span class="p">)</span>
-        <span class="n">data</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-        <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
-        <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">tensor_impl</span><span class="p">,</span>
-            <span class="n">block_size</span><span class="p">,</span>
-            <span class="n">original_shape</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-        <span class="p">)</span>
-
-
 <span class="c1">######################################################</span>
 <span class="c1"># Layout and TensorImpl Subclass Registration #</span>
 <span class="c1">######################################################</span>
@@ -905,7 +850,6 @@
 <span class="n">to_affine_quantized_floatx_static</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_floatx_static</span>
 <span class="c1"># experimental will be merged in to floatx</span>
 <span class="n">to_affine_quantized_fpx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_fpx</span>
-<span class="n">to_marlinqqq_quantized_intx</span> <span class="o">=</span> <span class="n">MarlinQQQTensor</span><span class="o">.</span><span class="n">from_hp_to_intx</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
     <span class="c1"># Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`</span>
