@@ -10,7 +10,7 @@
 #include <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
 #include <torchao/experimental/kernels/mps/src/dispatch.h>
-#include <torchao/experimental/kernels/mps/src/metal_shader_lib.h>
+#include <torchao/experimental/kernels/mps/src/metal_shader_lib.h> // metal_lowbit_quantized_lib
 #include <torchao/experimental/kernels/mps/src/packing.h>
 
 #include <cassert>
@@ -20,9 +20,9 @@
 #ifdef USE_ATEN
 #include <ATen/native/mps/OperationUtils.h>
 using namespace at::native::mps;
-inline void finalize_block(MPSStream* mpsStream) {}
-void (*dispatch_block)(dispatch_queue_t, dispatch_block_t) =
-    dispatch_sync_with_rethrow;
+#elif defined(USE_EXECUTORCH)
+#include <executorch/backends/apple/mps/runtime/MPSStream.h>
+using namespace executorch::backends::mps::delegate;
 #else
 #include <torchao/experimental/kernels/mps/src/OperationUtils.h>
 #endif
@@ -103,7 +103,13 @@ inline void linear_lowbit_quant_weights_mps_impl(
       0};
 
   MPSStream* mpsStream = getCurrentMPSStream();
+#if defined(USE_ATEN)
+  dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
+#elif defined(USE_EXECUTORCH)
+  dispatch_sync(mpsStream->queue(), ^() {
+#else
   dispatch_block(mpsStream->queue(), ^() {
+#endif
     @autoreleasepool {
       id<MTLComputeCommandEncoder> computeEncoder = mpsStream->commandEncoder();
       id<MTLComputePipelineState> cpl =
@@ -119,7 +125,15 @@ inline void linear_lowbit_quant_weights_mps_impl(
                         length:sizeof(uint32_t) * sizes.size()
                        atIndex:5];
       dispatch_fn(computeEncoder, maxThreadsPerGroup, M, N, K);
-      finalize_block(mpsStream);
+#if defined(USE_EXECUTORCH)
+      ET_CHECK(mpsStream->synchronize(SyncType::COMMIT_AND_WAIT) == executorch::runtime::Error::Ok);
+#elif !defined(USE_ATEN)
+      id<MTLCommandEncoder> encoder = mpsStream->commandEncoder();
+      id<MTLCommandBuffer> cmdBuffer = mpsStream->commandBuffer();
+      [encoder endEncoding];
+      [cmdBuffer commit];
+      [cmdBuffer waitUntilCompleted];
+#endif
     }
   });
 }

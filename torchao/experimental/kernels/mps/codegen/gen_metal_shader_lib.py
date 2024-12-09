@@ -37,9 +37,9 @@ prefix = """/**
  */
 
 #ifdef USE_ATEN
-using namespace at::native::mps;
+using at::native::mps::MetalShaderLibrary;
 #else
-#include <torchao/experimental/kernels/mps/src/OperationUtils.h>
+#include <torchao/experimental/kernels/mps/src/MetalShaderLibrary.h>
 #endif
 
 static MetalShaderLibrary metal_lowbit_quantized_lib(R"METAL_LOWBIT(

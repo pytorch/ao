@@ -541,10 +541,11 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         )
         weight_scales = torch.transpose_copy(weight_scales, 1, 0)
         weight_zeros = torch.transpose_copy(weight_zeros, 1, 0)
-        self.weight_scales = weight_scales
-        self.weight_zeros = -weight_zeros * weight_scales
-
-        self.packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(device="mps")
+        weight_zeros = -weight_zeros * weight_scales
+        self.weight_scales = nn.Parameter(weight_scales, requires_grad=False)
+        self.weight_zeros = nn.Parameter(weight_zeros, requires_grad=False)
+        packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(device="mps")
+        self.packed_weights = nn.Parameter(packed_weights, requires_grad=False)
 
     def forward(self, x):
         assert x.dim() >= 2
