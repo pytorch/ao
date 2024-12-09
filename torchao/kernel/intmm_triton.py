@@ -8,7 +8,6 @@ import triton.language as tl
 
 from torchao.kernel.autotuner import get_best_config_fn
 
-int8_powers_of_two = [32, 64, 128, 256]
 # TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_SEARCH_SPACE=EXHAUSTIVE to enable exhaustive option
 int8_mm_kernel_configs = (
     sum(
