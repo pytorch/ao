@@ -24,6 +24,7 @@ jobs:
   generate-matrix:
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@torchao-release0.7
     with:
+      test-infra-ref: torchao-release0.7
       package-type: wheel
       os: linux
       with-cpu: enable
