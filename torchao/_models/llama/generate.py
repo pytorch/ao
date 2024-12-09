@@ -13,6 +13,7 @@ import torch
 import torchao
 import torch._dynamo.config
 import torch._inductor.config
+from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import get_model_size_in_bytes
 from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -293,6 +294,17 @@ def main(
             group_size=int(quantization.split("-")[1])
             assert group_size in [32,64,128,256], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
+        elif "int8adq-int4w-symm" in quantization:
+            from torchao.dtypes import Int4PackedLayout
+            quantize_(
+                model,
+                int8_dynamic_activation_int4_weight(
+                    group_size=None,
+                    mapping_type=MappingType.SYMMETRIC,
+                    act_mapping_type=MappingType.SYMMETRIC,
+                    layout=Int4PackedLayout(),
+                )
+            )
         if "marlin" in quantization:
             if "qqq" in quantization:
                 from torchao.dtypes import MarlinQQQLayout
@@ -699,7 +711,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str,
         help=(
-            'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
+            'Which quantization techniques to apply: int8dq, int8adq-int4w-symm, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, '
             +'embed-int8wo, marlin_qqq'
         )

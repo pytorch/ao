@@ -65,6 +65,19 @@ def get_extensions():
     extension = CUDAExtension if use_cuda else CppExtension
 
     if not IS_WINDOWS:
+        use_cutlass = False
+        try:
+            import cutlass
+            import cutlass_library
+            from packaging.version import parse
+        except:
+            pass
+        else:
+            if parse(cutlass.__version__) >= parse("3.6.0"):
+                use_cutlass = True
+                cutlass_library_dir = os.path.dirname(cutlass_library.__file__)
+                cutlass_include_dir = os.path.join(cutlass_library_dir, "source", "include")
+
         extra_link_args = []
         extra_compile_args = {
             "cxx": [
@@ -76,6 +89,11 @@ def get_extensions():
                 "-t=0",
             ]
         }
+        if use_cutlass:
+            extra_compile_args["nvcc"].extend([
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+            ])
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
