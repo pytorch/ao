@@ -9,31 +9,43 @@ import triton.language as tl
 from torchao.kernel.autotuner import get_best_config_fn
 
 int8_powers_of_two = [32, 64, 128, 256]
-int8_mm_kernel_configs = sum(
-    [
-        # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
+# TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_SEARCH_SPACE=EXHAUSTIVE to enable exhaustive option
+int8_mm_kernel_configs = (
+    sum(
         [
-            (i, j, k, 1, 1),
-            (i, j, k, 1, 2),
-            (i, j, k, 2, 2),
-            (i, j, k, 1, 4),
-            (i, j, k, 2, 4),
-            (i, j, k, 3, 4),
-            (i, j, k, 4, 4),
-            (i, j, k, 1, 8),
-            (i, j, k, 2, 8),
-            (i, j, k, 3, 8),
-            (i, j, k, 4, 8),
-            (i, j, k, 5, 8),
-            (i, j, k, 6, 8),
-            (i, j, k, 7, 8),
-            (i, j, k, 8, 8),
-        ]
-        for (i, j, k) in itertools.product(
-            int8_powers_of_two, int8_powers_of_two, int8_powers_of_two
-        )
-    ],
-    [],
+            # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
+            [
+                (i, j, k, 1, 1),
+                (i, j, k, 1, 2),
+                (i, j, k, 2, 2),
+                (i, j, k, 1, 4),
+                (i, j, k, 2, 4),
+                (i, j, k, 3, 4),
+                (i, j, k, 4, 4),
+                (i, j, k, 1, 8),
+                (i, j, k, 2, 8),
+                (i, j, k, 3, 8),
+                (i, j, k, 4, 8),
+                (i, j, k, 5, 8),
+                (i, j, k, 6, 8),
+                (i, j, k, 7, 8),
+                (i, j, k, 8, 8),
+            ]
+            for (i, j, k) in itertools.product(
+                [32, 64, 128, 256], repeat=3
+            )
+        ],
+        []
+    )
+    if torch._inductor.config.max_autotune_gemm_search_space != "EXHAUSTIVE"
+    else [
+            (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
+            for BLOCK_M, BLOCK_N, BLOCK_K in itertools.product(
+                [16, 32, 64, 128, 256], repeat=3
+            )
+            for num_stages in [1, 2, 3, 4, 5, 6, 7, 8]
+            for num_warps in [2, 4, 8]
+    ]
 )
 
 # Baseline configs from pytorch/pytorch
