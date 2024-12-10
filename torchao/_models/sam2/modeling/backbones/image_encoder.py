@@ -29,7 +29,14 @@ class ImageEncoder(nn.Module):
     def forward(self, sample: torch.Tensor):
         # Forward through backbone
         with torch.autograd.profiler.record_function("self.neck(self.trunk(sample))"):
-            features, pos = self.neck(self.trunk(sample))
+            from torchao._models.sam2.map_tensor import MapTensor
+            from torchao._models.sam2.map_tensor import to_map_tensor
+            if isinstance(sample, MapTensor):
+                features, pos = self.neck(self.trunk(sample.elems.flatten(0, 1)))
+                features = [to_map_tensor(t.unsqueeze(1)) for t in features]
+                pos = [to_map_tensor(t.unsqueeze(1)) for t in pos]
+            else:
+                features, pos = self.neck(self.trunk(sample))
         if self.scalp > 0:
             # Discard the lowest resolution features
             features, pos = features[: -self.scalp], pos[: -self.scalp]
