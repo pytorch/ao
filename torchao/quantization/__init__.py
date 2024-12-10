@@ -10,11 +10,11 @@ from torchao.kernel import (
 )
 
 from .autoquant import (
+    ALL_AUTOQUANT_CLASS_LIST,
     DEFAULT_AUTOQUANT_CLASS_LIST,
     DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
     OTHER_AUTOQUANT_CLASS_LIST,
-    ALL_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
 from .GPTQ import (

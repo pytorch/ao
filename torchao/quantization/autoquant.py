@@ -26,6 +26,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 from .granularity import (
@@ -952,7 +954,21 @@ OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
 ]
 
-ALL_AUTOQUANT_CLASS_LIST = list(set(DEFAULT_AUTOQUANT_CLASS_LIST + DEFAULT_INT4_AUTOQUANT_CLASS_LIST + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST + OTHER_AUTOQUANT_CLASS_LIST))
+ALL_AUTOQUANT_CLASS_LIST = list(
+    set(
+        DEFAULT_AUTOQUANT_CLASS_LIST
+        + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+        + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+    )
+)
+if is_sm_at_least_89():
+    ALL_AUTOQUANT_CLASS_LIST += [
+        AQFloat8WeightOnlyQuantizedLinearWeight,
+        AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
+    ]
+
+if is_sm_at_least_90():
+    ALL_AUTOQUANT_CLASS_LIST += [AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight]
 
 
 def _change_linears_to_autoquantizable(model, **kwargs):
