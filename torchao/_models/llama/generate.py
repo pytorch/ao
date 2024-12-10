@@ -6,6 +6,8 @@
 import os
 import sys
 import time
+import platform
+import json
 from pathlib import Path
 from typing import Optional, Tuple
 from datetime import datetime
@@ -32,6 +34,13 @@ class HostEvent:
         # return ms to match cuda event
         return abs(other_event.event_time - self.event_time) * 1000
 
+def get_arch_name() -> str:
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_name()
+    else:
+        # This returns x86_64 or arm64 (for aarch64)
+        return platform.machine()
+
 def device_timer(device):
     if "cuda" in device:
         return torch.cuda.Event(enable_timing=True)
@@ -49,6 +58,38 @@ def device_sync(device):
         pass
     else:
         print(f"device={device} is not yet suppported")
+
+def write_json_result(output_json_path, headers, row):
+    """
+    Write the result into JSON format, so that it can be uploaded to the benchmark database
+    to be displayed on OSS dashboard. The JSON format is defined at
+    https://github.com/pytorch/pytorch/wiki/How-to-integrate-with-PyTorch-OSS-benchmark-database
+    """
+    mapping_headers = {headers[i]: v for i, v in enumerate(row)}
+    record = {
+        "benchmark": {
+            "name": "TorchAO benchmark",
+            "mode": "inference",
+            "dtype": mapping_headers["dtype"],
+            "extra_info": {
+                "device": mapping_headers["device"],
+                "arch": mapping_headers["arch"],
+            },
+        },
+        "model": {
+            "name": mapping_headers["name"],
+            "type": "model",
+            "origins": ["pytorch"],
+        },
+        "metric": {
+            "name": mapping_headers["metric"],
+            "benchmark_values": [mapping_headers["actual"]],
+            "target_value": mapping_headers["target"],
+        },
+    }
+
+    with open(f"{os.path.splitext(output_json_path)[0]}.json", "a") as f:
+        print(json.dumps(record), file=f)
 
 default_device = 'cuda' if torch.cuda.is_available() else 'xpu' if torch.xpu.is_available() else 'cpu'
 
@@ -215,12 +256,13 @@ def main(
     device=default_device,
     precision=torch.bfloat16,
     write_result: Optional[Path] = None,
+    output_json_path: Optional[Path] = None,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
     if prefill_size is not None and prefill_size > 0:
-        # create prompt of prefill size 
+        # create prompt of prefill size
         prompt = "prompt " * (int(prefill_size)-3)
 
     torchao.quantization.utils.recommended_inductor_config_setter()
@@ -248,13 +290,13 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn 
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
 
     def ffn_or_attn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and ("feed_forward" in fqn or "attention" in fqn)   
+        return isinstance(mod, torch.nn.Linear) and ("feed_forward" in fqn or "attention" in fqn)
 
     if quantization:
         from torchao.quantization import (
@@ -524,7 +566,7 @@ def main(
             torch.xpu.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
         else:
             print("Memory profiling only works on CUDA or XPU devices")
-    
+
     aggregate_metrics = {
         'tokens_per_sec': [],
         'time': [],
@@ -625,7 +667,7 @@ def main(
                 snapshot = torch.xpu.memory._snapshot()
             else:
                 print("Memory profiling only works on CUDA or XPU devices")
-    
+
             with open(f"{memory_profile}.pickle", 'wb') as f:
                 from pickle import dump
                 dump(snapshot, f)
@@ -645,7 +687,7 @@ def main(
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
     print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
-    if device == "cuda": 
+    if device == "cuda":
         mem = torch.cuda.max_memory_reserved() /1e9
     elif device == "xpu":
         mem = torch.xpu.max_memory_reserved() /1e9
@@ -683,6 +725,16 @@ def main(
         f.write(result_txt)
         f.close()
 
+    headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+    name = checkpoint_path.parent.name
+    arch = get_arch_name()
+    dtype = quantization or str(precision)
+    memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
+    performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
+    if output_json_path:
+        write_json_result(output_json_path, headers, memory_result)
+        write_json_result(output_json_path, headers, performance_result)
+
 
 
 if __name__ == '__main__':
@@ -704,7 +756,7 @@ if __name__ == '__main__':
             +'embed-int8wo, marlin_qqq'
         )
     )
-    parser.add_argument('-s', '--sparsity', type=str, 
+    parser.add_argument('-s', '--sparsity', type=str,
         help=(
             'Which sparsity techniques to apply: semi-structured'
         )
@@ -720,9 +772,10 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--write_result', type=Path, default=None, help='Path where to write the result')
+    parser.add_argument('--output_json_path', type=Path, default=None, help='Path where to write the json result for dashboard')
 
     args = parser.parse_args()
     main(
         args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result, args.output_json_path,
     )
