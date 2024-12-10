@@ -307,7 +307,7 @@ def _scaled_dot_product_efficient_attention_impl(func, types, args, kwargs):
     unwrapped_kwargs = tree_map(unwrap, kwargs)
     assert len(args) == 5
     if all(isinstance(a, MapTensor) for a in args[:3]):
-        assert len(unwrapped_kwargs) == 0
+        # assert len(unwrapped_kwargs) == 0
         assert len(unwrapped_args) == 5, f"args: {unwrapped_args}"
         assert unwrapped_args[0].dim() == 5
         assert unwrapped_args[1].dim() == 5
@@ -316,10 +316,10 @@ def _scaled_dot_product_efficient_attention_impl(func, types, args, kwargs):
                              unwrapped_args[1].flatten(0, 1),
                              unwrapped_args[2].flatten(0, 1),
                              unwrapped_args[3],
-                             unwrapped_args[4]))
+                             unwrapped_args[4], **unwrapped_kwargs))
         return (wrap(sdpa_res[0].view(unwrapped_args[0].size())),) + sdpa_res[1:]
     if isinstance(args[0], MapTensor) and not any(isinstance(a, MapTensor) for a in args[1:]):
-        assert len(unwrapped_kwargs) == 0
+        # assert len(unwrapped_kwargs) == 0
         assert len(unwrapped_args) == 5, f"args: {unwrapped_args}"
         assert unwrapped_args[0].dim() == 5
         assert unwrapped_args[1].dim() == 4
@@ -332,7 +332,7 @@ def _scaled_dot_product_efficient_attention_impl(func, types, args, kwargs):
                              a1.flatten(0, 1),
                              a2.flatten(0, 1),
                              unwrapped_args[3],
-                             unwrapped_args[4]))
+                             unwrapped_args[4], **unwrapped_kwargs))
         return (wrap(sdpa_res[0].view(unwrapped_args[0].size())),) + sdpa_res[1:]
     if ((not isinstance(args[0], MapTensor)) and isinstance(args[1], MapTensor) and (not isinstance(args[2], MapTensor))):
         assert len(unwrapped_kwargs) == 0
@@ -350,7 +350,7 @@ def _scaled_dot_product_efficient_attention_impl(func, types, args, kwargs):
                              unwrapped_args[4]))
         return (wrap(sdpa_res[0].view(unwrapped_args[0].size())),) + sdpa_res[1:]
     if ((not isinstance(args[0], MapTensor)) and isinstance(args[1], MapTensor) and isinstance(args[2], MapTensor)):
-        assert len(unwrapped_kwargs) == 0
+        # assert len(unwrapped_kwargs) == 0
         assert len(unwrapped_args) == 5, f"args: {unwrapped_args}"
         assert unwrapped_args[0].dim() == 4
         assert unwrapped_args[1].dim() == 5
@@ -364,7 +364,7 @@ def _scaled_dot_product_efficient_attention_impl(func, types, args, kwargs):
                              a1.flatten(0, 1),
                              a2.flatten(0, 1),
                              unwrapped_args[3],
-                             unwrapped_args[4]))
+                             unwrapped_args[4], **unwrapped_kwargs))
         return (wrap(sdpa_res[0].view((a1_size[0],) + a0_size)),) + sdpa_res[1:]
     return NotImplemented
 
@@ -556,7 +556,8 @@ def run_invariant_test(res, func, args, kwargs):
         if not torch.allclose(res.elems[0], res_0, atol=1e-3, rtol=1e-3):
             import pdb; pdb.set_trace()
     else:
-        print("res got type: ", type(res))
+        pass
+        # print("res got type: ", type(res))
         # import pdb; pdb.set_trace()
     return res
 
