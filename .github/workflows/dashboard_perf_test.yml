@@ -9,7 +9,7 @@ on:
 
 jobs:
   benchmark:
-    runs-on: linux.aws.a100    
+    runs-on: linux.aws.a100
     strategy:
       matrix:
         torch-spec:
@@ -26,8 +26,8 @@ jobs:
         shell: bash
         run: |
           set -eux
-          ${CONDA_RUN} python -m pip install --upgrade pip          
-          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}          
+          ${CONDA_RUN} python -m pip install --upgrade pip
+          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
 
