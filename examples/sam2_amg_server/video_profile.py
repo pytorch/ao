@@ -91,7 +91,7 @@ def synthesize_video_data(
     vy = np.random.choice([-1, 1]) * speed
 
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
-    print(f"Generate {n_frames} frames")
+    print(f"Generate {n_frames} frames under path {out_dir}")
     if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
         raise ValueError(f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified.")
     # Generate 100 frames
@@ -178,18 +178,19 @@ def run_test(
     start_x = np.random.randint(radius, width - radius)
     start_y = np.random.randint(radius, height - radius)
     if synthesize:
-        synthesize_video_data(
-            out_dir=video_dir,
-            radius=radius,
-            seed=seed,
-            speed=speed,
-            width=width,
-            height=height,
-            n_frames=n_frames,
-            x=start_x,
-            y=start_y,
-            synthesize_overwrite=synthesize_overwrite,
-        )
+        for i in range(batch_size):
+            synthesize_video_data(
+                out_dir=f"{video_dir}_{i}",
+                radius=radius,
+                seed=(seed + i),  # Make sure every video is different
+                speed=speed,
+                width=width,
+                height=height,
+                n_frames=n_frames,
+                x=start_x,
+                y=start_y,
+                synthesize_overwrite=synthesize_overwrite,
+            )
 
     # use bfloat16 for the entire notebook
     torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -214,9 +215,11 @@ def run_test(
     )
     predictor._frame_batch_size = frame_batch_size
 
-    if batch_size == 1:
+    inference_states = []
+    for i in range(batch_size):
+        print("i: ", i)
         inference_state = predictor.init_state(
-            video_path=video_dir, async_loading_frames=False
+            video_path=f"{video_dir}_{i}", async_loading_frames=False
         )
         _, out_obj_ids, out_mask_logits = predictor.add_new_points(
             inference_state=inference_state,
@@ -225,21 +228,10 @@ def run_test(
             points=np.array([[start_x, start_y]], dtype=np.float32),
             labels=np.array([1], dtype=np.int32),
         )
+        inference_states.append(inference_state)
+    if batch_size == 1:
+        inference_state = inference_states[0]
     else:
-        inference_states = []
-        for i in range(batch_size):
-            print("i: ", i)
-            inference_state = predictor.init_state(
-                video_path=video_dir, async_loading_frames=False
-            )
-            _, out_obj_ids, out_mask_logits = predictor.add_new_points(
-                inference_state=inference_state,
-                frame_idx=0,
-                obj_id=1,
-                points=np.array([[start_x, start_y]], dtype=np.float32),
-                labels=np.array([1], dtype=np.int32),
-            )
-            inference_states.append(inference_state)
         inference_state = predictor.batch_inference_states(inference_states)
 
     if use_compile:
