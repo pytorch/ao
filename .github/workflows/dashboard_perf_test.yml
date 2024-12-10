@@ -31,12 +31,11 @@ jobs:
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
 
-          cd torchao/_models/llama
-          export CHECKPOINT_PATH=../../../checkpoints # path to checkpoints folder
+          export CHECKPOINT_PATH=checkpoints
           export MODEL_REPO=meta-llama/Llama-2-7b-chat-hf
           ${CONDA_RUN} python scripts/download.py --repo_id meta-llama/Llama-2-7b-chat-hf --hf_token ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
           ${CONDA_RUN} python scripts/convert_hf_checkpoint.py
-          ${CONDA_RUN} python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --output_json_path ${{ runner.temp }}/benchmark-results/benchmark-results.json
+          ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --output_json_path ${{ runner.temp }}/benchmark-results/benchmark-results.json
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
         uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main
