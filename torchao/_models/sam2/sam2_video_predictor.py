@@ -49,10 +49,9 @@ class SAM2VideoPredictor(SAM2Base):
         batched_inference_state = copy.copy(inference_states[0])
 
         from torchao._models.sam2.map_tensor import to_map_tensor
-        # NOTE: Making a build assumption only images differs
+        # NOTE: Making a build assumption only images differ
         all_images = torch.stack([state["images"] for state in inference_states])
         batched_inference_state["images"] = to_map_tensor(all_images)
-        print(f"BATCHIINGGG {num_states} num_states")
         return batched_inference_state
 
     @torch.no_grad()
