@@ -469,21 +469,19 @@ class IntxWeightEmbeddingQuantizer:
         return model
 
 
-from torchao.experimental._linear_8bit_act_xbit_weight_layout import Linear8BitActXBitWeightLayout
-from torchao.quantization.quant_api import (
-    _get_linear_subclass_inserter,
-    MappingType,
-    to_affine_quantized_intx,
-    ZeroPointDomain,
-)
-
-
 def int8_dynamic_activation_intx_weight(
     group_size: int = 128,
     nbit: int = 4,
     has_weight_zeros: bool = False,
     target: str = "native",
 ):
+    from torchao.experimental._linear_8bit_act_xbit_weight_layout import Linear8BitActXBitWeightLayout
+    from torchao.quantization.quant_api import (
+        _get_linear_subclass_inserter,
+        MappingType,
+        to_affine_quantized_intx,
+        ZeroPointDomain,
+    )
 
     def apply(weight):
         assert weight.shape[-1] % group_size == 0
@@ -541,10 +539,11 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         )
         weight_scales = torch.transpose_copy(weight_scales, 1, 0)
         weight_zeros = torch.transpose_copy(weight_zeros, 1, 0)
-        self.weight_scales = weight_scales
-        self.weight_zeros = -weight_zeros * weight_scales
-
-        self.packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(device="mps")
+        weight_zeros = -weight_zeros * weight_scales
+        self.weight_scales = nn.Parameter(weight_scales, requires_grad=False)
+        self.weight_zeros = nn.Parameter(weight_zeros, requires_grad=False)
+        packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(device="mps")
+        self.packed_weights = nn.Parameter(packed_weights, requires_grad=False)
 
     def forward(self, x):
         assert x.dim() >= 2
