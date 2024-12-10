@@ -14,6 +14,7 @@ from .autoquant import (
     DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
     OTHER_AUTOQUANT_CLASS_LIST,
+    ALL_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
 from .GPTQ import (
@@ -92,6 +93,7 @@ __all__ = [
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",
