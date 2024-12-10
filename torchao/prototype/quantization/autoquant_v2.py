@@ -63,6 +63,7 @@ __all__ = [
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "ALL_AUTOQUANT_CLASS_LIST",
     "_is_linear",
 ]
 
@@ -1086,6 +1087,8 @@ OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
 ]
+
+ALL_AUTOQUANT_CLASS_LIST = list(set(DEFAULT_AUTOQUANT_CLASS_LIST + DEFAULT_INT4_AUTOQUANT_CLASS_LIST + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST + OTHER_AUTOQUANT_CLASS_LIST))
 
 
 def _replace_with_custom_fn_if_matches_filter(
