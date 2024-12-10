@@ -1,4 +1,9 @@
+import itertools
+
 import pytest
+import torch
+
+from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
@@ -9,13 +14,6 @@ hqq_quantize = pytest.importorskip(
 )
 HQQLinear = hqq_quantize.HQQLinear
 BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
-
-import itertools
-
-import torch
-from hqq.core.quantize import BaseQuantizeConfig, HQQLinear, Quantizer
-
-from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
 torch.manual_seed(0)
 # N, K = shape
@@ -60,7 +58,7 @@ def quantize_helper(
     W_q = W_q.to(dtype=quant_dtype)
     W_q = (
         W_q.reshape(meta["shape"])
-        if quant_config["weight_quant_params"]["bitpack"] == False
+        if not quant_config["weight_quant_params"]["bitpack"]
         else W_q
     )
 

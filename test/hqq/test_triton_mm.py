@@ -1,19 +1,20 @@
 # Skip entire test if following module not available, otherwise CI failure
+import itertools
+
 import pytest
+import torch
+
+from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
 )
 hqq = pytest.importorskip("hqq", reason="hqq required to run this test")
-hqq_quantize = pytest.importorskip("hqq.core.quantize", reason="hqq required to run this test")
+hqq_quantize = pytest.importorskip(
+    "hqq.core.quantize", reason="hqq required to run this test"
+)
 HQQLinear = hqq_quantize.HQQLinear
 BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
-
-import itertools
-
-import torch
-
-from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
 # Test configs
 SHAPES = [
@@ -96,7 +97,7 @@ def test_mixed_mm(
     W_q = W_q.to(dtype=quant_dtype)
     W_q = (
         W_q.reshape(meta["shape"])
-        if quant_config["weight_quant_params"]["bitpack"] == False
+        if not quant_config["weight_quant_params"]["bitpack"]
         else W_q
     )
     W_dq = hqq_linear.dequantize()
