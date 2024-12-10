@@ -35,6 +35,8 @@ jobs:
           export MODEL_REPO=meta-llama/Llama-2-7b-chat-hf
           ${CONDA_RUN} python scripts/download.py --repo_id meta-llama/Llama-2-7b-chat-hf --hf_token ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
           ${CONDA_RUN} python scripts/convert_hf_checkpoint.py --checkpoint_dir "${CHECKPOINT_PATH}/${MODEL_REPO}"
+
+          mkdir -p ${{ runner.temp }}/benchmark-results
           ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --output_json_path ${{ runner.temp }}/benchmark-results/benchmark-results.json
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
