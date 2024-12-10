@@ -420,7 +420,6 @@ def ops_impl(cls, func, types, args, kwargs=None):
                        torch.ops.aten.add.Tensor,
                        torch.ops.aten.clamp.default,
                        torch.ops.aten.clone.default,
-                       torch.ops.aten.copy_.default,
                        torch.ops.aten.cos.default,
                        torch.ops.aten.div.Tensor,
                        torch.ops.aten.eq.Scalar,
@@ -449,11 +448,15 @@ def ops_impl(cls, func, types, args, kwargs=None):
                        torch.ops.aten.view_as_real.default,
                        torch.ops.aten.neg.default,
                        torch.ops.aten.le.Scalar,
+                       torch.ops.aten.rsub.Scalar,
                        # Sketchy new in place ops
                        torch.ops.aten.bitwise_and_.Tensor,
                        torch.ops.aten.bitwise_or_.Tensor,
                        torch.ops.aten.le.Tensor,
                        torch.ops.aten.logical_and.default,
+                       # in place ops
+                       torch.ops.aten.add_.Tensor,
+                       torch.ops.aten.copy_.default,
                        # Prims
                        torch.ops.prim.layout.default,
                    ]

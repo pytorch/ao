@@ -400,8 +400,7 @@ class SAM2Base(torch.nn.Module):
 
             if self.fixed_no_obj_ptr:
                 obj_ptr = lambda_is_obj_appearing * obj_ptr
-            # obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
-            obj_ptr = obj_ptr + ((-lambda_is_obj_appearing) + 1) * self.no_obj_ptr
+            obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
 
         return (
             low_res_multimasks,
@@ -716,12 +715,11 @@ class SAM2Base(torch.nn.Module):
         # is predicted to be occluded (i.e. no object is appearing in the frame)
         if self.no_obj_embed_spatial is not None:
             is_obj_appearing = (object_score_logits > 0).float()
-            maskmem_features = maskmem_features + ((
-                # 1 - is_obj_appearing[..., None, None]
-                ((-is_obj_appearing[..., None, None]) + 1)
+            maskmem_features += (
+                1 - is_obj_appearing[..., None, None]
             ) * self.no_obj_embed_spatial[..., None, None].expand(
                 *maskmem_features.shape
-            ))
+            )
 
         return maskmem_features, maskmem_pos_enc
 
