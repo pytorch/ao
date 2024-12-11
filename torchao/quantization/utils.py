@@ -378,6 +378,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT
 ):
     assert groupsize > 1
     # needed for GPTQ single column quantize
@@ -400,7 +401,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         output_dtype,
         quant_min,
         quant_max,
-        zero_point_domain=ZeroPointDomain.FLOAT,
+        zero_point_domain=zero_point_domain
     )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
         if not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
@@ -414,6 +415,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT
 ):
     assert groupsize > 1
     assert w_int4x8.dim() == 2
@@ -452,7 +454,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
         input_dtype,
         quant_min,
         quant_max,
-        zero_point_domain=ZeroPointDomain.FLOAT,
+        zero_point_domain=zero_point_domain,
         output_dtype=scales.dtype,
     )
 

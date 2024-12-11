@@ -630,7 +630,8 @@ def int8_dynamic_activation_int4_weight(
 
 
 def int4_weight_only(
-    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False
+    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False,
+    zero_point_domain=ZeroPointDomain.FLOAT
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -665,9 +666,8 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
-        preserve_zero = False
+        preserve_zero = zero_point_domain == ZeroPointDomain.INT
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
