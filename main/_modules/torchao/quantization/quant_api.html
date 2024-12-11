@@ -1059,6 +1059,9 @@
             <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
             <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">True</span>
             <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
         <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span>
