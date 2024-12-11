@@ -6,11 +6,12 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
-    PlainLayout,
-    TensorCoreTiledLayout,
     MarlinSparseLayout,
+    PlainLayout,
     SemiSparseLayout,
+    TensorCoreTiledLayout,
 )
+from torchao.dtypes.utils import Layout
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
@@ -31,7 +32,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
-from torchao.dtypes.utils import Layout
 
 from .granularity import (
     PerRow,
@@ -409,6 +409,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
     """
     AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight
     """
+
     layout: Layout = PlainLayout()
 
     @classmethod
@@ -533,7 +534,10 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         )
         return res_f
 
-class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(AQInt8DynamicallyQuantizedLinearWeight):
+
+class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(
+    AQInt8DynamicallyQuantizedLinearWeight
+):
     layout: Layout = SemiSparseLayout()
 
     @classmethod
@@ -688,7 +692,10 @@ class AQInt4G256WeightOnlyQuantizedLinearWeight(
 ):
     group_size: int = 256
 
-class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
+
+class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
+    AQInt4G32WeightOnlyQuantizedLinearWeight
+):
     group_size: int = 128
     layout: Layout = MarlinSparseLayout()
 
