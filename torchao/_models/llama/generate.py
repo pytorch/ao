@@ -685,6 +685,13 @@ def main(
                     qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
                 )
+            if "autoquant-sparse" == quantization:
+                model = autoquant(
+                    model,
+                    manual=True,
+                    qtensor_class_list = torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
+                    example_input=inputs,
+                )
             if "autoquant-all" == quantization:
                 all_qtensor_classes = (
                     torchao.quantization.DEFAULT_AUTOQUANT_CLASS_LIST

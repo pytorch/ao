@@ -676,6 +676,9 @@ def int4_weight_only(
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
+            assert (
+                group_size == 128 or group_size == weight.shape[-1]
+            ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
         return to_affine_quantized_intx(
             weight,
