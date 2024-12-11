@@ -409,6 +409,8 @@
     <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
+    <span class="n">is_sm_at_least_89</span><span class="p">,</span>
+    <span class="n">is_sm_at_least_90</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">.granularity</span> <span class="kn">import</span> <span class="p">(</span>
@@ -428,6 +430,7 @@
     <span class="s2">&quot;DEFAULT_INT4_AUTOQUANT_CLASS_LIST&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST&quot;</span><span class="p">,</span>
     <span class="s2">&quot;OTHER_AUTOQUANT_CLASS_LIST&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ALL_AUTOQUANT_CLASS_LIST&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -1333,6 +1336,22 @@
     <span class="n">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight</span><span class="p">,</span>
 <span class="p">]</span>
+
+<span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+    <span class="nb">set</span><span class="p">(</span>
+        <span class="n">DEFAULT_AUTOQUANT_CLASS_LIST</span>
+        <span class="o">+</span> <span class="n">DEFAULT_INT4_AUTOQUANT_CLASS_LIST</span>
+        <span class="o">+</span> <span class="n">DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="n">is_sm_at_least_89</span><span class="p">():</span>
+    <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">+=</span> <span class="p">[</span>
+        <span class="n">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
+        <span class="n">AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight</span><span class="p">,</span>
+    <span class="p">]</span>
+
+<span class="k">if</span> <span class="n">is_sm_at_least_90</span><span class="p">():</span>
+    <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">+=</span> <span class="p">[</span><span class="n">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">]</span>
 
 
 <span class="k">def</span> <span class="nf">_change_linears_to_autoquantizable</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
