@@ -220,7 +220,7 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     return y
 
 
-def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
+def _linear_sym_int8_act_sym_int8_weight_check(input_tensor, weight_tensor, bias):
     return (
         isinstance(input_tensor, AffineQuantizedTensor)
         and _aqt_is_int8_reduced_range(input_tensor)
@@ -231,7 +231,7 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
     )
 
 
-def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
+def _linear_sym_int8_act_sym_int8_weight_impl(input_tensor, weight_tensor, bias):
     #
     # 1. do the matrix form of dot(X_i, W_j)
     #
@@ -257,6 +257,61 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
 
     y = (y_dot_scaled * w_scales).reshape(
+        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
+    )
+
+    # can downcast only at the very end
+    output_dtype = input_tensor.dtype
+    y = y.to(output_dtype)
+    if bias is not None:
+        y += bias
+    return y
+
+
+def _linear_asym_int8_act_sym_int8_weight_check(input_tensor, weight_tensor, bias):
+    return (
+        isinstance(input_tensor, AffineQuantizedTensor)
+        and _aqt_is_int8(input_tensor)
+        # ZeroPointDomain.NONE did not work for weight in int8_dynamic_activation_int8_weight
+        # Uncommenting the next line works in eager mode, but Dynamo runs into a problem with it.
+        #and torch.equal(weight_tensor.tensor_impl.zero_point, torch.zeros_like(weight_tensor.tensor_impl.zero_point))
+        and isinstance(weight_tensor, AffineQuantizedTensor)
+        and input_tensor.dtype == weight_tensor.dtype
+        and isinstance(input_tensor._layout, PlainLayout)
+        and isinstance(weight_tensor._layout, PlainLayout)
+    )
+
+
+def _linear_asym_int8_act_sym_int8_weight_impl(input_tensor, weight_tensor, bias):
+    #
+    # 1. do the matrix form of dot(X_i, W_j)
+    #
+    #
+    # 2. rescale the output and apply compensation for zero point of A
+    #
+    #
+    # in cases with large matrices, y_dot_int32 can grow sufficiently
+    # large that y_dot_int32 * a float16 scale is greater than the maximum
+    # value of a float 16, (which results in a value of inf even if multiplying
+    # by the other scale would bring it within the expected range)
+    x_vals_int8 = input_tensor.tensor_impl.int_data
+    x_zps = input_tensor.tensor_impl.zero_point.reshape(-1, 1)
+    x_scales = input_tensor.tensor_impl.scale.reshape(-1, 1)
+    w_vals_int8_t = weight_tensor.tensor_impl.int_data.contiguous().t()
+    w_scales = weight_tensor.tensor_impl.scale
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    x_scales_dtype = x_scales.dtype
+    # Cast fp16 scale to float to avoid overflow in int_scaled_matmul
+    intermediate_dtype = torch.float if x_scales_dtype == torch.half else x_scales_dtype
+    y_dot_scaled = int_scaled_matmul(
+        tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
+    )
+    y_dot_scaled = y_dot_scaled.to(x_scales_dtype) * w_scales
+
+    # Compute compensation
+    w_col_sum = weight_tensor.tensor_impl.int_data.contiguous().t().to(torch.float).sum(dim=0)
+    a_compensation = ((x_scales * w_scales) * x_zps.to(intermediate_dtype)) * w_col_sum
+    y = (y_dot_scaled - a_compensation).reshape(
         *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
     )
 

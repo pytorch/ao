@@ -32,8 +32,10 @@ from torchao.dtypes.uintx.plain_layout import (
     PlainAQTTensorImpl,
     _linear_fp_act_int8_weight_check,
     _linear_fp_act_int8_weight_impl,
-    _linear_int8_act_int8_weight_check,
-    _linear_int8_act_int8_weight_impl,
+    _linear_sym_int8_act_sym_int8_weight_check,
+    _linear_sym_int8_act_sym_int8_weight_impl,
+    _linear_asym_int8_act_sym_int8_weight_check,
+    _linear_asym_int8_act_sym_int8_weight_impl
 )
 from torchao.dtypes.uintx.semi_sparse_layout import (
     _linear_int8_act_int8_weight_semi_structured_sparse_check,
@@ -110,7 +112,14 @@ AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 # so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
 def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
-        (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
+        (
+            _linear_sym_int8_act_sym_int8_weight_check,
+            _linear_sym_int8_act_sym_int8_weight_impl
+        ),
+        (
+            _linear_asym_int8_act_sym_int8_weight_check,
+            _linear_asym_int8_act_sym_int8_weight_impl
+        ),
         (
             _linear_int8_act_int8_weight_semi_structured_sparse_check,
             _linear_int8_act_int8_weight_semi_structured_sparse_impl,
