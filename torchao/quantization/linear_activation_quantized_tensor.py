@@ -203,7 +203,9 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         LinearActivationQuantizedTensor(
-            func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func, args[0].quant_kwargs
+            func(args[0].original_weight_tensor, *args[1:]),
+            args[0].input_quant_func,
+            args[0].quant_kwargs,
         ),
     )
 
@@ -216,7 +218,9 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         LinearActivationQuantizedTensor(
-            func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func, args[0].quant_kwargs
+            func(args[0].original_weight_tensor, *args[1:]),
+            args[0].input_quant_func,
+            args[0].quant_kwargs,
         ),
     )
 
