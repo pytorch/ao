@@ -1,7 +1,11 @@
 Welcome to the torchao Documentation
 =======================================
 
-`**torchao** <https://github.com/pytorch/ao>`__ is a library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training using native PyTorch. Please checkout torchao `README <https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization>`__ for an overall introduction to the library and recent highlight and updates. The documentation here will focus on 1. API Reference 2. Developer / Researcher Contribution Guide 3. Tutorials.
+`torchao <https://github.com/pytorch/ao>`__ is a library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training using native PyTorch. Please checkout torchao `README <https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization>`__ for an overall introduction to the library and recent highlight and updates. The documentation here will focus on:
+
+1. API Reference 
+2. Developer Contribution Guide
+3. Tutorials
 
 ..
    .. grid:: 3
@@ -96,7 +100,6 @@ Welcome to the torchao Documentation
    :glob:
    :maxdepth: 1
    :caption: Tutorials
-   :hidden:
 
    serialization
    
