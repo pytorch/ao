@@ -888,11 +888,11 @@ def _choose_qparams_affine(
                 "preserve_zero == False is not supported for symmetric quantization"
             )
         if (
-            zero_point_domain is not None
+            zero_point_domain != ZeroPointDomain.NONE.name
             and zero_point_domain != ZeroPointDomain.INT.name
         ):
             raise ValueError(
-                "zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization"
+                "Only ZeroPointDomain.NONE and ZeroPointDomain.INT are supported for symmetric quantization"
             )
         scale = torch.clamp(scale, min=eps)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))

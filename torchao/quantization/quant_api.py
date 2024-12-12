@@ -739,7 +739,9 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
 
 
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC
+    layout=PlainLayout(),
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_zp_domain=ZeroPointDomain.INT
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -781,6 +783,7 @@ def int8_dynamic_activation_int8_weight(
             eps=eps,
             zero_point_dtype=zero_point_dtype,
             _layout=layout,
+            zero_point_domain=weight_zp_domain
         )
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight

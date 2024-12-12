@@ -42,6 +42,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
     dequantize_affine,
     MappingType,
+    ZeroPointDomain,
 )
 from torchao.quantization.utils import (
     dequantize_per_channel,
@@ -105,9 +106,11 @@ COMMON_DEVICES = ["cpu", "cuda"]
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
-MAPPING_TYPES = [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+ACT_MAPPING_TYPES = [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
 
-COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES, MAPPING_TYPES)).copy()
+WEIGHT_ZERO_POINT_DOMAINS = [ZeroPointDomain.NONE, ZeroPointDomain.INT]
+
+COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
@@ -127,9 +130,16 @@ def _int8wo_groupwise_api(mod):
     group_size = 32
     quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
 
-def _int8da_int8w_api(mod, act_mapping_type=MappingType.SYMMETRIC):
+def _int8da_int8w_api(mod, act_mapping_type=MappingType.SYMMETRIC, weight_zero_point_domain=ZeroPointDomain.INT):
     if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_dynamic_activation_int8_weight(act_mapping_type=act_mapping_type), set_inductor_config=False)
+        quantize_(
+            mod,
+            int8_dynamic_activation_int8_weight(
+                act_mapping_type=act_mapping_type,
+                weight_zp_domain=weight_zero_point_domain
+            ),
+            set_inductor_config=False
+        )
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
@@ -886,14 +896,17 @@ class TestSubclass(unittest.TestCase):
             f"API failed when compiled with dtype={test_dtype}, (m, k, n)={test_shape}"
         )
 
-
-    @parameterized.expand(list(itertools.product(COMMON_DEVICES, COMMON_DTYPES, MAPPING_TYPES)))
-    def test_int8_dynamic_quant_subclass_api(self, device, dtype, act_mapping):
+    @parameterized.expand(
+        list(itertools.product(COMMON_DEVICES, COMMON_DTYPES, ACT_MAPPING_TYPES, WEIGHT_ZERO_POINT_DOMAINS))
+    )
+    def test_int8_dynamic_quant_subclass_api(self, device, dtype, act_mapping, weight_zero_point_domain):
         from functools import partial
-        api = partial(_int8da_int8w_api, act_mapping_type=act_mapping)
-        self._test_lin_weight_subclass_api_impl(
-            api, device, 35, test_dtype=dtype
+        api = partial(
+            _int8da_int8w_api,
+            act_mapping_type=act_mapping,
+            weight_zero_point_domain=weight_zero_point_domain
         )
+        self._test_lin_weight_subclass_api_impl(api, device, 35, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")

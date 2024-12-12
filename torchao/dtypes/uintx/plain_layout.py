@@ -38,7 +38,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         kwargs = {}
@@ -55,7 +55,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         self,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         self.int_data = int_data
@@ -64,7 +64,10 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         self._layout = _layout
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point"], [self._layout]
+        if self.zero_point is not None:
+            return ["int_data", "scale", "zero_point"], [self._layout]
+        else:
+            return ["int_data", "scale"], [self._layout]
 
     @classmethod
     def __tensor_unflatten__(
@@ -73,7 +76,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         int_data, scale, zero_point = (
             tensor_data_dict["int_data"],
             tensor_data_dict["scale"],
-            tensor_data_dict["zero_point"],
+            tensor_data_dict.get("zero_point", None),
         )
         (_layout,) = tensor_attributes
         return cls(int_data, scale, zero_point, _layout)
@@ -83,7 +86,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         return self.__class__(
             self.int_data.to(kwargs["device"]),
             self.scale.to(kwargs["device"]),
-            self.zero_point.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]) if self.zero_point is not None else None,
             self._layout,
         )
 
@@ -91,7 +94,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         return self.__class__(
             fn(self.int_data),
             fn(self.scale),
-            fn(self.zero_point),
+            fn(self.zero_point) if self.zero_point is not None else None,
             self._layout,
         )
 
@@ -134,7 +137,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                 return PlainAQTTensorImpl(
                     aten.slice.Tensor(self.int_data, dim, start, end, step),
                     self.scale.view(-1),
-                    self.zero_point.view(-1),
+                    self.zero_point.view(-1) if self.zero_point is not None else None,
                     self._layout,
                 )
             else:
@@ -148,7 +151,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         return self.int_data, self.scale, self.zero_point
 
     def get_layout(self) -> Layout:
@@ -272,9 +275,7 @@ def _linear_asym_int8_act_sym_int8_weight_check(input_tensor, weight_tensor, bia
     return (
         isinstance(input_tensor, AffineQuantizedTensor)
         and _aqt_is_int8(input_tensor)
-        # ZeroPointDomain.NONE did not work for weight in int8_dynamic_activation_int8_weight
-        # Uncommenting the next line works in eager mode, but Dynamo runs into a problem with it.
-        #and torch.equal(weight_tensor.tensor_impl.zero_point, torch.zeros_like(weight_tensor.tensor_impl.zero_point))
+        and weight_tensor.zero_point_domain == ZeroPointDomain.NONE
         and isinstance(weight_tensor, AffineQuantizedTensor)
         and input_tensor.dtype == weight_tensor.dtype
         and isinstance(input_tensor._layout, PlainLayout)
@@ -289,11 +290,6 @@ def _linear_asym_int8_act_sym_int8_weight_impl(input_tensor, weight_tensor, bias
     #
     # 2. rescale the output and apply compensation for zero point of A
     #
-    #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
     x_vals_int8 = input_tensor.tensor_impl.int_data
     x_zps = input_tensor.tensor_impl.zero_point.reshape(-1, 1)
     x_scales = input_tensor.tensor_impl.scale.reshape(-1, 1)
@@ -309,8 +305,9 @@ def _linear_asym_int8_act_sym_int8_weight_impl(input_tensor, weight_tensor, bias
     y_dot_scaled = y_dot_scaled.to(x_scales_dtype) * w_scales
 
     # Compute compensation
-    w_col_sum = weight_tensor.tensor_impl.int_data.contiguous().t().to(torch.float).sum(dim=0)
+    w_col_sum = w_vals_int8_t.to(torch.float).sum(dim=0)
     a_compensation = ((x_scales * w_scales) * x_zps.to(intermediate_dtype)) * w_col_sum
+
     y = (y_dot_scaled - a_compensation).reshape(
         *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
     )
