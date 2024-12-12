@@ -42,8 +42,6 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cu
                 )
         else:
             base_functions.append(int4_weight_only(group_size=32))
-            if int4_zp_int:
-                base_functions.append(int4_weight_only(group_size=32, zero_point_domain=ZeroPointDomain.INT))
 
     if do_sparse:
         base_functions.append(

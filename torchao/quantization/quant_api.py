@@ -669,6 +669,10 @@ def int4_weight_only(
         preserve_zero = zero_point_domain == ZeroPointDomain.INT
         zero_point_dtype = torch.bfloat16
 
+        if isinstance(layout, TensorCoreTiledLayout):
+                assert(zero_point_domain != ZeroPointDomain.INT
+            ), f"TensorCoreTiledLayout, doesn't support integer zero points\n"
+
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
