@@ -534,6 +534,7 @@ def set_furious(mask_generator):
     mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
 
 def set_autoquant(mask_generator):
+    import torchao
     from torchao import autoquant
     # NOTE: Not baseline feature
     mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST, min_sqnr=40)
