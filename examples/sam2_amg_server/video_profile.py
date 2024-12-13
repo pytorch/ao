@@ -6,7 +6,6 @@ from datetime import datetime
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from torchao._models.sam2.build_sam import build_sam2_video_predictor
 from server import MODEL_TYPES_TO_MODEL
 from server import model_type_to_paths
 from pathlib import Path
@@ -92,9 +91,9 @@ def synthesize_video_data(
     vy = np.random.choice([-1, 1]) * speed
 
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
-    print(f"Generate {n_frames} frames")
+    print(f"Generate {n_frames} frames under path {out_dir}")
     if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
-        raise ValueError("Expected folder to be empty unless --synthesize-overwrite is specified.")
+        raise ValueError(f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified.")
     # Generate 100 frames
     for i in range(n_frames):
         # Create a new image with a black background
@@ -139,15 +138,14 @@ def profiler_runner(path, fn, *args, **kwargs):
 def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False, count_result=False):
     results = []
     num_output_frames = 0
-    with sdpa_kernel([SDPBackend.CUDNN_ATTENTION, SDPBackend.FLASH_ATTENTION]):
-        with torch.autograd.profiler.record_function("main_loop"):
-            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
-                inference_state
-            ):
-                if accumulate_result:
-                    results.append(out_mask_logits)
-                if count_result:
-                    num_output_frames += 1
+    with torch.autograd.profiler.record_function("main_loop"):
+        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
+            inference_state
+        ):
+            if accumulate_result:
+                results.append(out_mask_logits)
+            if count_result:
+                num_output_frames += 1
     assert not (accumulate_result and count_result)
     if accumulate_result:
         return torch.cat(results)
@@ -168,28 +166,31 @@ def run_test(
     n_frames: int,
     use_compile: bool,
     frame_batch_size: int,
+    batch_size: int,
     synthesize: bool,
     synthesize_overwrite: bool,
     store_output: str,
     compare_output: str,
     print_all_timings: bool,
+    use_baseline: bool,
 ):
     np.random.seed(seed)
     start_x = np.random.randint(radius, width - radius)
     start_y = np.random.randint(radius, height - radius)
     if synthesize:
-        synthesize_video_data(
-            out_dir=video_dir,
-            radius=radius,
-            seed=seed,
-            speed=speed,
-            width=width,
-            height=height,
-            n_frames=n_frames,
-            x=start_x,
-            y=start_y,
-            synthesize_overwrite=synthesize_overwrite,
-        )
+        for i in range(batch_size):
+            synthesize_video_data(
+                out_dir=f"{video_dir}_{i}",
+                radius=radius,
+                seed=(seed + i),  # Make sure every video is different
+                speed=speed,
+                width=width,
+                height=height,
+                n_frames=n_frames,
+                x=start_x,
+                y=start_y,
+                synthesize_overwrite=synthesize_overwrite,
+            )
 
     # use bfloat16 for the entire notebook
     torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -197,6 +198,12 @@ def run_test(
     torch.backends.cudnn.allow_tf32 = True
 
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
+
+    build_sam2_video_predictor = None
+    if use_baseline:
+        from sam2.build_sam import build_sam2_video_predictor
+    else:
+        from torchao._models.sam2.build_sam import build_sam2_video_predictor
 
     device = "cuda:0"
     # hydra_overrides_extra = ["++model.compile_image_encoder=true"]
@@ -208,16 +215,24 @@ def run_test(
     )
     predictor._frame_batch_size = frame_batch_size
 
-    inference_state = predictor.init_state(
-        video_path=video_dir, async_loading_frames=False
-    )
-    _, out_obj_ids, out_mask_logits = predictor.add_new_points(
-        inference_state=inference_state,
-        frame_idx=0,
-        obj_id=1,
-        points=np.array([[start_x, start_y]], dtype=np.float32),
-        labels=np.array([1], dtype=np.int32),
-    )
+    inference_states = []
+    for i in range(batch_size):
+        print("i: ", i)
+        inference_state = predictor.init_state(
+            video_path=f"{video_dir}_{i}", async_loading_frames=False
+        )
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points(
+            inference_state=inference_state,
+            frame_idx=0,
+            obj_id=1,
+            points=np.array([[start_x, start_y]], dtype=np.float32),
+            labels=np.array([1], dtype=np.int32),
+        )
+        inference_states.append(inference_state)
+    if batch_size == 1:
+        inference_state = inference_states[0]
+    else:
+        inference_state = predictor.batch_inference_states(inference_states)
 
     if use_compile:
         print("Using torch.compile")
@@ -368,7 +383,13 @@ if __name__ == "__main__":
         help="Use torch.compile to speed things up. First iteration will be much slower.",
     )
     parser.add_argument(
-        "--frame_batch_size",
+        "--batch-size",
+        type=int,
+        default=1,
+        help="batch_size",
+    )
+    parser.add_argument(
+        "--frame-batch-size",
         type=int,
         default=1,
         help="frame_batch_size",
@@ -403,6 +424,12 @@ if __name__ == "__main__":
         dest="print_all_timings",
         help="Use torch.compile to speed things up. First iteration will be much slower.",
     )
+    parser.add_argument(
+        "--use-baseline",
+        action="store_true",
+        dest="use_baseline",
+        help="Use sam2 package instead of torchao._models.sam2",
+    )
 
     args = parser.parse_args()
 
@@ -419,9 +446,11 @@ if __name__ == "__main__":
         n_frames=args.n_frames,
         use_compile=args.use_compile,
         frame_batch_size=args.frame_batch_size,
+        batch_size=args.batch_size,
         synthesize=args.synthesize,
         synthesize_overwrite=args.synthesize_overwrite,
         store_output=args.store_output,
         compare_output=args.compare_output,
         print_all_timings=args.print_all_timings,
+        use_baseline=args.use_baseline,
     )

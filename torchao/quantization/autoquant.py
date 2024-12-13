@@ -6,9 +6,12 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
+    MarlinSparseLayout,
     PlainLayout,
+    SemiSparseLayout,
     TensorCoreTiledLayout,
 )
+from torchao.dtypes.utils import Layout
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
@@ -26,6 +29,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 from .granularity import (
@@ -44,7 +49,9 @@ __all__ = [
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "ALL_AUTOQUANT_CLASS_LIST",
 ]
 
 
@@ -403,6 +410,8 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
     AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight
     """
 
+    layout: Layout = PlainLayout()
+
     @classmethod
     def from_float(cls, weight):
         # TODO test if this is valid
@@ -410,6 +419,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         # int8 dynamic quantization only has benefit when in_feature > 16
         # if in_features <= 16:
         # return weight
+
+        if weight.dim() != 2:
+            return weight
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized_intx
@@ -436,7 +448,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        _layout = PlainLayout()
+        _layout = cls.layout
         input_quant_func = lambda x: to_affine_quantized_intx(
             x,
             input_mapping_type,
@@ -521,6 +533,16 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
             f">>time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_int_const_win:0.2f}"
         )
         return res_f
+
+
+class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(
+    AQInt8DynamicallyQuantizedLinearWeight
+):
+    layout: Layout = SemiSparseLayout()
+
+    @classmethod
+    def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
+        return super()._autoquant_test(act_mat, weight, bias, best_time, None)
 
 
 class AQInt8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
@@ -610,14 +632,16 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     """
 
     group_size: int = 32
+    layout: Layout = TensorCoreTiledLayout(inner_k_tiles=8)
 
     @classmethod
     def from_float(cls, weight):
         group_size = cls.group_size
-        _layout = TensorCoreTiledLayout(inner_k_tiles=8)
+        _layout = cls.layout
 
         if weight.shape[-1] % group_size != 0:
             return weight
+
         use_hqq = True
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -628,6 +652,13 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
+
+        if isinstance(_layout, MarlinSparseLayout):
+            mapping_type = MappingType.SYMMETRIC
+            preserve_zero = True
+            zero_point_domain = ZeroPointDomain.INT
+            use_hqq = False
+
         return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(
             weight,
             mapping_type,
@@ -660,6 +691,13 @@ class AQInt4G256WeightOnlyQuantizedLinearWeight(
     AQInt4G32WeightOnlyQuantizedLinearWeight
 ):
     group_size: int = 256
+
+
+class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
+    AQInt4G32WeightOnlyQuantizedLinearWeight
+):
+    group_size: int = 128
+    layout: Layout = MarlinSparseLayout()
 
 
 class AQDefaultLinearWeight(torch.Tensor, AQMixin):
@@ -946,10 +984,34 @@ DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST = [
 ]
 
 OTHER_AUTOQUANT_CLASS_LIST = [
+    AQDefaultLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
 ]
+
+DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = [
+    AQDefaultLinearWeight,
+    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
+    AQInt8DynamicallyQuantizedSemiSparseLinearWeight,
+]
+
+ALL_AUTOQUANT_CLASS_LIST = list(
+    set(
+        DEFAULT_AUTOQUANT_CLASS_LIST
+        + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+        + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+        + DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST
+    )
+)
+if is_sm_at_least_89():
+    ALL_AUTOQUANT_CLASS_LIST += [
+        AQFloat8WeightOnlyQuantizedLinearWeight,
+        AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
+    ]
+
+if is_sm_at_least_90():
+    ALL_AUTOQUANT_CLASS_LIST += [AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight]
 
 
 def _change_linears_to_autoquantizable(model, **kwargs):
