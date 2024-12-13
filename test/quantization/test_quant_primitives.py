@@ -108,7 +108,6 @@ def _groupwise_affine_quantize_tensor_from_qparams(
     zeros = zeros.reshape(-1, 1)
     max_int = 2**n_bit - 1
     min_int = 0
-    # import pdb; pdb.set_trace()
     if zero_point_domain == ZeroPointDomain.FLOAT:
         min_val = zeros - scales * (2 ** (n_bit - 1))
         w_int4x8 = (

@@ -112,13 +112,13 @@ __all__ = [
 ]
 
 # update according to the support matrix
-layout_to_zero_point_domain = {
+LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT]
 }
 
-layout_to_preserve_zeros = {
+LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
     Int4CPULayout: False
@@ -681,13 +681,13 @@ def int4_weight_only(
         eps = 1e-6
         zero_point_dtype = torch.bfloat16
 
-        assert layout in layout_to_zero_point_domain.keys(), f"Only support layout: {layout_to_zero_point_domain.keys()}"
+        assert layout in LAYOUT_TO_ZERO_POINT_DOMAIN.keys(), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
         if zero_point_domain is None:
             # the first value is the default one
-            zero_point_domain = layout_to_zero_point_domain[layout][0]
-            preserve_zero = layout_to_preserve_zeros[layout]
+            zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[layout][0]
+            preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[layout]
         else:
-            assert zero_point_domain  in layout_to_zero_point_domain[layout], f"Layout only support {layout_to_zero_point_domain[layout]}"
+            assert zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[layout], f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
