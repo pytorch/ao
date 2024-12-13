@@ -682,7 +682,7 @@ def int4_weight_only(
         zero_point_dtype = torch.bfloat16
 
         nonlocal zero_point_domain
-        assert any(isinstance(layout, support_layout) for support_layout in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+        assert type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys(), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
         if zero_point_domain is None:
             # the first value is the default one
             zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
