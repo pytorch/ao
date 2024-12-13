@@ -21,7 +21,6 @@ lm_eval
 diskcache
 pycocotools
 tqdm
-git+https://github.com/pytorch-labs/segment-anything-fast.git@main
 
 # Custom CUDA Extensions
 ninja
