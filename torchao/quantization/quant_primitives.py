@@ -533,16 +533,6 @@ def _dequantize_affine_no_dtype_check(
         ), "zero_point should be None when zero_point_domain is NONE"
         dequant = input.to(output_dtype)
         dequant = dequant * scale
-    elif zero_point_domain is None:
-        # This case handles dequantization for float8 we expect no zero point and no zero point domain
-        assert (
-            zero_point is None
-        ), "zero_point should be None when zero_point_domain is None"
-        assert _is_float8_type(
-            input.dtype
-        ), f"dequantiztion with no zero point domain is only supported with FP8 types, got {input.dtype}"
-        dequant = input.to(output_dtype)
-        dequant = dequant * scale
     else:
         assert (
             zero_point_domain == ZeroPointDomain.FLOAT.name
@@ -889,7 +879,6 @@ def _choose_qparams_affine(
             )
         if (
             zero_point_domain != ZeroPointDomain.NONE.name
-            and zero_point_domain != None
             and zero_point_domain != ZeroPointDomain.INT.name
         ):
             raise ValueError(

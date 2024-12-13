@@ -349,7 +349,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 scale_dtype=scale_dtype,
                 zero_point_dtype=None,
                 preserve_zero=True,
-                zero_point_domain=None,
+                zero_point_domain=ZeroPointDomain.NONE,
                 _layout=_layout,
                 use_hqq=False,
             )
@@ -376,7 +376,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 target_dtype=target_dtype,
                 quant_min=math.ceil(torch.finfo(target_dtype).min),
                 quant_max=math.ceil(torch.finfo(target_dtype).max),
-                zero_point_domain=None,
+                zero_point_domain=ZeroPointDomain.NONE,
                 _layout=_layout,
             )
         else:

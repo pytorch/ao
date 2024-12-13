@@ -21,6 +21,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    ZeroPointDomain,
 )
 
 
@@ -74,7 +75,7 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -93,7 +94,7 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         for example_input in example_inputs:
             obs(example_input)
@@ -108,7 +109,7 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -127,7 +128,7 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -155,7 +156,7 @@ class TestLinearObserver(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         if observe_weight:
             weight_observer = AffineQuantizedMinMaxObserver(
@@ -165,7 +166,7 @@ class TestLinearObserver(TestCase):
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float,
                 zero_point_dtype=torch.int,
-                zero_point_domain=None,
+                zero_point_domain=ZeroPointDomain.NONE,
             )
         else:
             weight_observer = None
@@ -199,7 +200,6 @@ class TestLinearObserver(TestCase):
             input_scale.item(),
             max_val / max_fp8,
         )
-        self.assertIsNotNone(input_zero_point)
 
         if observe_weight:
             weight_observer = linear.weight.weight_observer
@@ -210,7 +210,6 @@ class TestLinearObserver(TestCase):
                 atol=5e-5,
                 rtol=0.0,
             )
-            self.assertIsNotNone(weight_zero_point)
         else:
             self.assertIsNone(linear.weight.weight_observer)
 
