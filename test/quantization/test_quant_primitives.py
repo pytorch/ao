@@ -799,6 +799,32 @@ class TestQuantPrimitives(unittest.TestCase):
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
 
+    # ZeroPointDomain.NONE should work
+    def test_none_zero_point_domain(self):
+        input = torch.randn(10, 256)
+        n_bit = 8
+        mapping_type = MappingType.SYMMETRIC
+        dtype = torch.int8
+        block_size = (1, 128)
+        quant_min = None
+        quant_max = None
+        eps = 1e-6
+        scale_dtype = torch.float32
+        zero_point_dtype = torch.int64
+        _, zero_point = choose_qparams_affine(
+            input,
+            mapping_type,
+            block_size,
+            dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=True,
+            zero_point_domain=ZeroPointDomain.NONE,
+        )
+        self.assertTrue(torch.equal(zero_point, torch.zeros_like(zero_point)))
 
 if __name__ == "__main__":
     unittest.main()
