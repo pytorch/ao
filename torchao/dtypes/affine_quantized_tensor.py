@@ -251,7 +251,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 zero_point_domain,
             )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
-            if zero_point_domain == ZeroPointDomain.NONE:
+            if zero_point_domain == ZeroPointDomain.NONE or zero_point_domain is None:
                 zero_point = None
             data = quantize_affine(
                 input_float,
