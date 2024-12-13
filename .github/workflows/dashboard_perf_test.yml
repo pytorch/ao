@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         torch-spec:
-          - '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
+          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
     steps:
       - uses: actions/checkout@v3
 
@@ -52,6 +52,7 @@ jobs:
           ${CONDA_RUN} python torchao/_models/sam/eval_combo.py --coco_root_dir datasets/coco2017 --coco_slice_name val2017 --sam_checkpoint_base_path checkpoints --sam_model_type vit_h --point_sampling_cache_dir tmp/sam_coco_mask_center_cache --mask_debug_out_dir tmp/sam_eval_masks_out --batch_size 32 --num_workers 32 --use_compile max-autotune --use_half bfloat16 --device cuda --compression autoquant --output_json_path ${{ runner.temp }}/benchmark-results/sam-benchmark-results.json
           
           # SAM 2.1
+          ${CONDA_RUN} pip install -r examples/sam2_amg_server/requirements.txt
           ${CONDA_RUN} sh scripts/download_sam2_ckpts.sh ${CHECKPOINT_PATH}/sam2
           ${CONDA_RUN} python examples/sam2_amg_server/server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json          
           ${CONDA_RUN} python examples/sam2_amg_server/server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --use_autoquant --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json

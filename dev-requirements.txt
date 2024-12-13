@@ -17,6 +17,11 @@ tabulate  # QOL for printing tables to stdout
 tiktoken
 blobfile
 lm_eval
+# sam
+diskcache
+pycocotools
+tqdm
+git+https://github.com/pytorch-labs/segment-anything-fast.git
 
 # Custom CUDA Extensions
 ninja
