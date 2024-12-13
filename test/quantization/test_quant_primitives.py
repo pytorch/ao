@@ -824,7 +824,7 @@ class TestQuantPrimitives(unittest.TestCase):
             preserve_zero=True,
             zero_point_domain=ZeroPointDomain.NONE,
         )
-        self.assertTrue(torch.equal(zero_point, torch.zeros_like(zero_point)))
+        self.assertTrue(zero_point is None)
 
 if __name__ == "__main__":
     unittest.main()

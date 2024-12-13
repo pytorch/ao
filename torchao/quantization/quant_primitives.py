@@ -889,13 +889,18 @@ def _choose_qparams_affine(
             )
         if (
             zero_point_domain != ZeroPointDomain.NONE.name
+            and zero_point_domain != None
             and zero_point_domain != ZeroPointDomain.INT.name
         ):
             raise ValueError(
-                "Only ZeroPointDomain.NONE and ZeroPointDomain.INT are supported for symmetric quantization"
+                "Except a None value for zero_point_domain, Only ZeroPointDomain.NONE and ZeroPointDomain.INT"
+                " are supported for symmetric quantization."
             )
+        if zero_point_domain == ZeroPointDomain.NONE.name:
+            zero_point = None
+        else:
+            zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
         scale = torch.clamp(scale, min=eps)
-        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
