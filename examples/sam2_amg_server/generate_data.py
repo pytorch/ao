@@ -14,6 +14,14 @@ from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGener
 from torchao._models.sam2.utils.amg import rle_to_mask
 from io import BytesIO
 
+# TODO: Generate baseline data
+# AMG: Automatic mask generation
+# for each image: prompt, RLE Masks, annotated image with mask overlay
+# SPS: Single point segmentation
+# for each image: take largest AMG mask, find center point for prompt, RLE Mask, annotated image with prompt and mask overlay
+# MPS: Multi point segmentation
+# for each image: take AMG mask, find all center points for prompte, RLE Masks, annotated image with prompts from AMG and mask overlay
+
 def main_docstring():
     return f"""
     Args:
