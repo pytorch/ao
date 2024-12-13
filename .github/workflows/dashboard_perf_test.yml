@@ -17,6 +17,8 @@ jobs:
           - '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
     steps:
       - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
 
       - name: Setup miniconda
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main

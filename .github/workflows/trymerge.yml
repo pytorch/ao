@@ -16,9 +16,10 @@ jobs:
     steps:
       - name: Checkout repo
         id: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
 
       - name: Setup Python
