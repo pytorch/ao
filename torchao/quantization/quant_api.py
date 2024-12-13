@@ -33,6 +33,7 @@ from torchao.dtypes import (
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
+    Int4CPULayout,
     UintxLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
@@ -110,6 +111,18 @@ __all__ = [
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
 
+# update according to the support matrix
+layout_to_zero_point_domain = {
+    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
+    MarlinSparseLayout: [ZeroPointDomain.INT],
+    Int4CPULayout: [ZeroPointDomain.FLOAT]
+}
+
+layout_to_preserve_zeros = {
+    TensorCoreTiledLayout: False,
+    MarlinSparseLayout: True,
+    Int4CPULayout: False
+}
 
 ######
 # TO BE DEPRECATED START
@@ -666,23 +679,21 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
-        preserve_zero = zero_point_domain == ZeroPointDomain.INT
         zero_point_dtype = torch.bfloat16
 
-        if isinstance(layout, TensorCoreTiledLayout):
-            assert(zero_point_domain != ZeroPointDomain.INT
-            ), f"TensorCoreTiledLayout, doesn't support integer zero points\n"
-            if zero_point_domain is None:
-                # TinyGEMM only supports floating zero points now
-                zero_point_domain = ZeroPointDomain.FLOAT
+        assert layout in layout_to_zero_point_domain.keys(), f"Only support layout: {layout_to_zero_point_domain.keys()}"
+        if zero_point_domain is None:
+            # the first value is the default one
+            zero_point_domain = layout_to_zero_point_domain[layout][0]
+            preserve_zero = layout_to_preserve_zeros[layout]
+        else:
+            assert zero_point_domain  in layout_to_zero_point_domain[layout], f"Layout only support {layout_to_zero_point_domain[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
-            preserve_zero = True
-            zero_point_domain = ZeroPointDomain.INT
             assert (
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
