@@ -215,6 +215,27 @@ def choose_qparams_codebook(
     return codebook.view(codebook_size, *block_size), scales
 
 
+@torch.jit.script
+def _kmeans_greedy_init(data: torch.Tensor, k: int) -> torch.Tensor:
+    # code modified from: https://github.com/Vahe1994/AQLM/blob/main/src/kmeans.py not sure if I should modify for
+    clusters = torch.zeros(k, data.shape[1], device=data.device)
+    running_min_distances = torch.full(
+        (data.shape[0],), torch.inf, device=data.device, dtype=data.dtype
+    )
+    data_norm_squared = data.norm(p=2, dim=1).square()
+
+    for i in range(k):
+        clusters[i] = data[running_min_distances.argmax()]
+        distances_to_cluster_i = (
+            data_norm_squared - 2 * data @ clusters[i] + clusters[i].norm().square()
+        )
+        running_min_distances = torch.minimum(
+            running_min_distances, distances_to_cluster_i, out=running_min_distances
+        )
+    return clusters
+
+
+@torch.jit.script
 def fit_kmeans(
     data: torch.Tensor,
     k: int,
@@ -222,6 +243,7 @@ def fit_kmeans(
     check_every: int = 10,
     rtol: float = 1e-06,
     atol: float = 1e-08,
+    greedy_init: bool = True,
     block_size_vals: int = 2**30,
     devices: Optional[List[torch.device]] = None,
 ):
@@ -240,7 +262,10 @@ def fit_kmeans(
     if devices is None:
         devices = [data.device]
 
-    clusters = data[torch.randperm(data.shape[0])[:k], :]  # [k, dim]
+    if greedy_init:
+        clusters = _kmeans_greedy_init(data, k)
+    else:
+        clusters = data[torch.randperm(data.shape[0])[:k], :]  # [k, dim]
 
     block_size = block_size_vals // k
     shard_size = (len(data) - 1) // len(devices) + 1
