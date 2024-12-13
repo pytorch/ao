@@ -151,6 +151,9 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         if code_dtype in _DTYPE_TO_BIT_WIDTH:
             codes = UintxTensor.from_uint8(codes, dtype=code_dtype)
 
+        codebook = codebook.to(input_tensor.dtype)
+        scales = scales.to(input_tensor.dtype)
+
         return cls(
             codes,
             codebook,
