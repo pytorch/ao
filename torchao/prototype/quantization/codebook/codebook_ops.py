@@ -136,7 +136,8 @@ def dequantize_codebook(
     dequant = dequant.view(
         *new_shape
     )  # (d1, d2, ..., num_scale_blocks, scale_block_size)
-    dequant = dequant * scales
+    scales = scales.squeeze(-1)
+    dequant.mul_(scales)
 
     dequant = dequant.view(*original_shape)
 
