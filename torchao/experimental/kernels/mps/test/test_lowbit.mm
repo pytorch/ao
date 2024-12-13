@@ -31,7 +31,7 @@ inline id<MTLBuffer> allocSharedBuffer(id<MTLDevice> device, unsigned length) {
   id<MTLBuffer> rc = [device newBufferWithLength:length
                                          options:MTLResourceStorageModeShared];
   if (rc == nil) {
-    throw_exception(
+    throw std::runtime_error(
         "Can't allocate " + std::to_string(length) + " bytes on GPU");
   }
   return rc;
@@ -80,7 +80,7 @@ class LowBitTester {
       : M(m), K(k), N(n), qGroupSize(group_size) {}
 
   void init() {
-    allocBuffers(MTL_DEVICE);
+    allocBuffers(getMetalDevice());
 
     T* a_ptr = reinterpret_cast<T*>([buf_A contents]);
     uint8_t* w_ptr = reinterpret_cast<uint8_t*>([buf_W contents]);

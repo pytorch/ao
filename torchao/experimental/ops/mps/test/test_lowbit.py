@@ -11,7 +11,7 @@ import unittest
 
 from parameterized import parameterized
 
-libname = "libtorchao_ops_mps_linear_fp_act_xbit_weight_aten.dylib"
+libname = "libtorchao_ops_mps_aten.dylib"
 libpath = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
 )
