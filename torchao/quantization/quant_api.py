@@ -631,7 +631,7 @@ def int8_dynamic_activation_int4_weight(
 
 def int4_weight_only(
     group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False,
-    zero_point_domain=ZeroPointDomain.FLOAT
+    zero_point_domain=None
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -670,8 +670,11 @@ def int4_weight_only(
         zero_point_dtype = torch.bfloat16
 
         if isinstance(layout, TensorCoreTiledLayout):
-                assert(zero_point_domain != ZeroPointDomain.INT
+            assert(zero_point_domain != ZeroPointDomain.INT
             ), f"TensorCoreTiledLayout, doesn't support integer zero points\n"
+            if zero_point_domain is None:
+                # TinyGEMM only supports floating zero points now
+                zero_point_domain = ZeroPointDomain.FLOAT
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
