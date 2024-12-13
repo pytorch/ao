@@ -872,7 +872,7 @@ class TestSubclass(unittest.TestCase):
         test_device,
         min_sqnr=35,
         test_dtype=torch.bfloat16,
-        test_shape=(32, 4096, 14336)
+        test_shape=(32, 64, 32)
     ):
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
