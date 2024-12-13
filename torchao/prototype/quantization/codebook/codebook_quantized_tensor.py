@@ -87,7 +87,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             codes = self.codes.get_plain()
         else:
             codes = self.codes
-        if codes.dtype == torch.uint8:
+        if codes.dtype != torch.int32:
             codes = codes.to(torch.int32)  # not sure how to index with uint8
         return dequantize_codebook(
             codes,
