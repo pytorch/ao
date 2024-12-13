@@ -537,7 +537,7 @@ def set_autoquant(mask_generator):
     import torchao
     from torchao import autoquant
     # NOTE: Not baseline feature
-    mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+    mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
     mask_generator.predictor._transforms_device = mask_generator.predictor.device
     torch.set_float32_matmul_precision('high')
     # NOTE: this fails when we run
