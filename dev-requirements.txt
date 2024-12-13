@@ -16,6 +16,7 @@ fire  # QOL for commandline scripts
 tabulate  # QOL for printing tables to stdout
 tiktoken
 blobfile
+lm_eval
 
 # Custom CUDA Extensions
 ninja
