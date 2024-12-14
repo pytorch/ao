@@ -664,6 +664,7 @@ def int4_weight_only(
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
+        `zero_point_domain`: data type of zeros points, choices are [None(default), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
     def apply_int4_weight_only_quant(weight):
@@ -679,6 +680,7 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
+        preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         zero_point_dtype = torch.bfloat16
 
         nonlocal zero_point_domain
@@ -686,7 +688,6 @@ def int4_weight_only(
         if zero_point_domain is None:
             # the first value is the default one
             zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
-            preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         else:
             assert zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)], f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
