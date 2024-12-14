@@ -94,15 +94,11 @@ def main(
         / Path(filename.stem + "_masks.json")
         for filename in filenames
     ]
-    if not overwrite and any(
-        output_image_path.exists() for output_image_path in output_image_paths
-    ):
+    if not overwrite and any(p.exists() for p in output_image_paths):
         raise ValueError(
             "Output image path already exists, but --overwrite was not specified."
         )
-    if not overwrite and any(
-        output_rle_json_path.exists() for output_rle_json_path in output_rle_json_paths
-    ):
+    if not overwrite and any(p.exists() for p in output_rle_json_paths):
         raise ValueError(
             "Output image path already exists, but --overwrite was not specified."
         )
