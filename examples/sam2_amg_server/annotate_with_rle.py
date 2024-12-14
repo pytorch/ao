@@ -16,6 +16,7 @@ from server import set_furious
 from server import masks_to_rle_dict
 from server import max_memory_allocated
 from io import BytesIO
+from torchao._models.sam2.utils.amg import rle_to_mask
 
 
 def timestamped_print(*args, **kwargs):
@@ -67,6 +68,7 @@ def main(
     furious=False,
     load_fast="",
     overwrite=False,
+    store_image=False,
     baseline=False,
 ):
     input_paths = [
@@ -103,51 +105,41 @@ def main(
             "Output image path already exists, but --overwrite was not specified."
         )
 
-    if baseline:
-        from sam2.build_sam import build_sam2
-        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-        from sam2.utils.amg import rle_to_mask
-    else:
-        from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.automatic_mask_generator import (
-            SAM2AutomaticMaskGenerator,
-        )
-        from torchao._models.sam2.utils.amg import rle_to_mask
-    device = "cuda"
-    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
-    if verbose:
-        timestamped_print(f"Loading model {sam2_checkpoint} with config {model_cfg}")
-    sam2 = build_sam2(
-        model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False
-    )
-    mask_generator = SAM2AutomaticMaskGenerator(
-        sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
-    )
-    if furious:
-        set_furious(mask_generator)
-    if load_fast:
-        load_aot_fast(mask_generator, load_fast)
-    if fast:
-        set_fast(mask_generator, load_fast)
-
     for input_path, filename, output_image_path, output_rle_json_path in tqdm(
-        zip(input_paths, filenames, output_image_paths, output_rle_json_paths),
-        total=len(input_paths),
+        zip(input_paths, filenames, output_image_paths, output_rle_json_paths)
     ):
         input_bytes = bytearray(open(input_path, "rb").read())
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         if verbose:
-            timestamped_print(
-                f"Loaded image {input_path} of size {tuple(image_tensor.shape)} and generating mask."
-            )
-        masks = mask_generator.generate(image_tensor)
-        rle_dict = masks_to_rle_dict(masks)
+            timestamped_print(f"Loading rle from {output_rle_json_path}")
+        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
+        with open(output_rle_json_path, "r") as file:
+            rle_dict = json.load(file)
+            masks = [{'segmentation': value} for (key, value) in rle_dict]
 
         if verbose:
-            timestamped_print(f"Storing rle under {output_rle_json_path}")
-        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
-        with open(output_rle_json_path, "w") as file:
-            file.write(json.dumps(rle_dict, indent=4))
+            timestamped_print(
+                f"Generating mask annotations for input image {filename}."
+            )
+        plt.figure(
+            figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
+            dpi=100,
+        )
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
+        plt.axis("off")
+        plt.tight_layout()
+        buf = BytesIO()
+        plt.savefig(buf, format=output_format)
+        buf.seek(0)
+        output_bytes = buf.getvalue()
+        output_image_path.parent.mkdir(parents=False, exist_ok=True)
+
+        if verbose:
+            timestamped_print(f"Storing result image under {output_image_path}")
+        with open(output_image_path, "wb") as file:
+            file.write(output_bytes)
+        plt.close()
 
     max_memory_allocated()
 

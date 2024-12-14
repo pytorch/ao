@@ -135,10 +135,13 @@ def iou(mask1, mask2):
     return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
 
 
-def show_anns(anns, rle_to_mask):
+def show_anns(anns, rle_to_mask, sort_by_area=True):
     if len(anns) == 0:
         return
-    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    if sort_by_area:
+        sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    else:
+        sorted_anns = anns
     ax = plt.gca()
     ax.set_autoscale_on(False)
 
