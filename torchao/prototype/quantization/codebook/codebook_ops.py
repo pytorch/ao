@@ -104,6 +104,7 @@ def dequantize_codebook(
                                           shape (d1//b1, d2//b2, ..., dN//bN).
         codebook (torch.Tensor): Codebook tensor used for quantization,
                                  shape (k, b1, b2, ..., bN) where b_i are block sizes.
+        scales (torch.Tensor): Scales, shape (d1, d2, ..., dN // scale_block_size, 1).
         output_dtype (torch.dtype): dtype for the output tensor.
 
     Returns:
@@ -136,7 +137,6 @@ def dequantize_codebook(
     dequant = dequant.view(
         *new_shape
     )  # (d1, d2, ..., num_scale_blocks, scale_block_size)
-    scales = scales.squeeze(-1)
     dequant.mul_(scales)
 
     dequant = dequant.view(*original_shape)

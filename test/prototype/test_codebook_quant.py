@@ -6,6 +6,7 @@ from torchao.prototype.quantization.codebook import (
     CodebookQuantizedTensor,
     choose_qparams_codebook,
 )
+from torchao.quantization.utils import compute_error
 
 
 class TestCodebookQuantization(unittest.TestCase):
@@ -14,7 +15,7 @@ class TestCodebookQuantization(unittest.TestCase):
         self.input = torch.randn(100, 256, dtype=torch.float32)
         self.block_size = (1, 1)
         self.scale_block_size = 64
-        self.code_dtype = torch.uint4
+        self.code_dtype = torch.uint8
         self.chunk_size = 1024
 
     def test_choose_qparams_codebook(self):
@@ -40,10 +41,10 @@ class TestCodebookQuantization(unittest.TestCase):
 
         dequant = cqt.dequantize()
 
-        torch.testing.assert_close(dequant, self.input, atol=2, rtol=2)
+        torch.testing.assert_close(dequant, self.input, atol=0.1, rtol=0.1)
 
-        mse = torch.mean((dequant - self.input) ** 2).item()
-        self.assertLess(mse, 0.01)
+        sqnr = compute_error(dequant, self.input)
+        self.assertGreater(sqnr, 30)
 
     def test_codebook_quantized_tensor_from_float2(self):
         block_size = (1, 16)
@@ -62,8 +63,8 @@ class TestCodebookQuantization(unittest.TestCase):
 
         torch.testing.assert_close(dequant, self.input, atol=0.1, rtol=0.1)
 
-        mse = torch.mean((dequant - self.input) ** 2).item()
-        self.assertLess(mse, 0.01)
+        sqnr = compute_error(dequant, self.input)
+        self.assertGreater(sqnr, 30)
 
 
 if __name__ == "__main__":
