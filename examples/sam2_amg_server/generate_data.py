@@ -1,5 +1,6 @@
 from pathlib import Path
 from tqdm import tqdm
+import time
 import json
 import fire
 import logging
@@ -69,6 +70,8 @@ def main(
     overwrite=False,
     baseline=False,
 ):
+    start_time = time.time()
+
     input_paths = [
         Path(input_path.strip())
         for input_path in Path(input_paths).read_text().splitlines()
@@ -138,7 +141,7 @@ def main(
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         if verbose:
             timestamped_print(
-                f"Loaded image {input_path} of size {tuple(image_tensor.shape)} and generating mask."
+                f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
             )
         masks = mask_generator.generate(image_tensor)
         rle_dict = masks_to_rle_dict(masks)
@@ -148,7 +151,9 @@ def main(
         output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
         with open(output_rle_json_path, "w") as file:
             file.write(json.dumps(rle_dict, indent=4))
-
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"This took {total_time}s with {len(input_paths) / total_time}img/s")
     max_memory_allocated()
 
 
