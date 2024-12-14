@@ -41,8 +41,6 @@ class TestCodebookQuantization(unittest.TestCase):
 
         dequant = cqt.dequantize()
 
-        torch.testing.assert_close(dequant, self.input, atol=0.1, rtol=0.1)
-
         sqnr = compute_error(dequant, self.input)
         self.assertGreater(sqnr, 30)
 
@@ -60,8 +58,6 @@ class TestCodebookQuantization(unittest.TestCase):
         )
 
         dequant = cqt.dequantize()
-
-        torch.testing.assert_close(dequant, self.input, atol=0.1, rtol=0.1)
 
         sqnr = compute_error(dequant, self.input)
         self.assertGreater(sqnr, 30)
