@@ -7,6 +7,7 @@ from .embedding import (
 from .linear import (
     Int4WeightOnlyQATQuantizer,
     Int8DynActInt4WeightQATQuantizer,
+    SelfCompressionQATQuantizer
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "Int4WeightOnlyQATQuantizer",
     "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
+    "SelfCompressionQATQuantizer"
 ]
