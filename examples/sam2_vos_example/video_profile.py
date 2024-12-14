@@ -6,9 +6,25 @@ from datetime import datetime
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from server import MODEL_TYPES_TO_MODEL
-from server import model_type_to_paths
 from pathlib import Path
+
+MODEL_TYPES_TO_MODEL = {
+        "tiny": "sam2.1_hiera_tiny.pt",
+        "small": "sam2.1_hiera_small.pt",
+        "plus": "sam2.1_hiera_base_plus.pt",
+        "large": "sam2.1_hiera_large.pt",
+        }
+
+def model_type_to_paths(checkpoint_path, model_type):
+    if model_type not in MODEL_TYPES_TO_CONFIG.keys():
+        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+    sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
+    if not sam2_checkpoint.exists():
+        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
+    assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
+    model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
+    return sam2_checkpoint, model_cfg
 
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True

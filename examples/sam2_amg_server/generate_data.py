@@ -1,3 +1,6 @@
+from pathlib import Path
+from tqdm import tqdm
+import json
 import fire
 import logging
 import matplotlib.pyplot as plt
@@ -9,9 +12,7 @@ from server import set_fast
 from server import set_aot_fast
 from server import load_aot_fast
 from server import set_furious
-from torchao._models.sam2.build_sam import build_sam2
-from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-from torchao._models.sam2.utils.amg import rle_to_mask
+from server import masks_to_rle_dict
 from io import BytesIO
 
 # TODO: Generate baseline data
@@ -28,6 +29,9 @@ from io import BytesIO
 # The modified variants compare RLE data using a separate script.
 # - We only need to run baseline, AO, AO + Fast, AO + Fast + Furious
 
+# Create separate script to produce prompts from AMG masks
+# Use separate script to calculate mIoU from output masks
+
 def main_docstring():
     return f"""
     Args:
@@ -38,50 +42,68 @@ def main_docstring():
     """
 
 
-def main_headless(checkpoint_path, model_type, input_bytes, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False, load_fast=""):
-    device = "cuda"
-    sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
-    if verbose:
-        print(f"Loading model {sam2_checkpoint} with config {model_cfg}")
-    sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
-    if furious:
-        set_furious(mask_generator)
-    if load_fast:
-        load_aot_fast(mask_generator, load_fast)
-    if fast:
-        set_fast(mask_generator, load_fast)
+def main(checkpoint_path, model_type, input_paths, output_folder, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False, load_fast="", overwrite=False):
+    input_paths = [Path(input_path.strip()) for input_path in Path(input_paths).read_text().splitlines()]
+    # We include parent folder to reduce possible duplicates
+    filenames = [Path(input_path.parent.name) / Path(input_path.name) for input_path in input_paths]
+    if len(filenames) != len(set(filenames)):
+        raise ValueError("Expected input_paths to have unique filenames.")
+    if any(not input_path.is_file() for input_path in input_paths):
+        raise ValueError("One of the input paths does not point to a file.")
+    if not Path(output_folder).is_dir():
+        raise ValueError("Expected {output_folder} to be a directory.")
+    output_image_paths = [(Path(output_folder) / filename).with_suffix('.' + output_format) for filename in filenames]
+    output_rle_json_paths = [Path(output_folder) / Path(filename.parent) / Path(filename.stem + '_masks.json') for filename in filenames]
+    if not overwrite and any(output_image_path.exists() for output_image_path in output_image_paths):
+        raise ValueError("Output image path already exists, but --overwrite was not specified.")
+    if not overwrite and any(output_rle_json_path.exists() for output_rle_json_path in output_rle_json_paths):
+        raise ValueError("Output image path already exists, but --overwrite was not specified.")
+    for (input_path, filename, output_image_path, output_rle_json_path) in tqdm(zip(input_paths, filenames, output_image_paths, output_rle_json_paths)):
+        input_bytes = bytearray(open(input_path, 'rb').read())
+        device = "cuda"
+        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
+        if verbose:
+            print(f"Loading model {sam2_checkpoint} with config {model_cfg}")
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from torchao._models.sam2.utils.amg import rle_to_mask
+        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
+        mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
+        if furious:
+            set_furious(mask_generator)
+        if load_fast:
+            load_aot_fast(mask_generator, load_fast)
+        if fast:
+            set_fast(mask_generator, load_fast)
 
-    image_tensor = file_bytes_to_image_tensor(input_bytes)
-    if verbose:
-        print(f"Loaded image of size {tuple(image_tensor.shape)} and generating mask.")
-    masks = mask_generator.generate(image_tensor)
+        image_tensor = file_bytes_to_image_tensor(input_bytes)
+        if verbose:
+            print(f"Loaded image {input_path} of size {tuple(image_tensor.shape)} and generating mask.")
+        masks = mask_generator.generate(image_tensor)
+        rle_dict = masks_to_rle_dict(masks)
 
-    if verbose:
-        print("Generating mask annotations for input image.")
-    plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
-    plt.imshow(image_tensor)
-    show_anns(masks, rle_to_mask)
-    plt.axis('off')
-    plt.tight_layout()
-    buf = BytesIO()
-    plt.savefig(buf, format=output_format)
-    buf.seek(0)
-    return buf.getvalue()
+        if verbose:
+            print(f"Generating mask annotations for input image {filename}.")
+        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
+        plt.axis('off')
+        plt.tight_layout()
+        buf = BytesIO()
+        plt.savefig(buf, format=output_format)
+        buf.seek(0)
+        output_bytes = buf.getvalue()
+        output_image_path.parent.mkdir(parents=False, exist_ok=True)
+        if verbose:
+            print(f"Storing result image under {output_image_path}.")
+        with open(output_image_path, "wb") as file:
+            file.write(output_bytes)
+        if verbose:
+            print(f"Storing result image under {output_rle_json_path}.")
+        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
+        with open(output_rle_json_path, "w") as file:
+            file.write(json.dumps(rle_dict, indent=4))
 
-def main(checkpoint_path, model_type, input_path, output_path, points_per_batch=1024, output_format='png', verbose=False, fast=False, furious=False, load_fast=""):
-    input_bytes = bytearray(open(input_path, 'rb').read())
-    output_bytes = main_headless(checkpoint_path,
-                                 model_type,
-                                 input_bytes,
-                                 points_per_batch=points_per_batch,
-                                 output_format=output_format,
-                                 verbose=verbose,
-                                 fast=fast,
-                                 furious=furious,
-                                 load_fast=load_fast)
-    with open(output_path, "wb") as file:
-        file.write(output_bytes)
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
