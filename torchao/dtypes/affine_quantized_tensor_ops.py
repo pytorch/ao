@@ -20,7 +20,7 @@ from torchao.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_check,
     _linear_int8_act_int8_weight_block_sparse_impl,
 )
-from torchao.dtypes.uintx.marlin_qqq_layout import (
+from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
     _linear_int8_act_int4_weight_marlin_qqq_impl,
 )

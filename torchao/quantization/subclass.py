@@ -8,6 +8,7 @@
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.dtypes.utils import is_device
 from torchao.quantization.utils import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
@@ -15,7 +16,7 @@ from torchao.quantization.utils import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from torchao.utils import find_multiple
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, find_multiple
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
@@ -458,12 +459,20 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
-        y = aten._weight_int4pack_mm(
-            act_mat.contiguous(),
-            w_qtensor.int_data,
-            w_qtensor.groupsize,
-            w_qtensor.scales_and_zeros,
-        )
+        if is_device(act_mat.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+            y = aten._weight_int4pack_mm_for_cpu(
+                act_mat.contiguous(),
+                w_qtensor.int_data,
+                w_qtensor.groupsize,
+                w_qtensor.scales_and_zeros,
+            )
+        else:
+            y = aten._weight_int4pack_mm(
+                act_mat.contiguous(),
+                w_qtensor.int_data,
+                w_qtensor.groupsize,
+                w_qtensor.scales_and_zeros,
+            )
 
         # remove out_feature padding
         orig_out_features = (
@@ -609,5 +618,10 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
             input_float, 4, groupsize, dtype=input_float.dtype
         )
-        int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
+        if is_device(input_float.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+            int_data = aten._convert_weight_to_int4pack_for_cpu(
+                input_int4x8, inner_k_tiles
+            )
+        else:
+            int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
         return int_data, scales_and_zeros, False, groupsize, inner_k_tiles

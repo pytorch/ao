@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import torch
 
-from torchao.profiler import PerformanceTimer
+from torchao.prototype.profiler import PerformanceTimer
 
 
 @contextmanager

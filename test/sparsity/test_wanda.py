@@ -3,11 +3,12 @@ import unittest
 
 import torch
 from torch import nn
-from torchao.sparsity import WandaSparsifier
 from torch.ao.pruning import FakeSparsity
 from torch.nn.utils.parametrize import is_parametrized
 from torch.testing._internal.common_pruning import SimpleLinear
 from torch.testing._internal.common_utils import TestCase
+
+from torchao.sparsity import WandaSparsifier
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -29,7 +30,9 @@ class TestWandaSparsifier(TestCase):
             assert hasattr(module.parametrizations["weight"][0], "mask")
             # Check parametrization exists and is correct
             assert is_parametrized(module, "weight")
-            assert type(module.parametrizations.weight[0]) == FakeSparsity
+            assert isinstance(
+                module.parametrizations.weight[0], FakeSparsity
+            ), "FakeSparsity not found"
             # check activation observer is present
             assert hasattr(module, "activation_post_process")
 
@@ -109,6 +112,7 @@ class TestWandaSparsifier(TestCase):
                 ), f"sparsity for linear layer {cnt} should be 0.5"
 
         sparsifier.squash_mask()
+
 
 if __name__ == "__main__":
     unittest.main()

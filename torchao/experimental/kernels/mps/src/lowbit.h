@@ -9,23 +9,10 @@
 #include <Metal/Metal.h>
 #include <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
+#include <torchao/experimental/kernels/mps/src/common.h>
 #include <torchao/experimental/kernels/mps/src/dispatch.h>
-#include <torchao/experimental/kernels/mps/src/metal_shader_lib.h>
+#include <torchao/experimental/kernels/mps/src/metal_shader_lib.h> // metal_lowbit_quantized_lib
 #include <torchao/experimental/kernels/mps/src/packing.h>
-
-#include <cassert>
-#include <fstream>
-#include <sstream>
-
-#ifdef USE_ATEN
-#include <ATen/native/mps/OperationUtils.h>
-using namespace at::native::mps;
-inline void finalize_block(MPSStream* mpsStream) {}
-void (*dispatch_block)(dispatch_queue_t, dispatch_block_t) =
-    dispatch_sync_with_rethrow;
-#else
-#include <torchao/experimental/kernels/mps/src/OperationUtils.h>
-#endif
 
 namespace torchao::kernels::mps::lowbit {
 namespace {
@@ -103,7 +90,7 @@ inline void linear_lowbit_quant_weights_mps_impl(
       0};
 
   MPSStream* mpsStream = getCurrentMPSStream();
-  dispatch_block(mpsStream->queue(), ^() {
+  dispatch_block(mpsStream, ^() {
     @autoreleasepool {
       id<MTLComputeCommandEncoder> computeEncoder = mpsStream->commandEncoder();
       id<MTLComputePipelineState> cpl =
@@ -119,7 +106,7 @@ inline void linear_lowbit_quant_weights_mps_impl(
                         length:sizeof(uint32_t) * sizes.size()
                        atIndex:5];
       dispatch_fn(computeEncoder, maxThreadsPerGroup, M, N, K);
-      finalize_block(mpsStream);
+      optionally_wait_for_command_completion(mpsStream);
     }
   });
 }

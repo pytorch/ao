@@ -30,8 +30,8 @@ from utils import (
     qkv_proj_io_check,
 )
 
-from torchao.profiler.device_spec import CUDADeviceSpec, DeviceSpec
-from torchao.profiler.performance_counter import (
+from torchao.prototype.profiler.device_spec import CUDADeviceSpec, DeviceSpec
+from torchao.prototype.profiler.performance_counter import (
     CUDAPerformanceTimer,
     PerformanceCounterMode,
     PerformanceStats,

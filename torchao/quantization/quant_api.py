@@ -39,6 +39,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
 )
+from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -52,8 +53,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_MI300,
-    is_sm_89,
-    is_sm_90,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -222,6 +223,12 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
+    if isinstance(model, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -630,7 +637,8 @@ def int4_weight_only(
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
-        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`
+        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference
         of quantization algorithm compared to the more traditional type of integer quantization is the following:
         1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
         2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
@@ -668,6 +676,9 @@ def int4_weight_only(
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
+            assert (
+                group_size == 128 or group_size == weight.shape[-1]
+            ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
         return to_affine_quantized_intx(
             weight,
@@ -856,11 +867,11 @@ def _normalize_granularity(
     for _granularity in processed_granularity:
         if isinstance(_granularity, PerTensor):
             assert (
-                is_sm_89() or is_MI300()
+                is_sm_at_least_89() or is_MI300()
             ), "PerTensor quantization only works for CUDA>=8.9 and MI300+"
         elif isinstance(_granularity, PerRow):
             assert (
-                is_sm_90() or is_MI300()
+                is_sm_at_least_90() or is_MI300()
             ), "PerRow quantization only works for CUDA>=9.0 and MI300+"
         else:
             raise ValueError(f"Invalid granularity type: {_granularity}")
@@ -958,7 +969,7 @@ def float8_dynamic_activation_float8_weight(
 
     """
     assert (
-        is_sm_89() or is_MI300()
+        is_sm_at_least_89() or is_MI300()
     ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
@@ -1015,7 +1026,7 @@ def float8_static_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
     assert (
-        is_sm_89() or is_MI300()
+        is_sm_at_least_89() or is_MI300()
     ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)

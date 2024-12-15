@@ -182,6 +182,9 @@ if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
             return self._test_tp(dtype)
 
     common_utils.instantiate_parametrized_tests(
+        TestFloat8woAffineQuantizedTensorParallel
+    )
+    common_utils.instantiate_parametrized_tests(
         TestFloat8dqTensorAffineQuantizedTensorParallel
     )
     common_utils.instantiate_parametrized_tests(

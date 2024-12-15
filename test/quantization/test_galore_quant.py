@@ -3,13 +3,16 @@ import itertools
 import pytest
 
 # Skip entire test if triton is not available, otherwise CI failure
-try:
-    import triton
-except ImportError:
-    pytest.skip("triton is not installed", allow_module_level=True)
-
-from bitsandbytes.functional import create_dynamic_map, quantize_blockwise, dequantize_blockwise
+try:  # noqa: F401
+    import triton  # noqa: F401
+except ImportError:  # noqa: F401
+    pytest.skip("triton is not installed", allow_module_level=True)  # noqa: F401
 import torch
+from bitsandbytes.functional import (
+    create_dynamic_map,
+    dequantize_blockwise,
+    quantize_blockwise,
+)
 
 from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,

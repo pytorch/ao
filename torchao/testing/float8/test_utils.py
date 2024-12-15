@@ -1,9 +1,9 @@
 import torch
+
 from torchao.float8.config import (
-    ScalingGranularity, 
-    ScalingType, 
-    CastConfig, 
+    CastConfig,
     Float8LinearConfig,
+    ScalingType,
 )
 
 

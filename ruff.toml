@@ -7,13 +7,17 @@ include = [
     "torchao/quantization/**/*.py",
     "torchao/dtypes/**/*.py",
     "torchao/sparsity/**/*.py",
+    "torchao/profiler/**/*.py",
+    "torchao/testing/**/*.py",
     "torchao/prototype/low_bit_optim/**.py",
-    "test/float8/**/*.py",
-    "test/quantization/test_observer.py",
-    "test/dtypes/**/*.py",
-    "test/prototype/low_bit_optim/**.py",
     "torchao/utils.py",
-
+    "torchao/ops.py",
+    "torchao/_executorch_ops.py",
+    "test/float8/**/*.py",
+    "test/quantization/**/*.py",
+    "test/dtypes/**/*.py",
+    "test/sparsity/**/*.py",
+    "test/prototype/low_bit_optim/**.py",
 ]
 
 lint.ignore = ["E731"]

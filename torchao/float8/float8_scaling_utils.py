@@ -22,7 +22,6 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.float8.float8_utils import (
     amax_history_to_scale,
-    e5m2_dtype,
     tensor_to_amax,
     tensor_to_scale,
 )
@@ -182,7 +181,7 @@ def _maybe_initialize_amaxes_scales_for_float8_cast(
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
+class NoopFwToFloat8BwDelayed(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with delayed scaling, initialize if needed
@@ -198,6 +197,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         scale_fn_name,
         is_amax_initialized,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(
             fp8_amax_grad_output, fp8_amax_history_grad_output, fp8_scale_grad_output
@@ -205,6 +205,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         ctx.scale_fn_name = scale_fn_name
         ctx.is_amax_initialized = is_amax_initialized
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
@@ -223,7 +224,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
             fp8_amax_history_grad_output,
             fp8_scale_grad_output,
             scale_fn_name,
-            e5m2_dtype,
+            ctx.target_dtype,
             is_amax_initialized,
             reduce_amax=True,
         )
@@ -233,16 +234,16 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         res = hp_tensor_and_scale_to_float8(
             go,
             fp8_scale_grad_output,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        empty_grads = None, None, None, None, None, None
+        empty_grads = None, None, None, None, None, None, None
         return res, *empty_grads
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
+class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with dynamic scaling
@@ -253,27 +254,29 @@ class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
         ctx,
         tensor,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
-        gradY_scale = tensor_to_scale(gradY, e5m2_dtype)
+            return gradY, None, None
+        gradY_scale = tensor_to_scale(gradY, ctx.target_dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None
+        return fp8_tensor, None, None
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
+class NoopFwToFloat8BwStatic(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with static scaling
@@ -285,21 +288,23 @@ class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
         tensor,
         scale,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(scale)
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
+            return gradY, None, None, None
         (gradY_scale,) = ctx.saved_tensors
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None, None
+        return fp8_tensor, None, None, None

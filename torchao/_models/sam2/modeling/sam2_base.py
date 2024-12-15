@@ -628,7 +628,7 @@ class SAM2Base(torch.nn.Module):
                     if self.add_tpos_enc_to_obj_ptrs:
                         t_diff_max = max_obj_ptrs_in_encoder - 1
                         tpos_dim = C if self.proj_tpos_enc_in_obj_ptrs else self.mem_dim
-                        obj_pos = torch.tensor(pos_list, device=device)
+                        obj_pos = torch.tensor(pos_list).pin_memory().to(device=device, non_blocking=True)
                         obj_pos = get_1d_sine_pe(obj_pos / t_diff_max, dim=tpos_dim)
                         obj_pos = self.obj_ptr_tpos_proj(obj_pos)
                         obj_pos = obj_pos.unsqueeze(1).expand(-1, B, self.mem_dim)
@@ -709,8 +709,8 @@ class SAM2Base(torch.nn.Module):
         maskmem_out = self.memory_encoder(
             pix_feat, mask_for_mem, skip_mask_sigmoid=True  # sigmoid already applied
         )
-        maskmem_features = maskmem_out["vision_features"]
-        maskmem_pos_enc = maskmem_out["vision_pos_enc"]
+        maskmem_features = maskmem_out["vision_features"].clone()
+        maskmem_pos_enc = [m.clone() for m in maskmem_out["vision_pos_enc"]]
         # add a no-object embedding to the spatial memory to indicate that the frame
         # is predicted to be occluded (i.e. no object is appearing in the frame)
         if self.no_obj_embed_spatial is not None:
@@ -809,6 +809,7 @@ class SAM2Base(torch.nn.Module):
             current_out["maskmem_features"] = None
             current_out["maskmem_pos_enc"] = None
 
+    @torch.autograd.profiler.record_function("track_step")
     def track_step(
         self,
         frame_idx,
@@ -854,13 +855,13 @@ class SAM2Base(torch.nn.Module):
             object_score_logits,
         ) = sam_outputs
 
-        current_out["pred_masks"] = low_res_masks
-        current_out["pred_masks_high_res"] = high_res_masks
-        current_out["obj_ptr"] = obj_ptr
+        current_out["pred_masks"] = low_res_masks.clone()
+        current_out["pred_masks_high_res"] = high_res_masks.clone()
+        current_out["obj_ptr"] = obj_ptr.clone()
         if not self.training:
             # Only add this in inference (to avoid unused param in activation checkpointing;
             # it's mainly used in the demo to encode spatial memories w/ consolidated masks)
-            current_out["object_score_logits"] = object_score_logits
+            current_out["object_score_logits"] = object_score_logits.clone()
 
         # Finally run the memory encoder on the predicted mask to encode
         # it into a new memory feature (that can be used in future frames)
@@ -870,7 +871,7 @@ class SAM2Base(torch.nn.Module):
             point_inputs,
             run_mem_encoder,
             high_res_masks,
-            object_score_logits,
+            object_score_logits.clone(),
             current_out,
         )
 

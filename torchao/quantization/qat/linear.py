@@ -9,6 +9,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.dtypes.utils import is_device
 from torchao.quantization.GPTQ import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
@@ -23,6 +24,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 from .api import FakeQuantizeConfig
 from .fake_quantizer import FakeQuantizer
@@ -363,6 +365,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     inner_k_tiles=inner_k_tiles,
                     precision=child.weight.dtype,
                     scales_precision=config.scale_precision,
+                    device=next(child.parameters()).device,
                 )
                 setattr(module, name, quantized_linear)
 
@@ -373,10 +376,19 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                    q_weight.to(child.weight.device),
-                    child.inner_k_tiles,
-                )
+                if (
+                    is_device(q_weight.device.type, "cpu")
+                    and TORCH_VERSION_AT_LEAST_2_6
+                ):
+                    q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+                        q_weight.to(child.weight.device),
+                        child.inner_k_tiles,
+                    )
+                else:
+                    q_weight = torch.ops.aten._convert_weight_to_int4pack(
+                        q_weight.to(child.weight.device),
+                        child.inner_k_tiles,
+                    )
                 quantized_linear.weight = q_weight
                 quantized_linear.scales_and_zeros = scales_and_zeros
             else:

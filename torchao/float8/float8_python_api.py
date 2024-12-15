@@ -37,19 +37,25 @@ def addmm_float8_unwrapped(
     a_inverse_scale = a_scale.reciprocal()
     b_inverse_scale = b_scale.reciprocal()
 
-    if output_dtype == torch.float32 and bias is not None:
+    post_inverse_scale = None
+    if (
+        a_scale.shape == (a_data.shape[0], 1)
+        and b_scale.shape == (1, b_data.shape[1])
+        and not use_fast_accum
+    ):
+        # The rowwise CUTLASS-based kernel is so slow without fast-accum that
+        # we'd rather use the tensorwise cuBLAS-based kernel and do the scaling
+        # manually afterwards (hoping Inductor will be able to fuse it).
+        post_inverse_scale = a_inverse_scale * b_inverse_scale
+        a_inverse_scale = a_inverse_scale.new_ones(())
+        b_inverse_scale = a_inverse_scale.new_ones(())
+
+    post_bias = None
+    if output_dtype == torch.float32:
         # Bias is not supported by _scaled_mm when output is fp32
-        output = torch._scaled_mm(
-            a_data,
-            b_data,
-            scale_a=a_inverse_scale,
-            scale_b=b_inverse_scale,
-            scale_result=output_scale,
-            out_dtype=output_dtype,
-            use_fast_accum=use_fast_accum,
-        )
-        output += bias
-        return output
+        post_bias = bias
+        bias = None
+
     output = torch._scaled_mm(
         a_data,
         b_data,
@@ -60,4 +66,10 @@ def addmm_float8_unwrapped(
         out_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
+
+    if post_inverse_scale is not None:
+        output *= post_inverse_scale
+    if post_bias is not None:
+        output += post_bias
+
     return output

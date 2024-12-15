@@ -50,6 +50,9 @@ class TestSemiStructuredSparse(common_utils.TestCase):
         sparsify_(model, semi_sparse_weight())
         sparse_result = model(input)
 
+        if compile:
+            model = torch.compile(model)
+
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
 

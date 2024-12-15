@@ -70,7 +70,10 @@ jobs:
         # please be careful when using this large changes means everyone needs to rebase
         ruff check --isolated --select F821,F823,W191
         ruff check --select F,I
-        ruff format --check
+        ruff format --check || {
+          echo "Ruff check failed, please try again after running 'ruff format'."
+          exit 1
+        }
 
     - name: Apply fixes to PR
       if: github.event_name == 'workflow_dispatch'

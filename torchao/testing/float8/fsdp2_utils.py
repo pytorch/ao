@@ -1,16 +1,13 @@
-import contextlib
-from typing import List, Optional
+from typing import List
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 
-import torchao.float8.config as config
 from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
 )
-
 from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
@@ -52,7 +49,11 @@ def check_parity_no_mp(
             ):
                 precompute_float8_dynamic_scale_for_fsdp(model)
 
-        test_cls.assertEqual(losses[0], losses[1], msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
+        test_cls.assertEqual(
+            losses[0],
+            losses[1],
+            msg=f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}",
+        )
 
 
 def check_parity_bf16_mp(
@@ -87,7 +88,11 @@ def check_parity_bf16_mp(
                 ref_model.parameters(), ref_model_bf16.parameters()
             ):
                 param_bf16.detach().copy_(param_fp32)
-        test_cls.assertEqual(losses[0], losses[1], msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
+        test_cls.assertEqual(
+            losses[0],
+            losses[1],
+            msg=f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}",
+        )
 
 
 def check_parity_fp8_comm_only(
@@ -104,7 +109,6 @@ def check_parity_fp8_comm_only(
     for iter_idx in range(10):
         losses: List[torch.Tensor] = []
         for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
-
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             losses.append(model(local_inp).sum())
             losses[-1].backward()
@@ -123,9 +127,15 @@ def check_parity_fp8_comm_only(
                 and config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
             ):
                 precompute_float8_dynamic_scale_for_fsdp(model)
-        
+
         if compile:
             # When compile, the ref loss and fsdp loss are not exactly the same, only check the loss values are valid for now.
-            assert (torch.isfinite(losses[0]).any() and torch.isfinite(losses[1]).any()), f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}"
+            assert (
+                torch.isfinite(losses[0]).any() and torch.isfinite(losses[1]).any()
+            ), f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}"
         else:
-            test_cls.assertEqual(losses[0], losses[1], f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
+            test_cls.assertEqual(
+                losses[0],
+                losses[1],
+                f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}",
+            )

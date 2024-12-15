@@ -10,8 +10,11 @@ from torchao.kernel import (
 )
 
 from .autoquant import (
+    ALL_AUTOQUANT_CLASS_LIST,
     DEFAULT_AUTOQUANT_CLASS_LIST,
+    DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+    DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
@@ -89,7 +92,10 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",

@@ -12,7 +12,8 @@ from hqq.core.quantize import *
 from hqq.core.utils import *
 
 import torch.nn.functional as F
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
+from torchao.dtypes.utils import is_device
 
 
 class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
@@ -162,9 +163,14 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
         W_q_torch, scales_torch, zeros_torch = self.hqq_quants_to_torch_quants(
             W_q=W_q, scales=scales, zeros=zeros, shape=shape, nbits=self.nbits
         )
-        self.weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(
-            W_q_torch, self.inner_k_tiles
-        )
+        if is_device(W_q.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+            self.weight_int4pack = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+                W_q_torch, self.inner_k_tiles
+            )
+        else:
+            self.weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(
+                W_q_torch, self.inner_k_tiles
+            )
         self.scales_and_zeros = self.pack_scales_and_zeros(scales_torch, zeros_torch)
 
         del W_q_torch, scales_torch, zeros_torch
@@ -200,7 +206,8 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
             .contiguous()
         )
         if TORCH_VERSION_AT_LEAST_2_5:
-            W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
+            if not is_device(W_q.device.type, "cpu"):
+                W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
 
         # group_dequantize_tensor_from_qparams
         # W_r = W_q*scales + min_val
@@ -232,9 +239,14 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
     def matmul(self, x):
         origin_x_size = x.size()
         x = x.reshape(-1, origin_x_size[-1])
-        c = torch.ops.aten._weight_int4pack_mm(
-            x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
-        )
+        if is_device(x.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+            c = torch.ops.aten._weight_int4pack_mm_for_cpu(
+                x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
+            )
+        else:
+            c = torch.ops.aten._weight_int4pack_mm(
+                x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
+            )
         new_shape = origin_x_size[:-1] + (self.out_features,)
         c = c.reshape(new_shape)
         return c
