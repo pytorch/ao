@@ -160,7 +160,7 @@ def main(
                 file.write(json.dumps(rle_dict, indent=4))
     end_time = time.time()
     total_time = end_time - start_time
-    print(f"This took {total_time}s with {len(input_paths) / total_time}img/s")
+    print(f"This took {total_time}s with {len(input_paths) / total_time}img/s or {total_time / len(input_paths) * 1000}ms per image")
     max_memory_allocated()
 
 
