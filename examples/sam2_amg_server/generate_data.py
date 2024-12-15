@@ -135,7 +135,6 @@ def main(
     if fast:
         set_fast(mask_generator, load_fast)
 
-    i = 0
     for input_path, filename, output_image_path, output_rle_json_path in tqdm(
         zip(input_paths, filenames, output_image_paths, output_rle_json_paths),
         total=len(input_paths),
@@ -147,7 +146,7 @@ def main(
                 timestamped_print(
                     f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
                 )
-            masks = mask_generator.generate_from_path(image_tensor)
+            masks = mask_generator.generate(image_tensor)
         else:
             masks = mask_generator.generate_from_path(input_path)
         with torch.autograd.profiler.record_function("masks_to_rle_dict"):
@@ -159,10 +158,6 @@ def main(
             output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
             with open(output_rle_json_path, "w") as file:
                 file.write(json.dumps(rle_dict, indent=4))
-        if i > 100:
-            print("DONE PROFILING")
-            break
-        i += 1
     end_time = time.time()
     total_time = end_time - start_time
     print(f"This took {total_time}s with {len(input_paths) / total_time}img/s")
@@ -171,4 +166,4 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    profiler_runner("allProf.json.gz", fire.Fire, main)
+    fire.Fire(main)
