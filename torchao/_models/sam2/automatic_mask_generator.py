@@ -200,6 +200,12 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         return self._encode_masks(mask_data)
 
+    @torch.no_grad()
+    def generate_from_path(self, image_path: str) -> List[Dict[str, Any]]:
+        from torchvision import io as tio
+        img_bytes_tensor = tio.read_file(image_path)
+        return self.generate(tio.decode_jpeg(img_bytes_tensor, device='cuda'))
+
     def _encode_masks(self, mask_data):
         mask_data["rles"] = _mask_to_rle_pytorch_2_1(mask_data["rles"])
         # Encode masks

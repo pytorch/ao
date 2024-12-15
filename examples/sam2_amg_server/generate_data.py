@@ -1,4 +1,5 @@
 from pathlib import Path
+import torch
 from tqdm import tqdm
 import time
 import json
@@ -16,6 +17,7 @@ from server import load_aot_fast
 from server import set_furious
 from server import masks_to_rle_dict
 from server import max_memory_allocated
+from server import profiler_runner
 from io import BytesIO
 
 
@@ -86,7 +88,7 @@ def main(
     if any(not input_path.is_file() for input_path in input_paths):
         raise ValueError("One of the input paths does not point to a file.")
     if not Path(output_folder).is_dir():
-        raise ValueError("Expected {output_folder} to be a directory.")
+        raise ValueError(f"Expected {output_folder} to be a directory.")
     output_image_paths = [
         (Path(output_folder) / filename).with_suffix("." + output_format)
         for filename in filenames
@@ -126,31 +128,41 @@ def main(
     mask_generator = SAM2AutomaticMaskGenerator(
         sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
     )
-    if furious:
-        set_furious(mask_generator)
     if load_fast:
         load_aot_fast(mask_generator, load_fast)
+    if furious:
+        set_furious(mask_generator)
     if fast:
         set_fast(mask_generator, load_fast)
 
+    i = 0
     for input_path, filename, output_image_path, output_rle_json_path in tqdm(
         zip(input_paths, filenames, output_image_paths, output_rle_json_paths),
         total=len(input_paths),
     ):
-        input_bytes = bytearray(open(input_path, "rb").read())
-        image_tensor = file_bytes_to_image_tensor(input_bytes)
-        if verbose:
-            timestamped_print(
-                f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
-            )
-        masks = mask_generator.generate(image_tensor)
-        rle_dict = masks_to_rle_dict(masks)
+        if baseline:
+            input_bytes = bytearray(open(input_path, "rb").read())
+            image_tensor = file_bytes_to_image_tensor(input_bytes)
+            if verbose:
+                timestamped_print(
+                    f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
+                )
+            masks = mask_generator.generate_from_path(image_tensor)
+        else:
+            masks = mask_generator.generate_from_path(input_path)
+        with torch.autograd.profiler.record_function("masks_to_rle_dict"):
+            rle_dict = masks_to_rle_dict(masks)
 
-        if verbose:
-            timestamped_print(f"Storing rle under {output_rle_json_path}")
-        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
-        with open(output_rle_json_path, "w") as file:
-            file.write(json.dumps(rle_dict, indent=4))
+        with torch.autograd.profiler.record_function("json.dumps"):
+            if verbose:
+                timestamped_print(f"Storing rle under {output_rle_json_path}")
+            output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
+            with open(output_rle_json_path, "w") as file:
+                file.write(json.dumps(rle_dict, indent=4))
+        if i > 100:
+            print("DONE PROFILING")
+            break
+        i += 1
     end_time = time.time()
     total_time = end_time - start_time
     print(f"This took {total_time}s with {len(input_paths) / total_time}img/s")
@@ -159,4 +171,4 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    fire.Fire(main)
+    profiler_runner("allProf.json.gz", fire.Fire, main)

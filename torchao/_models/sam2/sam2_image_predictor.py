@@ -88,7 +88,7 @@ class SAM2ImagePredictor(torch.nn.Module):
     @torch.no_grad()
     def set_image(
         self,
-        image: Union[np.ndarray, Image],
+        image: Union[np.ndarray, Image, torch.Tensor],
     ) -> None:
         """
         Calculates the image embeddings for the provided image, allowing
@@ -107,10 +107,18 @@ class SAM2ImagePredictor(torch.nn.Module):
         elif isinstance(image, Image):
             w, h = image.size
             self._orig_hw = [(h, w)]
+        elif isinstance(image, torch.Tensor):
+            _, w, h = image.shape
+            self._orig_hw = [(h, w)]
         else:
             raise NotImplementedError("Image format not supported")
 
-        input_image = self._transforms.to_tensor(image)
+        if isinstance(image, torch.Tensor):
+            from torchvision.transforms.v2 import functional as F
+            input_image = F.to_dtype(image, torch.float32, scale=True)
+        else:
+            input_image = self._transforms.to_tensor(image)
+
         # NOTE: Doing these transforms on the GPU changes the numerics
         input_image = input_image.to(device=self._transforms_device)
         input_image = self._transforms.transforms(input_image)
