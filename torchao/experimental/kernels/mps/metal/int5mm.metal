@@ -4,7 +4,7 @@ using namespace metal;
 /**
  * 5-Bit Quantized Linear.
  *
- * @param[A] M x K unquantized input tensor of floating point dtype (Float, Half, BFloat16)
+ * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (5 * K / 8)
  * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
  * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N

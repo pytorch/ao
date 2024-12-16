@@ -45,6 +45,8 @@ void check_linear_mps_args(
 
   TORCH_CHECK(K % 8 == 0, __func__, ": expect K to be multiple of 8, got ", K);
 
+  TORCH_CHECK(N % 4 == 0, __func__, ": expect N to be multiple of 4, got ", N);
+
   TORCH_CHECK(
       group_size == 32 || group_size == 64 || group_size == 128 ||
           group_size == 256,

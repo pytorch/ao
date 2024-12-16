@@ -200,22 +200,23 @@ void run_test(int32_t m, int32_t k, int32_t n, int32_t group_size) {
 
 template <typename T, int nbit>
 void run_test_battery() {
-  run_test<T, nbit>(1, 8, 1, 32);
-  run_test<T, nbit>(1, 32, 1, 32);
-  run_test<T, nbit>(1, 32, 1, 64);
-  run_test<T, nbit>(1, 56, 1, 64);
-  run_test<T, nbit>(1, 64, 1, 64);
-  run_test<T, nbit>(1, 72, 1, 64);
-  run_test<T, nbit>(1, 1000, 1, 64);
-  run_test<T, nbit>(3, 64, 5, 64);
-  run_test<T, nbit>(7, 64, 23, 64);
-  run_test<T, nbit>(17, 120, 23, 128);
-  run_test<T, nbit>(17, 128, 23, 128);
-  run_test<T, nbit>(41, 144, 23, 128);
-  run_test<T, nbit>(41, 128, 23, 128);
-  run_test<T, nbit>(81, 8, 1, 256);
-  run_test<T, nbit>(19, 256, 17, 256);
-  run_test<T, nbit>(1, 1000, 81, 256);
+  run_test<T, nbit>(1, 8, 4, 32);
+  run_test<T, nbit>(1, 32, 4, 32);
+  run_test<T, nbit>(1, 32, 4, 64);
+  run_test<T, nbit>(1, 56, 4, 64);
+  run_test<T, nbit>(1, 64, 4, 64);
+  run_test<T, nbit>(1, 72, 4, 64);
+  run_test<T, nbit>(1, 1000, 4, 64);
+  run_test<T, nbit>(3, 64, 8, 64);
+  run_test<T, nbit>(7, 64, 20, 64);
+  run_test<T, nbit>(17, 120, 20, 128);
+  run_test<T, nbit>(17, 128, 20, 128);
+  run_test<T, nbit>(41, 144, 20, 128);
+  run_test<T, nbit>(41, 128, 20, 128);
+  run_test<T, nbit>(81, 8, 4, 256);
+  run_test<T, nbit>(19, 256, 28, 256);
+  run_test<T, nbit>(1, 1000, 28, 256);
+  run_test<T, nbit>(19, 8, 36, 256);
 }
 
 int main() {
