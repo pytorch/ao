@@ -608,6 +608,8 @@
                 <span class="k">else</span> <span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
             <span class="n">device</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">device</span>
+            <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx</span> <span class="kn">import</span> <span class="n">TensorCoreTiledLayout</span>
+
             <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">choose_qparams_and_quantize_affine_hqq</span><span class="p">(</span>
                 <span class="n">input_float</span><span class="p">,</span>
                 <span class="n">nbits</span><span class="o">=</span><span class="n">nbits</span><span class="p">,</span>
@@ -616,7 +618,15 @@
                 <span class="n">compute_dtype</span><span class="o">=</span><span class="n">compute_dtype</span><span class="p">,</span>
                 <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
                 <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                <span class="n">raw_output</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">raw_output</span><span class="o">=</span><span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span>
+                    <span class="n">_layout</span><span class="p">,</span> <span class="p">(</span><span class="n">TensorCoreTiledLayout</span><span class="p">,</span> <span class="n">PlainLayout</span><span class="p">)</span>
+                <span class="p">),</span>
+                <span class="c1"># raw_output=False is basically the &#39;convert to TensorCoreTiledLayout zero_point version&#39; option (add scale*midpoint)</span>
+                <span class="c1"># note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether</span>
+                <span class="c1"># zero is preserved.</span>
+                <span class="c1"># TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version</span>
+                <span class="c1"># TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain</span>
+                <span class="c1"># TODO change PlainLayout to use raw_output.</span>
             <span class="p">)</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -634,7 +644,8 @@
                 <span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="c1"># choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None</span>
-            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># TODO should probably consolidate ZeroPointDomain.NONE and None</span>
+            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
                 <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
                 <span class="n">input_float</span><span class="p">,</span>

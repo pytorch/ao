@@ -491,6 +491,7 @@
     <span class="s2">&quot;float8_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;uintx_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;fpx_weight_only&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;gemlite_uintx_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_dynamic_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
@@ -1014,6 +1015,33 @@
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
         <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">act_mapping_type</span><span class="p">,</span>
     <span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">gemlite_uintx_weight_only</span><span class="p">(</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span>
+    <span class="n">bit_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="n">packing_bitwidth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span>
+    <span class="n">contiguous</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.</span>
+<span class="sd">    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
+<span class="sd">         size is more fine grained</span>
+<span class="sd">        `bit_width`: bit width of the quantized weight.</span>
+<span class="sd">        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.</span>
+<span class="sd">        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.gemlite_layout</span> <span class="kn">import</span> <span class="n">apply_gemlite_quant</span>
+
+    <span class="n">use_hqq</span> <span class="o">=</span> <span class="kc">True</span> <span class="k">if</span> <span class="n">bit_width</span> <span class="o">==</span> <span class="mi">4</span> <span class="k">else</span> <span class="kc">False</span>
+    <span class="n">apply_fn</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">weight</span><span class="p">:</span> <span class="n">apply_gemlite_quant</span><span class="p">(</span>
+        <span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="p">,</span> <span class="n">bit_width</span><span class="p">,</span> <span class="n">packing_bitwidth</span><span class="p">,</span> <span class="n">contiguous</span><span class="p">,</span> <span class="n">use_hqq</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_fn</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span>
