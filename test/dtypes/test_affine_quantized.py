@@ -24,7 +24,9 @@ from torchao.utils import (
 )
 
 
-def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False):
+def get_quantization_functions(
+    do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False
+):
     base_functions = [
         int8_weight_only(),
         int8_dynamic_activation_int4_weight(),
@@ -38,7 +40,11 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool, device: str = "cu
             )
             if int4_zp_int:
                 base_functions.append(
-                    int4_weight_only(group_size=32, layout=Int4CPULayout(), zero_point_domain=ZeroPointDomain.INT)
+                    int4_weight_only(
+                        group_size=32,
+                        layout=Int4CPULayout(),
+                        zero_point_domain=ZeroPointDomain.INT,
+                    )
                 )
         else:
             base_functions.append(int4_weight_only(group_size=32))
@@ -75,7 +81,9 @@ class TestAffineQuantized(TestCase):
             self.assertEqual(aqt_shape, shape)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("apply_quant", get_quantization_functions(True, True, "cuda", True))
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(True, True, "cuda", True)
+    )
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         ql = apply_quant(linear)

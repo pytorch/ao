@@ -28,12 +28,12 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
+    Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    Int4CPULayout,
     UintxLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
@@ -115,14 +115,15 @@ __all__ = [
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
-    Int4CPULayout: [ZeroPointDomain.FLOAT]
+    Int4CPULayout: [ZeroPointDomain.FLOAT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
-    Int4CPULayout: False
+    Int4CPULayout: False,
 }
+
 
 ######
 # TO BE DEPRECATED START
@@ -643,8 +644,10 @@ def int8_dynamic_activation_int4_weight(
 
 
 def int4_weight_only(
-    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False,
-    zero_point_domain=None
+    group_size=128,
+    layout=TensorCoreTiledLayout(inner_k_tiles=8),
+    use_hqq=False,
+    zero_point_domain=None,
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -684,12 +687,16 @@ def int4_weight_only(
         zero_point_dtype = torch.bfloat16
 
         nonlocal zero_point_domain
-        assert type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys(), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+        assert (
+            type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+        ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
         if zero_point_domain is None:
             # the first value is the default one
             zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
         else:
-            assert zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)], f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
+            assert (
+                zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+            ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
