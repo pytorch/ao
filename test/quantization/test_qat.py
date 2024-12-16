@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
+from torchao import quantize_
 from torchao.quantization.GPTQ import _replace_linear_8da4w, _replace_linear_int4
 from torchao.quantization.granularity import (
     PerAxis,
@@ -24,6 +25,7 @@ from torchao.quantization.granularity import (
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
+    intx_quantization_aware_training,
 )
 from torchao.quantization.qat.embedding import (
     FakeQuantizedEmbedding,
@@ -102,6 +104,25 @@ class M2(torch.nn.Module):
 
     def forward(self, x):
         return self.embedding(x)
+
+
+class M3(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.embedding = torch.nn.Embedding(10, 512)
+        self.linear1 = torch.nn.Linear(512, 256, bias=False).to(torch.float)
+        self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
+        self.relu = torch.nn.ReLU()
+
+    def example_inputs(self):
+        return (torch.randint(1, 10, (1, 512)),)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
+        x = self.relu(x)
+        return x
 
 
 class TestQAT(unittest.TestCase):
@@ -1155,6 +1176,91 @@ class TestQAT(unittest.TestCase):
             Int8DynActInt4WeightQATLinear,
             Int8DynActInt4WeightQATQuantizer,
         )
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_quantize_api(self):
+        """
+        Test that the following:
+
+            quantize_(model, intx_quantization_aware_training(...))
+
+        can produce the same results as `ComposableQATQuantizer`.
+        """
+        from torchao.quantization.qat import (
+            ComposableQATQuantizer,
+            Int4WeightOnlyEmbeddingQATQuantizer,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+
+        group_size = 16
+        torch.manual_seed(self.SEED)
+        m = M3()
+        baseline_model = copy.deepcopy(m)
+
+        # Baseline quantizer
+        baseline_quantizer = ComposableQATQuantizer(
+            [
+                Int8DynActInt4WeightQATQuantizer(groupsize=group_size),
+                Int4WeightOnlyEmbeddingQATQuantizer(group_size=group_size),
+            ]
+        )
+        baseline_model = baseline_quantizer.prepare(baseline_model)
+
+        # quantize_ API
+        activation_config = FakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+        )
+        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        quantize_(
+            m,
+            intx_quantization_aware_training(activation_config, weight_config),
+        )
+        quantize_(
+            m,
+            intx_quantization_aware_training(weight_config=weight_config),
+            filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding),
+        )
+
+        # Compare model values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_quantize_api_errors(self):
+        """
+        Test that we throw exceptions with helpful error messages if `quantize_`
+        runs into unexpected configurations.
+        """
+        my_config = FakeQuantizeConfig(torch.int8, group_size=32)
+        m = M3()
+
+        # Embedding currently only supports weight-only quantization
+        with self.assertRaisesRegex(
+            ValueError, "Activation fake quantization is not supported for embedding"
+        ):
+            quantize_(
+                m,
+                intx_quantization_aware_training(my_config, my_config),
+                lambda m, _: isinstance(m, torch.nn.Embedding),
+            )
+
+        # Only linear and embedding are supported currently
+        with self.assertRaisesRegex(ValueError, "does not have QAT support"):
+            quantize_(
+                m,
+                intx_quantization_aware_training(my_config, my_config),
+                lambda m, _: isinstance(m, torch.nn.ReLU),
+            )
 
 
 if __name__ == "__main__":
