@@ -14,6 +14,7 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
+
 @dataclass(frozen=True)
 class Int4CPULayout(Layout):
     """Only for PyTorch version at least 2.6"""
