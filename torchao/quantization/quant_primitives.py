@@ -533,16 +533,6 @@ def _dequantize_affine_no_dtype_check(
         ), "zero_point should be None when zero_point_domain is NONE"
         dequant = input.to(output_dtype)
         dequant = dequant * scale
-    elif zero_point_domain is None:
-        # This case handles dequantization for float8 we expect no zero point and no zero point domain
-        assert (
-            zero_point is None
-        ), "zero_point should be None when zero_point_domain is None"
-        assert _is_float8_type(
-            input.dtype
-        ), f"dequantiztion with no zero point domain is only supported with FP8 types, got {input.dtype}"
-        dequant = input.to(output_dtype)
-        dequant = dequant * scale
     else:
         assert (
             zero_point_domain == ZeroPointDomain.FLOAT.name
@@ -888,14 +878,18 @@ def _choose_qparams_affine(
                 "preserve_zero == False is not supported for symmetric quantization"
             )
         if (
-            zero_point_domain is not None
+            zero_point_domain != ZeroPointDomain.NONE.name
             and zero_point_domain != ZeroPointDomain.INT.name
         ):
             raise ValueError(
-                "zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization"
+                "Except a None value for zero_point_domain, Only ZeroPointDomain.NONE and ZeroPointDomain.INT"
+                " are supported for symmetric quantization."
             )
+        if zero_point_domain == ZeroPointDomain.NONE.name:
+            zero_point = None
+        else:
+            zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
         scale = torch.clamp(scale, min=eps)
-        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
