@@ -58,6 +58,7 @@ jobs:
           
           # SAM 2.1
           ${CONDA_RUN} sh scripts/download_sam2_ckpts.sh ${CHECKPOINT_PATH}/sam2
+          ls torchao/_models/sam2/configs/sam2.1/
           cd examples/sam2_amg_server
           ${CONDA_RUN} python server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json
           ${CONDA_RUN} python server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --use_autoquant --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json
