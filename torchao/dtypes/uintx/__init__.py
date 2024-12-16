@@ -13,8 +13,10 @@ from .semi_sparse_layout import (
     SemiSparseLayout,
 )
 from .tensor_core_tiled_layout import (
-    Int4CPULayout,
     TensorCoreTiledLayout,
+)
+from .int4_cpu_layout import (
+    Int4CPULayout,
 )
 from .uintx_layout import (
     UintxLayout,
