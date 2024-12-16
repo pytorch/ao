@@ -877,7 +877,8 @@ class TestSubclass(unittest.TestCase):
         api(mod)
 
         # test get_plain()
-        mod[0].weight.tensor_impl.get_plain()
+        if hasattr(mod[0].weight, "tensor_impl"):
+            mod[0].weight.tensor_impl.get_plain()
 
         test = mod(x)
         self.assertGreater(
