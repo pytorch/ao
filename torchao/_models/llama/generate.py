@@ -171,7 +171,8 @@ def decode_n_tokens(
             )
             next_token, next_prob = next_token.clone(), next_prob.clone()
             input_pos += 1
-            new_tokens.append(next_token)
+            # in some instances not having this causes weird issues with the stored tokens when you run the next decode_one_token step
+            new_tokens.append(next_token.clone()) 
             callback(new_tokens[-1])
             new_probs.append(next_prob)
             cur_token = next_token
@@ -368,6 +369,7 @@ def main(
             int8_weight_only,
             quantize_,
             uintx_weight_only,
+            gemlite_uintx_weight_only,
         )
 
         from torchao.quantization.granularity import PerRow, PerTensor
@@ -377,6 +379,39 @@ def main(
             from torchao.prototype.spinquant import apply_spinquant
 
             apply_spinquant(model)
+        if "gemlite" in quantization:
+            import os, pwd
+            import gemlite
+            from gemlite.core import GemLiteLinearTriton, set_autotune
+            _quant_args = quantization.split("-")
+            bit_width = int(_quant_args[-2])
+            group_size = None if _quant_args[-1] == 'None' else int(_quant_args[-1])
+            try:
+                packing_bitwidth = int(_quant_args[-3])
+            except:
+                # if only 2 inputs found, use default value
+                packing_bitwidth = 32
+
+            quantize_(model, gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth))
+
+            # try to load gemlite kernel config
+            try:
+                GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+                print(f"loaded gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+            except:
+                print(f"unable to load gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+
+            print("running gemlite warmup")
+            generate(
+                model,
+                encode_tokens(tokenizer, prompt, bos=True, device=device),
+                max_new_tokens,
+                batch_size,
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
+            )
+            GemLiteLinearTriton.cache_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -959,7 +994,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Your CLI description.")
     parser.add_argument(
-        "--prefill_size", type=int, default=0, help="Whether to run in ttft mode"
+        "--prefill_size", type=int, default=None, help="Whether to run in ttft mode"
     )
     parser.add_argument(
         "--prompt", type=str, default="Hello, my name is", help="Input prompt."
@@ -993,7 +1028,7 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>"
         ),
     )
     parser.add_argument(
@@ -1053,6 +1088,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    print(args)
     main(
         args.prefill_size,
         args.prompt,

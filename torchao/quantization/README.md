@@ -335,6 +335,9 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 |             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
 |             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
 
+### Gemlite Triton
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `torchao/_models/llama/generate.py`.
+
 ### UINTx Quantization
 We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
 
@@ -358,7 +361,7 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You try can out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
 
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.

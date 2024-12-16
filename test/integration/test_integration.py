@@ -96,6 +96,12 @@ from torchao.utils import (
 )
 from torchao.dtypes.utils import is_device
 
+try:
+    import gemlite
+    has_gemlite = True
+except ModuleNotFoundError:
+    has_gemlite = False
+
 logger = logging.getLogger("INFO")
 
 torch.manual_seed(0)
@@ -870,6 +876,10 @@ class TestSubclass(unittest.TestCase):
         ref_f = mod(x)
         api(mod)
 
+        # test get_plain()
+        if hasattr(mod[0].weight, "tensor_impl"):
+            mod[0].weight.tensor_impl.get_plain()
+
         test = mod(x)
         self.assertGreater(
             SQNR(ref_f, test),
@@ -929,6 +939,30 @@ class TestSubclass(unittest.TestCase):
                 test_shape=test_shape,
                 test_dtype=dtype
             )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "gemlite tests needs torch 2.5 or greater")
+    @unittest.skipIf(not has_gemlite, "gemlite not available")
+    def test_gemlite_layout(self, device, dtype):
+        if dtype!= torch.float16:
+            self.skipTest(f"gemlite only works for fp16 dtype")
+        from torchao.quantization import gemlite_uintx_weight_only
+        if device == "cpu":
+            self.skipTest(f"gemlite is for cuda, not {device}")
+        for packing_bitwidth in [32, 8]:
+            for bit_width in [4,8]:
+                for group_size in [64, 32, None] if bit_width ==4 else [None]:
+                    api = lambda mod: quantize_(mod, gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth))
+                    for test_shape in [[1, 1024, 512],[16, 256, 1024], [128, 256, 1024]]:
+                        print(packing_bitwidth, bit_width, group_size, test_shape, dtype)
+                        self._test_lin_weight_subclass_api_impl(
+                            api,
+                            device,
+                            15, 
+                            test_shape=test_shape,
+                            test_dtype=dtype,
+                        )
+
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
