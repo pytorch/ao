@@ -939,7 +939,7 @@ def main(
         dtype = quantization or str(precision)
         memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
         performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
-        write_json_result = write_json_result_local if output_json_local else write_json_result_oss_ci
+        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
         write_json_result(output_json_path, headers, memory_result)
         write_json_result(output_json_path, headers, performance_result)
 

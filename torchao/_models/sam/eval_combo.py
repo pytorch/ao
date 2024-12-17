@@ -254,7 +254,7 @@ def run(
     memory_path=None,
     device="cuda",
     output_json_path=None,
-    output_json_lcoal=False,
+    output_json_local=False,
 ):
     from torch._inductor import config as inductorconfig
     inductorconfig.triton.unique_kernel_names = True
@@ -470,7 +470,7 @@ def run(
         dtype = compress or str(use_half) or "torch.float32"
         memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
         performance_result = [name, dtype, device, arch, "img_s(avg)", img_s, None]
-        write_json_result = write_json_result_local if output_json_local else write_json_result_oss_ci
+        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
         write_json_result(output_json_path, headers, memory_result)
         write_json_result(output_json_path, headers, performance_result)
 
