@@ -28,6 +28,7 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
+    Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
@@ -114,6 +115,19 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
+
+# update according to the support matrix
+LAYOUT_TO_ZERO_POINT_DOMAIN = {
+    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
+    MarlinSparseLayout: [ZeroPointDomain.INT],
+    Int4CPULayout: [ZeroPointDomain.FLOAT],
+}
+
+LAYOUT_TO_PRESERVE_ZEROS = {
+    TensorCoreTiledLayout: False,
+    MarlinSparseLayout: True,
+    Int4CPULayout: False,
+}
 
 
 ######
@@ -662,7 +676,10 @@ def gemlite_uintx_weight_only(
 
 
 def int4_weight_only(
-    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False
+    group_size=128,
+    layout=TensorCoreTiledLayout(inner_k_tiles=8),
+    use_hqq=False,
+    zero_point_domain=None,
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -682,6 +699,7 @@ def int4_weight_only(
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
+        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
     def apply_int4_weight_only_quant(weight):
@@ -697,17 +715,26 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
-        preserve_zero = False
+        preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+
+        nonlocal zero_point_domain
+        assert (
+            type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+        ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+        if zero_point_domain is None:
+            # the first value is the default one
+            zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
+        else:
+            assert (
+                zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+            ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
-            preserve_zero = True
-            zero_point_domain = ZeroPointDomain.INT
             assert (
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
