@@ -30,7 +30,8 @@ from contextlib import asynccontextmanager
 import contextlib
 from torchao._models.utils import (
     get_arch_name,
-    write_json_result,
+    write_json_result_ossci,
+    write_json_result_local,
 )
 
 from torch._inductor import config as inductorconfig
@@ -564,7 +565,8 @@ def main(checkpoint_path,
          batch_size=1,
          load_fast="",
          save_fast="",
-         output_json_path=None):
+         output_json_path=None,
+         output_json_local=False):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -661,6 +663,7 @@ def main(checkpoint_path,
             memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
             memory_percent_result = [name, dtype, device, arch, "memory(%)", max_memory_allocated_percentage, None]
             performance_result = [name, dtype, device, arch, "time_s(avg)", avg_time_per_run, None]
+            write_json_result = write_json_result_local if output_json_local else write_json_result_oss_ci
             write_json_result(output_json_path, headers, memory_result)
             write_json_result(output_json_path, headers, memory_percent_result)
             write_json_result(output_json_path, headers, performance_result)
