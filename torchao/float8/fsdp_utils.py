@@ -45,7 +45,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         isinstance(m, Float8Linear) and m.scaling_type_weight is ScalingType.DELAYED
         for m in module.modules()
     ):
-        raise NotImplementedError("Only supports delayed scaling")
+        raise NotImplementedError("Only supports dynamic scaling")
     float8_linears: List[Float8Linear] = [
         m
         for m in module.modules()
