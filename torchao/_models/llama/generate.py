@@ -20,7 +20,8 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import get_model_size_in_bytes, TORCH_VERSION_AT_LEAST_2_5
 from torchao._models.utils import (
     get_arch_name,
-    write_json_result,
+    write_json_result_ossci,
+    write_json_result_local,
 )
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
@@ -134,7 +135,7 @@ def decode_n_tokens(
             next_token, next_prob = next_token.clone(), next_prob.clone()
             input_pos += 1
             # in some instances not having this causes weird issues with the stored tokens when you run the next decode_one_token step
-            new_tokens.append(next_token.clone()) 
+            new_tokens.append(next_token.clone())
             callback(new_tokens[-1])
             new_probs.append(next_prob)
             cur_token = next_token
@@ -278,6 +279,7 @@ def main(
     precision=torch.bfloat16,
     write_result: Optional[Path] = None,
     output_json_path: Optional[Path] = None,
+    output_json_local: bool = False,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer."""
 
@@ -941,6 +943,7 @@ def main(
         dtype = quantization or str(precision)
         memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
         performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
+        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
         write_json_result(output_json_path, headers, memory_result)
         write_json_result(output_json_path, headers, performance_result)
 
@@ -1042,6 +1045,11 @@ if __name__ == "__main__":
         default=None,
         help="Path where to write the json result for dashboard",
     )
+    parser.add_argument(
+        "--output_json_local",
+        action="store_true",
+        help="Whether to output json result for local machine or for CI machine, local option will fill in some dummy fields",
+    )
 
     args = parser.parse_args()
     print(args)
@@ -1069,4 +1077,5 @@ if __name__ == "__main__":
         args.precision,
         args.write_result,
         args.output_json_path,
+        args.output_json_local,
     )
