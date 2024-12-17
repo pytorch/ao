@@ -44,7 +44,7 @@ from torchao.quantization.subclass import (  # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from .subgraph_utils.extract_subgraphs import (
+from torchao.prototype.quantization.subgraph_utils.extract_subgraphs import (
     debug_linears_for_float8,
     prepare_target_folder,
 )

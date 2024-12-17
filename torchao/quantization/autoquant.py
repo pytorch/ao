@@ -996,14 +996,12 @@ DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = [
     AQInt8DynamicallyQuantizedSemiSparseLinearWeight,
 ]
 
-ALL_AUTOQUANT_CLASS_LIST = list(
-    set(
-        DEFAULT_AUTOQUANT_CLASS_LIST
-        + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
-        + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
-        + DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST
-    )
+ALL_AUTOQUANT_CLASS_LIST = (
+    DEFAULT_AUTOQUANT_CLASS_LIST
+    + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+    + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
 )
+
 if is_sm_at_least_89():
     ALL_AUTOQUANT_CLASS_LIST += [
         AQFloat8WeightOnlyQuantizedLinearWeight,
@@ -1012,6 +1010,12 @@ if is_sm_at_least_89():
 
 if is_sm_at_least_90():
     ALL_AUTOQUANT_CLASS_LIST += [AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight]
+
+if not is_sm_at_least_89():
+    ALL_AUTOQUANT_CLASS_LIST += DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST
+
+# deduplicate
+ALL_AUTOQUANT_CLASS_LIST = list(set(ALL_AUTOQUANT_CLASS_LIST))
 
 
 def _change_linears_to_autoquantizable(model, **kwargs):
