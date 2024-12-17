@@ -711,6 +711,10 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
+        elif "codebook" in quantization:
+            from torchao.prototype.quantization.codebook import codebook_weight_only
+            model.to(device)
+            quantize_(model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64))
 
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
