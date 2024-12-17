@@ -12,7 +12,9 @@ import torch.nn as nn
 from torchao.float8.config import Float8LinearConfig
 from torchao.float8.float8_linear_utils import swap_linear_layers
 
-from torchao.prototype.float8nocompile.float8_linear import Float8LinearNoCompile
+from torchao.prototype.float8nocompile.float8nocompile_linear import (
+    Float8LinearNoCompile,
+)
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
