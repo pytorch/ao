@@ -10,7 +10,7 @@ lib.define("unpack_tensor_core_tiled_layout(Tensor packed_w, int inner_k_tiles) 
 lib.define("dequantize_tensor_core_tiled_layout(Tensor packed_w, Tensor scales_and_zeros, int group_size, int inner_k_tiles) -> Tensor")
 lib.define("marlin_24_gemm(Tensor x, Tensor weight_marlin, Tensor meta, Tensor s, Tensor workspace, int bits, int size_m, int size_n, int size_k) -> Tensor")
 lib.define("marlin_qqq_gemm(Tensor x, Tensor weight_marlin, Tensor s_tok, Tensor s_ch, Tensor s_group, Tensor workspace, int size_m, int size_n, int size_k) -> Tensor")
-lib.define("scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=1.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor")
+lib.define("scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor")
 
 
 def register_custom_op(name):
@@ -79,7 +79,7 @@ def scaled_dot_product_int8(
     attn_mask: Tensor = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
-    scale: float = 1.0,
+    scale: float = 0.0,
     q_zp: int = 0,
     q_scale: float = 1.0,
     k_zp: int = 0,
@@ -108,7 +108,7 @@ def _(
     attn_mask: Tensor = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
-    scale: float = 1.0,
+    scale: float = 0.0,
     q_zp: int = 0,
     q_scale: float = 1.0,
     k_zp: int = 0,

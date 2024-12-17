@@ -70,6 +70,20 @@ def get_extensions():
             "cxx": [
                 "-O3" if not debug_mode else "-O0",
                 "-fdiagnostics-color=always",
+                # ## AVX2
+                # "-DCPU_CAPABILITY=AVX2",
+                # "-DCPU_CAPABILITY_AVX2",
+                # "-mavx2",
+                # "-mfma",
+                # "-mf16c",
+                ## AVX512
+                "-DCPU_CAPABILITY=AVX512",
+                "-DCPU_CAPABILITY_AVX512",
+                "-mavx512f",
+                "-mavx512bw",
+                "-mavx512vl",
+                "-mavx512dq",
+                "-mfma",
             ],
             "nvcc": [
                 "-O3" if not debug_mode else "-O0",

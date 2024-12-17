@@ -16,7 +16,7 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU, HAS_CUDA
 
 import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
-from torch._export import capture_pre_autograd_graph
+from torch.export import export_for_training
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
@@ -65,7 +65,7 @@ class SelfAttnLikeModule(torch.nn.Module):
         if self.has_mask:
             scores = scores + mask
         attention = self.softmax(scores)
-        # attention = self.dropout(attention)
+        attention = self.dropout(attention)
         context_layer = torch.matmul(attention, v)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         context_layer = context_layer.view(
@@ -75,7 +75,7 @@ class SelfAttnLikeModule(torch.nn.Module):
 
 def _generate_qdq_quantized_model(mod, inputs, quantizer):
     with torch.no_grad():
-        export_model = capture_pre_autograd_graph(mod, inputs)
+        export_model = export_for_training(mod, inputs).module()
         prepare_model = prepare_pt2e(export_model, quantizer)
         prepare_model(*inputs)
         convert_model = convert_pt2e(prepare_model)
@@ -173,10 +173,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 if dtype == torch.bfloat16
                 else contextlib.nullcontext()
             )
-            inputs = [
+            inputs = (
                 torch.randn((bs, 384, 64 * 16), device=self.device, dtype=dtype),
                 torch.randn((bs, 1, 1, 384), device=self.device) if has_mask else None,
-            ]
+            )
             with torch.no_grad(), maybe_autocast:
                 _sfdp_init_int8()
                 quantizer = X86InductorQuantizer()
