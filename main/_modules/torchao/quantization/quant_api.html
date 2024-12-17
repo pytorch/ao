@@ -411,6 +411,7 @@
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
+    <span class="n">Int4CPULayout</span><span class="p">,</span>
     <span class="n">MarlinQQQLayout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
     <span class="n">PlainLayout</span><span class="p">,</span>
@@ -497,6 +498,19 @@
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
 <span class="p">]</span>
+
+<span class="c1"># update according to the support matrix</span>
+<span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">TensorCoreTiledLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span>
+    <span class="n">MarlinSparseLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">],</span>
+    <span class="n">Int4CPULayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">LAYOUT_TO_PRESERVE_ZEROS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">TensorCoreTiledLayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">MarlinSparseLayout</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">Int4CPULayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">}</span>
 
 
 <span class="c1">######</span>
@@ -1045,7 +1059,10 @@
 
 
 <div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span>
-    <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span>
+    <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
@@ -1065,6 +1082,7 @@
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`</span>
 <span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False</span>
+<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
@@ -1080,17 +1098,26 @@
         <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
-        <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
-        <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span>
+
+        <span class="k">nonlocal</span> <span class="n">zero_point_domain</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># the first value is the default one</span>
+            <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
 
         <span class="c1"># Sparse Marlin only supports symmetric quantization.</span>
         <span class="c1"># NOTE: If we start having lots of layouts that require different configurations,</span>
         <span class="c1"># we should consider moving this logic somewhere else.</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinSparseLayout</span><span class="p">):</span>
             <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
-            <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">True</span>
-            <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
             <span class="k">assert</span> <span class="p">(</span>
                 <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
