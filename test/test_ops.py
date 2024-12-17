@@ -128,39 +128,31 @@ class TestOps(TestCase):
             a_scale=1.0,
             o_zp=0,
             o_scale=1.0):
-        q = q.to(torch.float)
-        k = k.to(torch.float)
-        v = v.to(torch.float)
+        q = (q.to(torch.float) - q_zp) * q_scale
+        k = (k.to(torch.float) - k_zp) * k_scale
+        v = (v.to(torch.float) - v_zp) * v_scale
         scale_factor = 1 / math.sqrt(q.size(-1))
         attn = q @ k.transpose(-2, -1)
         attn = attn * scale_factor
         if attn_mask is not None:
-            attn = attn + attn_mask
+            attn = attn + attn_mask.to(torch.float)
         attn_max = attn.max(dim=-1, keepdim=True).values
         attn = attn - attn_max
         attn = torch.exp(attn)
         attn_sum = torch.sum(attn, dim=-1, keepdim=True)
         attn  = attn / attn_sum
-        math_ref = attn @ v
-        return math_ref.to(torch.uint8)
+        attn = torch.clamp(torch.round(attn / a_scale) + a_zp, min=0, max=255)
+        attn = (attn - a_zp) * a_scale
+        out = attn @ v
+        out = torch.clamp(torch.round(out / o_scale) + o_zp, min=0, max=255)
+        return out.to(torch.uint8)
 
-    SDPA_INT8_BATCH_SIZE = [56]
-    SDPA_INT8_NUM_HEADS = [16]
-    SDPA_INT8_Q_SEQ_LEN = [188]
-    SDPA_INT8_KV_SEQ_LEN = [253]
-    SDPA_INT8_HEAD_DIM = [64]
-    SDPA_INT8_MASK_DTYPE = [torch.bfloat16]
-
-    SDPA_INT8_TEST_PARAMS = list(
-        itertools.product(
-            SDPA_INT8_BATCH_SIZE,
-            SDPA_INT8_NUM_HEADS,
-            SDPA_INT8_Q_SEQ_LEN,
-            SDPA_INT8_KV_SEQ_LEN,
-            SDPA_INT8_HEAD_DIM,
-            SDPA_INT8_MASK_DTYPE,
-        )
-    )
+    SDPA_INT8_BATCH_SIZE = [56, 120]
+    SDPA_INT8_NUM_HEADS = [2, 16]
+    SDPA_INT8_Q_SEQ_LEN = [18, 89]
+    SDPA_INT8_KV_SEQ_LEN = [100, 253]
+    SDPA_INT8_HEAD_DIM = [32, 64]
+    SDPA_INT8_MASK_DTYPE = [None, torch.float32, torch.bfloat16]
 
     @parametrize("batch_size", SDPA_INT8_BATCH_SIZE)
     @parametrize("n_head", SDPA_INT8_NUM_HEADS)
@@ -169,6 +161,7 @@ class TestOps(TestCase):
     @parametrize("head_dim", SDPA_INT8_HEAD_DIM)
     @parametrize("mask_dtype", SDPA_INT8_MASK_DTYPE)
     def test_scaled_dot_product_int8_op(self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype):
+        torch.manual_seed(1234)
         device = "cpu"
         q_zp = int(127)
         q_scale = float(1.7907238006591797)
@@ -180,23 +173,23 @@ class TestOps(TestCase):
         a_scale = float(0.003919653594493866)
         o_zp = int(128)
         o_scale = float(1.8191684484481812)
-        q_shape = [batch_size, n_head, q_seq_len, head_dim]
-        kv_shape = [batch_size, n_head, kv_seq_len, head_dim]
-        mask_shape = [batch_size, 1, q_seq_len, kv_seq_len]
-        q = torch.randn(q_shape, dtype=torch.float, device=device)
-        k = torch.randn(kv_shape, dtype=torch.float, device=device)
-        v = torch.randn(kv_shape, dtype=torch.float, device=device)
+        q_shape = [batch_size, q_seq_len, n_head, head_dim]
+        kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
+        mask_shape = [batch_size, 1, 1, kv_seq_len]
+        q = torch.randn(q_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        k = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        v = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
         q = q.to(torch.uint8)
         k = k.to(torch.uint8)
         v = v.to(torch.uint8)
-        attn_mask = torch.randn(mask_shape, dtype=mask_dtype, device=device)
-        q2, k2, v2, attn_mask_2 = q.clone(), k.clone(), v.clone(), attn_mask.clone()
+        attn_mask = torch.randn(mask_shape, dtype=mask_dtype, device=device) if mask_dtype is not None else None
+        q2, k2, v2, attn_mask_2 = q.clone(), k.clone(), v.clone(), attn_mask.clone() if mask_dtype is not None else None
         
         math_ref = self._scaled_dot_product_int8_op_ref(
             q2,
             k2,
             v2,
-            attn_mask=attn_mask_2,
+            attn_mask=attn_mask,
             dropout_p=0.0,
             is_causal=False,
             q_zp=q_zp,
@@ -214,7 +207,7 @@ class TestOps(TestCase):
             q,
             k,
             v,
-            attn_mask=attn_mask,
+            attn_mask=attn_mask_2,
             dropout_p=0.0,
             is_causal=False,
             q_zp=q_zp,
@@ -229,7 +222,7 @@ class TestOps(TestCase):
             o_scale=o_scale
         )
 
-        self.assertEqual(actual, math_ref, atol=3.0, rtol=5e-6)
+        self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)
 
 
 instantiate_parametrized_tests(TestOps)
