@@ -1379,14 +1379,12 @@
     <span class="n">AQInt8DynamicallyQuantizedSemiSparseLinearWeight</span><span class="p">,</span>
 <span class="p">]</span>
 
-<span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
-    <span class="nb">set</span><span class="p">(</span>
-        <span class="n">DEFAULT_AUTOQUANT_CLASS_LIST</span>
-        <span class="o">+</span> <span class="n">DEFAULT_INT4_AUTOQUANT_CLASS_LIST</span>
-        <span class="o">+</span> <span class="n">DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST</span>
-        <span class="o">+</span> <span class="n">DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST</span>
-    <span class="p">)</span>
+<span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">DEFAULT_AUTOQUANT_CLASS_LIST</span>
+    <span class="o">+</span> <span class="n">DEFAULT_INT4_AUTOQUANT_CLASS_LIST</span>
+    <span class="o">+</span> <span class="n">DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST</span>
 <span class="p">)</span>
+
 <span class="k">if</span> <span class="n">is_sm_at_least_89</span><span class="p">():</span>
     <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">+=</span> <span class="p">[</span>
         <span class="n">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
@@ -1395,6 +1393,12 @@
 
 <span class="k">if</span> <span class="n">is_sm_at_least_90</span><span class="p">():</span>
     <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">+=</span> <span class="p">[</span><span class="n">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">]</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">is_sm_at_least_89</span><span class="p">():</span>
+    <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">+=</span> <span class="n">DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST</span>
+
+<span class="c1"># deduplicate</span>
+<span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">ALL_AUTOQUANT_CLASS_LIST</span><span class="p">))</span>
 
 
 <span class="k">def</span> <span class="nf">_change_linears_to_autoquantizable</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
