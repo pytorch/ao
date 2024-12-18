@@ -940,7 +940,7 @@ def main(
         headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
         name = checkpoint_path.parent.name
         arch = get_arch_name()
-        dtype = quantization or str(precision)
+        dtype = quantization or "noquant"
         memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
         performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
         write_json_result = write_json_result_local if output_json_local else write_json_result_ossci

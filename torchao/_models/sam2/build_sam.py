@@ -87,8 +87,6 @@ def build_sam2(
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
         ]
     # Read config and init model
-    import os
-    print("cur path:", os.getcwd())
     cfg = compose(config_name=config_file, overrides=hydra_overrides_extra)
     OmegaConf.resolve(cfg)
     model = instantiate(cfg.model, _recursive_=True)

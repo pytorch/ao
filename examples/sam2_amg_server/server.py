@@ -658,7 +658,7 @@ def main(checkpoint_path,
             headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
             name = "sam2-" + model_type
             arch = get_arch_name()
-            dtype = "autoquant" if use_autoquant else ("compile" if fast else "base")
+            dtype = "autoquant" if use_autoquant else "noquant"
             avg_time_per_run, max_memory_allocated_bytes, max_memory_allocated_percentage = result
             memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
             memory_percent_result = [name, dtype, device, arch, "memory(%)", max_memory_allocated_percentage, None]
