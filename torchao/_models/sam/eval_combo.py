@@ -467,7 +467,7 @@ def run(
         headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
         name = sam_model_type
         arch = get_arch_name()
-        dtype = compress or str(use_half) or "torch.float32"
+        dtype = compress or "noquant"
         memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
         performance_result = [name, dtype, device, arch, "img_s(avg)", img_s, None]
         write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
