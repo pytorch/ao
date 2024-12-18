@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 import torch
 import torch.nn as nn
@@ -49,11 +51,14 @@ def test_model_weights_and_gradients(model1, model2):
     convert_to_float8_nocompile_training(model1)
     convert_to_float8_training(model2)
 
-    input_data = torch.randn(16, 32, dtype=torch.bfloat16).to(device)
+    input_tensor = torch.randn(16, 32, requires_grad=True, dtype=torch.bfloat16)
+    input_copy1 = input_tensor.clone().detach().to(device).requires_grad_(True)
+    input_copy2 = input_tensor.clone().detach().to(device).requires_grad_(True)
+
     loss_fn = nn.MSELoss()
 
-    output1 = model1(input_data)
-    output2 = model2(input_data)
+    output1 = model1(input_copy1)
+    output2 = model2(input_copy2)
 
     loss1 = loss_fn(output1, torch.zeros_like(output1))
     loss2 = loss_fn(output2, torch.zeros_like(output2))
@@ -61,7 +66,8 @@ def test_model_weights_and_gradients(model1, model2):
     loss1.backward()
     loss2.backward()
 
-    # compare the weights and gradients of both models
+    # compare the outputs, weight gradients, and input gradients
     for param1, param2 in zip(model1.parameters(), model2.parameters()):
-        assert torch.allclose(param1.data, param2.data, atol=0, rtol=0)
+        assert torch.allclose(output1, output2, atol=0, rtol=0)
         assert torch.allclose(param1.grad, param2.grad, atol=0, rtol=0)
+        assert torch.allclose(input_copy1.grad, input_copy2.grad, atol=0, rtol=0)
