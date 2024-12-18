@@ -57,6 +57,8 @@ bool check_linear_mps_args(
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(K % 8 == 0, "Expect K to be multiple of 8");
 
+  ET_LOG_MSG_AND_RETURN_IF_FALSE(N % 4 == 0, "Expect N to be multiple of 4");
+
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
       group_size == 32 || group_size == 64 || group_size == 128 ||
           group_size == 256,

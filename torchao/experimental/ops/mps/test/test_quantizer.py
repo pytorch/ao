@@ -53,7 +53,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         k0 = 96
         k1 = 224
         k2 = 160
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, k2, bias=False),
@@ -115,7 +115,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
     def test_valid_groupsizes(self, nbit, group_size):
         k0 = 3 * group_size
         k1 = 7 * group_size
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, n, bias=False),
@@ -134,7 +134,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         group_size = 16
         k0 = 3 * group_size
         k1 = 7 * group_size
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, n, bias=False),
@@ -158,7 +158,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
     def test_accuracy(self, nbit):
         group_size = 32
         m = 3
-        n = 7
+        n = 12
         k = 64
         with torch.no_grad():
             activations = torch.rand(m, k, dtype=torch.float32, device="mps")
