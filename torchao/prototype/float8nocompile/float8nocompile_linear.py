@@ -41,20 +41,11 @@ class Float8LinearNoCompile(torch.nn.Linear):
         Additional arguments on top of `torch.nn.Linear`'s arguments:
         * `config`: Float8LinearConfig
         """
-
-        # Amax scales should always be kept as float32.
-        self.always_float32_buffers = set()
         config = kwargs.pop("config")
         emulate = config.emulate
         super().__init__(*args, **kwargs)
 
-        # Defines the scaling behavior of input, weight, grad_output
-        self.scaling_type_input = config.cast_config_input.scaling_type
-        self.scaling_type_weight = config.cast_config_weight.scaling_type
-        self.scaling_type_grad_output = config.cast_config_grad_output.scaling_type
-
         self.config = config
-        self.is_amax_initialized = not self.config.enable_amax_init
 
         self.linear_mm_config = LinearMMConfig(
             # output
@@ -81,31 +72,18 @@ class Float8LinearNoCompile(torch.nn.Linear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # TODO(danielvegamyhre): modify to support for FSDP once dependencies are implemented
-        output = self.forward_fp8_matmul(input)
-        if self.bias is not None:
-            output = output + self.bias.to(output.dtype)
-        return output
-
-    def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
-        # perform hp to fp8 conversions
-        # TODO(danielvegamyhre): replace conversion with triton kernels
-        input_fp8 = self.cast_input_to_float8(input, self.is_amax_initialized)
-        weight_scale = self.get_weight_scale(self.weight)
-        weight_fp8_t = self.cast_weight_to_float8_t(
-            self.weight, self.is_amax_initialized, weight_scale
-        )
+        # TODO(danielvegamyhre): replace conversions with triton kernels
+        # TODO(danielvegamyhre): support for FSDP once dependencies are implemented
+        input_fp8 = self.cast_input_to_float8(input)
+        weight_fp8_t = self.cast_weight_to_float8_t(self.weight)
 
         # compute fp8 matmul
         output = manual_float8_matmul_with_args_in_float8.apply(input_fp8, weight_fp8_t)
 
         # cast grad_output to float8_e5m2 during backward
-        # TODO(danielvegamyhre): replace with triton kernel
         return self.cast_output_to_float8_in_bw(output)
 
-    def cast_input_to_float8(
-        self, input: torch.Tensor, is_amax_initialized: bool
-    ) -> torch.Tensor:
+    def cast_input_to_float8(self, input: torch.Tensor) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
         if torch.is_autocast_enabled():
@@ -122,25 +100,13 @@ class Float8LinearNoCompile(torch.nn.Linear):
             gemm_input_role=GemmInputRole.INPUT,
         )
 
-    def get_weight_scale(self, weight: torch.Tensor) -> Optional[torch.Tensor]:
-        # TODO(danielvegamyhre): replace scale calculation with triton kernel
-        if tensor_already_casted_to_fp8(weight):
-            return None
-        return tensor_to_scale(weight, self.config.cast_config_weight.target_dtype)
-
     def cast_weight_to_float8_t(
         self,
         weight: torch.Tensor,
-        is_amax_initialized: bool,
-        weight_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if tensor_already_casted_to_fp8(weight):
-            return weight.t()
-
         # TODO(danielvegamyhre): replace conversion with triton kernel
-        weight_fp8 = hp_tensor_and_scale_to_float8(
+        weight_fp8 = hp_tensor_to_float8nocompile_dynamic(
             weight,
-            weight_scale,
             self.config.cast_config_weight.target_dtype,
             self.linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
@@ -148,6 +114,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
         return weight_fp8.t()
 
     def cast_output_to_float8_in_bw(self, output: torch.Tensor) -> torch.Tensor:
+        # casts grad_output to float8_e5m2 for backward
         # TODO(danielvegamyhre): replace conversion with triton kernel
         return NoopFwToFloat8BwDynamic.apply(
             output,
@@ -156,11 +123,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
         )
 
     @classmethod
-    def from_float(
-        cls,
-        mod,
-        config: Optional[Float8LinearConfig] = None,
-    ):
+    def from_float(cls, mod):
         """
         Create an nn.Linear with fp8 compute from a regular nn.Linear
 
@@ -168,8 +131,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
             mod (torch.nn.Linear): nn.Linear to convert
             config (Optional[Float8LinearConfig]): configuration for conversion to float8
         """
-        if config is None:
-            config = Float8LinearConfig()
+        config = Float8LinearConfig()
         with torch.device("meta"):
             new_mod = cls(
                 mod.in_features,

@@ -15,23 +15,23 @@ import torch
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
+    _ToFloat8ConstrFunc,
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
 )
 from torchao.float8.float8_utils import tensor_to_scale
+
+# avoid division by zero when calculating scale
+# TODO: align this value with NVIDIA's assumptions (current value is a guess)
+EPS = 1e-12
 
 
 def hp_tensor_to_float8nocompile_dynamic(
     hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,
     linear_mm_config: LinearMMConfig,
-    reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
-    device_mesh=None,
-    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
-    axiswise_dim: Optional[int] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -42,28 +42,20 @@ def hp_tensor_to_float8nocompile_dynamic(
         float8_dtype: the float8 dtype to use
         linear_mm_config: Defines the configuration for the scaled_mm for
           the 3 fwd/bwd gemms of linear
-        reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
-        scaling_granularity: Defines the scaling granularity
-        axiswise_dim: if axiswise granularity is used, defines the dim to scale across
     """
     # TODO(danielvegamyhre): replace this torch implementation with custom triton kernel
-    if tensor_already_casted_to_fp8(hp_tensor):
-        return hp_tensor
-    scale = tensor_to_scale(
-        hp_tensor,
-        float8_dtype,
-        reduce_amax,
-        device_mesh,
-        scaling_granularity,
-        axiswise_dim,
-    )
-    return hp_tensor_and_scale_to_float8(
+    # torch.compile and eager show different numerics for 1.0 / float32,
+    # upcast to float64 to ensure same numeric between compile and eager
+    amax = torch.max(torch.abs(hp_tensor)).to(torch.float64)
+    scale = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+    scale = scale.to(torch.float32)  # scale must be fp32
+    return _ToFloat8ConstrFunc.apply(
         hp_tensor,
         scale,
         float8_dtype,
         linear_mm_config,
         gemm_input_role,
-        axiswise_dim,
+        None,
     )
