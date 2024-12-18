@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -75,6 +76,15 @@ def apply_gemlite_quant(
 
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
+
+    if in_features % 128 != 0 and out_features % 128 != 0:
+        warnings.simplefilter("once", UserWarning)
+        warnings.warn(
+            "Gemlite only works for layers with in_features or out_features divisible by 128, "
+            + "some layers have been skipped",
+            UserWarning,
+        )
+        return weight
 
     quant_kwargs = get_gemlite_quant_kwargs(bit_width, group_size)
 
@@ -173,6 +183,11 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             exhaustive=False,
             use_cuda_graph=False,
         )
+        if _layout.group_size is None and _layout.bit_width == 4:
+            from gemlite.core import GEMLITE_ACC_DTYPE
+            from gemlite.dtypes import DType
+
+            GEMLITE_ACC_DTYPE[DType.FP16] = DType.FP32
 
         out_features, in_features = int_data.shape
         input_dtype, output_dtype = DType.FP16, DType.FP16
