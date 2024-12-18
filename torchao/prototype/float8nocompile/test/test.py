@@ -2,6 +2,8 @@ import pytest
 import torch
 import torch.nn as nn
 
+from torchao.float8.float8_linear_utils import convert_to_float8_training
+
 from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
     convert_to_float8_nocompile_training,
 )
@@ -43,8 +45,9 @@ def test_model_weights_and_gradients(model1, model2):
     model1 = model1.to(torch.bfloat16).to(device)
     model2 = model2.to(torch.bfloat16).to(device)
 
-    # swap nn.Linear layers with Float8LinearNoCompile layers in model1 only
+    # compare production float8 linear conversion with no-compile version
     convert_to_float8_nocompile_training(model1)
+    convert_to_float8_training(model2)
 
     input_data = torch.randn(16, 32, dtype=torch.bfloat16).to(device)
     loss_fn = nn.MSELoss()
@@ -61,4 +64,4 @@ def test_model_weights_and_gradients(model1, model2):
     # compare the weights and gradients of both models
     for param1, param2 in zip(model1.parameters(), model2.parameters()):
         assert torch.allclose(param1.data, param2.data, atol=0, rtol=0)
-        assert torch.allclose(param1.grad, param2.grad, atol=1e-3, rtol=1e-3)
+        assert torch.allclose(param1.grad, param2.grad, atol=0, rtol=0)
