@@ -958,10 +958,19 @@ class TestSubclass(unittest.TestCase):
                         self._test_lin_weight_subclass_api_impl(
                             api,
                             device,
-                            15, 
+                            15,
                             test_shape=test_shape,
                             test_dtype=dtype,
                         )
+
+        # test that shapes with non divisible by 128 shapes aren't causing errors
+        self._test_lin_weight_subclass_api_impl(
+            lambda mod: quantize_(mod, gemlite_uintx_weight_only(None, 4, 32)),
+            device,
+            15,
+            test_shape=[1, 1025, 513],
+            test_dtype=dtype,
+        )
 
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
