@@ -3,6 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import json
 import os
 import platform
 import sys
@@ -18,11 +19,6 @@ import torch._inductor.config
 import torchao
 from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import get_model_size_in_bytes, TORCH_VERSION_AT_LEAST_2_5
-from torchao._models.utils import (
-    get_arch_name,
-    write_json_result_ossci,
-    write_json_result_local,
-)
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
@@ -39,6 +35,14 @@ class HostEvent:
             raise ValueError("Event not recorded!")
         # return ms to match cuda event
         return abs(other_event.event_time - self.event_time) * 1000
+
+
+def get_arch_name() -> str:
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_name()
+    else:
+        # This returns x86_64 or arm64 (for aarch64)
+        return platform.machine()
 
 
 def device_timer(device):
@@ -59,6 +63,39 @@ def device_sync(device):
         pass
     else:
         print(f"device={device} is not yet suppported")
+
+
+def write_json_result(output_json_path, headers, row):
+    """
+    Write the result into JSON format, so that it can be uploaded to the benchmark database
+    to be displayed on OSS dashboard. The JSON format is defined at
+    https://github.com/pytorch/pytorch/wiki/How-to-integrate-with-PyTorch-OSS-benchmark-database
+    """
+    mapping_headers = {headers[i]: v for i, v in enumerate(row)}
+    record = {
+        "benchmark": {
+            "name": "TorchAO benchmark",
+            "mode": "inference",
+            "dtype": mapping_headers["dtype"],
+            "extra_info": {
+                "device": mapping_headers["device"],
+                "arch": mapping_headers["arch"],
+            },
+        },
+        "model": {
+            "name": mapping_headers["name"],
+            "type": "model",
+            "origins": ["pytorch"],
+        },
+        "metric": {
+            "name": mapping_headers["metric"],
+            "benchmark_values": [mapping_headers["actual"]],
+            "target_value": mapping_headers["target"],
+        },
+    }
+
+    with open(f"{os.path.splitext(output_json_path)[0]}.json", "a") as f:
+        print(json.dumps(record), file=f)
 
 
 default_device = (
@@ -135,7 +172,7 @@ def decode_n_tokens(
             next_token, next_prob = next_token.clone(), next_prob.clone()
             input_pos += 1
             # in some instances not having this causes weird issues with the stored tokens when you run the next decode_one_token step
-            new_tokens.append(next_token.clone())
+            new_tokens.append(next_token.clone()) 
             callback(new_tokens[-1])
             new_probs.append(next_prob)
             cur_token = next_token
@@ -279,7 +316,6 @@ def main(
     precision=torch.bfloat16,
     write_result: Optional[Path] = None,
     output_json_path: Optional[Path] = None,
-    output_json_local: bool = False,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer."""
 
@@ -692,10 +728,20 @@ def main(
                     example_input=inputs,
                 )
             if "autoquant-all" == quantization:
+                all_qtensor_classes = (
+                    torchao.quantization.DEFAULT_AUTOQUANT_CLASS_LIST
+                    + torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+                    + torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+                )
+                if torchao.utils.is_sm_89():
+                    # this is fp8 related subclasses, should rename
+                    all_qtensor_classes += (
+                        torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST
+                    )
                 model = autoquant(
                     model,
                     manual=True,
-                    qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
+                    qtensor_class_list=all_qtensor_classes,
                     example_input=inputs,
                 )
             else:
@@ -713,10 +759,6 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
-        elif "codebook" in quantization:
-            from torchao.prototype.quantization.codebook import codebook_weight_only
-            model.to(device)
-            quantize_(model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64))
 
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
@@ -936,14 +978,13 @@ def main(
         f.write(result_txt)
         f.close()
 
+    headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+    name = checkpoint_path.parent.name
+    arch = get_arch_name()
+    dtype = quantization or str(precision)
+    memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
+    performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
     if output_json_path:
-        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
-        name = checkpoint_path.parent.name
-        arch = get_arch_name()
-        dtype = quantization or "noquant"
-        memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
-        performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
-        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
         write_json_result(output_json_path, headers, memory_result)
         write_json_result(output_json_path, headers, performance_result)
 
@@ -1045,11 +1086,6 @@ if __name__ == "__main__":
         default=None,
         help="Path where to write the json result for dashboard",
     )
-    parser.add_argument(
-        "--output_json_local",
-        action="store_true",
-        help="Whether to output json result for local machine or for CI machine, local option will fill in some dummy fields",
-    )
 
     args = parser.parse_args()
     print(args)
@@ -1077,5 +1113,4 @@ if __name__ == "__main__":
         args.precision,
         args.write_result,
         args.output_json_path,
-        args.output_json_local,
     )
