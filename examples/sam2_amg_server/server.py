@@ -135,7 +135,7 @@ def iou(mask1, mask2):
     return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
 
 
-def show_anns(anns, rle_to_mask, sort_by_area=True):
+def show_anns(anns, rle_to_mask, sort_by_area=True, seed=None):
     if len(anns) == 0:
         return
     if sort_by_area:
@@ -150,6 +150,8 @@ def show_anns(anns, rle_to_mask, sort_by_area=True):
 
     img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
     img[:,:,3] = 0
+
+    np.random.seed(seed)
     ms = []
     for ann in sorted_anns:
         m = ann['segmentation']

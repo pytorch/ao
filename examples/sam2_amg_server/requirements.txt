@@ -8,3 +8,4 @@ tqdm
 iopath
 python-multipart
 requests
+scipy

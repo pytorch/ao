@@ -66,6 +66,8 @@ def main(path0, path1, strict=False):
                     fail_count += 1
                     continue
 
+            # TODO: We might not want to order_by_area when comparing
+            # masks from specific input points.
             m, e = compare_masks(masks0, masks1, order_by_area=True)
             miou_sum += m
             miou_count += 1
