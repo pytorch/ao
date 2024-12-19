@@ -92,7 +92,7 @@ jobs:
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
-            
+
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@rocm_experiment
     with:
       timeout: 60
