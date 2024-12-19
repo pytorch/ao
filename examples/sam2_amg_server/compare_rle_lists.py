@@ -42,12 +42,17 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
     miou_sum = 0.0
     miou_count = 0.0
     equal_count = 0
-    for ((v0_mask, _), (v1_mask, _)) in zip(v0_masks, v1_masks):
+    for i, ((v0_mask, _), (v1_mask, _)) in enumerate(zip(v0_masks, v1_masks)):
         miou_sum += iou(v0_mask, v1_mask)
         miou_count += 1
         equal_count += torch.equal(v0_mask, v1_mask)
         if verbose:
-            print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+            # If sorted we don't map back to the original key
+            # TODO: Could recover the indices for this
+            if order_by_area:
+                print(f"IoU is {iou(v0_mask, v1_mask)}")
+            else:
+                print(f"mask {i} IoU is iou(v0_mask, v1_mask)")
 
     return miou_sum / miou_count, equal_count
 

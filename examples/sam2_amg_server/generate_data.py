@@ -58,6 +58,10 @@ def main_docstring():
     """
 
 
+# TODO: Add task type argument next to model_type
+# Task types: amg, mps, sps (largest)
+# mps and sps require _meta.json files
+# sps picks largest area for prediction
 def main(
     checkpoint_path,
     model_type,
