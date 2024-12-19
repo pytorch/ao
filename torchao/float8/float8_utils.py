@@ -10,7 +10,11 @@ import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
-from torchao.float8.config import ScalingGranularity
+from torchao.float8.config import (
+    Float8LinearConfig,
+    ScalingGranularity,
+    ScalingType,
+)
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -251,3 +255,14 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+def config_has_stateful_scaling(config: Float8LinearConfig) -> bool:
+    """
+    Returns True if `config` has any delayed or static scaling, and False otherwise.
+    """
+    return (
+        config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
+    )

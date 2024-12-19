@@ -48,6 +48,8 @@ from torchao.float8.float8_tensor import (
     LinearMMConfig,
     ScaledMMConfig,
 )
+from torchao.float8.float8_utils import config_has_stateful_scaling
+from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 
@@ -66,10 +68,16 @@ def _test_compile_base(
     x_ref = copy.deepcopy(x)
     m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
 
-    m_fp8 = Float8Linear.from_float(
-        copy.deepcopy(m_ref),
-        config,
-    )
+    if config_has_stateful_scaling(config):
+        m_fp8 = StatefulFloat8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
+    else:
+        m_fp8 = Float8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
 
     m_fp8 = torch.compile(m_fp8, backend=backend, fullgraph=fullgraph)
     m_ref = torch.compile(m_ref, backend=backend, fullgraph=fullgraph)
