@@ -26,24 +26,9 @@ def timestamped_print(*args, **kwargs):
     print(f"[{timestamp}]", *args, **kwargs)
 
 
-# TODO: Generate baseline data
-# Do this based on a file with ~1000 paths
-# AMG: Automatic mask generation
-# for each image: prompt, RLE Masks, annotated image with mask overlay
-# SPS: Single point segmentation
-# for each image: take largest AMG mask, find center point for prompt, RLE Mask, annotated image with prompt and mask overlay
-# MPS: Multi point segmentation
-# for each image: take AMG mask, find all center points for prompte, RLE Masks, annotated image with prompts from AMG and mask overlay
-
-# If done right this could also build the basis for the benchmark script
-# The first step is running AMG and then the subsequent steps are based on prompts taken from the AMG output
-# The modified variants compare RLE data using a separate script.
-# - We only need to run baseline, AO, AO + Fast, AO + Fast + Furious
-
-# Create separate script to
-# - produce prompts from AMG masks
-# - calculate mIoU from output masks
-# - annotate images with rle json
+# TODO: Create prompts
+# Get prompts for each mask and prompt for largest mask
+# Use those prompts as input for generate data
 
 
 def main_docstring():
@@ -60,8 +45,8 @@ def main(
     checkpoint_path,
     model_type,
     input_paths,
+    amg_mask_folder,
     output_folder,
-    points_per_batch=1024,
     output_format="png",
     verbose=False,
     fast=False,
@@ -71,6 +56,7 @@ def main(
     store_image=False,
     baseline=False,
 ):
+    # Input path validation
     input_paths = [
         Path(input_path.strip())
         for input_path in Path(input_paths).read_text().splitlines()
@@ -84,38 +70,42 @@ def main(
         raise ValueError("Expected input_paths to have unique filenames.")
     if any(not input_path.is_file() for input_path in input_paths):
         raise ValueError("One of the input paths does not point to a file.")
-    if not Path(output_folder).is_dir():
-        raise ValueError("Expected {output_folder} to be a directory.")
-    output_image_paths = [
-        (Path(output_folder) / filename).with_suffix("." + output_format)
-        for filename in filenames
-    ]
-    output_rle_json_paths = [
-        Path(output_folder)
+    if not Path(amg_mask_folder).is_dir():
+        raise ValueError(f"Expected {amg_mask_folder} to be a directory.")
+    rle_json_paths = [
+        Path(amg_mask_folder)
         / Path(filename.parent)
         / Path(filename.stem + "_masks.json")
+        for filename in filenames
+    ]
+    for p in rle_json_paths:
+        if not p.exists():
+            raise ValueError(
+                f"Expected mask {p} to exist."
+            )
+
+    # Output path validation
+    if not Path(output_folder).is_dir():
+        raise ValueError(f"Expected {output_folder} to be a directory.")
+    output_image_paths = [
+        (Path(output_folder) / filename).with_suffix("." + output_format)
         for filename in filenames
     ]
     if not overwrite and any(p.exists() for p in output_image_paths):
         raise ValueError(
             "Output image path already exists, but --overwrite was not specified."
         )
-    if not overwrite and any(p.exists() for p in output_rle_json_paths):
-        raise ValueError(
-            "Output image path already exists, but --overwrite was not specified."
-        )
 
-    for input_path, filename, output_image_path, output_rle_json_path in tqdm(
-        zip(input_paths, filenames, output_image_paths, output_rle_json_paths)
+    for input_path, filename, output_image_path, rle_json_path in tqdm(
+        zip(input_paths, filenames, output_image_paths, rle_json_paths)
     ):
         input_bytes = bytearray(open(input_path, "rb").read())
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         if verbose:
-            timestamped_print(f"Loading rle from {output_rle_json_path}")
-        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
-        with open(output_rle_json_path, "r") as file:
+            timestamped_print(f"Loading rle from {rle_json_path}")
+        with open(rle_json_path, "r") as file:
             rle_dict = json.load(file)
-            masks = [{'segmentation': value} for (key, value) in rle_dict]
+            masks = [{'segmentation': rle_dict[key]} for key in rle_dict]
 
         if verbose:
             timestamped_print(
@@ -126,7 +116,7 @@ def main(
             dpi=100,
         )
         plt.imshow(image_tensor)
-        show_anns(masks, rle_to_mask)
+        show_anns(masks, rle_to_mask, False)
         plt.axis("off")
         plt.tight_layout()
         buf = BytesIO()
