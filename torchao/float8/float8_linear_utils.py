@@ -13,6 +13,7 @@ from torch.distributed._functional_collectives import AsyncCollectiveTensor, all
 
 from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.float8.float8_utils import (
     amax_history_to_scale_stack,
 )
@@ -141,10 +142,23 @@ def convert_to_float8_training(
     """
     if config is None:
         config = Float8LinearConfig()
-    from_float = lambda m: Float8Linear.from_float(
-        m,
-        config=config,
+
+    has_any_stateful_scaling = (
+        config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
     )
+    if has_any_stateful_scaling:
+        from_float = lambda m: StatefulFloat8Linear.from_float(
+            m,
+            config=config,
+        )
+    else:
+        from_float = lambda m: Float8Linear.from_float(
+            m,
+            config=config,
+        )
+
     return swap_linear_layers(
         module,
         from_float,

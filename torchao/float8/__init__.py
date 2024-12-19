@@ -11,7 +11,7 @@ from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
 )
-from torchao.float8.float8_linear import WeightWithDelayedFloat8CastTensor
+from torchao.float8.stateful_float8_linear import WeightWithDelayedFloat8CastTensor
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,

@@ -34,6 +34,7 @@ from torchao.float8.config import (
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     get_float8_layers,
@@ -66,10 +67,22 @@ def _test_compile_base(
     x_ref = copy.deepcopy(x)
     m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
 
-    m_fp8 = Float8Linear.from_float(
-        copy.deepcopy(m_ref),
-        config,
+    # TODO(this PR): reuse this instead of copy-pasta
+    has_any_stateful_scaling = (
+        config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
     )
+    if has_any_stateful_scaling:
+        m_fp8 = StatefulFloat8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
+    else:
+        m_fp8 = Float8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
 
     m_fp8 = torch.compile(m_fp8, backend=backend, fullgraph=fullgraph)
     m_ref = torch.compile(m_ref, backend=backend, fullgraph=fullgraph)

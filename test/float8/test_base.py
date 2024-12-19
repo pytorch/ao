@@ -35,6 +35,7 @@ from torchao.float8.config import (
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,
@@ -279,10 +280,23 @@ class TestFloat8Linear:
         config: Float8LinearConfig,
         use_ac: bool = False,
     ):
-        m_fp8 = Float8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
+        # TODO(this PR): reuse this instead of copy-pasta
+        has_any_stateful_scaling = (
+            config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+            or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+            or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
         )
+        if has_any_stateful_scaling:
+            m_fp8 = StatefulFloat8Linear.from_float(
+                copy.deepcopy(m_ref),
+                config,
+            )
+        else:
+            m_fp8 = Float8Linear.from_float(
+                copy.deepcopy(m_ref),
+                config,
+            )
+
         for _ in range(2):
             if use_ac:
                 y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
