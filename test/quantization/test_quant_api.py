@@ -15,25 +15,25 @@ from pathlib import Path
 import torch
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    get_symmetric_quantization_config,
     XNNPACKQuantizer,
+    get_symmetric_quantization_config,
 )
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
-from torchao._models.llama.model import prepare_inputs_for_model, Transformer
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
+    Quantizer,
+    TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
-    Quantizer,
-    TwoStepQuantizer,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.subclass import (
