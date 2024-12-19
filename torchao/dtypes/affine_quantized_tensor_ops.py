@@ -24,6 +24,10 @@ from torchao.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
 )
+from torchao.dtypes.uintx.int4_packed_layout import (
+    _linear_int8_act_int4_weight_cutlass_check,
+    _linear_int8_act_int4_weight_cutlass_impl,
+)
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
     _linear_int8_act_int4_weight_marlin_qqq_impl,
@@ -142,6 +146,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_fp_act_int4_weight_gemlite_check,
             _linear_fp_act_int4_weight_gemlite_impl,
+        ),
+        (
+            _linear_int8_act_int4_weight_cutlass_check,
+            _linear_int8_act_int4_weight_cutlass_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
