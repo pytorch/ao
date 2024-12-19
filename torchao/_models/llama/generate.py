@@ -343,7 +343,7 @@ def main(
             from torchao.prototype.spinquant import apply_spinquant
 
             apply_spinquant(model)
-        if "gemlite" in quantization:
+        if quantization.startswith("gemlite"):
             import os, pwd
             import gemlite
             from gemlite.core import GemLiteLinearTriton, set_autotune
@@ -677,21 +677,28 @@ def main(
                     qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
                 )
-            if "autoquant-fp" == quantization:
+            elif "autoquant-fp" == quantization:
                 model = autoquant(
                     model,
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
                 )
-            if "autoquant-sparse" == quantization:
+            elif "autoquant-sparse" == quantization:
                 model = autoquant(
                     model,
                     manual=True,
                     qtensor_class_list = torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
                 )
-            if "autoquant-all" == quantization:
+            elif "autoquant-gemlite-int4" == quantization:
+                model = autoquant(
+                    model,
+                    manual=True,
+                    qtensor_class_list=torchao.quantization.GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
+                    example_input=inputs,
+                )
+            elif "autoquant-all" == quantization:
                 model = autoquant(
                     model,
                     manual=True,
@@ -986,7 +993,7 @@ if __name__ == "__main__":
         type=str,
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
-            + "autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
+            + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
             + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>"
         ),
     )

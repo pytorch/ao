@@ -46,7 +46,7 @@ def get_gemlite_quant_kwargs(bit_width, group_size):
     return kwargs
 
 
-def apply_gemlite_quant(
+def get_gemlite_aqt_kwargs(
     weight,
     group_size=64,
     bit_width=4,
@@ -54,7 +54,6 @@ def apply_gemlite_quant(
     contiguous=None,
     use_hqq=True,
 ):
-    from torchao.dtypes.affine_quantized_tensor import to_affine_quantized_intx
     from torchao.dtypes.uintx.gemlite_layout import GemlitePackedLayout
 
     assert bit_width in [
@@ -86,17 +85,15 @@ def apply_gemlite_quant(
         )
         return weight
 
-    quant_kwargs = get_gemlite_quant_kwargs(bit_width, group_size)
-
-    layout = GemlitePackedLayout(
+    aqt_kwargs = get_gemlite_quant_kwargs(bit_width, group_size)
+    aqt_kwargs["_layout"] = GemlitePackedLayout(
         group_size=group_size,
         bit_width=bit_width,
         packing_bitwidth=packing_bitwidth,
         contiguous=contiguous,
     )
-    return to_affine_quantized_intx(
-        weight, **quant_kwargs, _layout=layout, use_hqq=use_hqq
-    )
+    aqt_kwargs["use_hqq"] = use_hqq
+    return aqt_kwargs
 
 
 @dataclass(frozen=True)
