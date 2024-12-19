@@ -42,3 +42,11 @@ def test_fp8_triton_hp_tensor_to_float8_dynamic():
 
     assert torch.allclose(x_fp8._scale, y_fp8._scale, atol=1e-3, rtol=1e-3)
     assert allclose_fp8(x_fp8._data, y_fp8._data, atol=1e-3, rtol=1e-3)
+
+    # assert that error is raised when input tensor is not contiguous
+    with pytest.raises(AssertionError, match="tensor must be contiguous"):
+        triton_hp_tensor_to_float8_dynamic(
+            y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
+            torch.float8_e4m3fn,
+            LinearMMConfig(),
+        )

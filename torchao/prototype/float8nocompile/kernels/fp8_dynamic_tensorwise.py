@@ -61,7 +61,7 @@ def _fp8_scale(
 ):
     # calculate global amax across all blocks
     global_amax = tl.zeros([1], dtype=tl.float64)
-    num_blocks = (num_elements + BLOCK_SIZE - 1) // BLOCK_SIZE
+    num_blocks = tl.cdiv(num_elements, BLOCK_SIZE)
     for i in range(num_blocks):
         block_max = tl.load(block_amaxes_ptr + i)
         global_amax = tl.maximum(global_amax, block_max)
@@ -110,7 +110,9 @@ def triton_hp_tensor_to_float8_dynamic(
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
 ) -> Float8Tensor:
 
-    BLOCK_SIZE = 8
+    assert hp_tensor.is_contiguous(), "tensor must be contiguous"
+
+    BLOCK_SIZE = 8  # TODO(danielvegamyhre): tune this for perf
 
     num_elements = hp_tensor.numel()
     orig_shape = hp_tensor.shape
