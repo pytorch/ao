@@ -65,15 +65,7 @@ jobs:
     - name: Regular lint check
       if: github.event_name != 'workflow_dispatch'
       run: |
-        ruff check .
-        # --isolated is used to skip the allowlist at all so this applies to all files
-        # please be careful when using this large changes means everyone needs to rebase
-        ruff check --isolated --select F821,F823,W191
-        ruff check --select F,I
-        ruff format --check || {
-          echo "Ruff check failed, please try again after running 'ruff format'."
-          exit 1
-        }
+        sh scripts/run_ruff.sh --check
 
     - name: Apply fixes to PR
       if: github.event_name == 'workflow_dispatch'
@@ -82,8 +74,7 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         
         # Apply fixes
-        ruff check --select F,I --fix
-        ruff format .
+        sh scripts/run_ruff.sh
         
         # Commit and push if there are changes
         if [[ -n "$(git status --porcelain)" ]]; then
