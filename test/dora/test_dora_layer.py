@@ -1,6 +1,10 @@
+import itertools
 import sys
 
 import pytest
+import torch
+
+from torchao.prototype.dora.dora_layer import BNBDoRALinear, DoRALinear, HQQDoRALinear
 
 if sys.version_info < (3, 11):
     pytest.skip("requires Python >= 3.11", allow_module_level=True)
@@ -8,25 +12,15 @@ if sys.version_info < (3, 11):
 bnbnn = pytest.importorskip("bitsandbytes.nn", reason="requires bitsandbytes")
 hqq_core = pytest.importorskip("hqq.core.quantize", reason="requires hqq")
 
-import itertools
-
-import torch
 
 # Import modules as opposed to classes directly, otherwise pytest.importorskip always skips
 Linear4bit = bnbnn.Linear4bit
 BaseQuantizeConfig = hqq_core.BaseQuantizeConfig
 HQQLinear = hqq_core.HQQLinear
-from torchao.prototype.dora.dora_layer import BNBDoRALinear, DoRALinear, HQQDoRALinear
 
 
 def check(expected, actual, dtype):
-    if dtype == torch.float32:
-        atol = 1e-4
-    elif dtype == torch.float16:
-        atol = 1e-3
-    elif dtype == torch.bfloat16:
-        atol = 1e-2
-    else:
+    if dtype not in [torch.float32, torch.float16, torch.bfloat16]:
         raise ValueError(f"Unsupported dtype: {dtype}")
     diff = (expected - actual).abs().max()
     print(f"diff: {diff}")
