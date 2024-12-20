@@ -19,7 +19,8 @@ from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMM
 from torchao.float8.float8_utils import tensor_to_scale
 
 from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
-    hp_tensor_to_float8nocompile_dynamic,
+    Float8NoCompileConversionFunc,
+    NoopFwToFloat8NoCompileBwDynamic,
 )
 
 
@@ -67,7 +68,6 @@ class Float8LinearNoCompile(torch.nn.Linear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # TODO(danielvegamyhre): replace conversions with triton kernels
         # TODO(danielvegamyhre): support for FSDP once dependencies are implemented
         input_fp8 = self.cast_input_to_float8(input)
         weight_fp8_t = self.cast_weight_to_float8_t(self.weight)
@@ -87,34 +87,31 @@ class Float8LinearNoCompile(torch.nn.Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        # TODO(danielvegamyhre): implement this fn in scaling_utils with call to triton kernel
-        return hp_tensor_to_float8nocompile_dynamic(
+        return Float8NoCompileConversionFunc.apply(
             input,
             self.config.cast_config_input.target_dtype,
             self.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
+            GemmInputRole.INPUT,
         )
 
     def cast_weight_to_float8_t(
         self,
         weight: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO(danielvegamyhre): replace conversion with triton kernel
-        weight_fp8 = hp_tensor_to_float8nocompile_dynamic(
+        weight_fp8 = Float8NoCompileConversionFunc.apply(
             weight,
             self.config.cast_config_weight.target_dtype,
             self.linear_mm_config,
-            gemm_input_role=GemmInputRole.WEIGHT,
+            GemmInputRole.WEIGHT,
         )
         return weight_fp8.t()
 
     def cast_output_to_float8_in_bw(self, output: torch.Tensor) -> torch.Tensor:
         # casts grad_output to float8_e5m2 for backward
-        # TODO(danielvegamyhre): replace conversion with triton kernel
-        return NoopFwToFloat8BwDynamic.apply(
+        return NoopFwToFloat8NoCompileBwDynamic.apply(
             output,
-            self.linear_mm_config,
             self.config.cast_config_grad_output.target_dtype,
+            self.linear_mm_config,
         )
 
     @classmethod

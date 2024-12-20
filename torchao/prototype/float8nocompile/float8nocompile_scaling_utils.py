@@ -8,19 +8,17 @@
 Utilities for scaling high precision tensors to float8.
 """
 
-from typing import Optional
-
 import torch
 
-from torchao.float8.config import ScalingGranularity
-from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
-    _ToFloat8ConstrFunc,
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
+    _ToFloat8ConstrFunc,
 )
-from torchao.float8.float8_utils import tensor_to_scale
+from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    triton_hp_tensor_to_float8_dynamic,
+)
 
 # avoid division by zero when calculating scale
 # TODO: align this value with NVIDIA's assumptions (current value is a guess)
@@ -59,3 +57,59 @@ def hp_tensor_to_float8nocompile_dynamic(
         gemm_input_role,
         None,
     )
+
+
+class Float8NoCompileConversionFunc(torch.autograd.Function):
+    """
+    A differentiable conversion to fp8.
+    * forward: convert from high precision to float8
+    * backward: pass the gradient without changes
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        float8_dtype: torch.dtype,
+        linear_mm_config: LinearMMConfig,
+        gemm_input_role: GemmInputRole,
+    ):
+        return triton_hp_tensor_to_float8_dynamic(
+            tensor,
+            float8_dtype,
+            linear_mm_config,
+            gemm_input_role,
+        )
+
+    @staticmethod
+    def backward(ctx, g):
+        return g, None, None, None, None, None
+
+
+class NoopFwToFloat8NoCompileBwDynamic(torch.autograd.Function):
+    """
+    A differentiable conversion to fp8.
+    * forward: no-op
+    * backward: convert to float8 with tensor-wise dynamic scaling
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        float8_dtype: torch.dtype,
+        linear_mm_config: LinearMMConfig,
+    ):
+        ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = float8_dtype
+        return tensor
+
+    @staticmethod
+    def backward(ctx, gradY):
+        fp8_tensor = triton_hp_tensor_to_float8_dynamic(
+            gradY,
+            ctx.target_dtype,
+            ctx.linear_mm_config,
+            GemmInputRole.GRAD_OUTPUT,
+        )
+        return fp8_tensor, None, None
