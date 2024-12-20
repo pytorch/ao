@@ -20,7 +20,6 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
-    Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
@@ -344,12 +343,6 @@ class Float8Linear(torch.nn.Linear):
         )
         return weight_fp8.t()
 
-    def cast_weight_to_original_t(self, weight: torch.Tensor):
-        if isinstance(weight, Float8Tensor):
-            return weight.to_original_precision().t()
-        else:
-            return weight.t()
-
     def cast_output_to_float8_in_bw(self, output: torch.Tensor) -> torch.Tensor:
         assert self.scaling_type_grad_output is ScalingType.DYNAMIC
         output = NoopFwToFloat8BwDynamic.apply(
@@ -359,7 +352,7 @@ class Float8Linear(torch.nn.Linear):
         )
         return output
 
-    def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = any(
             cc.scaling_granularity is ScalingGranularity.AXISWISE
             for cc in [
@@ -403,24 +396,6 @@ class Float8Linear(torch.nn.Linear):
                 self.linear_mm_config,
                 self.config,
             )
-        return output
-
-    def forward_original_precision_matmul(self, input: torch.Tensor) -> torch.Tensor:
-        if self.config.force_recompute_fp8_weight_in_bwd:
-            orig_weight_t = checkpoint.checkpoint(
-                self.cast_weight_to_original_t, self.weight
-            )
-        else:
-            orig_weight_t = self.cast_weight_to_original_t(self.weight)
-
-        output = torch.matmul(input, orig_weight_t)
-        return output
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if self.config.use_fp8_all_gather_only:
-            output = self.forward_original_precision_matmul(input)
-        else:
-            output = self.forward_fp8_matmul(input)
 
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)
