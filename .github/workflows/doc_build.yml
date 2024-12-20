@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v3
+        with:
+          persist-credentials: false
       - name: Setup conda env
         uses: conda-incubator/setup-miniconda@v2
         with:
@@ -61,7 +63,9 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Download artifact
         uses: actions/download-artifact@v3
         with:
@@ -96,19 +100,29 @@ jobs:
           name: Doc-Build
           path: docs
       - name: Add no-index tag
+        env:
+          REF_NAME: ${{ github.ref }}
         run: |
-          REF_NAME=$(echo "${{ github.ref }}")
+          if ! [[ "$REF_NAME" =~ ^refs/(heads|tags)/[a-zA-Z0-9._-]+$ ]]; then
+            echo "Error: Invalid ref format"
+            exit 1
+          fi
           echo "Ref name: ${REF_NAME}"
-          if [[ "${{ github.ref }}" == 'refs/heads/main' ]]; then
+          if [[ "$REF_NAME == 'refs/heads/main' ]]; then
             find docs -name "*.html" -print0 | xargs -0 sed -i '/<head>/a \ \ <meta name="robots" content="noindex">';
           fi
       - name: Move and commit changes
+        env:
+          GITHUB_REF: ${{ github.ref }}
         run: |
+          if ! [[ "$REF_NAME" =~ ^refs/(heads|tags)/[a-zA-Z0-9._-]+$ ]]; then
+            echo "Error: Invalid ref format"
+            exit 1
+          fi
           set -euo pipefail
           # Get github.ref for the output doc folder. By default "main"
           # If matches a tag like refs/tags/v1.12.0-rc3 or
           # refs/tags/v1.12.0 convert to 1.12
-          GITHUB_REF=${{ github.ref }}
 
           # Convert refs/tags/v1.12.0rc3 into 1.12.
           # Adopted from https://github.com/pytorch/pytorch/blob/main/.github/workflows/_docs.yml#L150C11-L155C13
