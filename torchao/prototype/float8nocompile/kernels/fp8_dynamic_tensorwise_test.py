@@ -3,14 +3,24 @@ import torch
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    KernelAlgorithm,
     triton_hp_tensor_to_float8_dynamic,
 )
 
 
-def test_fp8_triton_hp_tensor_to_float8_dynamic():
+@pytest.mark.parametrize(
+    "algo", [KernelAlgorithm.ATOMIC_MAX, KernelAlgorithm.REDUCTION]
+)
+@pytest.mark.parametrize(
+    "input_shape",
+    [(32, 32), (512, 512), (4096, 4096)],
+)
+def test_fp8_triton_hp_tensor_to_float8_dynamic(
+    algo: KernelAlgorithm, input_shape: tuple[int, int]
+):
     assert torch.cuda.is_available()
     device = "cuda"
-    input_bf16 = torch.randn((4, 4), dtype=torch.bfloat16, device=device)
+    input_bf16 = torch.randn(input_shape, dtype=torch.bfloat16, device=device)
     x_bf16 = input_bf16.clone().detach().to(device)
     y_bf16 = input_bf16.clone().detach().to(device)
 
@@ -26,6 +36,7 @@ def test_fp8_triton_hp_tensor_to_float8_dynamic():
         y_bf16,
         torch.float8_e4m3fn,
         LinearMMConfig(),
+        algo=algo,
     )
 
     def allclose_fp8(tensor1, tensor2, atol=1e-3, rtol=1e-3):
