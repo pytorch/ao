@@ -669,9 +669,12 @@ def gemlite_uintx_weight_only(
     from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
     use_hqq = True if bit_width == 4 else False
-    apply_fn = lambda weight: to_affine_quantized_intx(weight, **get_gemlite_aqt_kwargs(
-        weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
-    ))
+    apply_fn = lambda weight: to_affine_quantized_intx(
+        weight,
+        **get_gemlite_aqt_kwargs(
+            weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+        ),
+    )
     return _get_linear_subclass_inserter(apply_fn)
 
 

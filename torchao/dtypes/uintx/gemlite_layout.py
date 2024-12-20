@@ -50,7 +50,7 @@ def get_gemlite_aqt_kwargs(
     weight,
     group_size=64,
     bit_width=4,
-    packing_bitwidth=8,
+    packing_bitwidth=32,
     contiguous=None,
     use_hqq=True,
 ):

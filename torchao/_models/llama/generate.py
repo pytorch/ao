@@ -692,6 +692,9 @@ def main(
                     example_input=inputs,
                 )
             elif "autoquant-gemlite-int4" == quantization:
+                import os, pwd
+                from gemlite.core import GemLiteLinearTriton
+                GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
                 model = autoquant(
                     model,
                     manual=True,
@@ -699,6 +702,13 @@ def main(
                     example_input=inputs,
                 )
             elif "autoquant-all" == quantization:
+                try:
+                    import os, pwd
+                    from gemlite.core import GemLiteLinearTriton
+                    GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+                except:
+                    pass
+
                 model = autoquant(
                     model,
                     manual=True,

@@ -707,6 +707,7 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQM
     @classmethod
     def from_float(cls, weight):
         from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
         bit_width = 4
         packing_bitwidth = 32
         contiguous = None
@@ -714,21 +715,26 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQM
         aqt_kwargs = get_gemlite_aqt_kwargs(
             weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
         )
-        return super(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(
-            weight,
-            **aqt_kwargs
-        )
+        return super(
+            AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls
+        ).from_hp_to_intx(weight, **aqt_kwargs)
 
 
-class AQGemliteInt4G64WeightOnlyQuantizedLinearWeight(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight):
+class AQGemliteInt4G64WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
     group_size: int = 64
 
 
-class AQGemliteInt4G128WeightOnlyQuantizedLinearWeight(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight):
+class AQGemliteInt4G128WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
     group_size: int = 128
 
 
-class AQGemliteInt4G256WeightOnlyQuantizedLinearWeight(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight):
+class AQGemliteInt4G256WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
     group_size: int = 256
 
 
