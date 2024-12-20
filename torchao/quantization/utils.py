@@ -454,6 +454,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     )
 
 
+
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
@@ -461,6 +462,100 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bflo
     )
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros, dtype)
     return w_int4x8, scales_and_zeros
+
+
+def get_group_qparams(w, n_bit=4, groupsize=128, scheme="symmetric_channelwise", precision=torch.bfloat16):
+    if groupsize > w.shape[-1] or scheme == "symmetric_channelwise":
+        groupsize = w.shape[-1]
+    assert groupsize > 1
+    assert w.shape[-1] % groupsize == 0
+    assert w.dim() == 2
+
+    to_quant = w.reshape(-1, groupsize)
+    assert torch.isnan(to_quant).sum() == 0
+
+    # improved symmetric 4 bit quantization that uses bin correspondingto -8 from [-8,7] ( -2^(b-1) , 2^(b-1)-1 ) range
+    if scheme == "symmetric_groupwise":
+        to_quant_abs = to_quant.abs()
+        max_abs_indices = to_quant_abs.argmax(dim=1, keepdim=True)
+        max_val = torch.gather(to_quant, 1, max_abs_indices)
+        scales = max_val / -8
+        zeros = torch.zeros_like(scales)
+
+    elif scheme == "symmetric_channelwise":
+        to_quant_abs = to_quant.abs()
+        max_abs_indices = to_quant_abs.argmax(dim=1, keepdim=True)
+        max_val = torch.gather(to_quant, 1, max_abs_indices)
+        scales = max_val / -8
+        zeros = torch.zeros_like(scales)
+    return scales.to(precision).reshape(w.shape[0], -1), zeros.to(
+        precision
+    ).reshape(w.shape[0], -1)
+
+
+def group_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, groupsize=128, scheme="symmetric_channelwise", precision=torch.bfloat16):
+    assert groupsize > 1
+    if groupsize > w.shape[-1] and scales.shape[-1] == 1:
+        groupsize = w.shape[-1]
+
+    assert w.shape[-1] % groupsize == 0
+    assert w.dim() == 2
+
+    to_quant = w.reshape(-1, groupsize)
+    assert torch.isnan(to_quant).sum() == 0
+
+    scales = scales.reshape(-1, 1)
+    zeros = zeros.reshape(-1, 1)
+    if scheme == "symmetric_groupwise":
+        max_int = 2**n_bit - 1
+        w_int8 = (
+            to_quant.div(scales)
+            .add(8.5)
+            .to(torch.int8)
+            .clamp(max=max_int)
+        )
+    elif scheme == "symmetric_channelwise":
+        max_int = 2**n_bit - 1
+        w_int8 = (
+            to_quant.div(scales)
+            .add(8.5)
+            .to(torch.int8)
+            .clamp(max=max_int)
+        )
+    # We pack every odd index value in upper 4 bits and every even index value in lower 4 bits
+    w_uint8 = (w_int8[::, 1::2] << 4 | w_int8[::, ::2]).to(torch.uint8)
+    return w_uint8
+
+
+def pack_scales_and_zeros(scales, zeros, scheme="symmetric_channelwise"):
+    assert scales.shape == zeros.shape
+    scales_zeros = scales.squeeze().contiguous()
+    return scales_zeros
+
+
+def group_quantize_tensor(w, n_bit=4, groupsize=128, scheme="symmetric_channelwise", precision=torch.bfloat16):
+    scales, zeros = get_group_qparams(
+        w, n_bit, groupsize, scheme=scheme, precision=precision)
+    w_uint8 = group_quantize_tensor_from_qparams(
+        w, scales, zeros, n_bit, groupsize, scheme=scheme)
+    scales_and_zeros = pack_scales_and_zeros(scales, zeros, scheme=scheme)
+    return w_uint8, scales_and_zeros
+
+
+def prepare_int4_weight_and_scales_and_zeros(weights, groupsize, inner_k_tiles, scheme="symmetric_channelwise", precision=torch.bfloat16):
+    assert weights.dim() == 2
+    assert groupsize > 1
+    if groupsize > weights.shape[-1] or scheme == "symmetric_channelwise":
+        groupsize = weights.shape[-1]
+    assert weights.shape[-1] % groupsize == 0
+    weight_int4pack, scales_and_zeros = group_quantize_tensor(
+        weights, n_bit=4, groupsize=groupsize, scheme=scheme, precision=precision
+    )
+    if scheme == "symmetric_channelwise":
+        scales_and_zeros = scales_and_zeros.to(dtype=torch.float32)
+    elif scheme == "symmetric_groupwise":
+        scales_and_zeros = scales_and_zeros.to(dtype=torch.bfloat16)
+    return weight_int4pack, scales_and_zeros
 
 
 def groupwise_affine_dequantize_tensor(
