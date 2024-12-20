@@ -11,12 +11,13 @@ Utilities for scaling high precision tensors to float8.
 import torch
 
 from torchao.float8.float8_tensor import (
+    _ToFloat8ConstrFunc,
     Float8Tensor,
     GemmInputRole,
     LinearMMConfig,
-    _ToFloat8ConstrFunc,
 )
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    KernelAlgorithm,
     triton_hp_tensor_to_float8_dynamic,
 )
 
@@ -73,12 +74,14 @@ class Float8NoCompileConversionFunc(torch.autograd.Function):
         float8_dtype: torch.dtype,
         linear_mm_config: LinearMMConfig,
         gemm_input_role: GemmInputRole,
+        kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
     ):
         return triton_hp_tensor_to_float8_dynamic(
             tensor,
             float8_dtype,
             linear_mm_config,
             gemm_input_role,
+            algo=kernel_algo,
         )
 
     @staticmethod
@@ -99,9 +102,11 @@ class NoopFwToFloat8NoCompileBwDynamic(torch.autograd.Function):
         tensor: torch.Tensor,
         float8_dtype: torch.dtype,
         linear_mm_config: LinearMMConfig,
+        kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
     ):
         ctx.linear_mm_config = linear_mm_config
         ctx.target_dtype = float8_dtype
+        ctx.kernel_algo = kernel_algo
         return tensor
 
     @staticmethod
@@ -111,5 +116,6 @@ class NoopFwToFloat8NoCompileBwDynamic(torch.autograd.Function):
             ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
+            ctx.kernel_algo,
         )
-        return fp8_tensor, None, None
+        return fp8_tensor, None, None, None
