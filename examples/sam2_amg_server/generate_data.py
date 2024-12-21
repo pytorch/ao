@@ -238,10 +238,28 @@ def main(
                 # Batching of prompts
                 # First we do batching of prompts
                 # Use MapTensor to create pseudobatches of points and labels
-                print("1")
-                import pdb; pdb.set_trace()
-                print("2")
-                pass
+                from torchvision import io as tio
+                img_bytes_tensor = tio.read_file(input_path)
+                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
+                mask_generator.predictor.set_image(image_tensor)
+
+                center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
+                center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
+                from torchao._models.sam2.map_tensor import to_map_tensor
+                center_points_torch = to_map_tensor(center_points_torch)
+                center_points_label_torch = to_map_tensor(center_points_label_torch)
+                masks, scores, _ = mask_generator.predictor.predict(
+                    point_coords=center_points_torch,
+                    point_labels=center_points_label_torch,
+                    multimask_output=True,
+                    return_logits=False,
+                    return_type="torch",
+                )
+                # Unwrapping MapTensor
+                masks = masks.elems
+                scores = scores.elems
+                # TODO: This isn't exactly efficient
+                masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
 
         with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
             if task_type == "sps":

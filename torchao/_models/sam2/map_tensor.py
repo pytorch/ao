@@ -228,6 +228,18 @@ def unsqueeze_impl(func, types, args, kwargs):
     return wrap(func(unwrapped_args[0], new_i))
 
 
+@implements(torch.ops.aten.squeeze.dim)
+def squeeze_impl(func, types, args, kwargs):
+    unwrapped_args = tree_map(unwrap, args)
+    unwrapped_kwargs = tree_map(unwrap, kwargs)
+    assert len(unwrapped_kwargs) == 0
+    assert len(unwrapped_args) == 2, f"args: {unwrapped_args}"
+    new_i = unwrapped_args[1]
+    if new_i >= 0:
+        new_i += 1
+    return wrap(func(unwrapped_args[0], new_i))
+
+
 @implements(torch.ops.aten.addmm.default)
 def addmm_impl(func, types, args, kwargs):
     unwrapped_args = tree_map(unwrap, args)
@@ -524,6 +536,8 @@ def is_contiguous_impl(func, types, args, kwargs):
              torch.ops.aten.neg.default,
              torch.ops.aten.le.Scalar,
              torch.ops.aten.rsub.Scalar,
+             torch.ops.aten.is_pinned.default,
+             torch.ops.aten.pin_memory.default,
              # Sketchy new in place ops
              torch.ops.aten.bitwise_and_.Tensor,
              torch.ops.aten.bitwise_or_.Tensor,
@@ -551,6 +565,7 @@ def run_invariant_test(res, func, args, kwargs):
             res_0 = torch.ops.aten.reshape.default(*unwrapped_args_0, **unwrapped_kwargs_0)
         else:
             res_0 = func(*unwrapped_args_0, **unwrapped_kwargs_0)
+        # TODO: Extend this all elems not just elems[0]
         if res.elems[0].size() != res_0.size():
             import pdb; pdb.set_trace()
         if not torch.allclose(res.elems[0], res_0, atol=1e-3, rtol=1e-3):
@@ -611,6 +626,10 @@ class MapTensor(torch.Tensor):
 
     def __repr__(self):
         return f"MapTensor({self.elems.size()})"
+
+    def pin_memory(self):
+        elems = self.elems.pin_memory()
+        return wrap(elems)
 
 # ts is a higher dim Tensor
 def to_map_tensor(ts: torch.Tensor):
