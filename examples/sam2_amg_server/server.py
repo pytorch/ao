@@ -507,12 +507,19 @@ def set_fast(mask_generator, load_fast=""):
             dynamic=False,
         )
 
+    # NOTE: Good for AMG and SPS tasks
+    # mask_generator.predictor._predict_masks = torch.compile(
+    #     mask_generator.predictor._predict_masks,
+    #     # mode="max-autotune", # NOTE: cudagraphs and aot_load don't seem to combine well
+    #     mode="max-autotune-no-cudagraphs",
+    #     fullgraph=True,
+    #     dynamic=False,
+    # )
+
     mask_generator.predictor._predict_masks = torch.compile(
         mask_generator.predictor._predict_masks,
-        # mode="max-autotune",
-        mode="max-autotune-no-cudagraphs",
         fullgraph=True,
-        dynamic=False,
+        dynamic=True,
     )
 
     # mask_generator.predictor._predict_masks_postprocess = torch.compile(

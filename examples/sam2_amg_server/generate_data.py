@@ -194,19 +194,32 @@ def main(
                 )
             if task_type == "amg":
                 masks = mask_generator.generate(image_tensor)
-            else:
+            elif task_type == "sps":
                 mask_generator.predictor.set_image(image_tensor)
                 masks, scores, _ = mask_generator.predictor.predict(
                     point_coords=center_points,
                     point_labels=center_points_label,
-                    multimask_output=(task_type == "sps"),
+                    multimask_output=True,
                     return_logits=False,
                 )
                 masks = torch.from_numpy(masks[np.argmax(scores).item()]).to(torch.bool)
+            elif task_type == "mps":
+                mask_generator.predictor.set_image(image_tensor)
+                masks = []
+                for i in range(len(center_points)):
+                    mask, score, _ = mask_generator.predictor.predict(
+                        point_coords=center_points[i:i+1],
+                        point_labels=center_points_label[i:i+1],
+                        multimask_output=True,
+                        return_logits=False,
+                    )
+                    mask = torch.from_numpy(mask[np.argmax(score).item()]).to(torch.bool)
+                    masks.append(mask)
+                masks = torch.stack(masks)
         else:
             if task_type == "amg":
                 masks = mask_generator.generate_from_path(input_path)
-            else:
+            elif task_type == "sps":
                 from torchvision import io as tio
                 img_bytes_tensor = tio.read_file(input_path)
                 image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
@@ -214,16 +227,24 @@ def main(
                 masks, scores, _ = mask_generator.predictor.predict(
                     point_coords=center_points,
                     point_labels=center_points_label,
-                    multimask_output=(task_type == "sps"),
+                    multimask_output=True,
                     return_logits=False,
                     return_type="torch",
                 )
                 masks = masks.index_select(0, torch.argmax(scores))[0]
+            elif task_type == "mps":
+                print("1")
+                import pdb; pdb.set_trace()
+                print("2")
+                pass
 
         with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
             if task_type == "sps":
                 masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]
                 masks = [{'segmentation': masks}]
+            elif task_type == "mps":
+                masks = mask_to_rle_pytorch(masks)
+                masks = [{'segmentation': mask} for mask in masks]
 
         with torch.autograd.profiler.record_function("masks_to_rle_dict"):
             rle_dict = masks_to_rle_dict(masks)
