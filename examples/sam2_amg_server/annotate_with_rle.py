@@ -143,6 +143,11 @@ def _get_center_point(mask):
 # Get prompts for each mask and prompt for largest mask
 # Use those prompts as input for generate data
 
+# Create 3 images for each task type
+# amg: all masks without center point
+# sps: one mask with center point
+# mps: multiple masks with center points
+
 
 def main_docstring():
     return f"""

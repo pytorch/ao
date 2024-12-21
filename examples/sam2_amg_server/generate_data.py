@@ -6,6 +6,7 @@ import json
 import fire
 import logging
 import matplotlib.pyplot as plt
+import numpy as np
 from datetime import datetime
 from server import file_bytes_to_image_tensor
 from server import show_anns
@@ -58,6 +59,9 @@ def main_docstring():
     """
 
 
+TASK_TYPES = ["amg", "sps", "mps"]
+
+
 # TODO: Add task type argument next to model_type
 # Task types: amg, mps, sps (largest)
 # mps and sps require _meta.json files
@@ -65,6 +69,7 @@ def main_docstring():
 def main(
     checkpoint_path,
     model_type,
+    task_type,
     input_paths,
     output_folder,
     points_per_batch=1024,
@@ -75,8 +80,13 @@ def main(
     load_fast="",
     overwrite=False,
     baseline=False,
+    meta_folder=None,
 ):
     start_time = time.time()
+    if task_type not in TASK_TYPES:
+        raise ValueError(f"Expected task_type to be one of {','.join(TASK_TYPES)}, but got {task_type}")
+    if task_type != "amg" and meta_folder is None:
+        raise ValueError(f"Task type {task_type} requires a path for --meta-folder")
 
     input_paths = [
         Path(input_path.strip())
@@ -112,16 +122,34 @@ def main(
             "Output image path already exists, but --overwrite was not specified."
         )
 
+    if task_type == "amg":
+        meta_paths = len(output_rle_json_paths) * [None]
+    else:
+        meta_paths = [
+            Path(meta_folder)
+            / Path(filename.parent)
+            / Path(filename.stem + "_meta.json")
+            for filename in filenames
+        ]
+        if any(not p.exists() for p in meta_paths):
+            raise ValueError(
+                "--meta-folder was specified, but one of the files doesn't exist."
+            )
+
     if baseline:
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
         from sam2.utils.amg import rle_to_mask
+        from sam2.utils.amg import mask_to_rle_pytorch
     else:
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
+        from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
         from torchao._models.sam2.utils.amg import rle_to_mask
+        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2 as mask_to_rle_pytorch
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     if verbose:
@@ -139,10 +167,24 @@ def main(
     if fast:
         set_fast(mask_generator, load_fast)
 
-    for input_path, filename, output_image_path, output_rle_json_path in tqdm(
-        zip(input_paths, filenames, output_image_paths, output_rle_json_paths),
+    for input_path, filename, output_image_path, output_rle_json_path, meta_path in tqdm(
+        zip(input_paths, filenames, output_image_paths, output_rle_json_paths, meta_paths),
         total=len(input_paths),
     ):
+        if task_type != "amg":
+            if verbose:
+                timestamped_print(f"Loading meta from {meta_path}")
+            with open(meta_path, 'r') as file:
+                amg_masks = list(json.load(file).values())
+                amg_masks = sorted(amg_masks, key=(lambda x: x['area']), reverse=True)
+                # center points for biggest area first.
+                center_points = [mask['center_point'] for mask in amg_masks]
+                center_points = np.array(center_points)
+                center_points_label = np.array(len(center_points) * [1])
+                if task_type == "sps":
+                    center_points = center_points[:1]
+                    center_points_label = center_points_label[:1]
+
         if baseline:
             input_bytes = bytearray(open(input_path, "rb").read())
             image_tensor = file_bytes_to_image_tensor(input_bytes)
@@ -150,9 +192,39 @@ def main(
                 timestamped_print(
                     f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
                 )
-            masks = mask_generator.generate(image_tensor)
+            if task_type == "amg":
+                masks = mask_generator.generate(image_tensor)
+            else:
+                mask_generator.predictor.set_image(image_tensor)
+                masks, scores, _ = mask_generator.predictor.predict(
+                    point_coords=center_points,
+                    point_labels=center_points_label,
+                    multimask_output=(task_type == "sps"),
+                    return_logits=False,
+                )
+                masks = torch.from_numpy(masks[np.argmax(scores).item()]).to(torch.bool)
         else:
-            masks = mask_generator.generate_from_path(input_path)
+            if task_type == "amg":
+                masks = mask_generator.generate_from_path(input_path)
+            else:
+                from torchvision import io as tio
+                img_bytes_tensor = tio.read_file(input_path)
+                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
+                mask_generator.predictor.set_image(image_tensor)
+                masks, scores, _ = mask_generator.predictor.predict(
+                    point_coords=center_points,
+                    point_labels=center_points_label,
+                    multimask_output=(task_type == "sps"),
+                    return_logits=False,
+                    return_type="torch",
+                )
+                masks = masks.index_select(0, torch.argmax(scores))[0]
+
+        with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
+            if task_type == "sps":
+                masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]
+                masks = [{'segmentation': masks}]
+
         with torch.autograd.profiler.record_function("masks_to_rle_dict"):
             rle_dict = masks_to_rle_dict(masks)
 
@@ -170,4 +242,5 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
+    # profiler_runner("asdf.json.gz", fire.Fire, main)
     fire.Fire(main)

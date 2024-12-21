@@ -509,7 +509,8 @@ def set_fast(mask_generator, load_fast=""):
 
     mask_generator.predictor._predict_masks = torch.compile(
         mask_generator.predictor._predict_masks,
-        mode="max-autotune",
+        # mode="max-autotune",
+        mode="max-autotune-no-cudagraphs",
         fullgraph=True,
         dynamic=False,
     )
