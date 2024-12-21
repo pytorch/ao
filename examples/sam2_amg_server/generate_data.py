@@ -233,6 +233,10 @@ def main(
                 )
                 masks = masks.index_select(0, torch.argmax(scores))[0]
             elif task_type == "mps":
+                # NOTE: There are multiple opportunities for batching here
+                # Batching of images
+                # Batching of prompts
+                # First we do batching of prompts
                 print("1")
                 import pdb; pdb.set_trace()
                 print("2")
