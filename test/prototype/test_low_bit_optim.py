@@ -152,6 +152,55 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
+    
+
+    @parametrize(
+        "optim_name",
+        ["AdamFp8", "AdamWFp8"],
+    )
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("device", _DEVICES)
+    def test_optim_fp8_coat_smoke(self, optim_name, dtype, device):
+        if device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device, dtype=dtype)
+
+        optim = getattr(low_bit_optim, optim_name)(model.parameters(), dynamic_range_expansion=True)
+
+        x = torch.randn(4, 32, device=device, dtype=dtype)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
+        # test serialization. also test the case CUDA optim loads CPU state dict
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(optim.state_dict(), f.name)
+            state_dict = torch.load(f.name, map_location="cpu")
+
+        model2 = copy.deepcopy(model)
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device, dtype=dtype)
+
+            model(x).sum().backward()
+            optim.step()
+            optim.zero_grad()
+
+            model2(x).sum().backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
 
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
