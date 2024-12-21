@@ -31,21 +31,21 @@ template <>
 struct LowBitConfig<2> {
   static constexpr std::string_view func_prefix = "int2pack_mm_";
   static constexpr auto packing_fn = packing::pack<2>;
-  static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
 };
 
 template <>
 struct LowBitConfig<3> {
   static constexpr std::string_view func_prefix = "int3pack_mm_";
   static constexpr auto packing_fn = packing::pack<3>;
-  static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
 };
 
 template <>
 struct LowBitConfig<4> {
   static constexpr std::string_view func_prefix = "int4pack_mm_";
   static constexpr auto packing_fn = packing::pack<4>;
-  static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
 };
 
 template <>
@@ -125,6 +125,7 @@ void linear_lowbit_quant_weights_mps(
     int32_t N,
     const std::string_view type_str) {
   assert(K % 8 == 0);
+  assert(N % 4 == 0);
   assert(
       qGroupSize == 32 || qGroupSize == 64 || qGroupSize == 128 ||
       qGroupSize == 256);

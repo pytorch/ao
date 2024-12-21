@@ -48,6 +48,7 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST",
     "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
@@ -700,6 +701,43 @@ class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
     layout: Layout = MarlinSparseLayout()
 
 
+class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+    group_size: int = 32
+
+    @classmethod
+    def from_float(cls, weight):
+        from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
+        bit_width = 4
+        packing_bitwidth = 32
+        contiguous = None
+        use_hqq = True
+        aqt_kwargs = get_gemlite_aqt_kwargs(
+            weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+        )
+        return super(
+            AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls
+        ).from_hp_to_intx(weight, **aqt_kwargs)
+
+
+class AQGemliteInt4G64WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
+    group_size: int = 64
+
+
+class AQGemliteInt4G128WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
+    group_size: int = 128
+
+
+class AQGemliteInt4G256WeightOnlyQuantizedLinearWeight(
+    AQGemliteInt4G32WeightOnlyQuantizedLinearWeight
+):
+    group_size: int = 256
+
+
 class AQDefaultLinearWeight(torch.Tensor, AQMixin):
     """
     A class to be used in concert with AutoQuantizableLinearWeight to provide a
@@ -977,6 +1015,12 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
     AQInt4G64WeightOnlyQuantizedLinearWeight,
 ]
 
+GEMLITE_INT4_AUTOQUANT_CLASS_LIST = [
+    AQDefaultLinearWeight,
+    AQInt8DynamicallyQuantizedLinearWeight,
+    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+]
+
 DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST = [
     AQFloat32LinearWeight,
     AQBFloat16LinearWeight,
@@ -996,14 +1040,17 @@ DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = [
     AQInt8DynamicallyQuantizedSemiSparseLinearWeight,
 ]
 
-ALL_AUTOQUANT_CLASS_LIST = list(
-    set(
-        DEFAULT_AUTOQUANT_CLASS_LIST
-        + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
-        + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
-        + DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST
-    )
+ALL_AUTOQUANT_CLASS_LIST = (
+    DEFAULT_AUTOQUANT_CLASS_LIST
+    + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+    + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
 )
+
+# add gemlite options
+ALL_AUTOQUANT_CLASS_LIST += [
+    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+]
+
 if is_sm_at_least_89():
     ALL_AUTOQUANT_CLASS_LIST += [
         AQFloat8WeightOnlyQuantizedLinearWeight,
@@ -1012,6 +1059,12 @@ if is_sm_at_least_89():
 
 if is_sm_at_least_90():
     ALL_AUTOQUANT_CLASS_LIST += [AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight]
+
+if not is_sm_at_least_89():
+    ALL_AUTOQUANT_CLASS_LIST += DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST
+
+# deduplicate
+ALL_AUTOQUANT_CLASS_LIST = list(set(ALL_AUTOQUANT_CLASS_LIST))
 
 
 def _change_linears_to_autoquantizable(model, **kwargs):

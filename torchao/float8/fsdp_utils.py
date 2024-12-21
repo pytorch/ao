@@ -13,6 +13,7 @@ import torch.utils._pytree as pytree
 from torch._prims_common import suggest_memory_format
 
 from torchao.float8.float8_scaling_utils import (
+    _maybe_initialize_amaxes_scales_for_float8_cast,
     hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
@@ -45,7 +46,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         isinstance(m, Float8Linear) and m.scaling_type_weight is ScalingType.DELAYED
         for m in module.modules()
     ):
-        raise NotImplementedError("Only supports delayed scaling")
+        raise NotImplementedError("Only supports dynamic scaling")
     float8_linears: List[Float8Linear] = [
         m
         for m in module.modules()
@@ -420,10 +421,6 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
         # initialize if needed
         # TODO(before land): ensure settings are consistent between Float8Linear and here
         if not self.is_amax_initialized:
-            from torchao.float8.float8_linear import (
-                _maybe_initialize_amaxes_scales_for_float8_cast,
-            )
-
             _maybe_initialize_amaxes_scales_for_float8_cast(
                 self._tensor,
                 self._amax_buffer,

@@ -9,9 +9,6 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.quant_api import (
-    _replace_with_custom_fn_if_matches_filter,
-)
 from torchao.quantization.quant_primitives import TorchAODType
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
@@ -85,6 +82,30 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             self.sparse,
         )
 
+    @classmethod
+    def from_embedding(
+        cls,
+        mod: torch.nn.Embedding,
+        weight_config: Optional[FakeQuantizeConfig] = None,
+    ):
+        new_embedding = FakeQuantizedEmbedding(
+            mod.num_embeddings,
+            mod.embedding_dim,
+            mod.padding_idx,
+            mod.max_norm,
+            mod.norm_type,
+            mod.scale_grad_by_freq,
+            mod.sparse,
+            weight_config=weight_config,
+            device=mod.weight.device,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if mod.weight.device != torch.device("meta"):
+            new_embedding.weight = mod.weight
+        return new_embedding
+
 
 # ======================================
 # |   Embedding int4 weight-only QAT   |
@@ -115,6 +136,10 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         """
         Swap `nn.Embedding` modules with `Int4WeightOnlyQATEmbedding`.
         """
+        # avoid circular imports
+        from torchao.quantization.quant_api import (
+            _replace_with_custom_fn_if_matches_filter,
+        )
 
         def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
             return isinstance(child, torch.nn.Embedding)

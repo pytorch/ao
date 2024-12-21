@@ -1,5 +1,7 @@
 from .api import (
     ComposableQATQuantizer,
+    FakeQuantizeConfig,
+    intx_quantization_aware_training,
 )
 from .embedding import (
     Int4WeightOnlyEmbeddingQATQuantizer,
@@ -11,7 +13,9 @@ from .linear import (
 
 __all__ = [
     "ComposableQATQuantizer",
+    "FakeQuantizeConfig",
     "Int4WeightOnlyQATQuantizer",
     "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
+    "intx_quantization_aware_training",
 ]

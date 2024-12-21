@@ -46,7 +46,7 @@ class FakeQuantizeConfig:
         scale_precision: scale dtype (default torch.fp32)
         zero_point_precision: zero point dtype (default torch.int32)
         zero_point_domain: whether zero point is in integer (default) or float domain
-        is_dynamic: whether to use dynamic (defualt) or static scale and zero points
+        is_dynamic: whether to use dynamic (default) or static scale and zero points
         range_learning: whether to learn scale and zero points during training (coming soon)
 
     kwargs (optional):
@@ -237,6 +237,62 @@ class FakeQuantizeConfig:
             super().__setattr__("mapping_type", mapping_type)
         else:
             super().__setattr__(name, value)
+
+
+def intx_quantization_aware_training(
+    activation_config: Optional[FakeQuantizeConfig] = None,
+    weight_config: Optional[FakeQuantizeConfig] = None,
+) -> torch.nn.Module:
+    """
+    Return a function that applies fake quantization to a `torch.nn.Module`.
+    to be used with :func:`~torchao.quantization.quant_api.quantize_`.
+
+    Example usage::
+
+        from torchao.quantization import quantize_
+        from torchao.quantization.qat import FakeQuantizeConfig
+        activation_config = FakeQuantizeConfig(
+            torch.int8, "per_token", is_symmetric=False,
+        )
+        weight_config = FakeQuantizeConfig(
+            torch.int4, group_size=32, is_symmetric=True,
+        )
+        quantize_(
+            model,
+            intx_quantization_aware_training(activation_config, weight_config),
+        )
+
+    Note: If the returned function is applied on a module that is not
+    `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
+    `torch.nn.Embedding` with an activation config, then we will raise
+    ValueError as these are not supported.
+    """
+
+    def _insert_fake_quantize(mod: torch.nn.Module):
+        """
+        Swap the given module with its corresponding fake quantized version.
+        """
+        from .embedding import FakeQuantizedEmbedding
+        from .linear import FakeQuantizedLinear
+
+        if isinstance(mod, torch.nn.Linear):
+            return FakeQuantizedLinear.from_linear(
+                mod,
+                activation_config,
+                weight_config,
+            )
+        elif isinstance(mod, torch.nn.Embedding):
+            if activation_config is not None:
+                raise ValueError(
+                    "Activation fake quantization is not supported for embedding"
+                )
+            return FakeQuantizedEmbedding.from_embedding(mod, weight_config)
+        else:
+            raise ValueError(
+                "Module of type '%s' does not have QAT support" % type(mod)
+            )
+
+    return _insert_fake_quantize
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):

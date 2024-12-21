@@ -373,8 +373,13 @@ def _quantize_affine_no_dtype_cast(
     for i in reduction_dims:
         shape_after_reduction[i] = 1
     scale = scale.view(shape_after_reduction)
-    if zero_point is not None:
+
+    if zero_point is not None and zero_point.numel() > 0:
         zero_point = zero_point.view(shape_after_reduction)
+    else:
+        # in some cases zero_point being a non-value shows as a tensor
+        # with numel=0 which we handle by unifying the two
+        zero_point = None
 
     if zero_point_domain == ZeroPointDomain.INT.name:
         quant = torch.clamp(
@@ -889,10 +894,12 @@ def _choose_qparams_affine(
             )
         if (
             zero_point_domain is not None
-            and zero_point_domain != ZeroPointDomain.INT.name
+            and zero_point_domain == ZeroPointDomain.FLOAT.name
         ):
+            # TODO INT should not be a valid ZeroPointDomain for symmetric quantization since
+            # symmetric quant doesn't have a zero_point
             raise ValueError(
-                "zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization"
+                "zero_point_domain should be ZeroPointDomain.INT or ZeroPointDomain.NONE for symmetric quantization"
             )
         scale = torch.clamp(scale, min=eps)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
@@ -911,6 +918,9 @@ def _choose_qparams_affine(
                     zero_point_domain == ZeroPointDomain.FLOAT.name
                 ), "if not preserve_zero, zero_point must be in FLOAT domain"
                 mid_point = (quant_max + quant_min + 1) / 2
+                # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+                # TODO move the conversion of zero_point out of quant_primitives
+                # and into TensorCoreTiledLayout.from_plain
                 zero_point = min_val_neg + scale * mid_point
 
     if zero_point is not None:
@@ -1185,17 +1195,31 @@ def choose_qparams_and_quantize_affine_hqq(
             verbose=verbose,
         )
     else:
+        zero = zero.to(compute_dtype)
+        scale = scale.to(compute_dtype)
         W_q = torch.round(W * scale + zero).clamp(min_max[0], min_max[1])
 
     # Store meta-data (we invert the scale for dequantization)
     scale = 1.0 / scale
 
-    # Convert to affienquantized format
+    # Convert to TensorCoreTiled format
+    # TODO move the conversion of zero_point out of quant_primitives
+    # and into TensorCoreTiledLayout.from_plain and rename this
+    # helper function correctly.
     if raw_output is False:
         W_q, scale, zero = _convert_to_affinequantized_format(
             W_q, scale, zero, nbits, shape
         )
-
+    else:
+        # this path was not used before, the way hqq sets up scale/zero is transposed
+        # compared to the rest of our utils so we need to reshape them acccordingly.
+        W_q = W_q.reshape(shape)
+        if axis == 1:
+            scale = scale.reshape(shape[0], -1)
+            zero = zero.reshape(shape[0], -1)
+        else:
+            scale = scale.reshape(-1, shape[-1])
+            zero = zero.reshape(-1, shape[-1])
     # Make sure all the weights are in the right compute_dtype/device
     W_q = W_q.to(dtype=torch.uint8, device=device)
     scale = scale.to(dtype=compute_dtype, device=device)

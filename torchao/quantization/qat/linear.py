@@ -105,6 +105,28 @@ class FakeQuantizedLinear(torch.nn.Linear):
             w = self.weight
         return F.linear(x, w)
 
+    @classmethod
+    def from_linear(
+        cls,
+        mod: torch.nn.Linear,
+        activation_config: Optional[FakeQuantizeConfig] = None,
+        weight_config: Optional[FakeQuantizeConfig] = None,
+    ):
+        new_linear = FakeQuantizedLinear(
+            mod.in_features,
+            mod.out_features,
+            mod.bias,
+            activation_config=activation_config,
+            weight_config=weight_config,
+            device=mod.weight.device,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if mod.weight.device != torch.device("meta"):
+            new_linear.weight = mod.weight
+        return new_linear
+
 
 class _LegacyQATQuantizer(TwoStepQuantizer):
     """

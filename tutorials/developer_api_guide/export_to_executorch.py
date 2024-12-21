@@ -7,25 +7,28 @@ or rely on https://github.com/pytorch/executorch/tree/main/examples/models/llama
 
 This can also support exporting the model to other platforms like ONNX as well.
 """
+
+from typing import List, Optional
+
 import torch
 import torchao
-from my_dtype_tensor_subclass import (
-    MyDTypeTensor,
-)
-from torchao.utils import _register_custom_op
+from my_dtype_tensor_subclass import MyDTypeTensor
 from torchao.quantization.quant_primitives import dequantize_affine
-from typing import Optional, List
+from torchao.utils import _register_custom_op
 
 quant_lib = torch.library.Library("quant", "FRAGMENT")
 register_custom_op = _register_custom_op(quant_lib)
 
+
 class MyDTypeTensorExtended(MyDTypeTensor):
     pass
+
 
 implements = MyDTypeTensorExtended.implements
 to_my_dtype_extended = MyDTypeTensorExtended.from_float
 
 aten = torch.ops.aten
+
 
 # NOTE: the op must start with `_`
 # NOTE: typing must be compatible with infer_schema (https://github.com/pytorch/pytorch/blob/main/torch/_library/infer_schema.py)
@@ -59,27 +62,29 @@ def _(func, types, args, kwargs):
 
 def main():
     group_size = 64
-    m = torch.nn.Sequential(
-        torch.nn.Embedding(4096, 128)
-    )
+    m = torch.nn.Sequential(torch.nn.Embedding(4096, 128))
     input = torch.randint(0, 4096, (1, 6))
 
-    m[0].weight = torch.nn.Parameter(to_my_dtype_extended(m[0].weight), requires_grad=False)
+    m[0].weight = torch.nn.Parameter(
+        to_my_dtype_extended(m[0].weight), requires_grad=False
+    )
     y_ref = m[0].weight.dequantize()[input]
     y_q = m(input)
     from torchao.quantization.utils import compute_error
+
     sqnr = compute_error(y_ref, y_q)
     assert sqnr > 45.0
 
     # export
     m_unwrapped = torchao.utils.unwrap_tensor_subclass(m)
-    m_exported = torch.export.export(m_unwrapped, (input,)).module()
+    m_exported = torch.export.export(m_unwrapped, (input,), strict=True).module()
     y_q_exported = m_exported(input)
 
     assert torch.equal(y_ref, y_q_exported)
     ops = [n.target for n in m_exported.graph.nodes]
     print(m_exported)
     assert torch.ops.quant.embedding_byte.default in ops
+
 
 if __name__ == "__main__":
     main()

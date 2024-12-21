@@ -32,7 +32,7 @@ def convert_hf_checkpoint(
     model_map_json_safetensors = checkpoint_dir / 'model.safetensors.index.json'
     model_map_json_pytorch = checkpoint_dir / "pytorch_model.bin.index.json"
     model_map_json = None
-   
+
     try:
       assert model_map_json_safetensors.is_file()
       model_map_json = model_map_json_safetensors
@@ -46,7 +46,7 @@ def convert_hf_checkpoint(
         print(f"Found pytorch index at {model_map_json_pytorch}")
       except AssertionError:
         print(f"{model_map_json_pytorch} not found")
-   
+
     if model_map_json is None: raise Exception("No model map found!")
 
     with open(model_map_json) as json_map:
@@ -85,7 +85,7 @@ def convert_hf_checkpoint(
        else:
            state_dict = torch.load(str(file), map_location="cpu", mmap=True, weights_only=True)
            merged_result.update(state_dict)
-    
+
     if config.tie_word_embeddings:
         merged_result["lm_head.weight"] = merged_result["model.embed_tokens.weight"].clone()
 

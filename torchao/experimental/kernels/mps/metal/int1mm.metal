@@ -2,10 +2,10 @@
 using namespace metal;
 
 /**
- * 3-Bit Quantized Linear.
+ * 1-Bit Quantized Linear.
  *
- * @param[A] M x K unquantized input tensor of floating point dtype (Float, Half, BFloat16)
- * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (3 * K / 8)
+ * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
+ * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (K / 8)
  * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
  * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
@@ -14,7 +14,7 @@ using namespace metal;
  * Dispatched threads: N x M x 1
  */
 template<typename T, unsigned groupSize>
-kernel void int3pack_mm(
+kernel void int1pack_mm(
     constant T                 * A              [[buffer(0)]],
     constant uchar             * B              [[buffer(1)]],
     constant T                 * scales         [[buffer(2)]],
@@ -28,7 +28,7 @@ kernel void int3pack_mm(
     const uint n = thread_index.x; // 0..N-1
     const uint32_t k_block = (K + groupSize - 1) / groupSize;
     constant T *A_ptr = A + m * K;
-    constant uchar *B_ptr = B + n * 3 * K / 8;
+    constant uchar *B_ptr = B + n * K / 8;
 
     float rc = 0.0;
     uint k = 0;
@@ -45,19 +45,16 @@ kernel void int3pack_mm(
         const auto a_val6 = float(A_ptr[k + 6]);
         const auto a_val7 = float(A_ptr[k + 7]);
 
-        uchar b0 = B_ptr[3 * (k / 8) + 0];
-        uchar b1 = B_ptr[3 * (k / 8) + 1];
-        uchar b2 = B_ptr[3 * (k / 8) + 2];
+        uchar b0 = B_ptr[(k / 8)];
 
-        uchar w_val0 = ((b0 & 1) << 2) | (b1 & 3);
-        uchar w_val1 = ((b0 & 2) << 1) | ((b1 & 12) >> 2);
-        uchar w_val2 = (b0 & 4) | ((b1 & 48) >> 4);
-        uchar w_val3 = ((b0 & 8) >> 1) | ((b1 & 192) >> 6);
-
-        uchar w_val4 = ((b0 & 16) >> 2) | (b2 & 3);
-        uchar w_val5 = ((b0 & 32) >> 3) | ((b2 & 12) >> 2);
-        uchar w_val6 = ((b0 & 64) >> 4) | ((b2 & 48) >> 4);
-        uchar w_val7 = ((b0 & 128) >> 5) | ((b2 & 192) >> 6);
+        uchar w_val0 = b0 & 0x01;
+        uchar w_val1 = (b0 & 0x02) >> 1;
+        uchar w_val2 = (b0 & 0x04) >> 2;
+        uchar w_val3 = (b0 & 0x08) >> 3;
+        uchar w_val4 = (b0 & 0x10) >> 4;
+        uchar w_val5 = (b0 & 0x20) >> 5;
+        uchar w_val6 = (b0 & 0x40) >> 6;
+        uchar w_val7 = (b0 & 0x80) >> 7;
 
         rc += a_val0 * (scale * float(w_val0) + zero);
         rc += a_val1 * (scale * float(w_val1) + zero);
@@ -72,10 +69,10 @@ kernel void int3pack_mm(
     outputData[m * N + n] = T(rc);
 }
 
-#define INSTANTIATE_INT3MM(DTYPE, GSIZE)                                 \
+#define INSTANTIATE_INT1MM(DTYPE, GSIZE)                                 \
 template                                                                 \
-[[host_name("int3pack_mm_" #GSIZE "_" #DTYPE)]]                          \
-kernel void int3pack_mm<DTYPE, GSIZE>(                                   \
+[[host_name("int1pack_mm_" #GSIZE "_" #DTYPE)]]                          \
+kernel void int1pack_mm<DTYPE, GSIZE>(                                   \
     constant DTYPE             * A              [[buffer(0)]],           \
     constant uchar             * B              [[buffer(1)]],           \
     constant DTYPE             * scales         [[buffer(2)]],           \
@@ -84,17 +81,17 @@ kernel void int3pack_mm<DTYPE, GSIZE>(                                   \
     constant uint3             & sizes          [[buffer(5)]],           \
     uint2                        thread_index [[thread_position_in_grid]])
 
-INSTANTIATE_INT3MM(float, 32);
-INSTANTIATE_INT3MM(half, 32);
-INSTANTIATE_INT3MM(float, 64);
-INSTANTIATE_INT3MM(half, 64);
-INSTANTIATE_INT3MM(float, 128);
-INSTANTIATE_INT3MM(half, 128);
-INSTANTIATE_INT3MM(float, 256);
-INSTANTIATE_INT3MM(half, 256);
+INSTANTIATE_INT1MM(float, 32);
+INSTANTIATE_INT1MM(half, 32);
+INSTANTIATE_INT1MM(float, 64);
+INSTANTIATE_INT1MM(half, 64);
+INSTANTIATE_INT1MM(float, 128);
+INSTANTIATE_INT1MM(half, 128);
+INSTANTIATE_INT1MM(float, 256);
+INSTANTIATE_INT1MM(half, 256);
 #if __METAL_VERSION__ >= 310
-INSTANTIATE_INT3MM(bfloat, 32);
-INSTANTIATE_INT3MM(bfloat, 64);
-INSTANTIATE_INT3MM(bfloat, 128);
-INSTANTIATE_INT3MM(bfloat, 256);
+INSTANTIATE_INT1MM(bfloat, 32);
+INSTANTIATE_INT1MM(bfloat, 64);
+INSTANTIATE_INT1MM(bfloat, 128);
+INSTANTIATE_INT1MM(bfloat, 256);
 #endif

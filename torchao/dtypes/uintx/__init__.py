@@ -1,6 +1,9 @@
 from .block_sparse_layout import (
     BlockSparseLayout,
 )
+from .int4_cpu_layout import (
+    Int4CPULayout,
+)
 from .marlin_qqq_tensor import (
     MarlinQQQLayout,
     MarlinQQQTensor,
@@ -13,7 +16,6 @@ from .semi_sparse_layout import (
     SemiSparseLayout,
 )
 from .tensor_core_tiled_layout import (
-    Int4CPULayout,
     TensorCoreTiledLayout,
 )
 from .uintx_layout import (

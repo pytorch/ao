@@ -20,4 +20,5 @@ include = [
     "test/prototype/low_bit_optim/**.py",
 ]
 
+lint.select = ["F", "I"]
 lint.ignore = ["E731"]

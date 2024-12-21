@@ -57,7 +57,13 @@ def check_idempotent(self, fn, *args, **kwargs):
 
 
 # Legacy tinygemm ops
-def _get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+def _get_groupwise_affine_qparams(
+    w,
+    n_bit=4,
+    groupsize=128,
+    dtype=torch.bfloat16,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -70,21 +76,25 @@ def _get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat1
     max_val = to_quant.amax(dim=1, keepdim=True)
     min_val = to_quant.amin(dim=1, keepdim=True)
     max_int = 2**n_bit - 1
+    quant_min = 0
+    quant_max = max_int
     scales = (max_val - min_val).clamp(min=1e-6) / max_int
-    zeros = min_val + scales * (2 ** (n_bit - 1))
-    return scales.to(dtype=dtype).reshape(w.shape[0], -1), zeros.to(
-        dtype=dtype
-    ).reshape(w.shape[0], -1)
+    if zero_point_domain == ZeroPointDomain.FLOAT:
+        zeros = min_val + scales * (2 ** (n_bit - 1))
+        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+    else:
+        zeros = quant_min - torch.round(min_val / scales)
+        zeros = torch.clamp(zeros, quant_min, quant_max)
+        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+    scales = scales.to(dtype=dtype).reshape(w.shape[0], -1)
+    return scales, zeros
 
 
 def _groupwise_affine_quantize_tensor_from_qparams(
-    w,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
+    w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
 ):
     assert groupsize > 1
+    assert n_bit == 4
     # needed for GPTQ single column quantize
     if groupsize > w.shape[-1] and scales.shape[-1] == 1:
         groupsize = w.shape[-1]
@@ -97,17 +107,28 @@ def _groupwise_affine_quantize_tensor_from_qparams(
 
     scales = scales.reshape(-1, 1)
     zeros = zeros.reshape(-1, 1)
-    min_val = zeros - scales * (2 ** (n_bit - 1))
     max_int = 2**n_bit - 1
     min_int = 0
-    w_int4x8 = (
-        to_quant.sub(min_val)
-        .div(scales)
-        .round()
-        .clamp_(min_int, max_int)
-        .to(torch.int32)
-        .reshape_as(w)
-    )
+    if zero_point_domain == ZeroPointDomain.FLOAT:
+        min_val = zeros - scales * (2 ** (n_bit - 1))
+        w_int4x8 = (
+            to_quant.sub(min_val)
+            .div(scales)
+            .round()
+            .clamp_(min_int, max_int)
+            .to(torch.int32)
+            .reshape_as(w)
+        )
+    else:
+        w_int4x8 = (
+            to_quant.div(scales)
+            .round()
+            .add(zeros)
+            .clamp_(min_int, max_int)
+            .to(torch.int32)
+            .reshape_as(w)
+        )
+
     if TORCH_VERSION_AT_LEAST_2_5:
         if not (is_device(w.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
             w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
@@ -121,6 +142,7 @@ def _groupwise_affine_dequantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT,
 ):
     assert groupsize > 1
     # needed for GPTQ single column dequantize
@@ -133,12 +155,15 @@ def _groupwise_affine_dequantize_tensor_from_qparams(
     scales = scales.reshape(-1, 1)
     zeros = zeros.reshape(-1, 1)
 
-    w_dq = (
-        w_int4x8_grouped.sub(2 ** (n_bit - 1))
-        .mul(scales)
-        .add(zeros)
-        .reshape_as(w_int4x8)
-    )
+    if zero_point_domain == ZeroPointDomain.FLOAT:
+        w_dq = (
+            w_int4x8_grouped.sub(2 ** (n_bit - 1))
+            .mul(scales)
+            .add(zeros)
+            .reshape_as(w_int4x8)
+        )
+    else:
+        w_dq = w_int4x8_grouped.sub(zeros).mul(scales).reshape_as(w_int4x8)
     return w_dq
 
 
@@ -650,10 +675,8 @@ class TestQuantPrimitives(unittest.TestCase):
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
         n_bit = 4
-        scale_ref, zero_point_ref = _get_groupwise_affine_qparams(
-            input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16
-        )
 
+        zero_point_domains = [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 128)
@@ -662,19 +685,27 @@ class TestQuantPrimitives(unittest.TestCase):
         eps = 1e-6
         scale_dtype = torch.bfloat16
         zero_point_dtype = torch.bfloat16
-        scale, zero_point = choose_qparams_affine(
-            input,
-            mapping_type,
-            block_size,
-            dtype,
-            quant_min,
-            quant_max,
-            eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=False,
-            zero_point_domain=ZeroPointDomain.FLOAT,
-        )
+        for zero_point_domain in zero_point_domains:
+            scale_ref, zero_point_ref = _get_groupwise_affine_qparams(
+                input,
+                n_bit=n_bit,
+                groupsize=128,
+                dtype=torch.bfloat16,
+                zero_point_domain=zero_point_domain,
+            )
+            scale, zero_point = choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype=scale_dtype,
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=zero_point_domain == ZeroPointDomain.INT,
+                zero_point_domain=zero_point_domain,
+            )
 
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zero_point_ref))
@@ -686,14 +717,15 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
         groupsize = 128
 
-        w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
-            input, scales, zeros, n_bit, groupsize
-        )
-        w_int4x8_ref = _groupwise_affine_quantize_tensor_from_qparams(
-            input, scales, zeros, n_bit, groupsize
-        )
+        for zero_point_domain in [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]:
+            w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
+                input, scales, zeros, n_bit, groupsize, zero_point_domain
+            )
+            w_int4x8_ref = _groupwise_affine_quantize_tensor_from_qparams(
+                input, scales, zeros, n_bit, groupsize, zero_point_domain
+            )
 
-        self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
+            self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
 
     def test_groupwise_affine_dequantize_tensor_from_qparams(self):
         input = torch.randint(0, 15, (10, 256), dtype=torch.int32)
@@ -702,20 +734,27 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
         groupsize = 128
 
-        if TORCH_VERSION_AT_LEAST_2_5:
-            input_tmp = input
-            if not (is_device(input.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
-                input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
-            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
-                input_tmp, scales, zeros, n_bit, groupsize
+        for zero_point_domain in [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]:
+            if zero_point_domain == ZeroPointDomain.INT:
+                zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
+            if TORCH_VERSION_AT_LEAST_2_5:
+                input_tmp = input
+                if not (
+                    is_device(input.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6
+                ):
+                    input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
+                w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
+                    input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain
+                )
+            else:
+                if zero_point_domain == ZeroPointDomain.INT:
+                    continue
+                w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
+                    input, scales, zeros, n_bit, groupsize
+                )
+            w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(
+                input, scales, zeros, n_bit, groupsize, zero_point_domain
             )
-        else:
-            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
-                input, scales, zeros, n_bit, groupsize
-            )
-        w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(
-            input, scales, zeros, n_bit, groupsize
-        )
 
         self.assertTrue(torch.equal(w_bf16, w_bf16_ref))
 

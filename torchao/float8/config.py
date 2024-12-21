@@ -234,12 +234,6 @@ class Float8LinearConfig:
     # tests so that the warning does not spam the CI stdout.
     force_recompute_fp8_weight_in_bwd: bool = False
 
-    # If True, we only use fp8-all-gather to reduce the communication cost.
-    # The gemm computation is still done in the original precision.
-    # `cast_config_weight` is used to decide how to cast the weight to fp8,
-    # other casting configs will be ignored.
-    use_fp8_all_gather_only: bool = False
-
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass
@@ -300,9 +294,6 @@ class Float8LinearConfig:
             assert (
                 cc1.target_dtype == cc2.target_dtype
             ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
-
-        if self.use_fp8_all_gather_only:
-            assert self.enable_fsdp_float8_all_gather, "use_fp8_all_gather_only requires enable_fsdp_float8_all_gather to be True"
 
         # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
         if (
