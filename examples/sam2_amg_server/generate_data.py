@@ -237,6 +237,7 @@ def main(
                 # Batching of images
                 # Batching of prompts
                 # First we do batching of prompts
+                # Use MapTensor to create pseudobatches of points and labels
                 print("1")
                 import pdb; pdb.set_trace()
                 print("2")
