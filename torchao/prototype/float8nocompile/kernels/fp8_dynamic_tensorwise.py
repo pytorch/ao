@@ -65,15 +65,35 @@ def _block_amax_atomic(
     block_offs = block_start + tl.arange(0, BLOCK_SIZE)
     block_mask = block_offs < num_elements
     vals = tl.load(input_ptr + block_offs, mask=block_mask).to(input_dtype)
-    block_amax = tl.max(tl.abs(vals), axis=0)
+    block_amax = tl.max(tl.abs(vals))
     tl.atomic_max(amax_ptr, block_amax)
+
+
+@triton.jit
+def _fp8_scale_atomic(
+    amax_ptr,
+    scale_out_ptr,
+    fp8_dtype_max,
+    EPS: tl.constexpr,
+):
+    # load previously computed global amax
+    global_amax = tl.load(amax_ptr)
+
+    # compute scale, must be fp32
+    scale = (fp8_dtype_max / tl.clamp(global_amax, min=EPS, max=float("inf"))).to(
+        tl.float32
+    )
+
+    # store scale for use in Float8Tensor constructor
+    scale_off = tl.arange(0, 1)
+    tl.store(scale_out_ptr + scale_off, scale)
 
 
 @triton.autotune(configs=kernel_configs, key=["input_size"])
 @triton.jit
 def _to_fp8_atomic(
     input_ptr,
-    scale_out_ptr,
+    scale_ptr,
     amax_ptr,
     out_ptr,
     num_elements,
@@ -84,17 +104,10 @@ def _to_fp8_atomic(
     BLOCK_SIZE: tl.constexpr,
     EPS: tl.constexpr,
 ):
-    # compute scale, must be fp32
-    global_amax = tl.load(amax_ptr)
-    scale = (fp8_dtype_max / tl.clamp(global_amax, min=EPS, max=float("inf"))).to(
-        tl.float32
-    )
-
-    # only one program needs to store the scale
     block_id = tl.program_id(axis=0)
-    if block_id == 0:
-        scale_offs = tl.arange(0, 1)
-        tl.store(scale_out_ptr + scale_offs, scale)
+
+    # load scale
+    scale = tl.load(scale_ptr)
 
     # load block of input tensor
     block_start = block_id * BLOCK_SIZE
@@ -124,7 +137,7 @@ def _block_amax_reduction(
     block_offs = block_start + tl.arange(0, BLOCK_SIZE)
     block_mask = block_offs < num_elements
     vals = tl.load(input_ptr + block_offs, mask=block_mask).to(input_dtype)
-    block_amax = tl.max(tl.abs(vals), axis=0)
+    block_amax = tl.max(tl.abs(vals))
     tl.store(block_amaxes_ptr + block_id, block_amax)
 
 
@@ -220,7 +233,13 @@ def triton_hp_tensor_to_float8_dynamic(
             EPS=EPS,
         )
 
-        torch.cuda.synchronize()
+        # compute scale for fp8 conversion
+        _fp8_scale_atomic[1, 1, 1](
+            global_amax,
+            scale_out,
+            fp8_dtype_max,
+            EPS=EPS,
+        )
 
         # perform conversion and store scale for use in Float8Tensor
         _to_fp8_atomic[grid](
