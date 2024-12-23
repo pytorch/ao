@@ -59,7 +59,7 @@ class _AdamBase(Optimizer):
 
         # follow bitsandbytes, only quantize tensors >= 4096 values
         if local_p.numel() >= 4096 and local_p.numel() % self.block_size == 0:
-            out = self._subclass_zeros(local_p, signed, self.block_size)
+            out = self._subclass_zeros(local_p, signed)
         else:
             out = torch.zeros_like(local_p)
 
