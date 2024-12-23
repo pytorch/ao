@@ -261,6 +261,11 @@ def main(
                 # TODO: This isn't exactly efficient
                 masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
 
+                # TODO: NEXT!!
+                # TODO: export the model at the end to include recompilations.
+                # Could export the predict method and the mask_to_rle_pytorch_2 function
+                # I think mask_to_rle_pytorch_2 recompiles
+
         with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
             if task_type == "sps":
                 masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]

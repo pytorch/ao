@@ -358,6 +358,7 @@ def aot_compile(model_directory, name, fn, sample_args):
 def aot_load(path):
     return torch._export.aot_load(path, "cuda")
 
+
 class FunctionModel(torch.nn.Module):
 
     def __init__(self, module, fn_name):
@@ -378,70 +379,6 @@ def set_aot_fast(mask_generator, model_directory):
                 mask_generator.predictor.model.image_encoder,
                 example_input)
 
-    # NOTE: THIS DOESN'T WORK YET!
-    # example_input_0_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_0_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
-    # example_input = ([example_input_0_0, example_input_0_1],
-    #                  example_input_1,
-    #                  example_input_2,
-    #                  example_input_3,
-    #                  None,
-    #                  None,
-    #                  True,
-    #                  True,
-    #                  -1)
-    # mask_generator.forward = mask_generator.predictor._predict_masks_with_features
-    # mask_generator(*example_input)
-    # aot_compile("sam2__predict_masks_with_features",
-    #             mask_generator,
-    #             example_input)
-
-    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
-    # aot_compile("sam2_sam_prompt_encoder",
-    #             mask_generator.predictor.model.sam_prompt_encoder,
-    #             ((example_input_2, example_input_3),
-    #              None,
-    #              None))
-
-    # NOTE: THIS DOESN'T WORK YET!
-    # example_input_0 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-
-    # example_input_4_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_4_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
-
-    # example_input = (example_input_0,
-    #                  example_input_1,
-    #                  example_input_2,
-    #                  example_input_3,
-    #                  True,
-    #                  True,
-    #                  [example_input_4_0, example_input_4_1])
-    # print("Example")
-    # mask_generator.predictor.model.sam_mask_decoder(*example_input)
-    # print("Example done")
-    # aot_compile("sam2_sam_mask_decoder",
-    #             mask_generator.predictor.model.sam_mask_decoder,
-    #             example_input)
-
-    # example_input_0 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 8, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input = (example_input_0, example_input_1, example_input_2)
-
-    # mask_generator.predictor.model.sam_mask_decoder.transformer(*example_input)
-    # aot_compile("sam2_sam_mask_decoder_transformer",
-    #             mask_generator.predictor.model.sam_mask_decoder.transformer,
-    #             example_input)
-
-
-
 
 class LoadedModel(torch.nn.Module):
 
@@ -451,6 +388,7 @@ class LoadedModel(torch.nn.Module):
 
     def forward(self, *args):
         return self.aoti_compiled_model(*args)
+
 
 class LoadedDecoder(torch.nn.Module):
 
@@ -465,6 +403,7 @@ class LoadedDecoder(torch.nn.Module):
     def get_dense_pe(self, *args, **kwargs) -> torch.Tensor:
         return self.other.get_dense_pe(*args, **kwargs)
 
+
 def load_aot_fast(mask_generator, model_directory):
     t0 = time.time()
     path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
@@ -473,26 +412,6 @@ def load_aot_fast(mask_generator, model_directory):
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
-
-    # NOTE: This doesn't work yet!
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2__predict_masks_with_features.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # mask_generator.predictor._predict_masks_with_features = pkg_m.forward
-
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_prompt_encoder.pt2"))
-    # pkg_m = LoadedDecoder(pkg, mask_generator.predictor.model.sam_prompt_encoder)
-    # mask_generator.predictor.model.sam_prompt_encoder = pkg_m
-
-    # NOTE: This doesn't work yet!
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # pkg_m.conv_s0 = mask_generator.predictor.model.sam_mask_decoder.conv_s0
-    # pkg_m.conv_s1 = mask_generator.predictor.model.sam_mask_decoder.conv_s1
-    # mask_generator.predictor.model.sam_mask_decoder = pkg_m
-
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder_transformer.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # mask_generator.predictor.model.sam_mask_decoder.transformer = pkg_m
 
     print(f"End load. Took {time.time() - t0}s")
 
