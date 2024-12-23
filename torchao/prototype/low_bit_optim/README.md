@@ -113,11 +113,11 @@ optim.load_state_dict(ckpt["optim"])
 
 ```python
 lr = ... # compute your desired LR value
-for param_group in optim.param_groups: 
-    if isinstance(param_group["lr"], torch.Tensor): 
-        param_group["lr"].fill_(lr) 
-    else: 
-        param_group["lr"] = lr 
+for param_group in optim.param_groups:
+    if isinstance(param_group["lr"], torch.Tensor):
+        param_group["lr"].fill_(lr)
+    else:
+        param_group["lr"] = lr
 ```
 
 NOTE:
