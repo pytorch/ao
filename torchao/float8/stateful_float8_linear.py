@@ -153,7 +153,9 @@ class StatefulFloat8Linear(Float8Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        if self.scaling_type_input is ScalingType.DELAYED:
+        if tensor_already_casted_to_fp8(input):
+            input_fp8 = input
+        elif self.scaling_type_input is ScalingType.DELAYED:
             scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
             _maybe_initialize_amaxes_scales_for_float8_cast(
                 input,
