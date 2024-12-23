@@ -42,7 +42,6 @@ jobs:
     with:
       timeout: 120
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
-      rocm: ${{ matrix.gpu-arch-type == 'rocm' }}
       continue-on-error: ${{ matrix.gpu-arch-type == 'rocm' }}
       test-infra-ref: rocm_experiment
       runner: ${{ matrix.runs-on }}
