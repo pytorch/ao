@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 import torch
-from packaging.version import Version
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
@@ -17,6 +16,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from packaging.version import Version
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import (
     _fp32_to_bf16_sr,
@@ -27,10 +27,9 @@ from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
 from torchao.utils import (
-    get_available_devices,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
+    get_available_devices,
 )
 
 try:
@@ -152,7 +151,6 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
-    
 
     @parametrize(
         "optim_name",
@@ -167,10 +165,12 @@ class TestOptim(TestCase):
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
-        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model = nn.Sequential(nn.Linear(32, 4096), nn.ReLU(), nn.Linear(4096, 4096))
         model.to(device=device, dtype=dtype)
 
-        optim = getattr(low_bit_optim, optim_name)(model.parameters(), dynamic_range_expansion=True)
+        optim = getattr(low_bit_optim, optim_name)(
+            model.parameters(), dynamic_range_expansion=True
+        )
 
         x = torch.randn(4, 32, device=device, dtype=dtype)
         loss = model(x).sum()
@@ -200,7 +200,6 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
-
 
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
