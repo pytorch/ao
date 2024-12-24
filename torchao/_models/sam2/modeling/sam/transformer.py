@@ -325,7 +325,6 @@ class RoPEAttention(Attention):
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])
-
         # NOTE: Disabling this.
         # self.freqs_cis = self.freqs_cis.to(q.device)
         if self.freqs_cis.shape[0] != q.shape[-2]:

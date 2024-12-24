@@ -94,8 +94,11 @@ def aot_compile(model_directory,
                 fn,
                 sample_args,
                 sample_kwargs=None,
-                options=None):
+                options=None,
+                overwrite=False):
     path = Path(model_directory) / Path(f"{name}.pt2")
+    if path.exists() and not overwrite:
+        raise ValueError(f"{path} already exists and overwrite is {overwrite}")
     print(f"Saving at {path=}")
     if options is None:
         options = {
@@ -134,7 +137,8 @@ def export_model(mask_generator,
                  furious=False,
                  fast=True,
                  batch_size=1,
-                 points_per_batch=None):
+                 points_per_batch=None,
+                 overwrite=False):
     if furious:
         set_furious(mask_generator)
     assert fast, "fast mode is required when using export"
@@ -150,7 +154,8 @@ def export_model(mask_generator,
     aot_compile(model_directory,
                 "sam2_image_encoder",
                 mask_generator.predictor.model.image_encoder,
-                example_input)
+                example_input,
+                overwrite=overwrite)
 
     if task_type in ["sps"]:
         example_input_high_res_feats = [torch.randn(batch_size, 32, 256, 256, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
@@ -179,7 +184,8 @@ def export_model(mask_generator,
                     "sam2_image_predict_masks",
                     sam2_image_predict_masks,
                     example_input_args,
-                    sample_kwargs=example_input_kwargs)
+                    sample_kwargs=example_input_kwargs,
+                    overwrite=overwrite)
     else:
         print(f"{task_type} cannot export _predict_masks")
 
@@ -217,7 +223,6 @@ def load_exported_model(mask_generator,
                         points_per_batch=1024):
     if furious:
         set_furious(mask_generator)
-    assert fast, "fast mode is required when using export"
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     t0 = time.time()
     path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
@@ -252,17 +257,27 @@ def load_exported_model(mask_generator,
     print(f"End load image encoder and predict masks. Took {time.time() - t0}s")
 
 
-def set_fast(mask_generator, task_type):
+def set_fast(mask_generator, task_type, loaded_exported_model=False, allow_recompiles=True):
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
-    # TODO: Using CUDA graphs can cause numerical differences?
-    mask_generator.predictor.model.image_encoder = torch.compile(
-        mask_generator.predictor.model.image_encoder,
-        mode="max-autotune",
-        fullgraph=True,
-        dynamic=False,
-    )
+    if not loaded_exported_model:
+        # TODO: Using CUDA graphs can cause numerical differences?
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
 
-    if task_type in ["amg", "sps"]:
+    # TODO: Only the sps task can export _predict_masks
+    if task_type == "sps":
+        if not loaded_exported_model:
+            mask_generator.predictor._predict_masks = torch.compile(
+                mask_generator.predictor._predict_masks,
+                mode="max-autotune",
+                fullgraph=True,
+                dynamic=False,
+            )
+    elif task_type == "amg":
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,
             mode="max-autotune",
@@ -276,6 +291,16 @@ def set_fast(mask_generator, task_type):
             fullgraph=True,
             dynamic=True,
         )
+
+    import torchao
+    if allow_recompiles:
+        # A bunch of extra compiles at module level
+        # Note that this can cause recompilations!
+        # We might want to guard on that
+        torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0 = torch.compile(fullgraph=True, dynamic=True)(torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0)
+        torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1 = torch.compile(fullgraph=True, dynamic=True)(torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1)
+        mask_generator.calculate_stability_score = torch.compile(fullgraph=True, dynamic=True)(mask_generator.calculate_stability_score)
+        mask_generator.batched_mask_to_box = torch.compile(fullgraph=True, dynamic=True)(mask_generator.batched_mask_to_box)
 
 
 def set_furious(mask_generator):

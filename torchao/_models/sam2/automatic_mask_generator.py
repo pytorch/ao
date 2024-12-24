@@ -152,6 +152,12 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         self.use_m2m = use_m2m
         self.multimask_output = multimask_output
 
+        # Store a reference to these on the model so I can overwrite them 
+        # with compile annotation if desired
+
+        self.calculate_stability_score = calculate_stability_score
+        self.batched_mask_to_box = batched_mask_to_box
+
     @classmethod
     def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2AutomaticMaskGenerator":
         """
@@ -542,7 +548,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
             with torch.autograd.profiler.record_function("calculate_stability_score"):
                 # Calculate and filter by stability score
-                data["stability_score"] = calculate_stability_score(
+                data["stability_score"] = self.calculate_stability_score(
                     data["masks"], self.mask_threshold, self.stability_score_offset
                 )
             with torch.autograd.profiler.record_function("stability_score_thresh"):
@@ -568,7 +574,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                 keep_mask = data["iou_preds"] > self.pred_iou_thresh
                 data.filter(keep_mask)
 
-            data["stability_score"] = calculate_stability_score(
+            data["stability_score"] = self.calculate_stability_score(
                 data["masks"], self.mask_threshold, self.stability_score_offset
             )
             if self.stability_score_thresh > 0.0:
@@ -578,7 +584,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         with torch.autograd.profiler.record_function("Threshold masks and calculate boxes"):
             # Threshold masks and calculate boxes
             data["masks"] = data["masks"] > self.mask_threshold
-            data["boxes"] = batched_mask_to_box(data["masks"])
+            data["boxes"] = self.batched_mask_to_box(data["masks"])
 
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
@@ -654,7 +660,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         # Recalculate boxes and remove any new duplicates
         masks = torch.cat(new_masks, dim=0)
-        boxes = batched_mask_to_box(masks)
+        boxes = self.batched_mask_to_box(masks)
         keep_by_nms = batched_nms(
             boxes.float(),
             torch.as_tensor(scores),

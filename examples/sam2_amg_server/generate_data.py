@@ -176,8 +176,6 @@ def main(
     if load_exported_model == "":
         if furious:
             set_furious(mask_generator)
-        if fast:
-            set_fast(mask_generator, task_type)
     else:
         from compile_export_utils import load_exported_model as load_exported_model_fn
         load_exported_model_fn(mask_generator,
@@ -187,6 +185,10 @@ def main(
                                fast,
                                batch_size=1,
                                points_per_batch=points_per_batch)
+    if fast:
+        set_fast(mask_generator,
+                 task_type,
+                 loaded_exported_model=(load_exported_model != ""))
 
     num_images = len(input_paths) if num_images is None else num_images
     input_paths = input_paths[:num_images]
@@ -208,86 +210,84 @@ def main(
                     center_points = center_points[:1]
                     center_points_label = center_points_label[:1]
 
-        if baseline:
-            input_bytes = bytearray(open(input_path, "rb").read())
-            image_tensor = file_bytes_to_image_tensor(input_bytes)
-            if verbose:
-                timestamped_print(
-                    f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
-                )
-            if task_type == "amg":
-                masks = mask_generator.generate(image_tensor)
-            elif task_type == "sps":
-                mask_generator.predictor.set_image(image_tensor)
-                masks, scores, _ = mask_generator.predictor.predict(
-                    point_coords=center_points,
-                    point_labels=center_points_label,
-                    multimask_output=True,
-                    return_logits=False,
-                )
-                masks = torch.from_numpy(masks[np.argmax(scores).item()]).to(torch.bool)
-            elif task_type == "mps":
-                mask_generator.predictor.set_image(image_tensor)
-                masks = []
-                for i in range(len(center_points)):
-                    mask, score, _ = mask_generator.predictor.predict(
-                        point_coords=center_points[i:i+1],
-                        point_labels=center_points_label[i:i+1],
+        with torch.autograd.profiler.record_function("generate"):
+            if baseline:
+                input_bytes = bytearray(open(input_path, "rb").read())
+                image_tensor = file_bytes_to_image_tensor(input_bytes)
+                if verbose:
+                    timestamped_print(
+                        f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
+                    )
+                if task_type == "amg":
+                    masks = mask_generator.generate(image_tensor)
+                elif task_type == "sps":
+                    mask_generator.predictor.set_image(image_tensor)
+                    masks, scores, _ = mask_generator.predictor.predict(
+                        point_coords=center_points,
+                        point_labels=center_points_label,
                         multimask_output=True,
                         return_logits=False,
                     )
-                    mask = torch.from_numpy(mask[np.argmax(score).item()]).to(torch.bool)
-                    masks.append(mask)
-                masks = torch.stack(masks)
-        else:
-            if task_type == "amg":
-                masks = mask_generator.generate_from_path(input_path)
-            elif task_type == "sps":
+                    masks = torch.from_numpy(masks[np.argmax(scores).item()]).to(torch.bool)
+                elif task_type == "mps":
+                    mask_generator.predictor.set_image(image_tensor)
+                    masks = []
+                    for i in range(len(center_points)):
+                        mask, score, _ = mask_generator.predictor.predict(
+                            point_coords=center_points[i:i+1],
+                            point_labels=center_points_label[i:i+1],
+                            multimask_output=True,
+                            return_logits=False,
+                        )
+                        mask = torch.from_numpy(mask[np.argmax(score).item()]).to(torch.bool)
+                        masks.append(mask)
+                    masks = torch.stack(masks)
+            else:
                 from torchvision import io as tio
                 img_bytes_tensor = tio.read_file(input_path)
                 image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
-                mask_generator.predictor.set_image(image_tensor)
-                masks, scores, _ = mask_generator.predictor.predict(
-                    point_coords=center_points,
-                    point_labels=center_points_label,
-                    multimask_output=True,
-                    return_logits=False,
-                    return_type="torch",
-                )
-                masks = masks.index_select(0, torch.argmax(scores))[0]
-            elif task_type == "mps":
-                # NOTE: There are multiple opportunities for batching here
-                # Batching of images
-                # Batching of prompts
-                # First we do batching of prompts
-                # Use MapTensor to create pseudobatches of points and labels
-                from torchvision import io as tio
-                img_bytes_tensor = tio.read_file(input_path)
-                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
-                mask_generator.predictor.set_image(image_tensor)
+                if task_type == "amg":
+                    masks = mask_generator.generate(image_tensor)
+                elif task_type == "sps":
+                    mask_generator.predictor.set_image(image_tensor)
+                    masks, scores, _ = mask_generator.predictor.predict(
+                        point_coords=center_points,
+                        point_labels=center_points_label,
+                        multimask_output=True,
+                        return_logits=False,
+                        return_type="torch",
+                    )
+                    masks = masks.index_select(0, torch.argmax(scores))[0]
+                elif task_type == "mps":
+                    # NOTE: There are multiple opportunities for batching here
+                    # Batching of images
+                    # Batching of prompts
+                    # First we do batching of prompts
+                    # Use MapTensor to create pseudobatches of points and labels
+                    mask_generator.predictor.set_image(image_tensor)
 
-                center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
-                center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
-                from torchao._models.sam2.map_tensor import to_map_tensor
-                center_points_torch = to_map_tensor(center_points_torch)
-                center_points_label_torch = to_map_tensor(center_points_label_torch)
-                masks, scores, _ = mask_generator.predictor.predict(
-                    point_coords=center_points_torch,
-                    point_labels=center_points_label_torch,
-                    multimask_output=True,
-                    return_logits=False,
-                    return_type="torch",
-                )
-                # Unwrapping MapTensor
-                masks = masks.elems
-                scores = scores.elems
-                # TODO: This isn't exactly efficient
-                masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
+                    center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
+                    center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
+                    from torchao._models.sam2.map_tensor import to_map_tensor
+                    center_points_torch = to_map_tensor(center_points_torch)
+                    center_points_label_torch = to_map_tensor(center_points_label_torch)
+                    masks, scores, _ = mask_generator.predictor.predict(
+                        point_coords=center_points_torch,
+                        point_labels=center_points_label_torch,
+                        multimask_output=True,
+                        return_logits=False,
+                        return_type="torch",
+                    )
+                    # Unwrapping MapTensor
+                    masks = masks.elems
+                    scores = scores.elems
+                    # TODO: This isn't exactly efficient
+                    masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
 
-                # TODO: NEXT!!
-                # TODO: export the model at the end to include recompilations.
-                # Could export the predict method and the mask_to_rle_pytorch_2 function
-                # I think mask_to_rle_pytorch_2 recompiles
+                    # TODO: NEXT!!
+                    # TODO: export the model at the end to include recompilations.
+                    # Could export the predict method and the mask_to_rle_pytorch_2 function
+                    # I think mask_to_rle_pytorch_2 recompiles
 
         with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
             if task_type == "sps":
@@ -314,5 +314,5 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    profiler_runner("asdf.json.gz", fire.Fire, main)
-    # fire.Fire(main)
+    # profiler_runner("asdf.json.gz", fire.Fire, main)
+    fire.Fire(main)
