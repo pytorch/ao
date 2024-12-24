@@ -142,6 +142,7 @@ class MaskDecoder(nn.Module):
             repeat_image=repeat_image,
             high_res_features=high_res_features,
         )
+        return masks, iou_pred, None, None
 
         # Select the correct mask or masks for output
         if multimask_output:
@@ -204,6 +205,7 @@ class MaskDecoder(nn.Module):
             assert image_embeddings.shape[0] == tokens.shape[0]
             src = image_embeddings
         src = src + dense_prompt_embeddings
+
         assert (
             image_pe.size(0) == 1
         ), "image_pe should have size 1 in batch dim (from `get_dense_pe()`)"
@@ -216,6 +218,7 @@ class MaskDecoder(nn.Module):
             pos_src = pos_src.to(self._src_dtype)
             tokens = tokens.to(self._src_dtype)
             hs, new_src = self.transformer(src, pos_src, tokens)
+            return hs, new_src, None, None
             # TODO: Not specifying scale kwarg in SDPA will cause NaN here
             # print("hs.isnan().any(): ", hs.isnan().any().item())
 
@@ -250,6 +253,7 @@ class MaskDecoder(nn.Module):
 
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
+
         if self.pred_obj_scores:
             assert s == 1
             object_score_logits = self.pred_obj_score_head(hs[:, 0, :])

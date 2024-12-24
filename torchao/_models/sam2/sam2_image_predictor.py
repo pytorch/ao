@@ -410,19 +410,32 @@ class SAM2ImagePredictor(torch.nn.Module):
             )
 
         with torch.autograd.profiler.record_function("_predict_masks"):
-            low_res_masks, iou_predictions = self._predict_masks(point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx)
+            high_res_feats = self._features["high_res_feats"]
+            image_embed = self._features["image_embed"]
+            image_pe = self.model.sam_prompt_encoder.get_dense_pe().clone()
+            low_res_masks, iou_predictions = self._predict_masks(high_res_feats,
+                                                                 image_embed,
+                                                                 image_pe,
+                                                                 point_coords,
+                                                                 point_labels,
+                                                                 boxes=boxes,
+                                                                 mask_input=mask_input,
+                                                                 multimask_output=multimask_output,
+                                                                 img_idx=img_idx)
         with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
             masks, low_res_masks = self._predict_masks_postprocess(low_res_masks, img_idx, return_logits)
             return masks, iou_predictions, low_res_masks
 
     def _predict_masks(
             self,
+            high_res_feats_input,
+            image_embed,
+            image_pe,
             point_coords,
             point_labels,
             boxes: Optional[torch.Tensor] = None,
             mask_input: Optional[torch.Tensor] = None,
             multimask_output: bool = True,
-            return_logits: bool = False,
             img_idx: int = -1):
         if point_coords is not None:
             concat_points = (point_coords, point_labels)
@@ -456,12 +469,15 @@ class SAM2ImagePredictor(torch.nn.Module):
         )  # multi object prediction
         high_res_features = [
             feat_level[img_idx].unsqueeze(0).clone()
-            for feat_level in self._features["high_res_feats"]
+            # for feat_level in self._features["high_res_feats"]
+            for feat_level in high_res_feats_input
         ]
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
-                image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
-                image_pe=self.model.sam_prompt_encoder.get_dense_pe().clone(),
+                # image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
+                image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
+                # image_pe=self.model.sam_prompt_encoder.get_dense_pe().clone(),
+                image_pe=image_pe,
                 sparse_prompt_embeddings=sparse_embeddings.clone(),
                 dense_prompt_embeddings=dense_embeddings.clone(),
                 multimask_output=multimask_output,

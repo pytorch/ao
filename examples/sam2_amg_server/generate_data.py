@@ -12,10 +12,9 @@ from server import file_bytes_to_image_tensor
 from server import show_anns
 from server import model_type_to_paths
 from server import MODEL_TYPES_TO_MODEL
-from server import set_fast
-from server import set_aot_fast
-from server import load_aot_fast
-from server import set_furious
+from compile_export_utils import set_fast
+# from compile_export_utils import set_aot_fast
+from compile_export_utils import set_furious
 from server import masks_to_rle_dict
 from server import max_memory_allocated
 from server import profiler_runner
@@ -77,10 +76,12 @@ def main(
     verbose=False,
     fast=False,
     furious=False,
-    load_fast="",
     overwrite=False,
     baseline=False,
     meta_folder=None,
+    export_model="",
+    load_exported_model="",
+    num_images=None,
 ):
     start_time = time.time()
     if task_type not in TASK_TYPES:
@@ -160,16 +161,38 @@ def main(
     mask_generator = SAM2AutomaticMaskGenerator(
         sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
     )
-    if load_fast:
-        load_aot_fast(mask_generator, load_fast)
-    if furious:
-        set_furious(mask_generator)
-    if fast:
-        set_fast(mask_generator, load_fast)
+    if export_model != "":
+        if not Path(output_folder).is_dir():
+            raise ValueError(f"Expected {export_model} to be a directory.")
+        print(f"Exporting model to {export_model}.")
+        from compile_export_utils import export_model as export_model_fn
+        export_model_fn(mask_generator,
+                        export_model,
+                        task_type,
+                        furious=furious,
+                        fast=fast,
+                        batch_size=1,
+                        points_per_batch=points_per_batch)
+    if load_exported_model == "":
+        if furious:
+            set_furious(mask_generator)
+        if fast:
+            set_fast(mask_generator, task_type)
+    else:
+        from compile_export_utils import load_exported_model as load_exported_model_fn
+        load_exported_model_fn(mask_generator,
+                               load_exported_model,
+                               task_type,
+                               furious,
+                               fast,
+                               batch_size=1,
+                               points_per_batch=points_per_batch)
 
+    num_images = len(input_paths) if num_images is None else num_images
+    input_paths = input_paths[:num_images]
     for input_path, filename, output_image_path, output_rle_json_path, meta_path in tqdm(
         zip(input_paths, filenames, output_image_paths, output_rle_json_paths, meta_paths),
-        total=len(input_paths),
+        total=num_images,
     ):
         if task_type != "amg":
             if verbose:

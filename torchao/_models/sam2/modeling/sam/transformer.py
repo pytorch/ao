@@ -123,6 +123,7 @@ class TwoWayTransformer(nn.Module):
                 query_pe=point_embedding,
                 key_pe=image_pe,
             )
+            # return queries, keys
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
@@ -194,6 +195,7 @@ class TwoWayAttentionBlock(nn.Module):
         q = queries + query_pe
         k = keys + key_pe
         attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
+        # return attn_out, keys
         queries = queries + attn_out
         queries = self.norm2(queries)
 
@@ -257,13 +259,14 @@ class Attention(nn.Module):
         q = self.q_proj(q)
         k = self.k_proj(k)
         v = self.v_proj(v)
+        # return v
 
         # Separate into heads
         q = self._separate_heads(q, self.num_heads)
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
-
-        dropout_p = self.dropout_p if self.training else 0.0
+        
+        dropout_p = 0.0 # self.dropout_p if self.training else 0.0
         # # Attention
         # try:
         #     with sdp_kernel_context(dropout_p):
@@ -325,12 +328,13 @@ class RoPEAttention(Attention):
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])
-        # NOTE: Disabling this.
-        # self.freqs_cis = self.freqs_cis.to(q.device)
-        if self.freqs_cis.shape[0] != q.shape[-2]:
-            self.freqs_cis = self.compute_cis(end_x=w, end_y=h, device=q.device)  # .to(q.device)
-        if q.shape[-2] != k.shape[-2]:
-            assert self.rope_k_repeat
+
+        # # NOTE: Disabling this.
+        # # self.freqs_cis = self.freqs_cis.to(q.device)
+        # if self.freqs_cis.shape[0] != q.shape[-2]:
+        #     self.freqs_cis = self.compute_cis(end_x=w, end_y=h, device=q.device)  # .to(q.device)
+        # if q.shape[-2] != k.shape[-2]:
+        #     assert self.rope_k_repeat
 
         num_k_rope = k.size(-2) - num_k_exclude_rope
         q, k[:, :, :num_k_rope] = apply_rotary_enc(
