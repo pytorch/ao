@@ -285,6 +285,7 @@ def set_fast(mask_generator, task_type, loaded_exported_model=False, allow_recom
             dynamic=False,
         )
     else:
+        # TODO: This might need to be under "allow_recompiles"
         # mps encounters rapidly changing points per batch
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,
