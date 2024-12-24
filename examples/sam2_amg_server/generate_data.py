@@ -314,5 +314,5 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    # profiler_runner("asdf.json.gz", fire.Fire, main)
-    fire.Fire(main)
+    profiler_runner("asdf.json.gz", fire.Fire, main)
+    # fire.Fire(main)

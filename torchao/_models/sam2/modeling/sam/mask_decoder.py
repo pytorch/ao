@@ -218,7 +218,6 @@ class MaskDecoder(nn.Module):
             pos_src = pos_src.to(self._src_dtype)
             tokens = tokens.to(self._src_dtype)
             hs, new_src = self.transformer(src, pos_src, tokens)
-            return hs, new_src, None, None
             # TODO: Not specifying scale kwarg in SDPA will cause NaN here
             # print("hs.isnan().any(): ", hs.isnan().any().item())
 

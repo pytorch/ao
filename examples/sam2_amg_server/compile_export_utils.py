@@ -139,20 +139,20 @@ def export_model(mask_generator,
         set_furious(mask_generator)
     assert fast, "fast mode is required when using export"
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
-    assert task_type == "amg" and points_per_batch is not None, f"Specify points_per_batch for task {task_type}"
+    assert task_type in ["sps", "amg"] and points_per_batch is not None, f"Specify points_per_batch for task {task_type}"
+    if task_type == "sps":
+        assert points_per_batch == 1, f"Expected points_per_batch set to 1 for {task_type} but got {points_per_batch}"
 
 
     example_input = torch.empty(batch_size, 3, 1024, 1024)
     example_input = example_input.to(mask_generator.predictor._image_dtype)
     example_input = (example_input.to(mask_generator.predictor.device),)
-    # aot_compile(model_directory,
-    #             "sam2_image_encoder",
-    #             mask_generator.predictor.model.image_encoder,
-    #             example_input)
+    aot_compile(model_directory,
+                "sam2_image_encoder",
+                mask_generator.predictor.model.image_encoder,
+                example_input)
 
-    if task_type in ["sps", "amg"]:
-        if task_type == "amg"
-            raise ValueError("Somehow we can't export for amg yet. Likely due to large integer values.")
+    if task_type in ["sps"]:
         example_input_high_res_feats = [torch.randn(batch_size, 32, 256, 256, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
                                         torch.randn(batch_size, 64, 128, 128, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device)]
         example_input_image_embed = torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
@@ -181,7 +181,7 @@ def export_model(mask_generator,
                     example_input_args,
                     sample_kwargs=example_input_kwargs)
     else:
-        assert False, f"{task_type} not supported yet"
+        print(f"{task_type} cannot export _predict_masks")
 
 
 class LoadedModel(torch.nn.Module):
@@ -229,7 +229,8 @@ def load_exported_model(mask_generator,
 
     print(f"End load image encoder. Took {time.time() - t0}s")
 
-    return mask_generator
+    if task_type == "amg":
+        return mask_generator
 
     path = Path(model_directory) / Path(f"sam2_image_predict_masks.pt2")
     assert path.exists(), f"Expected {path} to exist."

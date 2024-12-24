@@ -215,7 +215,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     """
     Encodes masks to an uncompressed RLE, in the format expected by
@@ -237,7 +237,7 @@ def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Ten
     return diff
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
