@@ -200,12 +200,6 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         return self._encode_masks(mask_data)
 
-    @torch.no_grad()
-    def generate_from_path(self, image_path: str) -> List[Dict[str, Any]]:
-        from torchvision import io as tio
-        img_bytes_tensor = tio.read_file(image_path)
-        return self.generate(tio.decode_jpeg(img_bytes_tensor, device='cuda'))
-
     def _encode_masks(self, mask_data):
         mask_data["rles"] = _mask_to_rle_pytorch_2_1(mask_data["rles"])
         # Encode masks
@@ -496,19 +490,6 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             image_embed = self.predictor._features["image_embed"]
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
             assert self.multimask_output, "Currently require multimask_output set to True"
-            # print("high_res_feats[0].mean(): ", high_res_feats[0].mean())
-            # print("high_res_feats[0].max(): ", high_res_feats[0].max())
-            # print("high_res_feats[0].min(): ", high_res_feats[0].min())
-            # print("high_res_feats[1].mean(): ", high_res_feats[1].mean())
-            # print("high_res_feats[1].max(): ", high_res_feats[1].max())
-            # print("high_res_feats[1].min(): ", high_res_feats[1].min())
-            # print("image_embed.mean(): ", image_embed.mean())
-            # print("image_embed.max(): ", image_embed.max())
-            # print("image_embed.min(): ", image_embed.min())
-            # print("image_pe.mean(): ", image_pe.mean())
-            # print("image_pe.max(): ", image_pe.max())
-            # print("image_pe.min(): ", image_pe.min())
-            # print("")
             low_res_masks, iou_preds = self.predictor._predict_masks(
                 high_res_feats,
                 image_embed,
@@ -520,17 +501,6 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                 multimask_output=self.multimask_output,
                 img_idx=-1,
             )
-            # print("low_res_masks.mean(): ", low_res_masks.mean())
-            # print("low_res_masks.max(): ", low_res_masks.max())
-            # print("low_res_masks.min(): ", low_res_masks.min())
-            # print("low_res_masks.size(): ", low_res_masks.size())
-            # print("low_res_masks.device: ", low_res_masks.device)
-            # print("iou_preds.mean(): ", iou_preds.mean())
-            # print("iou_preds.max(): ", iou_preds.max())
-            # print("iou_preds.min(): ", iou_preds.min())
-            # print("iou_preds.size(): ", iou_preds.size())
-            # print("iou_preds.device: ", iou_preds.device)
-            # import sys; sys.exit(1)
 
         x0, y0, _, _ = crop_box
         points = points.repeat_interleave(3 if masks is None else masks.shape[1], dim=0)

@@ -270,6 +270,7 @@ def set_fast(mask_generator, task_type):
             dynamic=False,
         )
     else:
+        # mps encounters rapidly changing points per batch
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,
             fullgraph=True,
