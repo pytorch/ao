@@ -141,6 +141,7 @@ def export_model(mask_generator,
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     assert task_type == "amg" and points_per_batch is not None, f"Specify points_per_batch for task {task_type}"
 
+
     example_input = torch.empty(batch_size, 3, 1024, 1024)
     example_input = example_input.to(mask_generator.predictor._image_dtype)
     example_input = (example_input.to(mask_generator.predictor.device),)
@@ -150,6 +151,8 @@ def export_model(mask_generator,
     #             example_input)
 
     if task_type in ["sps", "amg"]:
+        if task_type == "amg"
+            raise ValueError("Somehow we can't export for amg yet. Likely due to large integer values.")
         example_input_high_res_feats = [torch.randn(batch_size, 32, 256, 256, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
                                         torch.randn(batch_size, 64, 128, 128, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device)]
         example_input_image_embed = torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
