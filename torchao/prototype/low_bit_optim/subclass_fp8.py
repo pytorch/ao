@@ -174,7 +174,6 @@ def _(func, types, args, kwargs):
         # Used for computation of dynamic range expansion
         if dst.k is not None:
             dst.k.copy_(k)
-            print("sqrt_minmax_exp =", dst.sqrt_minmax_exp[:10])
             dst.sqrt_minmax_exp.copy_(sqrt_minmax_exp)
     else:
         dst.copy_(src.dequantize())
