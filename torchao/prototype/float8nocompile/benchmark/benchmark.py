@@ -59,7 +59,7 @@ class TestModel(nn.Module):
 def get_configs() -> List[ExperimentConfig]:
     layer_sizes = [[4096, 4096]]
     input_shapes = [(2**4, 4096), (2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    high_precision_dtypes = [torch.float32, torch.bfloat16]
+    high_precision_dtypes = [torch.bfloat16]
     configs = []
     for layer_size, input_shape, high_precision_dtype in itertools.product(
         layer_sizes, input_shapes, high_precision_dtypes
@@ -133,7 +133,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
 def print_results(experiments: List[Experiment]):
     headers = [
-        "input_size",
+        "input_shape",
         "high_precision_dtype",
         "eager_time",
         "compiled_time",
@@ -141,10 +141,12 @@ def print_results(experiments: List[Experiment]):
     ]
     rows = []
     for experiment in experiments:
-        input_size = experiment.config.input_shape[0] * experiment.config.input_shape[1]
+        input_shape = (
+            f"({experiment.config.input_shape[0]}, {experiment.config.input_shape[1]})"
+        )
         rows.append(
             [
-                f"{input_size:.2e}",
+                input_shape,
                 experiment.config.high_precision_dtype,
                 experiment.result.eager_time,
                 experiment.result.compiled_time,
