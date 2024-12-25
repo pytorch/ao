@@ -42,6 +42,10 @@ try:
 except ImportError:
     lpmm = None
 
+try:
+    import coat
+except ImportError:
+    coat = None
 
 _DEVICES = get_available_devices()
 
@@ -247,6 +251,51 @@ class TestOptim(TestCase):
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
         optim2 = getattr(low_bit_optim, optim_name)(
             model2.parameters(), block_size=block_size
+        )
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+
+            loss1 = model1(x).sum()
+            loss1.backward()
+            optim1.step()
+            optim1.zero_grad()
+
+            loss2 = model2(x).sum()
+            loss2.backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
+
+    @pytest.mark.skipif(coat is None, reason="bitsandbytes is not available")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason="Coat float8 Adam only works for CUDA",
+    )
+    @parametrize("optim_name", ["AdamWFp8"])
+    def test_optim_float8_correctness(self, optim_name):
+        
+        from coat.activation.models._fp8_quantization_config import QuantizationConfig
+        from coat.optimizer.fp8_adamw import CoatAdamW
+        
+        torch.manual_seed(42)
+        device = "cuda"
+        
+
+        model1 = nn.Sequential(nn.Linear(32, 4096), nn.ReLU(), nn.Linear(4096, 4096))
+        model1.to(device)
+        model2 = copy.deepcopy(model1)
+
+        # Official CoatOptim only supports 128
+        block_size = 128 
+        coat_args = QuantizationConfig(first_order_expansion="true", second_order_expansion="true")
+        
+
+        optim1 = CoatAdamW(coat_args, model1.parameters())
+        optim2 = getattr(low_bit_optim, optim_name)(
+            model2.parameters(), block_size=block_size, dynamic_range_expansion=True
         )
 
         for _ in range(2):
