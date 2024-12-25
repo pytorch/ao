@@ -41,12 +41,32 @@ The 'ao' mode is a copy of the baseline with modifications to make the code more
 ### 0. Download checkpoints and install requirements
 
 ```
-pip install -r requirements.txt
+# From the top-level "ao" directory
+
+# If necessary, create and activate a virtual environment
+# Ex:
+python -m venv venv && source venv/bin/activate
+
+# Install requirements for this example
+pip install -r examples/sam2_amg_server/requirements.txt
+
+# If you have an older version of torch in your current environment, uninstall it first
+pip uninstall torch
+
+# Install torch nightly
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+
+# Build ao from source for now
+python setup.py develop
+
+# On your mark, get set...
+cd examples/sam2_amg_server/
 ```
 
 Download `sam2.1_hiera_large.pt` from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints and put it into `~/checkpoints/sam2`
 
 ### 1. Create a random subset of 1000 images
+Using images with corresponding mask annotations, like from the Segment Anything Video (SA-V) [Dataset](https://github.com/facebookresearch/sam2/tree/main/sav_dataset#download-the-dataset) is suggested, to later compare any drop in accuracy using `--furious` (using `torch.float16`).
 ```
 find sav_val -type f > sav_val_image_paths
 shuf -n 1000 sav_val_image_paths > sav_val_image_paths_shuf_1000

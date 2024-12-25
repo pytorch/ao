@@ -4,20 +4,19 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional
 import copy
 import itertools
 import os
 import sys
+import unittest
+from typing import Optional
 
 import torch
-import unittest
 
 from parameterized import parameterized
-from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer
-from torchao.experimental.quant_api import _quantize
+from torchao.experimental.quant_api import _quantize, UIntxWeightOnlyLinearQuantizer
 
-libname = "libtorchao_ops_mps_linear_fp_act_xbit_weight_aten.dylib"
+libname = "libtorchao_ops_mps_aten.dylib"
 libpath = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
 )
@@ -53,7 +52,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         k0 = 96
         k1 = 224
         k2 = 160
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, k2, bias=False),
@@ -80,7 +79,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         activations = torch.randn(m, k0, dtype=torch.float32, device="mps")
 
         quantized_model = self._quantize_model(model, torch.float32, nbit, group_size)
-        exported = torch.export.export(quantized_model, (activations,))
+        exported = torch.export.export(quantized_model, (activations,), strict=True)
 
         for node in exported.graph.nodes:
             if node.op == "call_function":
@@ -115,7 +114,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
     def test_valid_groupsizes(self, nbit, group_size):
         k0 = 3 * group_size
         k1 = 7 * group_size
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, n, bias=False),
@@ -134,7 +133,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         group_size = 16
         k0 = 3 * group_size
         k1 = 7 * group_size
-        n = 47
+        n = 44
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, n, bias=False),
@@ -158,7 +157,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
     def test_accuracy(self, nbit):
         group_size = 32
         m = 3
-        n = 7
+        n = 12
         k = 64
         with torch.no_grad():
             activations = torch.rand(m, k, dtype=torch.float32, device="mps")

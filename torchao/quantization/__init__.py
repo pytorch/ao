@@ -10,9 +10,12 @@ from torchao.kernel import (
 )
 
 from .autoquant import (
+    ALL_AUTOQUANT_CLASS_LIST,
     DEFAULT_AUTOQUANT_CLASS_LIST,
     DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
     DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+    DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
+    GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
@@ -46,11 +49,13 @@ from .quant_api import (
     float8_static_activation_float8_weight,
     float8_weight_only,
     fpx_weight_only,
+    gemlite_uintx_weight_only,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
+    intx_quantization_aware_training,
     quantize_,
     swap_conv2d_1x1_to_linear,
     uintx_weight_only,
@@ -90,8 +95,11 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST",
     "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",
@@ -99,13 +107,15 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "intx_quantization_aware_training",
     "float8_weight_only",
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
-    # smooth quant - subject to change
+    "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
+    # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",

@@ -195,6 +195,10 @@ def run_evaluation(
             )
             model.to(device)
             model.reset_caches()
+        if "codebook" in quantization:
+            from torchao.prototype.quantization.codebook import codebook_weight_only
+            model.to(device)
+            quantize_(model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64))
 
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)

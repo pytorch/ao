@@ -10,7 +10,11 @@ import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
-from torchao.float8.config import Float8TypeConfig, ScalingGranularity
+from torchao.float8.config import (
+    Float8LinearConfig,
+    ScalingGranularity,
+    ScalingType,
+)
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -26,12 +30,6 @@ FP8_TYPES = {
     torch.float8_e4m3fnuz,
     torch.float8_e5m2fnuz,
 }
-
-
-# User defined type for using the individual F8 type based on config
-type_config = Float8TypeConfig()
-e4m3_dtype = type_config.e4m3_dtype
-e5m2_dtype = type_config.e5m2_dtype
 
 
 @torch.no_grad()
@@ -173,7 +171,7 @@ def compute_error(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 def fp8_tensor_statistics(
-    tensor: torch.Tensor, float8_dtype=e4m3_dtype
+    tensor: torch.Tensor, float8_dtype: torch.dtype
 ) -> Tuple[int, ...]:
     """Calculate FP8 tensor stats
 
@@ -257,3 +255,14 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+def config_has_stateful_scaling(config: Float8LinearConfig) -> bool:
+    """
+    Returns True if `config` has any delayed or static scaling, and False otherwise.
+    """
+    return (
+        config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
+    )

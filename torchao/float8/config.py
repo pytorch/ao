@@ -53,6 +53,35 @@ class ScalingGranularity(enum.Enum):
             return "axs"
 
 
+@dataclass
+class Float8TypeConfig:
+    """
+    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
+
+    Currently, ROCm only supports fnuz variants.
+    """
+
+    # The preferred e4m3 type.
+    e4m3_dtype = torch.float8_e4m3fn
+
+    # The preferred e5m2 type.
+    e5m2_dtype = torch.float8_e5m2
+
+    def __post_init__(self):
+        if torch.version.hip and torch.cuda.is_available():
+            prop = torch.cuda.get_device_properties(0)
+            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
+            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
+                self.e4m3_dtype = torch.float8_e4m3fnuz
+                self.e5m2_dtype = torch.float8_e5m2fnuz
+
+
+# User defined type for using the individual F8 type based on config
+type_config = Float8TypeConfig()
+e4m3_dtype = type_config.e4m3_dtype
+e5m2_dtype = type_config.e5m2_dtype
+
+
 @dataclass(frozen=True)
 class CastConfig:
     """
@@ -62,9 +91,11 @@ class CastConfig:
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
+    target_dtype: Optional[torch.dtype] = None
 
     def short_str(self):
-        return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}"
+        dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.target_dtype]
+        return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
@@ -75,6 +106,9 @@ class CastConfig:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
             ), "only dynamic scaling type is supported for axiswise scaling granularity"
+        assert self.target_dtype is None or (
+            self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
+        ), "must specify a 8-bit floating-point dtype"
 
 
 @dataclass(frozen=True)
@@ -99,29 +133,6 @@ class DelayedScalingConfig:
         assert (
             self.scale_fn_name == "max"
         ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
-
-
-@dataclass
-class Float8TypeConfig:
-    """
-    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
-
-    Currently, ROCm only supports fnuz variants.
-    """
-
-    # The preferred e4m3 type.
-    e4m3_dtype = torch.float8_e4m3fn
-
-    # The preferred e5m2 type.
-    e5m2_dtype = torch.float8_e5m2
-
-    def __post_init__(self):
-        if torch.version.hip and torch.cuda.is_available():
-            prop = torch.cuda.get_device_properties(0)
-            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
-            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
-                self.e4m3_dtype = torch.float8_e4m3fnuz
-                self.e5m2_dtype = torch.float8_e5m2fnuz
 
 
 @dataclass(frozen=True)
@@ -170,7 +181,6 @@ class Float8LinearConfig:
     #
     # Per-gemm configuration for gemms calculating `output`, `grad_input` and
     # `grad_weight`
-    # TODO(this PR): throw warning if fast_accum False is used with axiswise scaling
     #
     gemm_config_output: Float8GemmConfig = Float8GemmConfig(use_fast_accum=True)
     gemm_config_grad_input: Float8GemmConfig = Float8GemmConfig()
@@ -224,12 +234,6 @@ class Float8LinearConfig:
     # tests so that the warning does not spam the CI stdout.
     force_recompute_fp8_weight_in_bwd: bool = False
 
-    # If True, we only use fp8-all-gather to reduce the communication cost.
-    # The gemm computation is still done in the original precision.
-    # `cast_config_weight` is used to decide how to cast the weight to fp8,
-    # other casting configs will be ignored.
-    use_fp8_all_gather_only: bool = False
-
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass
@@ -277,8 +281,19 @@ class Float8LinearConfig:
                 is_disabled_1 == is_disabled_2
             ), f"incompatible operand precision for {gemm_name}"
 
-        if self.use_fp8_all_gather_only:
-            assert self.enable_fsdp_float8_all_gather, "use_fp8_all_gather_only requires enable_fsdp_float8_all_gather to be True"
+        for cc1, cc2, operand_name, default_dtype in [
+            (cc_i, cc_i_gw, "input", e4m3_dtype),
+            (cc_w, cc_w_gi, "weight", e4m3_dtype),
+            (cc_go, cc_go_gw, "grad_output", e5m2_dtype),
+        ]:
+            # Override the dataclass being frozen
+            if cc1.target_dtype is None:
+                object.__setattr__(cc1, "target_dtype", default_dtype)
+            if cc2.target_dtype is None:
+                object.__setattr__(cc2, "target_dtype", default_dtype)
+            assert (
+                cc1.target_dtype == cc2.target_dtype
+            ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
 
         # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
         if (
@@ -317,21 +332,10 @@ def recipe_name_to_linear_config(
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
 
-        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
-        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
-        # accurate than tensorwise scaling, so the overall impact on accuracy
-        # of tensorwise vs rowwise taking this flag into account will vary.
-        gc_o = Float8GemmConfig(use_fast_accum=True)
-        gc_gi = Float8GemmConfig(use_fast_accum=True)
-        gc_gw = Float8GemmConfig(use_fast_accum=True)
-
         return Float8LinearConfig(
             cast_config_input=cc_i,
             cast_config_weight=cc_w,
             cast_config_grad_output=cc_go,
-            gemm_config_output=gc_o,
-            gemm_config_grad_input=gc_gi,
-            gemm_config_grad_weight=gc_gw,
         )
 
     elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
@@ -346,26 +350,23 @@ def recipe_name_to_linear_config(
         #   * `input`, `weight` and `grad_output` now only need to be scaled
         #     axiswise across a single dim compared to vanilla all-axiswise,
         #     which is more amenable to fast kernels
+        #   * the e4m3 dtype is used across the board, including for gradients
 
         # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
 
         # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-
-        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
-        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
-        # accurate than tensorwise scaling, so the overall impact on accuracy
-        # of tensorwise vs rowwise taking this flag into account will vary.
-        gc_o = Float8GemmConfig(use_fast_accum=True)
-        gc_gi = Float8GemmConfig(use_fast_accum=True)
-        gc_gw = Float8GemmConfig(use_fast_accum=True)
+        cc_go_gw = CastConfig(
+            scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
@@ -374,9 +375,6 @@ def recipe_name_to_linear_config(
             cast_config_input_for_grad_weight=cc_i_gw,
             cast_config_weight_for_grad_input=cc_w_gi,
             cast_config_grad_output_for_grad_weight=cc_go_gw,
-            gemm_config_output=gc_o,
-            gemm_config_grad_input=gc_gi,
-            gemm_config_grad_weight=gc_gw,
         )
 
     else:

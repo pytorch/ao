@@ -30,6 +30,8 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingGranularity,
     ScalingType,
+    e4m3_dtype,
+    e5m2_dtype,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
@@ -53,11 +55,11 @@ from torchao.float8.float8_tensor import (
 from torchao.float8.float8_utils import (
     FP8_TYPES,
     compute_error,
-    e4m3_dtype,
-    e5m2_dtype,
+    config_has_stateful_scaling,
     fp8_tensor_statistics,
     tensor_to_scale,
 )
+from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 random.seed(0)
@@ -279,10 +281,17 @@ class TestFloat8Linear:
         config: Float8LinearConfig,
         use_ac: bool = False,
     ):
-        m_fp8 = Float8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
+        if config_has_stateful_scaling(config):
+            m_fp8 = StatefulFloat8Linear.from_float(
+                copy.deepcopy(m_ref),
+                config,
+            )
+        else:
+            m_fp8 = Float8Linear.from_float(
+                copy.deepcopy(m_ref),
+                config,
+            )
+
         for _ in range(2):
             if use_ac:
                 y_fp8 = torch.utils.checkpoint.checkpoint(m_fp8, x, use_reentrant=False)
@@ -546,7 +555,7 @@ class TestFloat8Linear:
             config=config,
         )
         s = m.__repr__()
-        assert "i:dyn_ten,w:del_ten,go:dyn_ten" in s
+        assert "i:dyn_ten_e4m3,w:del_ten_e4m3,go:dyn_ten_e5m2" in s
 
     @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
@@ -730,14 +739,10 @@ class TestScaledMM:
             emulated_config,
             GemmInputRole.WEIGHT,
         )
-        out_emualted = a_fp8 @ b_fp8
-        out_emualted.to(compare_type)
-
-        if base_dtype in {torch.bfloat16, torch.float16}:
-            atol, rtol = 7e-2, 7e-2
-        else:
-            atol, rtol = 2e-3, 2e-3
-        torch.testing.assert_close(out_padded, out_emualted, atol=atol, rtol=rtol)
+        out_emulated = a_fp8 @ b_fp8
+        out_emulated.to(compare_type)
+        sqnr = compute_error(out_padded, out_emulated)
+        assert sqnr > 50.0
 
 
 class TestNumerics:

@@ -16,10 +16,8 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
-    choose_qparams_and_quantize_affine_qqq,
     dequantize_affine,
     dequantize_affine_floatx,
-    dequantize_affine_qqq,
     quantize_affine,
     quantize_affine_floatx,
 )
@@ -33,14 +31,12 @@ aten = torch.ops.aten
 
 __all__ = [
     "AffineQuantizedTensor",
-    "MarlinQQQTensor",
     "register_layout",
     "to_affine_quantized_intx",
     "to_affine_quantized_floatx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_floatx_static",
     "to_affine_quantized_fpx",
-    "to_marlinqqq_quantized_intx",
 ]
 
 
@@ -229,6 +225,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 else input_float.dtype
             )
             device = input_float.device
+            from torchao.dtypes.uintx import TensorCoreTiledLayout
+
             data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
                 input_float,
                 nbits=nbits,
@@ -237,7 +235,15 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 compute_dtype=compute_dtype,
                 device=device,
                 verbose=False,
-                raw_output=False,
+                raw_output=not isinstance(
+                    _layout, (TensorCoreTiledLayout, PlainLayout)
+                ),
+                # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
+                # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
+                # zero is preserved.
+                # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
+                # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
+                # TODO change PlainLayout to use raw_output.
             )
             data = data.to(target_dtype)
         else:
@@ -255,7 +261,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 zero_point_domain,
             )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
-            if zero_point_domain is None:
+            # TODO should probably consolidate ZeroPointDomain.NONE and None
+            if zero_point_domain is None or zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None
             data = quantize_affine(
                 input_float,
@@ -459,57 +466,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     # 2 - we're given non-floats - quantizing long to int8 is crazy
 
 
-class MarlinQQQTensor(AffineQuantizedTensor):
-    """
-    MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
-
-    To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
-    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
-    and check the two quant primitive ops: choose_qparams_and_quantize_affine_qqq and dequantize_affine_qqq
-    """
-
-    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        if output_dtype is None:
-            output_dtype = self.dtype
-
-        int_data, s_group, s_channel = self.tensor_impl.get_plain()
-        nbits = int(math.log2(self.quant_max - self.quant_min + 1))
-        group_size = max(self.block_size)
-        return dequantize_affine_qqq(
-            int_data, s_group, s_channel, nbits, group_size, output_dtype
-        )
-
-    @classmethod
-    def from_hp_to_intx(
-        cls,
-        input_float: torch.Tensor,
-        block_size: Tuple[int, ...],
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
-        _layout: Optional[Layout] = None,
-    ):
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-        nbits = int(math.log2(quant_max - quant_min + 1))
-        group_size = max(block_size)
-        data, s_group, s_channel, _ = choose_qparams_and_quantize_affine_qqq(
-            input_float, nbits, group_size
-        )
-        data = _layout.post_process(data)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(data, s_group, s_channel, _layout)
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-            dtype=input_float.dtype,
-        )
-
-
 ######################################################
 # Layout and TensorImpl Subclass Registration #
 ######################################################
@@ -522,7 +478,6 @@ to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
-to_marlinqqq_quantized_intx = MarlinQQQTensor.from_hp_to_intx
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`

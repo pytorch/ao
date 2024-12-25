@@ -18,13 +18,14 @@ import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
-from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+from torchao.experimental.quant_api import (
+    _Int8DynActIntxWeightQuantizedLinearFallback,
+    int8_dynamic_activation_intx_weight,
+)
 from torchao.quantization.quant_api import quantize_
 
 from torchao.utils import unwrap_tensor_subclass
-from torchao.experimental.quant_api import (
-    _Int8DynActIntxWeightQuantizedLinearFallback,
-)
+
 
 def cmake_build_torchao_ops(temp_build_dir):
     from distutils.sysconfig import get_python_lib
@@ -98,7 +99,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                     result = quantized_model(activations)
                     expected_result = quantized_model_reference(activations)
 
-                    #TODO: remove expected_result2 checks when we deprecate non-subclass API
+                    # TODO: remove expected_result2 checks when we deprecate non-subclass API
                     reference_impl = _Int8DynActIntxWeightQuantizedLinearFallback()
                     reference_impl.quantize_and_pack_weights(
                         model[0].weight, nbit, group_size, has_weight_zeros
@@ -115,8 +116,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                     self.assertTrue(torch.allclose(actual_val, expected_val, atol=1e-6))
                     if not torch.allclose(actual_val, expected_val):
                         num_mismatch_at_low_tol += 1
-                    
-                    self.assertTrue(torch.allclose(expected_val, expected_val2, atol=1e-2, rtol=1e-1))
+
+                    self.assertTrue(
+                        torch.allclose(
+                            expected_val, expected_val2, atol=1e-2, rtol=1e-1
+                        )
+                    )
                     if not torch.allclose(expected_val, expected_val2):
                         num_mismatch_at_low_tol2 += 1
 
@@ -156,8 +161,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         unwrap_tensor_subclass(model)
 
         print("Exporting quantized model")
-        exported = torch.export.export(model, (activations,))
-        
+        exported = torch.export.export(model, (activations,), strict=True)
+
         print("Compiling quantized model")
         compiled = torch.compile(unwrapped_model)
         with torch.no_grad():

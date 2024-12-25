@@ -21,6 +21,11 @@ from torchao.sparsity import sparsify_, apply_fake_sparsity, semi_sparse_weight
 from torchao.dtypes import SemiSparseLayout, MarlinSparseLayout
 from torchao.utils import unwrap_tensor_subclass
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao._models.utils import (
+    get_arch_name,
+    write_json_result_ossci,
+    write_json_result_local,
+)
 
 torch._dynamo.config.cache_size_limit = 50000
 
@@ -247,7 +252,9 @@ def run(
     profile_path=None,
     profile_top=False,
     memory_path=None,
-    device="cuda"
+    device="cuda",
+    output_json_path=None,
+    output_json_local=False,
 ):
     from torch._inductor import config as inductorconfig
     inductorconfig.triton.unique_kernel_names = True
@@ -350,6 +357,8 @@ def run(
             autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
         elif "autoquant_v2-float8" == compress:
             autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST)
+        elif "autoquant_v2-all" == compress:
+            autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.prototype.quantization.autoquant_v2.ALL_AUTOQUANT_CLASS_LIST)
         else:
             autoquant_v2(predictor.model.image_encoder, example_input=example_input, manual=True)
 
@@ -362,6 +371,10 @@ def run(
             autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
         elif "autoquant-float8" == compress:
             autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST)
+        elif "autoquant-sparse" == compress:
+            autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST)
+        elif "autoquant-all" == compress:
+            autoquant(predictor.model.image_encoder, example_input=example_input, manual=True, qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST)
         else:
             autoquant(predictor.model.image_encoder, example_input=example_input, manual=True)
         predictor.model.image_encoder(example_input)
@@ -449,6 +462,18 @@ def run(
         vals = ",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
             use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path]))
         f.write(vals+"\n")
+
+    if output_json_path:
+        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+        name = sam_model_type
+        arch = get_arch_name()
+        dtype = compress or "noquant"
+        memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
+        performance_result = [name, dtype, device, arch, "img_s(avg)", img_s, None]
+        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
+        write_json_result(output_json_path, headers, memory_result)
+        write_json_result(output_json_path, headers, performance_result)
+
 
 if __name__ == '__main__':
     fire.Fire(run)

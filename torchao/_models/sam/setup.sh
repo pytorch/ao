@@ -19,4 +19,3 @@ wget -nc -P datasets/coco2017 http://images.cocodataset.org/annotations/annotati
 
 cd datasets/coco2017 && unzip -n val2017.zip && cd $SETUP_HOME
 cd datasets/coco2017 && unzip -n annotations_trainval2017.zip && cd $SETUP_HOME
-
