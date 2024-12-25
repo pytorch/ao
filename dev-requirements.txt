@@ -21,8 +21,8 @@ lm_eval
 diskcache
 pycocotools
 tqdm
-git+https://github.com/NVlabs/COAT.git#subdirectory=coat/optimizer/kernels # Custom CUDA Extensions
-git+https://github.com/NVlabs/COAT.git # Custom CUDA Extensions
+
+# Custom CUDA Extensions
 ninja
 
 # Linting
