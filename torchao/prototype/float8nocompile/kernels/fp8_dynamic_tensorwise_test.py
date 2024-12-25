@@ -4,6 +4,7 @@ from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
+    MemoryLayout,
     triton_hp_tensor_to_float8_dynamic,
 )
 
@@ -13,10 +14,13 @@ from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
 )
 @pytest.mark.parametrize(
     "input_shape",
-    [(32, 32), (512, 512), (4096, 4096)],
+    [(4, 4), (32, 32), (512, 512), (4096, 4096)],
+)
+@pytest.mark.parametrize(
+    "memory_layout", [MemoryLayout.ROW_MAJOR, MemoryLayout.COL_MAJOR]
 )
 def test_fp8_triton_hp_tensor_to_float8_dynamic(
-    algo: KernelAlgorithm, input_shape: tuple[int, int]
+    input_shape: tuple[int, int], algo: KernelAlgorithm, memory_layout: MemoryLayout
 ):
     assert torch.cuda.is_available()
     device = "cuda"
@@ -37,6 +41,7 @@ def test_fp8_triton_hp_tensor_to_float8_dynamic(
         torch.float8_e4m3fn,
         LinearMMConfig(),
         algo=algo,
+        memory_layout=memory_layout,
     )
 
     def allclose_fp8(tensor1, tensor2, atol=1e-3, rtol=1e-3):
@@ -51,6 +56,7 @@ def test_fp8_triton_hp_tensor_to_float8_dynamic(
         tensor2_fp32 = tensor2.to(torch.float32)
         return torch.allclose(tensor1_fp32, tensor2_fp32, atol=atol, rtol=rtol)
 
+    # assert that the two implementations are equivalent
     assert torch.allclose(x_fp8._scale, y_fp8._scale, atol=1e-3, rtol=1e-3)
     assert allclose_fp8(x_fp8._data, y_fp8._data, atol=1e-3, rtol=1e-3)
 

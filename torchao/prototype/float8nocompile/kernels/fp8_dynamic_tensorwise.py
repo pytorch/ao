@@ -41,6 +41,13 @@ class KernelAlgorithm(Enum):
     REDUCTION = "reduction"
 
 
+class MemoryLayout(Enum):
+    """Enum for memory layout of input tensor."""
+
+    ROW_MAJOR = "row_major"
+    COL_MAJOR = "col_major"
+
+
 kernel_configs = [
     triton.Config({"BLOCK_SIZE": 128}, num_warps=1),
     triton.Config({"BLOCK_SIZE": 256}, num_warps=2),
@@ -93,7 +100,7 @@ def _fp8_scale_atomic(
 
 @triton.autotune(configs=kernel_configs, key=["input_size"])
 @triton.jit
-def _to_fp8_atomic(
+def _to_fp8_atomic_row_major(
     input_ptr,
     scale_ptr,
     amax_ptr,
@@ -120,6 +127,52 @@ def _to_fp8_atomic(
     # perform conversion
     vals = vals * scale
     fp8_vals = tl.clamp(vals, min=fp8_dtype_min, max=fp8_dtype_max).to(output_dtype)
+    tl.store(out_ptr + block_offs, fp8_vals, mask=mask)
+
+
+@triton.autotune(
+    configs=[
+        triton.Config({"BLOCK_SIZE_ROWS": 128, "BLOCK_SIZE_COLS": 128}, num_warps=1),
+        triton.Config({"BLOCK_SIZE_ROWS": 256, "BLOCK_SIZE_COLS": 256}, num_warps=2),
+        triton.Config({"BLOCK_SIZE_ROWS": 512, "BLOCK_SIZE_COLS": 512}, num_warps=4),
+    ],
+    key=["input_size"],
+)
+@triton.jit
+def _to_fp8_atomic_col_major(
+    input_ptr,
+    scale_ptr,
+    amax_ptr,
+    out_ptr,
+    fp8_dtype_min,
+    fp8_dtype_max,
+    num_rows,
+    num_cols,
+    input_dtype: tl.constexpr,
+    output_dtype: tl.constexpr,
+    BLOCK_SIZE_ROWS: tl.constexpr,
+    BLOCK_SIZE_COLS: tl.constexpr,
+    EPS: tl.constexpr,
+):
+    block_row_id = tl.program_id(axis=0)
+    block_col_id = tl.program_id(axis=1)
+
+    # load scale
+    scale = tl.load(scale_ptr)
+
+    # load block of input tensor
+    block_row_start = block_row_id * BLOCK_SIZE_ROWS
+    block_col_start = block_col_id * BLOCK_SIZE_COLS
+    block_row_offs = block_row_start + tl.arange(0, BLOCK_SIZE_ROWS)
+    block_col_offs = block_col_start + tl.arange(0, BLOCK_SIZE_COLS)
+    block_offs = block_col_offs[None, :] + block_row_offs[:, None] * num_cols
+    mask = (block_row_offs[:, None] < num_rows) & (block_col_offs[None, :] < num_cols)
+    vals = tl.load(input_ptr + block_offs, mask=mask).to(input_dtype)
+
+    # perform conversion
+    vals = vals * scale
+    fp8_vals = tl.clamp(vals, min=fp8_dtype_min, max=fp8_dtype_max).to(output_dtype)
+    out_offs = block_row_offs[:, None] + block_col_offs[None, :] * num_rows
     tl.store(out_ptr + block_offs, fp8_vals, mask=mask)
 
 
@@ -202,6 +255,7 @@ def triton_hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    memory_layout: MemoryLayout = MemoryLayout.ROW_MAJOR,
 ) -> Float8Tensor:
     assert hp_tensor.is_contiguous(), "tensor must be contiguous"
 
@@ -243,19 +297,51 @@ def triton_hp_tensor_to_float8_dynamic(
             EPS=EPS,
         )
 
-        # perform conversion and store scale for use in Float8Tensor
-        _to_fp8_atomic[grid](
-            flattened_input,
-            scale_out,
-            global_amax,
-            fp8_output,
-            num_elements,
-            fp8_dtype_min,
-            fp8_dtype_max,
-            input_dtype=tl_input_dtype,
-            output_dtype=tl_output_dtype,
-            EPS=EPS,
-        )
+        # perform conversion and store scale for use in Float8Tensor,
+        # writing output in desired memory layout.
+        if memory_layout == MemoryLayout.ROW_MAJOR:
+            # input_ptr,
+            # scale_ptr,
+            # amax_ptr,
+            # out_ptr,
+            # num_elements,
+            # fp8_dtype_min,
+            # fp8_dtype_max,
+            # input_dtype: tl.constexpr,
+            # output_dtype: tl.constexpr,
+            # BLOCK_SIZE: tl.constexpr,
+            # EPS: tl.constexpr,
+            _to_fp8_atomic_row_major[grid](
+                flattened_input,
+                scale_out,
+                global_amax,
+                fp8_output,
+                num_elements,
+                fp8_dtype_min,
+                fp8_dtype_max,
+                input_dtype=tl_input_dtype,
+                output_dtype=tl_output_dtype,
+                EPS=EPS,
+            )
+        elif memory_layout == MemoryLayout.COL_MAJOR:
+            num_rows, num_cols = orig_shape
+            grid = lambda meta: (
+                triton.cdiv(num_rows, meta["BLOCK_SIZE_ROWS"]),
+                triton.cdiv(num_cols, meta["BLOCK_SIZE_COLS"]),
+            )
+            _to_fp8_atomic_col_major[grid](
+                flattened_input,
+                scale_out,
+                global_amax,
+                fp8_output,
+                fp8_dtype_min,
+                fp8_dtype_max,
+                num_rows,
+                num_cols,
+                input_dtype=tl_input_dtype,
+                output_dtype=tl_output_dtype,
+                EPS=EPS,
+            )
     elif algo == KernelAlgorithm.REDUCTION:
         # max block size and num warps values determined via manual tuning
         max_block_size = 4096
