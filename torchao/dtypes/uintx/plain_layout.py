@@ -230,8 +230,6 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
         and isinstance(weight_tensor._layout, PlainLayout)
     )
 
-from collections import Counter
-seen = Counter()
 
 def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     #
@@ -244,11 +242,6 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     # large that y_dot_int32 * a float16 scale is greater than the maximum
     # value of a float 16, (which results in a value of inf even if multiplying
     # by the other scale would bring it within the expected range)
-    # global seen
-    # shape_key = tuple(input_tensor.shape)
-    # if shape_key not in seen:
-    #     seen[shape_key] += 1
-    #     print(seen)
 
     x_vals_int8 = input_tensor.tensor_impl.int_data
     x_scales = input_tensor.tensor_impl.scale
