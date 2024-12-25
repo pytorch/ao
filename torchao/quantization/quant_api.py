@@ -649,7 +649,6 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
-<<<<<<< HEAD
 from torchao.experimental.sparse.dynamic_wo import MarlinSparseLayoutDecodeSemiStructuredPrefillLayout
 
 def int8_dynamic_prefill_int4_weight_only_decode(
@@ -701,7 +700,6 @@ def int8_dynamic_prefill_int4_weight_only_decode(
         return weight
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
-=======
 def gemlite_uintx_weight_only(
     group_size: Optional[int] = 64,
     bit_width: int = 4,
@@ -731,7 +729,6 @@ def gemlite_uintx_weight_only(
     )
     return _get_linear_subclass_inserter(apply_fn)
 
->>>>>>> main
 
 def int4_weight_only(
     group_size=128,
