@@ -96,7 +96,9 @@ class OptimStateFp8(TorchAOBaseTensor):
         self.sqrt_minmax_exp = sqrt_minmax_exp
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs + (["k", "sqrt_minmax_exp"] if self.k is not None else []) , []
+        return self.tensor_attrs + (
+            ["k", "sqrt_minmax_exp"] if self.k is not None else []
+        ), []
 
     @classmethod
     def __tensor_unflatten__(
