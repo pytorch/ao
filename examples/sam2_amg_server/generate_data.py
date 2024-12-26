@@ -4,9 +4,8 @@ from tqdm import tqdm
 import time
 import json
 import fire
-import logging
-import matplotlib.pyplot as plt
 import numpy as np
+from collections import OrderedDict
 from datetime import datetime
 from server import file_bytes_to_image_tensor
 from server import show_anns
@@ -19,6 +18,41 @@ from server import masks_to_rle_dict
 from server import max_memory_allocated
 from server import profiler_runner
 from io import BytesIO
+from torch.autograd.profiler import record_function
+
+
+def latencies_statistics(data):
+    # Convert the list to a NumPy array
+    data_array = np.array(data)
+    # Calculate the mean
+    mean = np.mean(data_array)
+    # Calculate the median
+    median = np.median(data_array)
+    # Calculate the 95th percentile
+    p95 = np.percentile(data_array, 95)
+    # Calculate the 99th percentile
+    p99 = np.percentile(data_array, 99)
+    # Calculate the 99.9th percentile
+    p999 = np.percentile(data_array, 99.9)
+    # Calculate the highest number
+    max = np.max(data_array)
+    # Calculate the experiment id
+    argmax = int(np.argmax(data_array))
+    statistics_dict = OrderedDict({
+        'mean': mean,
+        'median': median,
+        'p95': p95,
+        'p99': p99,
+        'p999': p999,
+        'max': max,
+        'argmax': argmax,
+        'first': data[0],
+        'second': data[1],
+        'third': data[2],
+        'fourth': data[3],
+        'fifth': data[4],
+    })
+    return statistics_dict
 
 
 def timestamped_print(*args, **kwargs):
@@ -82,6 +116,7 @@ def main(
     export_model="",
     load_exported_model="",
     num_images=None,
+    allow_recompiles=False,
 ):
     start_time = time.time()
     if task_type not in TASK_TYPES:
@@ -188,8 +223,10 @@ def main(
     if fast:
         set_fast(mask_generator,
                  task_type,
-                 loaded_exported_model=(load_exported_model != ""))
+                 loaded_exported_model=(load_exported_model != ""),
+                 allow_recompiles=allow_recompiles)
 
+    latencies = []
     num_images = len(input_paths) if num_images is None else num_images
     input_paths = input_paths[:num_images]
     for input_path, filename, output_image_path, output_rle_json_path, meta_path in tqdm(
@@ -210,10 +247,24 @@ def main(
                     center_points = center_points[:1]
                     center_points_label = center_points_label[:1]
 
-        with torch.autograd.profiler.record_function("generate"):
+        with record_function("load image bytes from disk"):
             if baseline:
-                input_bytes = bytearray(open(input_path, "rb").read())
-                image_tensor = file_bytes_to_image_tensor(input_bytes)
+                img_bytes_tensor = bytearray(open(input_path, "rb").read())
+            else:
+                from torchvision import io as tio
+                img_bytes_tensor = tio.read_file(input_path)
+
+        # We're including decoding the image, but not disk I/O in our latency calculation
+        t1 = time.time()
+        with record_function("decode image bytes"):
+            if baseline:
+                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
+            else:
+                from torchvision import io as tio
+                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
+
+        with record_function("generate"):
+            if baseline:
                 if verbose:
                     timestamped_print(
                         f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
@@ -243,9 +294,6 @@ def main(
                         masks.append(mask)
                     masks = torch.stack(masks)
             else:
-                from torchvision import io as tio
-                img_bytes_tensor = tio.read_file(input_path)
-                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
                 if task_type == "amg":
                     masks = mask_generator.generate(image_tensor)
                 elif task_type == "sps":
@@ -289,7 +337,7 @@ def main(
                     # Could export the predict method and the mask_to_rle_pytorch_2 function
                     # I think mask_to_rle_pytorch_2 recompiles
 
-        with torch.autograd.profiler.record_function("mask_to_rle_pytorch"):
+        with record_function("mask_to_rle_pytorch"):
             if task_type == "sps":
                 masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]
                 masks = [{'segmentation': masks}]
@@ -297,10 +345,12 @@ def main(
                 masks = mask_to_rle_pytorch(masks)
                 masks = [{'segmentation': mask} for mask in masks]
 
-        with torch.autograd.profiler.record_function("masks_to_rle_dict"):
+        with record_function("masks_to_rle_dict"):
             rle_dict = masks_to_rle_dict(masks)
 
-        with torch.autograd.profiler.record_function("json.dumps"):
+        latencies.append(time.time() - t1)
+
+        with record_function("json.dumps"):
             if verbose:
                 timestamped_print(f"Storing rle under {output_rle_json_path}")
             output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
@@ -309,6 +359,7 @@ def main(
     end_time = time.time()
     total_time = end_time - start_time
     print(f"This took {total_time}s with {len(input_paths) / total_time}img/s or {total_time / len(input_paths) * 1000}ms per image")
+    print("\n".join(f"{key}: {value if isinstance(value, int) else str(int(value*1000)) + 'ms'}" for (key, value) in latencies_statistics(latencies).items()))
     max_memory_allocated()
 
 
