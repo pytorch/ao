@@ -105,7 +105,12 @@ class OptimStateFp8(TorchAOBaseTensor):
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+            *[
+                tensor_data_dict[name]
+                for name in (cls.tensor_attrs)
+                + (["k", "sqrt_minmax_exp"] if "k" in tensor_data_dict else [])
+            ],
+            *tensor_attributes,
         )
 
     def dequantize(self, output_dtype=None):
