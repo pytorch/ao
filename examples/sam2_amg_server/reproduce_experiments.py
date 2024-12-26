@@ -59,10 +59,12 @@ if __name__ == "__main__":
 
         # AO version of baseline for sanity check
         ppb_kwarg = {"points-per-batch":   64} if task_type == "amg" else {}
+        ppb_kwarg = {"points-per-batch":    1} if task_type == "sps" else ppb_kwarg
         # Generate data for various settings
         run(task_type, output_ao_path,                                   ppb_kwarg)
 
         ppb_kwarg = {"points-per-batch":   1024} if task_type == "amg" else {}
+        ppb_kwarg = {"points-per-batch":      1} if task_type == "sps" else ppb_kwarg
         run(task_type, output_ao_path + "_ppb_1024",                     ppb_kwarg)
         # TODO: Add experiment to export model
         run(task_type, output_ao_path + "_ppb_1024_load_export",         {**{              "load_fast": export_model_path + "_fast"}, **ppb_kwarg})
