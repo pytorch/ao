@@ -13,6 +13,7 @@ or static scaling.
 from typing import Optional
 
 import torch
+import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
