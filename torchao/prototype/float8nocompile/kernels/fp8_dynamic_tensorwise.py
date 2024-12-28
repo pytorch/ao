@@ -165,15 +165,15 @@ def _to_fp8_atomic_col_major(
     block_col_start = block_col_id * BLOCK_SIZE_COLS
     block_row_offs = block_row_start + tl.arange(0, BLOCK_SIZE_ROWS)
     block_col_offs = block_col_start + tl.arange(0, BLOCK_SIZE_COLS)
-    block_offs = block_col_offs[None, :] + block_row_offs[:, None] * num_cols
+    block_offs = block_row_offs[:, None] * num_cols + block_col_offs[None, :]
     mask = (block_row_offs[:, None] < num_rows) & (block_col_offs[None, :] < num_cols)
     vals = tl.load(input_ptr + block_offs, mask=mask).to(input_dtype)
 
     # perform conversion
     vals = vals * scale
     fp8_vals = tl.clamp(vals, min=fp8_dtype_min, max=fp8_dtype_max).to(output_dtype)
-    out_offs = block_row_offs[:, None] + block_col_offs[None, :] * num_rows
-    tl.store(out_ptr + block_offs, fp8_vals, mask=mask)
+    out_offs = block_col_offs[None, :] * num_rows + block_row_offs[:, None]
+    tl.store(out_ptr + out_offs, fp8_vals, mask=mask)
 
 
 # --- reduction version of kernel ---
@@ -300,17 +300,6 @@ def triton_hp_tensor_to_float8_dynamic(
         # perform conversion and store scale for use in Float8Tensor,
         # writing output in desired memory layout.
         if memory_layout == MemoryLayout.ROW_MAJOR:
-            # input_ptr,
-            # scale_ptr,
-            # amax_ptr,
-            # out_ptr,
-            # num_elements,
-            # fp8_dtype_min,
-            # fp8_dtype_max,
-            # input_dtype: tl.constexpr,
-            # output_dtype: tl.constexpr,
-            # BLOCK_SIZE: tl.constexpr,
-            # EPS: tl.constexpr,
             _to_fp8_atomic_row_major[grid](
                 flattened_input,
                 scale_out,
@@ -388,8 +377,16 @@ def triton_hp_tensor_to_float8_dynamic(
     else:
         raise ValueError(f"Unsupported kernel algorithm: {algo}")
 
+    fp8_output = fp8_output.reshape(orig_shape)
+
+    # for column major output we need to update the stride
+    if memory_layout == MemoryLayout.COL_MAJOR:
+        rows = fp8_output.shape[0]
+        col_major_strides = (1, rows)
+        fp8_output = fp8_output.as_strided(fp8_output.size(), col_major_strides)
+
     return Float8Tensor(
-        fp8_output.reshape(orig_shape),
+        fp8_output,
         scale_out,
         orig_dtype=hp_tensor.dtype,
         linear_mm_config=linear_mm_config,

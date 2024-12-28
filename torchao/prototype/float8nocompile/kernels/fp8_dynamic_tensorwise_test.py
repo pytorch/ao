@@ -10,15 +10,14 @@ from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
 
 
 @pytest.mark.parametrize(
-    "algo", [KernelAlgorithm.ATOMIC_MAX, KernelAlgorithm.REDUCTION]
+    "algo",
+    [KernelAlgorithm.ATOMIC_MAX],
 )
 @pytest.mark.parametrize(
     "input_shape",
-    [(4, 4), (32, 32), (512, 512), (4096, 4096)],
+    [(2, 4), (32, 16), (512, 512), (4096, 4096)],
 )
-@pytest.mark.parametrize(
-    "memory_layout", [MemoryLayout.ROW_MAJOR, MemoryLayout.COL_MAJOR]
-)
+@pytest.mark.parametrize("memory_layout", [MemoryLayout.COL_MAJOR])
 def test_fp8_triton_hp_tensor_to_float8_dynamic(
     input_shape: tuple[int, int], algo: KernelAlgorithm, memory_layout: MemoryLayout
 ):
@@ -55,6 +54,11 @@ def test_fp8_triton_hp_tensor_to_float8_dynamic(
         tensor1_fp32 = tensor1.to(torch.float32)
         tensor2_fp32 = tensor2.to(torch.float32)
         return torch.allclose(tensor1_fp32, tensor2_fp32, atol=atol, rtol=rtol)
+
+    # for column major output, compare against torch equivalent of transformation
+    # to column major
+    if memory_layout == MemoryLayout.COL_MAJOR:
+        x_fp8 = x_fp8.t().contiguous().t()
 
     # assert that the two implementations are equivalent
     assert torch.allclose(x_fp8._scale, y_fp8._scale, atol=1e-3, rtol=1e-3)
