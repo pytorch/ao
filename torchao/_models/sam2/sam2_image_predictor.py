@@ -108,7 +108,7 @@ class SAM2ImagePredictor(torch.nn.Module):
             w, h = image.size
             self._orig_hw = [(h, w)]
         elif isinstance(image, torch.Tensor):
-            _, w, h = image.shape
+            _, h, w = image.shape
             self._orig_hw = [(h, w)]
         else:
             raise NotImplementedError("Image format not supported")

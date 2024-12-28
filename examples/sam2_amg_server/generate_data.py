@@ -249,19 +249,22 @@ def main(
 
         with record_function("load image bytes from disk"):
             if baseline:
+                # img_bytes_tensor = bytearray(open('dog.jpg', "rb").read())
                 img_bytes_tensor = bytearray(open(input_path, "rb").read())
             else:
                 from torchvision import io as tio
+                # img_bytes_tensor = tio.read_file('dog.jpg')
                 img_bytes_tensor = tio.read_file(input_path)
 
         # We're including decoding the image, but not disk I/O in our latency calculation
         t1 = time.time()
         with record_function("decode image bytes"):
             if baseline:
+                # NOTE: We have to use numpy for the baseline
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
             else:
                 from torchvision import io as tio
-                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
+                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda', mode=tio.ImageReadMode.RGB)
 
         # TODO: Write out an optional unit test based on dog.jpg and rerun
 

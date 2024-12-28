@@ -29,6 +29,9 @@ import asyncio
 from contextlib import asynccontextmanager
 import contextlib
 
+from compile_export_utils import set_fast
+from compile_export_utils import set_furious
+
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True
 inductorconfig.coordinate_descent_tuning = True
