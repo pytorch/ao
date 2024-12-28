@@ -135,13 +135,11 @@ def export_model(mask_generator,
                  model_directory,
                  task_type,
                  furious=False,
-                 fast=True,
                  batch_size=1,
                  points_per_batch=None,
                  overwrite=False):
     if furious:
         set_furious(mask_generator)
-    assert fast, "fast mode is required when using export"
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     assert task_type in ["sps", "amg"] and points_per_batch is not None, f"Specify points_per_batch for task {task_type}"
     if task_type == "sps":
@@ -218,7 +216,6 @@ def load_exported_model(mask_generator,
                         model_directory,
                         task_type,
                         furious=False,
-                        fast=True,
                         batch_size=1,
                         points_per_batch=1024):
     if furious:

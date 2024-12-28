@@ -117,6 +117,7 @@ def main(
     load_exported_model="",
     num_images=None,
     allow_recompiles=False,
+    quiet=False,
 ):
     start_time = time.time()
     if task_type not in TASK_TYPES:
@@ -205,7 +206,6 @@ def main(
                         export_model,
                         task_type,
                         furious=furious,
-                        fast=fast,
                         batch_size=1,
                         points_per_batch=points_per_batch)
     if load_exported_model == "":
@@ -217,7 +217,6 @@ def main(
                                load_exported_model,
                                task_type,
                                furious,
-                               fast,
                                batch_size=1,
                                points_per_batch=points_per_batch)
     if fast:
@@ -232,6 +231,7 @@ def main(
     for input_path, filename, output_image_path, output_rle_json_path, meta_path in tqdm(
         zip(input_paths, filenames, output_image_paths, output_rle_json_paths, meta_paths),
         total=num_images,
+        disable=quiet,
     ):
         if task_type != "amg":
             if verbose:
@@ -358,7 +358,10 @@ def main(
                 file.write(json.dumps(rle_dict, indent=4))
     end_time = time.time()
     total_time = end_time - start_time
-    print(f"This took {total_time}s with {len(input_paths) / total_time}img/s or {total_time / len(input_paths) * 1000}ms per image")
+    print(f"total_time: {total_time}s")
+    print(f"total_img_s: {len(input_paths) / total_time}img/s")
+    print(f"total_ms_per_img: {total_time / len(input_paths) * 1000}ms")
+
     print("\n".join(f"{key}: {value if isinstance(value, int) else str(int(value*1000)) + 'ms'}" for (key, value) in latencies_statistics(latencies).items()))
     max_memory_allocated()
 

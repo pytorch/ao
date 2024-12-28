@@ -1,4 +1,7 @@
 import subprocess
+import fire
+from pathlib import Path
+
 def run_script_with_args(positional_args, keyword_args, dry=False):
     assert isinstance(positional_args, list)
     assert isinstance(keyword_args, dict)
@@ -38,39 +41,60 @@ def run_script_with_args(positional_args, keyword_args, dry=False):
 # --furious 
 # --num-images 1000 
 # --points-per-batch 1024
-output_base_path = "~/blogs/sam2_amg_example"
 
+def main(image_paths, output_base_path, dry=False, overwrite=False):
+    output_base_path = Path(output_base_path)
+    print("output_base_path: ", output_base_path)
+    # output_base_path = "~/blogs/sam2_amg_example"
+    # image_paths = f"{output_base_path}/sav_val_image_paths_shuf_1000"
 
-def run(task, output_path, kwargs):
-    image_paths = f"{output_base_path}/sav_val_image_paths_shuf_1000"
-    run_script_with_args(["generate_data.py", "~/checkpoints/sam2" "large", task, image_paths, output_path], kwargs, dry=True)
+    def run(task, output_path: Path, kwargs):
+        output_path.mkdir(exist_ok=overwrite)
+        run_script_with_args(["generate_data.py",
+                              "~/checkpoints/sam2",
+                              "large",
+                              task,
+                              image_paths,
+                              str(output_path)],
+                             kwargs,
+                             dry=dry)
 
-
-if __name__ == "__main__":
-    # Generate baseline AMG data
-    run("amg", "~/blogs/sam2_amg_example/output_data", {'baseline': None, 'points-per-batch': 64})
-
-    # Postprocessing baseline AMG data for SPS and MPS tasks
-    # Call into annotate_with_rle
-
-    for task_type in ["amg", "sps", "mps"]:
-        output_ao_path = f"{output_base_path}/output_data_{task_type}_ao"
-        export_model_path = f"{output_base_path}/exported_models/{task_type}_ao"
-
-        # AO version of baseline for sanity check
+    for task_type in ["amg"]:  # , "sps", "mps"]:
+        # Generate baseline data
         ppb_kwarg = {"points-per-batch":   64} if task_type == "amg" else {}
         ppb_kwarg = {"points-per-batch":    1} if task_type == "sps" else ppb_kwarg
-        # Generate data for various settings
+        run("amg", output_base_path / f"output_data_baseline_{task_type}", {**{'baseline': None}, **ppb_kwarg})
+
+        output_ao_path = output_base_path / f"output_data_{task_type}_ao"
+        # AO version of baseline for sanity check
         run(task_type, output_ao_path,                                   ppb_kwarg)
+
+        # TODO: Need meta folder for sps and mps
+        # Postprocessing baseline AMG data for SPS and MPS tasks
+        # Call into annotate_with_rle
 
         ppb_kwarg = {"points-per-batch":   1024} if task_type == "amg" else {}
         ppb_kwarg = {"points-per-batch":      1} if task_type == "sps" else ppb_kwarg
-        run(task_type, output_ao_path + "_ppb_1024",                     ppb_kwarg)
-        # TODO: Add experiment to export model
-        run(task_type, output_ao_path + "_ppb_1024_load_export",         {**{              "load_fast": export_model_path + "_fast"}, **ppb_kwarg})
-        run(task_type, output_ao_path + "_ppb_1024_fast_export",         {**{"fast": None, "load_fast": export_model_path + "_fast"}, **ppb_kwarg})
-        run(task_type, output_ao_path + "_ppb_1024_fast_export_furious", {**{"fast": None, "load_fast": export_model_path + "_fast_furious", "furious": None}, **ppb_kwarg})
-        run(task_type, output_ao_path + "_ppb_1024_fast_export_furious", {**{"fast": None, "load_fast": export_model_path + "_fast_furious", "furious": None,  "allow-recompiles": None}, **ppb_kwarg})
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024"),                     ppb_kwarg)
+
+        export_model_path = output_base_path / "exported_models" / f"{task_type}_ao_fast"
+        export_model_path.mkdir(exist_ok=overwrite, parents=True)
+        # TODO: Set num images to 0 for export job
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_save_export"),                    {**{              "export-model":        str(export_model_path)}, **ppb_kwarg})
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_load_export"),                    {**{              "load-exported-model": str(export_model_path)}, **ppb_kwarg})
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_fast_export"),                    {**{"fast": None, "load-exported-model": str(export_model_path)}, **ppb_kwarg})
+
+        export_model_path = output_base_path / "exported_models" / f"{task_type}_ao_fast_furious"
+        export_model_path.mkdir(exist_ok=overwrite, parents=True)
+        # TODO: Set num images to 0 for export job
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_save_export_furious"),            {**{              "export-model":        str(export_model_path), "furious": None}, **ppb_kwarg})
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_fast_export_furious"),            {**{"fast": None, "load-exported-model": str(export_model_path), "furious": None}, **ppb_kwarg})
+        run(task_type, Path(str(output_ao_path) + "_ppb_1024_fast_export_furious_recompiles"), {**{"fast": None, "load-exported-model": str(export_model_path), "furious": None,  "allow-recompiles": None}, **ppb_kwarg})
 
         # Calculating mIoU w.r.t. baseline results
         # TODO: Call into compare_rle_lists.py
+
+        # Run image annotations to visualize differences and the task at hand
+
+if __name__ == "__main__":
+    fire.Fire(main)

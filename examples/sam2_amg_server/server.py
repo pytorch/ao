@@ -283,7 +283,8 @@ def max_memory_allocated():
     _, total_memory = torch.cuda.mem_get_info()
     max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
     max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
+    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB")
+    print(f"max_memory_allocated_percentage: {max_memory_allocated_percentage}%")
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
