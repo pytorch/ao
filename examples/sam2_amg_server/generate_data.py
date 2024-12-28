@@ -263,6 +263,8 @@ def main(
                 from torchvision import io as tio
                 image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda')
 
+        # TODO: Write out an optional unit test based on dog.jpg and rerun
+
         with record_function("generate"):
             if baseline:
                 if verbose:
