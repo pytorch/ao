@@ -91,6 +91,8 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
         run(task_type, Path(str(output_ao_path) + "_ppb_1024_fast_export_furious"),            {**{"fast": None, "load-exported-model": str(export_model_path), "furious": None}, **ppb_kwarg})
         run(task_type, Path(str(output_ao_path) + "_ppb_1024_fast_export_furious_recompiles"), {**{"fast": None, "load-exported-model": str(export_model_path), "furious": None,  "allow-recompiles": None}, **ppb_kwarg})
 
+        # TODO: Add a job that uses torchvision for I/O
+
         # Calculating mIoU w.r.t. baseline results
         # TODO: Call into compare_rle_lists.py
 

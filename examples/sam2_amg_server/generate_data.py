@@ -248,7 +248,7 @@ def main(
                     center_points_label = center_points_label[:1]
 
         with record_function("load image bytes from disk"):
-            if baseline:
+            if True:
                 # img_bytes_tensor = bytearray(open('dog.jpg', "rb").read())
                 img_bytes_tensor = bytearray(open(input_path, "rb").read())
             else:
@@ -259,7 +259,7 @@ def main(
         # We're including decoding the image, but not disk I/O in our latency calculation
         t1 = time.time()
         with record_function("decode image bytes"):
-            if baseline:
+            if True:
                 # NOTE: We have to use numpy for the baseline
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
             else:

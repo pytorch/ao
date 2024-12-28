@@ -423,6 +423,10 @@ def main(checkpoint_path,
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
 
+    # from torchvision import io as tio
+    # img_bytes_tensor = tio.read_file('dog.jpg')
+    # image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda', mode=tio.ImageReadMode.RGB)
+
     if unittest:
         if batch_size == 1:
             logging.info("batch size 1 unittest")
