@@ -50,12 +50,20 @@ def run_script_with_args(positional_args, keyword_args, dry=False):
 def main(image_paths, output_base_path, dry=False, overwrite=False):
     output_base_path = Path(output_base_path)
     print("output_base_path: ", output_base_path)
+    result_csv_path = output_base_path / "result.csv"
+    if not overwrite and result_csv_path.exists():
+        raise ValueError("Expected {result_csv_path} to not exist. Use --overwrite to overwrite.")
     # output_base_path = "~/blogs/sam2_amg_example"
     # image_paths = f"{output_base_path}/sav_val_image_paths_shuf_1000"
 
     results = []
 
     def run(task, output_path: Path, kwargs, baseline_folder=None):
+        all_stats_file = Path(str(output_path) + "_stats.json")
+        if dry and all_stats_file.exists():
+            all_stats = json.load(all_stats_file)
+            results.append(all_stats)
+            return all_stats
         output_path.mkdir(exist_ok=overwrite)
         stdout, stderr = run_script_with_args(["generate_data.py",
                                                "~/checkpoints/sam2",
@@ -72,11 +80,15 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
                                                                str(baseline_folder),
                                                                strict=True,
                                                                compare_folders=True)
-            all_stats["miou_count"] = miou_count
-            all_stats["miou_sum"] = miou_sum
+            all_stats["miou"] = miou_sum / miou_count
             all_stats["fail_count"] = fail_count
         all_stats["task"] = task
-        all_stats = all_stats | kwargs
+        all_stats = all_stats | {key: str(kwargs[key]) for key in kwargs}
+        if not overwrite and all_stats_file.exists():
+            raise ValueError(f"{all_stats_file} already exists. Use --overwrite to overwrite.")
+        with open(all_stats_file, 'w') as file:
+            file.write(json.dumps(all_stats, indent=4))
+
         # TODO:: Save this and use overwrite to check for it before writing
         results.append(all_stats)
         return all_stats
@@ -129,8 +141,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
     all_keys = set().union(*(d.keys() for d in results))
     normalized_data = [{key: d.get(key, None) for key in all_keys} for d in results]
     df = pd.DataFrame(normalized_data)
-    markdown_table = df.to_markdown(index=False)
-    print(markdown_table)
+    df.to_csv(result_csv_path, index=False)
 
 if __name__ == "__main__":
     fire.Fire(main)

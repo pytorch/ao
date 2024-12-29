@@ -55,7 +55,7 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
             else:
                 print(f"mask {i} IoU is iou(v0_mask, v1_mask)")
 
-    return miou_sum / miou_count, equal_count
+    return float((miou_sum / miou_count).item()), equal_count
 
 
 def compare_masks_str(str0, str1, strict):
