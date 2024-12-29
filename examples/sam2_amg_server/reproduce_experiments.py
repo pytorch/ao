@@ -77,6 +77,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
             all_stats["fail_count"] = fail_count
         all_stats["task"] = task
         all_stats = all_stats | kwargs
+        # TODO:: Save this and use overwrite to check for it before writing
         results.append(all_stats)
         return all_stats
 
