@@ -116,8 +116,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
 
     # TODO: Something about sps + torch.compile is messed up
 
-    # for task_type in ["amg"]:  # , "sps", "mps"]:
-    for task_type in ["mps"]:
+    for task_type in ["amg", "sps", "mps"]:
         meta_kwarg = {} if task_type == "amg" else {"meta-folder": output_base_path / "output_data_amg_baseline_annotations"}
         # Generate baseline data
         ppb_kwarg = {"points-per-batch":   64} if task_type == "amg" else {}
