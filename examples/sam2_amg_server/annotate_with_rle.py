@@ -10,10 +10,6 @@ from server import file_bytes_to_image_tensor
 from server import show_anns
 from server import model_type_to_paths
 from server import MODEL_TYPES_TO_MODEL
-from server import set_fast
-from server import set_aot_fast
-from server import load_aot_fast
-from server import set_furious
 from server import masks_to_rle_dict
 from server import max_memory_allocated
 from io import BytesIO

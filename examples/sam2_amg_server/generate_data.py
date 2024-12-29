@@ -207,7 +207,8 @@ def main(
                         task_type,
                         furious=furious,
                         batch_size=1,
-                        points_per_batch=points_per_batch)
+                        points_per_batch=points_per_batch,
+                        overwrite=overwrite)
     if load_exported_model == "":
         if furious:
             set_furious(mask_generator)
