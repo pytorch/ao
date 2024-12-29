@@ -15,7 +15,7 @@ from compile_export_utils import set_fast
 # from compile_export_utils import set_aot_fast
 from compile_export_utils import set_furious
 from server import masks_to_rle_dict
-from server import max_memory_allocated
+from server import max_memory_allocated_stats
 from server import profiler_runner
 from io import BytesIO
 from torch.autograd.profiler import record_function
@@ -363,12 +363,17 @@ def main(
                 file.write(json.dumps(rle_dict, indent=4))
     end_time = time.time()
     total_time = end_time - start_time
-    print(f"total_time: {total_time}s")
-    print(f"total_img_s: {len(input_paths) / total_time}img/s")
-    print(f"total_ms_per_img: {total_time / len(input_paths) * 1000}ms")
+    all_stats = {}
+    all_stats["total_time"] = f"{total_time}s"
+    all_stats["total_img_s"] = f"{len(input_paths) / total_time}img/s"
+    all_stats["total_ms_per_img"] = f"{total_time / len(input_paths) * 1000}ms"
 
-    print("\n".join(f"{key}: {value if isinstance(value, int) else str(int(value*1000)) + 'ms'}" for (key, value) in latencies_statistics(latencies).items()))
-    max_memory_allocated()
+    for (key, value) in latencies_statistics(latencies).items():
+        all_stats[key] = str(value)
+        if not isinstance(value, int):
+            all_stats[key] = str(int(value*1000)) + 'ms'
+
+    print(json.dumps(all_stats | max_memory_allocated_stats()))
 
 
 main.__doc__ = main_docstring()

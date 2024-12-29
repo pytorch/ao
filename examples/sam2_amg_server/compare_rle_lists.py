@@ -71,7 +71,7 @@ def compare_masks_str(str0, str1, strict):
     return m, e, False
 
 
-def main(path0, path1, strict=False, compare_folders=False):
+def compare(path0, path1, strict=False, compare_folders=False):
     # path0 are candidates and path1 the ground truth
     fail_count = 0
     miou_sum = 0.0
@@ -102,6 +102,14 @@ def main(path0, path1, strict=False, compare_folders=False):
                     miou_sum += m
                     miou_count += 1
 
+    return miou_count, miou_sum, fail_count
+
+
+def main(path0, path1, strict=False, compare_folders=False):
+    miou_count, miou_sum, fail_count = compare(path0,
+                                               path1,
+                                               strict=strict,
+                                               compare_folders=compare_folders)
     print(f"fail_count: {fail_count} mIoU: {miou_sum / miou_count}")
 
 

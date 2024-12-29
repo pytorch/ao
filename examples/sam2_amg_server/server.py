@@ -281,13 +281,20 @@ def benchmark_fn(func, inp, mask_generator, warmup=3, runs=10):
     max_memory_allocated()
 
 
-def max_memory_allocated():
+def max_memory_allocated_stats():
     max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
     _, total_memory = torch.cuda.mem_get_info()
     max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
-    max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB")
-    print(f"max_memory_allocated_percentage: {max_memory_allocated_percentage}%")
+    return {"bytes": max_memory_allocated_bytes,
+            "percentage": max_memory_allocated_percentage}
+
+
+def max_memory_allocated():
+    stats = max_memory_allocated_stats()
+    mib = stats["bytes"] >> 20
+    print(f"max_memory_allocated_bytes: {mib}MiB")
+    print(f"max_memory_allocated_percentage: {stats['percentage']}%")
+
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
