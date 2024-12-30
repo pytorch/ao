@@ -803,7 +803,9 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _int8_symm_per_token_reduced_range_quant_noop_decode(x: torch.Tensor) -> torch.Tensor:
+def _int8_symm_per_token_reduced_range_quant_noop_decode(
+    x: torch.Tensor,
+) -> torch.Tensor:
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
     eps = 1e-5
@@ -825,7 +827,9 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(x: torch.Tensor) -> tor
 
 
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC, weight_only_decode=False
+    layout=PlainLayout(),
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_only_decode=False,
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
