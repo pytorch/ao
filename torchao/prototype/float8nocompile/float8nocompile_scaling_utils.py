@@ -18,6 +18,7 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
+    MemoryLayout,
     triton_hp_tensor_to_float8_dynamic,
 )
 
@@ -75,6 +76,7 @@ class Float8NoCompileConversionFunc(torch.autograd.Function):
         linear_mm_config: LinearMMConfig,
         gemm_input_role: GemmInputRole,
         kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+        memory_layout: MemoryLayout = MemoryLayout.ROW_MAJOR,
     ):
         return triton_hp_tensor_to_float8_dynamic(
             tensor,
@@ -82,6 +84,7 @@ class Float8NoCompileConversionFunc(torch.autograd.Function):
             linear_mm_config,
             gemm_input_role,
             algo=kernel_algo,
+            memory_layout=memory_layout,
         )
 
     @staticmethod
