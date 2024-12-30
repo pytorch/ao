@@ -256,6 +256,7 @@ B_INST, E_INST = "[INST]", "[/INST]"
 def main(
     prefill_size: Optional[int] = None,
     prompt: str = "Hello, my name is",
+    prompt_file: Optional[str] = None,
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
@@ -285,9 +286,11 @@ def main(
 
     if prefill_size is not None and prefill_size > 0:
         # create prompt of prefill size
-        # prompt = "prompt " * (int(prefill_size) - 3)
-        with open("moby.txt", "r") as f:
-            prompt = f.read()
+        if prompt_file is None:
+            prompt = "prompt " * (int(prefill_size) - 2)
+        else:
+            with open("prompt_file", "r") as f:
+                prompt = f.read()
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -309,12 +312,12 @@ def main(
 
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
-    end_tag = encode_tokens(tokenizer, "\n <END_TEXT>", bos=False, device=device)
-    if encoded.size(0) > prefill_size:
+    if prompt_file is not None:
+        end_tag = encode_tokens(tokenizer, "\n <END_TEXT>", bos=False, device=device)
         encoded = encoded[:prefill_size-end_tag.size(0)]
         encoded = torch.cat((encoded, end_tag), dim=0)
-    prompt_length = encoded.size(0)
 
+    prompt_length = encoded.size(0)
 
     torch.manual_seed(1234)
 
@@ -399,7 +402,7 @@ def main(
                     model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only
                 )
             elif "int8dq_prefill_wo_decode" in quantization:
-                quantize_(model, int8_dynamic_activation_int8_weight(optimize_prefill=True))
+                quantize_(model, int8_dynamic_activation_int8_weight(weight_only_decode=True))
             else:
                 quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
@@ -797,8 +800,6 @@ def main(
     }
     start = -1 if compile else 0
 
-    demo_summarize = True
-
     for i in range(start, num_samples):
         if i == 0:
             if device == "cuda":
@@ -829,7 +830,7 @@ def main(
                     buffer.clear()
                 # print(, end="", flush=True)
 
-        elif demo_summarize and i >= 0:
+        elif prompt_file is not None and i >= 0:
             buffer = []
             period_id = tokenizer.encode(".")[0]
 
@@ -838,7 +839,6 @@ def main(
                 if len(buffer) == 4:
                     print("".join(buffer), end="", flush=True)
                     buffer.clear()
-                # print(, end='', flush=True)
         else:
             callback = lambda x: x
         t0 = time.perf_counter()
@@ -881,7 +881,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and not demo_summarize:
+        if not interactive and prompt_file is None:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (
@@ -998,6 +998,9 @@ if __name__ == "__main__":
         "--prompt", type=str, default="Hello, my name is", help="Input prompt."
     )
     parser.add_argument(
+        "--prompt_file", type=str, help="Read prompt from text file"
+    )
+    parser.add_argument(
         "--interactive",
         action="store_true",
         help="Whether to launch in interactive mode",
@@ -1095,6 +1098,7 @@ if __name__ == "__main__":
     main(
         args.prefill_size,
         args.prompt,
+        args.prompt_file,
         args.interactive,
         args.num_samples,
         args.max_new_tokens,
