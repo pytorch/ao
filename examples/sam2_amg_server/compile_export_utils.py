@@ -156,6 +156,9 @@ def export_model(mask_generator,
                 example_input,
                 overwrite=overwrite)
 
+    print(f"{task_type} cannot export _predict_masks")
+    return
+
     if task_type in ["sps"]:
         example_input_high_res_feats = [torch.randn(batch_size, 32, 256, 256, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
                                         torch.randn(batch_size, 64, 128, 128, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device)]
@@ -231,6 +234,7 @@ def load_exported_model(mask_generator,
     mask_generator.predictor.model.image_encoder = pkg_m
 
     print(f"End load image encoder. Took {time.time() - t0}s")
+    return mask_generator
 
     if task_type in ["amg", "mps"]:
         return mask_generator
