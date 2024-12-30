@@ -25,7 +25,7 @@ from torchao._models.utils import (
 )
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
-
+torch.backends.cuda.enable_cudnn_sdp(True)
 
 class HostEvent:
     def __init__(self):
@@ -285,7 +285,9 @@ def main(
 
     if prefill_size is not None and prefill_size > 0:
         # create prompt of prefill size
-        prompt = "prompt " * (int(prefill_size) - 3)
+        # prompt = "prompt " * (int(prefill_size) - 3)
+        with open("moby.txt", "r") as f:
+            prompt = f.read()
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -306,7 +308,13 @@ def main(
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
 
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
+
+    end_tag = encode_tokens(tokenizer, "\n <END_TEXT>", bos=False, device=device)
+    if encoded.size(0) > prefill_size:
+        encoded = encoded[:prefill_size-end_tag.size(0)]
+        encoded = torch.cat((encoded, end_tag), dim=0)
     prompt_length = encoded.size(0)
+
 
     torch.manual_seed(1234)
 
@@ -390,6 +398,8 @@ def main(
                 quantize_(
                     model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only
                 )
+            elif "int8dq_prefill_wo_decode" in quantization:
+                quantize_(model, int8_dynamic_activation_int8_weight(optimize_prefill=True))
             else:
                 quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
@@ -787,6 +797,8 @@ def main(
     }
     start = -1 if compile else 0
 
+    demo_summarize = True
+
     for i in range(start, num_samples):
         if i == 0:
             if device == "cuda":
@@ -809,14 +821,24 @@ def main(
                 nonlocal done_generating
                 if done_generating:
                     return
-                buffer.append(tokenizer.decode([period_id] + x.tolist())[1:])
+                buffer.append(tokenizer.decode([period_id] + x.squeeze(0).tolist())[1:])
                 if x.item() == tokenizer.eos_id():
                     done_generating = True
                 if len(buffer) == 4 or done_generating:
                     print("".join(buffer), end="", flush=True)
                     buffer.clear()
-                # print(, end='', flush=True)
+                # print(, end="", flush=True)
 
+        elif demo_summarize and i >= 0:
+            buffer = []
+            period_id = tokenizer.encode(".")[0]
+
+            def callback(x):
+                buffer.append(tokenizer.decode([period_id] + x.squeeze(0).tolist())[1:])
+                if len(buffer) == 4:
+                    print("".join(buffer), end="", flush=True)
+                    buffer.clear()
+                # print(, end='', flush=True)
         else:
             callback = lambda x: x
         t0 = time.perf_counter()
@@ -851,7 +873,7 @@ def main(
                 decode_start_event=decode_start_event,
                 decode_end_event=decode_end_event,
             )
-        if i == -1:
+        if i < 0:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
@@ -859,7 +881,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and prefill_size is None:
+        if not interactive and not demo_summarize:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (
@@ -869,7 +891,7 @@ def main(
             )
             print(tokenizer.decode(tokens))
         else:
-            print()
+            print("\n")
         tokens_generated = y.size(-1) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics["tokens_per_sec"].append(tokens_sec)
@@ -913,7 +935,7 @@ def main(
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() / 1e9
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
-    print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
+    print(f"Average decode tokens/sec: {decode_tokpersec:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
     if device == "cuda":
         mem = torch.cuda.max_memory_reserved() / 1e9
