@@ -44,6 +44,7 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(
     # must pad
     row, col = tmp.shape
     from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
+
     tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(

@@ -106,7 +106,7 @@ def _quantized_linear_op(input_tensor, weight_tensor, bias):
 # Attach the _quantized_linear_op to the AffineQuantizedTensor class
 AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 
-from torchao.experimental.sparse.dynamic_wo import _linear_fp_act_int4_weight_sparse_marlin_decode_check, _linear_fp_act_int4_weight_sparse_marlin_decode_impl
+
 # _register_aqt_quantized_linear_dispatches function has a list of (dispatch_condition, implementation) functions, defined in their dtype layout classes, that takes the following args:
 # input_tensor: dimension is (M1, M2, ..., in_features)
 # weight_tensor: dimension is (out_features, in_features)
@@ -138,10 +138,6 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_marlin_qqq_check,
             _linear_int8_act_int4_weight_marlin_qqq_impl,
-        ),
-        (
-            _linear_fp_act_int4_weight_sparse_marlin_decode_check, 
-            _linear_fp_act_int4_weight_sparse_marlin_decode_impl,
         ),
         (
             _linear_fp_act_int4_weight_gemlite_check,
