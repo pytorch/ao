@@ -1186,8 +1186,33 @@
     <span class="p">)</span>
 
 
+<span class="k">def</span> <span class="nf">_int8_symm_per_token_reduced_range_quant_noop_decode</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+    <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
+    <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+            <span class="n">target_dtype</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+            <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+            <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+            <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span>
+
+
 <div class="viewcode-block" id="int8_dynamic_activation_int8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_weight</span><span class="p">(</span>
-    <span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span> <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="n">layout</span><span class="o">=</span><span class="n">PlainLayout</span><span class="p">(),</span>
+    <span class="n">act_mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+    <span class="n">weight_only_decode</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies int8 dynamic symmetric per-token activation and int8 per-channel weight</span>
@@ -1214,11 +1239,14 @@
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
 
-        <span class="c1"># input settings</span>
-        <span class="k">if</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
-            <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_reduced_range_quant</span>
+        <span class="k">if</span> <span class="n">weight_only_decode</span><span class="p">:</span>
+            <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_reduced_range_quant_noop_decode</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
+            <span class="c1"># input settings</span>
+            <span class="k">if</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
+                <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_reduced_range_quant</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
