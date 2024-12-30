@@ -11,13 +11,15 @@ from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
 
 @pytest.mark.parametrize(
     "algo",
-    [KernelAlgorithm.ATOMIC_MAX],
+    [KernelAlgorithm.REDUCTION, KernelAlgorithm.ATOMIC_MAX],
 )
 @pytest.mark.parametrize(
     "input_shape",
     [(2, 4), (32, 16), (512, 512), (4096, 4096)],
 )
-@pytest.mark.parametrize("memory_layout", [MemoryLayout.COL_MAJOR])
+@pytest.mark.parametrize(
+    "memory_layout", [MemoryLayout.ROW_MAJOR, MemoryLayout.COL_MAJOR]
+)
 def test_fp8_triton_hp_tensor_to_float8_dynamic(
     input_shape: tuple[int, int], algo: KernelAlgorithm, memory_layout: MemoryLayout
 ):

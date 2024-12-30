@@ -58,7 +58,7 @@ kernel_configs = [
 
 
 # --- atomic max version of kernel ---
-@triton.autotune(configs=kernel_configs, key=["input_size"])
+@triton.autotune(configs=kernel_configs, key=["num_elements"])
 @triton.jit
 def _block_amax_atomic(
     input_ptr,
@@ -98,12 +98,11 @@ def _fp8_scale_atomic(
     tl.store(scale_out_ptr + scale_off, scale)
 
 
-@triton.autotune(configs=kernel_configs, key=["input_size"])
+@triton.autotune(configs=kernel_configs, key=["num_elements"])
 @triton.jit
-def _to_fp8_atomic_row_major(
+def _to_fp8_row_major(
     input_ptr,
     scale_ptr,
-    amax_ptr,
     out_ptr,
     num_elements,
     fp8_dtype_min,
@@ -136,14 +135,14 @@ def _to_fp8_atomic_row_major(
         triton.Config({"BLOCK_SIZE_ROWS": 256, "BLOCK_SIZE_COLS": 256}, num_warps=2),
         triton.Config({"BLOCK_SIZE_ROWS": 512, "BLOCK_SIZE_COLS": 512}, num_warps=4),
     ],
-    key=["input_size"],
+    key=["num_elements"],
 )
 @triton.jit
-def _to_fp8_atomic_col_major(
+def _to_fp8_col_major(
     input_ptr,
     scale_ptr,
-    amax_ptr,
     out_ptr,
+    num_elements,
     fp8_dtype_min,
     fp8_dtype_max,
     num_rows,
@@ -176,7 +175,7 @@ def _to_fp8_atomic_col_major(
     tl.store(out_ptr + out_offs, fp8_vals, mask=mask)
 
 
-# --- reduction version of kernel ---
+# --- reduction version of amax and scale computations ---
 @triton.jit
 def _block_amax_reduction(
     input_ptr,
@@ -220,35 +219,6 @@ def _fp8_scale_reduction(
     tl.store(scale_out_ptr + scale_off, scale)
 
 
-@triton.jit
-def _to_fp8_reduction(
-    input_ptr,
-    scale_ptr,
-    out_ptr,
-    num_elements,
-    fp8_dtype_min,
-    fp8_dtype_max,
-    input_dtype: tl.constexpr,
-    output_dtype: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    # load previously computed scale
-    scale = tl.load(scale_ptr)
-
-    # load block of input tensor
-    block_id = tl.program_id(axis=0)
-    block_start = block_id * BLOCK_SIZE
-    block_offs = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = block_offs < num_elements
-    vals = tl.load(input_ptr + block_offs, mask=mask).to(input_dtype)
-
-    # perform conversion
-    vals = vals * scale
-    fp8_vals = tl.clamp(vals, min=fp8_dtype_min, max=fp8_dtype_max).to(output_dtype)
-    tl.store(out_ptr + block_offs, fp8_vals, mask=mask)
-
-
 def triton_hp_tensor_to_float8_dynamic(
     hp_tensor: torch.Tensor,
     fp8_dtype: torch.dtype,
@@ -278,6 +248,7 @@ def triton_hp_tensor_to_float8_dynamic(
 
     grid = lambda meta: (triton.cdiv(num_elements, meta["BLOCK_SIZE"]),)
 
+    # compute the fp8 scale using the given algorithm
     if algo == KernelAlgorithm.ATOMIC_MAX:
         global_amax = torch.zeros((1,), dtype=torch.float32, device=hp_tensor.device)
         # compute global amax to be used for scaling
@@ -297,40 +268,6 @@ def triton_hp_tensor_to_float8_dynamic(
             EPS=EPS,
         )
 
-        # perform conversion and store scale for use in Float8Tensor,
-        # writing output in desired memory layout.
-        if memory_layout == MemoryLayout.ROW_MAJOR:
-            _to_fp8_atomic_row_major[grid](
-                flattened_input,
-                scale_out,
-                global_amax,
-                fp8_output,
-                num_elements,
-                fp8_dtype_min,
-                fp8_dtype_max,
-                input_dtype=tl_input_dtype,
-                output_dtype=tl_output_dtype,
-                EPS=EPS,
-            )
-        elif memory_layout == MemoryLayout.COL_MAJOR:
-            num_rows, num_cols = orig_shape
-            grid = lambda meta: (
-                triton.cdiv(num_rows, meta["BLOCK_SIZE_ROWS"]),
-                triton.cdiv(num_cols, meta["BLOCK_SIZE_COLS"]),
-            )
-            _to_fp8_atomic_col_major[grid](
-                flattened_input,
-                scale_out,
-                global_amax,
-                fp8_output,
-                fp8_dtype_min,
-                fp8_dtype_max,
-                num_rows,
-                num_cols,
-                input_dtype=tl_input_dtype,
-                output_dtype=tl_output_dtype,
-                EPS=EPS,
-            )
     elif algo == KernelAlgorithm.REDUCTION:
         # max block size and num warps values determined via manual tuning
         max_block_size = 4096
@@ -359,9 +296,12 @@ def triton_hp_tensor_to_float8_dynamic(
             BLOCK_SIZE=block_size,
             EPS=EPS,
         )
+    else:
+        raise ValueError(f"Unsupported kernel algorithm: {algo}")
 
-        # perform conversion
-        _to_fp8_reduction[grid](
+    # use the precomputed scale to perform conversion to fp8 with the given memory layout
+    if memory_layout == MemoryLayout.ROW_MAJOR:
+        _to_fp8_row_major[grid](
             flattened_input,
             scale_out,
             fp8_output,
@@ -370,12 +310,29 @@ def triton_hp_tensor_to_float8_dynamic(
             fp8_dtype_max,
             input_dtype=tl_input_dtype,
             output_dtype=tl_output_dtype,
-            BLOCK_SIZE=block_size,
             EPS=EPS,
-            num_warps=num_warps,
+        )
+    elif memory_layout == MemoryLayout.COL_MAJOR:
+        num_rows, num_cols = orig_shape
+        grid = lambda meta: (
+            triton.cdiv(num_rows, meta["BLOCK_SIZE_ROWS"]),
+            triton.cdiv(num_cols, meta["BLOCK_SIZE_COLS"]),
+        )
+        _to_fp8_col_major[grid](
+            flattened_input,
+            scale_out,
+            fp8_output,
+            num_elements,
+            fp8_dtype_min,
+            fp8_dtype_max,
+            num_rows,
+            num_cols,
+            input_dtype=tl_input_dtype,
+            output_dtype=tl_output_dtype,
+            EPS=EPS,
         )
     else:
-        raise ValueError(f"Unsupported kernel algorithm: {algo}")
+        raise ValueError(f"Unsupported memory layout: {memory_layout}")
 
     fp8_output = fp8_output.reshape(orig_shape)
 
