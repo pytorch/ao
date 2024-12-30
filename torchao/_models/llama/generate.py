@@ -256,7 +256,7 @@ B_INST, E_INST = "[INST]", "[/INST]"
 def main(
     prefill_size: Optional[int] = None,
     prompt: str = "Hello, my name is",
-    prompt_file: Optional[str] = None,
+    demo_summarize_prompt: Optional[str] = None,
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
@@ -286,10 +286,10 @@ def main(
 
     if prefill_size is not None and prefill_size > 0:
         # create prompt of prefill size
-        if prompt_file is None:
+        if demo_summarize_prompt is None:
             prompt = "prompt " * (int(prefill_size) - 2)
         else:
-            with open(prompt_file, "r") as f:
+            with open(demo_summarize_prompt, "r") as f:
                 prompt = f.read()
 
     torchao.quantization.utils.recommended_inductor_config_setter()
@@ -312,7 +312,7 @@ def main(
 
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
-    if prompt_file is not None:
+    if demo_summarize_prompt is not None:
         end_tag = encode_tokens(tokenizer, "\n <END_TEXT>", bos=False, device=device)
         encoded = encoded[:prefill_size-end_tag.size(0)]
         encoded = torch.cat((encoded, end_tag), dim=0)
@@ -830,7 +830,7 @@ def main(
                     buffer.clear()
                 # print(, end="", flush=True)
 
-        elif prompt_file is not None and i >= 0:
+        elif demo_summarize_prompt is not None and i >= 0:
             buffer = []
             period_id = tokenizer.encode(".")[0]
 
@@ -881,7 +881,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and prompt_file is None:
+        if not interactive and demo_summarize_prompt is None:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (
@@ -998,7 +998,7 @@ if __name__ == "__main__":
         "--prompt", type=str, default="Hello, my name is", help="Input prompt."
     )
     parser.add_argument(
-        "--prompt_file", type=str, help="Read prompt from text file"
+        "--demo_summarize_prompt", type=str, help="Read prompt from text file"
     )
     parser.add_argument(
         "--interactive",
@@ -1098,7 +1098,7 @@ if __name__ == "__main__":
     main(
         args.prefill_size,
         args.prompt,
-        args.prompt_file,
+        args.demo_summarize_prompt,
         args.interactive,
         args.num_samples,
         args.max_new_tokens,
