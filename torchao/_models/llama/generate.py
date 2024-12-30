@@ -289,7 +289,7 @@ def main(
         if prompt_file is None:
             prompt = "prompt " * (int(prefill_size) - 2)
         else:
-            with open("prompt_file", "r") as f:
+            with open(prompt_file, "r") as f:
                 prompt = f.read()
 
     torchao.quantization.utils.recommended_inductor_config_setter()

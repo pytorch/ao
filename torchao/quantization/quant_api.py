@@ -1039,9 +1039,7 @@ def float8_dynamic_activation_float8_weight(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ] = None,
     mm_config: Optional[Float8MMConfig] = None,
-    layout=None,
 ):
-    from torchao.experimental.sparse import SemiSparseFloat8Layout
     """
     Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
@@ -1064,12 +1062,6 @@ def float8_dynamic_activation_float8_weight(
 
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
 
-    if layout is None:
-        layout = Float8Layout(mm_config=mm_config)
-    elif isinstance(layout, SemiSparseFloat8Layout):
-        assert activation_granularity == weight_granularity == PerTensor(), "SemiSparseFoat8Layout only supports PerTensor granularity for activations and weights"
-        layout = SemiSparseFloat8Layout(mm_config=mm_config)
-
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
         if not _fp8_mm_compat(weight):
             return weight
@@ -1084,7 +1076,7 @@ def float8_dynamic_activation_float8_weight(
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            _layout=layout,
+            _layout=Float8Layout(mm_config=mm_config),
         )
 
         input_quant_func = _input_activation_quant_func_fp8
