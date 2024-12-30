@@ -45,6 +45,8 @@ kernel_configs = [
     triton.Config({"BLOCK_SIZE": 128}, num_warps=1),
     triton.Config({"BLOCK_SIZE": 256}, num_warps=2),
     triton.Config({"BLOCK_SIZE": 512}, num_warps=4),
+    triton.Config({"BLOCK_SIZE": 1024}, num_warps=4),
+    triton.Config({"BLOCK_SIZE": 2048}, num_warps=8),
 ]
 
 
@@ -255,10 +257,12 @@ def triton_hp_tensor_to_float8_dynamic(
             EPS=EPS,
         )
     elif algo == KernelAlgorithm.REDUCTION:
-        max_block_size = 512
-        BLOCK_SIZE = min(max_block_size, num_elements)
+        # max block size and num warps values determined via manual tuning
+        max_block_size = 4096
+        num_warps = 8
+        block_size = min(max_block_size, num_elements)
         block_amaxes = torch.zeros(
-            (num_elements // BLOCK_SIZE,), dtype=torch.float32, device=hp_tensor.device
+            (num_elements // block_size,), dtype=torch.float32, device=hp_tensor.device
         )
         # compute local amax for each block
         _block_amax_reduction[grid](
@@ -266,8 +270,9 @@ def triton_hp_tensor_to_float8_dynamic(
             block_amaxes,
             num_elements,
             input_dtype=tl_input_dtype,
-            BLOCK_SIZE=BLOCK_SIZE,
+            BLOCK_SIZE=block_size,
             EPS=EPS,
+            num_warps=num_warps,
         )
 
         # calculate global amax across all blocks and use it to compute scale
@@ -276,7 +281,7 @@ def triton_hp_tensor_to_float8_dynamic(
             scale_out,
             num_elements,
             fp8_dtype_max,
-            BLOCK_SIZE=BLOCK_SIZE,
+            BLOCK_SIZE=block_size,
             EPS=EPS,
         )
 
@@ -290,8 +295,9 @@ def triton_hp_tensor_to_float8_dynamic(
             fp8_dtype_max,
             input_dtype=tl_input_dtype,
             output_dtype=tl_output_dtype,
-            BLOCK_SIZE=BLOCK_SIZE,
+            BLOCK_SIZE=block_size,
             EPS=EPS,
+            num_warps=num_warps,
         )
     else:
         raise ValueError(f"Unsupported kernel algorithm: {algo}")

@@ -22,6 +22,9 @@ from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     Float8NoCompileConversionFunc,
     NoopFwToFloat8NoCompileBwDynamic,
 )
+from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    KernelAlgorithm,
+)
 
 
 class Float8LinearNoCompile(torch.nn.Linear):
@@ -38,10 +41,12 @@ class Float8LinearNoCompile(torch.nn.Linear):
         * `config`: Float8LinearConfig
         """
         config = kwargs.pop("config")
+        kernel_algo = kwargs.pop("kernel_algo")
         emulate = config.emulate
         super().__init__(*args, **kwargs)
 
         self.config = config
+        self.kernel_algo = kernel_algo
 
         self.linear_mm_config = LinearMMConfig(
             # output
@@ -92,6 +97,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
             self.config.cast_config_input.target_dtype,
             self.linear_mm_config,
             GemmInputRole.INPUT,
+            self.kernel_algo,
         )
 
     def cast_weight_to_float8_t(
@@ -103,6 +109,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
             self.config.cast_config_weight.target_dtype,
             self.linear_mm_config,
             GemmInputRole.WEIGHT,
+            self.kernel_algo,
         )
         return weight_fp8.t()
 
@@ -112,10 +119,11 @@ class Float8LinearNoCompile(torch.nn.Linear):
             output,
             self.config.cast_config_grad_output.target_dtype,
             self.linear_mm_config,
+            self.kernel_algo,
         )
 
     @classmethod
-    def from_float(cls, mod):
+    def from_float(cls, mod, kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX):
         """
         Create an nn.Linear with fp8 compute from a regular nn.Linear
 
@@ -130,6 +138,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
                 mod.out_features,
                 bias=False,
                 config=config,
+                kernel_algo=kernel_algo,
             )
         new_mod.weight = mod.weight
         new_mod.bias = mod.bias
