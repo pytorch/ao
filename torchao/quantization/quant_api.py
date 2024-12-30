@@ -16,7 +16,6 @@ and mixed GEMM kernels
 """
 
 import logging
-from re import I
 import types
 import warnings
 from typing import Callable, Optional, Tuple, Union
@@ -649,57 +648,6 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
-from torchao.experimental.sparse.dynamic_wo import MarlinSparseLayoutDecodeSemiStructuredPrefillLayout
-
-def int8_dynamic_prefill_int4_weight_only_decode(
-    group_size=128, 
-):
-    def apply_int4_weight_only_quant(weight):
-        if weight.shape[-1] % group_size != 0:
-            logger.info(
-                f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
-            )
-            return weight
-
-        in_features = weight.shape[1]
-        # int8 dynamic quantization only has benefit when in_feature > 16
-        if in_features <= 16:
-            logger.info(
-                f"Skipping applying int8_dynamic_activation_int8_weight to weight of shape {weight.shape}"
-                f" because `in_feature` is <= 16: {in_features}"
-            )
-            return weight
-
-        mapping_type = MappingType.SYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int32
-        quant_min = 0
-        quant_max = 15
-        eps = 1e-6
-        preserve_zero = True
-        zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.INT
-
-        input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
-        layout = MarlinSparseLayoutDecodeSemiStructuredPrefillLayout()
-
-        weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-            _layout=layout,
-        )
-        weight = to_linear_activation_quantized(weight, input_quant_func)
-        return weight
-
-    return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 def gemlite_uintx_weight_only(
     group_size: Optional[int] = 64,
     bit_width: int = 4,
