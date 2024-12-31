@@ -55,7 +55,7 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
 # --points-per-batch 1024
 
 
-def main(image_paths, output_base_path, dry=False, overwrite=False):
+def main(image_paths, output_base_path, dry=False, overwrite=False, resume=False):
     output_base_path = Path(output_base_path)
     print("output_base_path: ", output_base_path)
     result_csv_path = output_base_path / "result.csv"
@@ -71,8 +71,11 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
             baseline_folder = output_base_path / baseline_folder
         output_path = output_base_path / output_path
         all_stats_file = Path(str(output_path) + "_stats.json")
+        if all_stats_file.exists() and resume:
+            with open(all_stats_file, 'r') as file:
+                return json.load(file)
         if not dry:
-            output_path.mkdir(exist_ok=overwrite)
+            output_path.mkdir(exist_ok=(overwrite or resume))
         if overwrite:
             kwargs = kwargs | {"overwrite": None}
         stdout, stderr = run_script_with_args(["generate_data.py",
@@ -121,9 +124,11 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
 
     def run_annotate(image_paths, baseline_folder: Path, output_path: Path, overwrite, dry):
         output_path  = output_base_path / output_path
-        baseline_folder = output_base_path / output_base_path
+        baseline_folder = output_base_path / baseline_folder
+        if resume and output_path.exists():
+            return None, None
         if not dry:
-            output_path.mkdir(exist_ok=overwrite)
+            output_path.mkdir(exist_ok=(overwrite or resume))
         stdout, stderr = run_script_with_args(["annotate_with_rle.py",
                                                "~/checkpoints/sam2",
                                                "large",
@@ -150,7 +155,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
 
         ppb = {'amg': 1024, 'sps': 1, 'mps': None}[ttype]
         ppb_kwarg = {} if ppb is None else {"points-per-batch": ppb}
-        run_with_compare(ttype, f"{ttype}_ao_ppb_1024",                     ppb_kwarg | meta_kwarg)
+        run_with_compare(ttype, f"{ttype}_ao_ppb_{ppb}",                     ppb_kwarg | meta_kwarg)
 
         environ = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_inductor_cache_dir")}
         # fast
@@ -159,7 +164,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
         # TODO: Set num images to 0 for export job
         export_model_path = output_base_path / "exported_models" / f"{ttype}_ao_fast"
         if not dry:
-            export_model_path.mkdir(exist_ok=overwrite, parents=True)
+            export_model_path.mkdir(exist_ok=(overwrite or resume), parents=True)
         run(ttype,              f"{ttype}_ao_ppb_{ppb}_save_export",                    {"num-images": 0,                  "export-model":        str(export_model_path)} | ppb_kwarg | meta_kwarg, environ=environ)
         environ_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_load_export_inductor_cache_dir")}
         run_with_compare(ttype, f"{ttype}_ao_ppb_{ppb}_load_export",                    {                                  "load-exported-model": str(export_model_path)} | ppb_kwarg | meta_kwarg, environ=environ_load)
@@ -171,7 +176,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
         # TODO: Set num images to 0 for export job
         export_model_path = output_base_path / "exported_models" / f"{ttype}_ao_fast_furious"
         if not dry:
-            export_model_path.mkdir(exist_ok=overwrite, parents=True)
+            export_model_path.mkdir(exist_ok=(overwrite or resume), parents=True)
         run(ttype,              f"{ttype}_ao_ppb_{ppb}_save_export_furious",            {"num-images": 0, "furious": None, "export-model":        str(export_model_path)} | ppb_kwarg | meta_kwarg, environ=environ)
         environ_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_load_export_furious_inductor_cache_dir")}
         run_with_compare(ttype, f"{ttype}_ao_ppb_{ppb}_load_export_furious",            {                 "furious": None, "load-exported-model": str(export_model_path)} | ppb_kwarg | meta_kwarg, environ=environ_load)
