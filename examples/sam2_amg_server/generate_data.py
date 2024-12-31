@@ -367,7 +367,8 @@ def main(
     all_stats = {}
     all_stats["total_time"] = f"{total_time}s"
     all_stats["total_img_s"] = f"{len(input_paths) / total_time}img/s"
-    all_stats["total_ms_per_img"] = f"{total_time / len(input_paths) * 1000}ms"
+    if len(input_paths) > 0:
+        all_stats["total_ms_per_img"] = f"{total_time / len(input_paths) * 1000}ms"
 
     for (key, value) in latencies_statistics(latencies).items():
         all_stats[key] = str(value)
