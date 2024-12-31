@@ -23,7 +23,7 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
         if environ is None:
             print(" ".join(command))
         else:
-            environ = environ | {"TORCH_LOGS": "'recompiles'"}
+            environ = environ | {'TORCH_LOGS': "recompiles"}
             print(" ".join([f"{k}={environ[k]}" for k in environ] + command))
             env_vars = env_vars | environ
         if dry:
