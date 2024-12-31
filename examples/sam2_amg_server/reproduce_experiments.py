@@ -108,6 +108,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
             all_stats["fail_count"] = fail_count
         all_stats["task"] = task
         all_stats["experiment_name"] = output_path.name
+        all_stats["environ"] = str(environ)
         all_stats = all_stats | {key: str(kwargs[key]) for key in kwargs}
         if not overwrite and all_stats_file.exists():
             raise ValueError(f"{all_stats_file} already exists. Use --overwrite to overwrite.")
