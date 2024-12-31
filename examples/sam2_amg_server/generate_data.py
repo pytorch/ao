@@ -370,10 +370,10 @@ def main(
     if len(input_paths) > 0:
         all_stats["total_ms_per_img"] = f"{total_time / len(input_paths) * 1000}ms"
 
-    for (key, value) in latencies_statistics(latencies).items():
-        all_stats[key] = str(value)
-        if not isinstance(value, int):
-            all_stats[key] = str(int(value*1000)) + 'ms'
+        for (key, value) in latencies_statistics(latencies).items():
+            all_stats[key] = str(value)
+            if not isinstance(value, int):
+                all_stats[key] = str(int(value*1000)) + 'ms'
 
     mma_stats = max_memory_allocated_stats()
     mma_stats["bytes_MiB"] = mma_stats["bytes"] >> 20
