@@ -36,6 +36,8 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
         return result.stdout, result.stderr
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e}")
+        import pdb
+        pdb.set_trace()
         return None, None
 
 # TODO: Need experiments to measure time it takes to max-autotune
@@ -96,7 +98,6 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
         if dry:
             return {}
 
-        assert stdout is not None
         all_stats = json.loads(stdout.split("\n")[-2])
         if baseline_folder is not None:
             miou_count, miou_sum, fail_count = compare_folders(str(output_path),
