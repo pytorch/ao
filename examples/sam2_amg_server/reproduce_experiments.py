@@ -18,15 +18,18 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
             command.extend([f'--{arg}'])
         else:
             command.extend([f'--{arg}', str(value)])
-    
     try:
-        print(" ".join([f"{k}={environ[k]}" for k in ({} if environ is None else environ)] + command))
+        env_vars = os.environ.copy()
+        if environ is None:
+            print(" ".join(command))
+        else:
+            environ = environ | {"TORCH_LOGS": "'recompiles'"}
+            print(" ".join([f"{k}={environ[k]}" for k in environ] + command))
+            env_vars = env_vars | environ
         if dry:
             return None, None
         # Run the command
-        env_vars = os.environ.copy() | ({} if environ is None else environ)
         result = subprocess.run(command, env=env_vars, check=True, capture_output=True, text=True)
-        
         # Print the output
         print("Output:\n", result.stdout)
         print("Errors:\n", result.stderr)
@@ -79,7 +82,12 @@ def main(image_paths, output_base_path, dry=False, overwrite=False):
                                               kwargs | {"quiet": None},
                                               dry=dry,
                                               environ=environ)
-
+        if stdout is not None:
+            with open(str(output_path) + ".stdout", 'w') as file:
+                file.write(stdout)
+        if stderr is not None:
+            with open(str(output_path) + ".stderr", 'w') as file:
+                file.write(stderr)
         if dry and all_stats_file.exists():
             with open(str(all_stats_file), 'r') as file:
                 all_stats = json.load(file)
