@@ -1,9 +1,12 @@
 name: A100-perf-nightly
 
 on:
+  push:
+    tags:
+      - ciflow/benchmark/*
   workflow_dispatch:
   schedule:
-    - cron: 0 7 * * 0-6
+    - cron: 0 7 * * *
 
 jobs:
   benchmark:
@@ -11,7 +14,7 @@ jobs:
     strategy:
       matrix:
         torch-spec:
-          - '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
+          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
     steps:
       - uses: actions/checkout@v3
 
@@ -28,14 +31,37 @@ jobs:
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
+          # SAM 2.1
+          ${CONDA_RUN} pip install -r examples/sam2_amg_server/requirements.txt
 
+          # llama3
           export CHECKPOINT_PATH=checkpoints
-          export MODEL_REPO=meta-llama/Llama-2-7b-chat-hf
-          ${CONDA_RUN} python scripts/download.py --repo_id meta-llama/Llama-2-7b-chat-hf --hf_token ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+          export MODEL_REPO=meta-llama/Meta-Llama-3.1-8B
+          ${CONDA_RUN} python scripts/download.py --repo_id ${MODEL_REPO} --hf_token ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
           ${CONDA_RUN} python scripts/convert_hf_checkpoint.py --checkpoint_dir "${CHECKPOINT_PATH}/${MODEL_REPO}"
 
           mkdir -p ${{ runner.temp }}/benchmark-results
-          ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --output_json_path ${{ runner.temp }}/benchmark-results/benchmark-results.json
+          # llama3 - compile baseline
+          ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --compile_prefill --output_json_path ${{ runner.temp }}/benchmark-results/llama3-benchmark-results.json
+
+          # llama3 - autoquant
+          ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --compile_prefill --quantization autoquant --output_json_path ${{ runner.temp }}/benchmark-results/llama3-benchmark-results.json
+
+          # skipping SAM because of https://hud.pytorch.org/pr/pytorch/ao/1407
+          # # SAM
+          # ${CONDA_RUN} pip install git+https://github.com/pytorch-labs/segment-anything-fast.git@main
+          # # SAM compile baselilne
+          # ${CONDA_RUN} sh torchao/_models/sam/setup.sh
+          # ${CONDA_RUN} python torchao/_models/sam/eval_combo.py --coco_root_dir datasets/coco2017 --coco_slice_name val2017 --sam_checkpoint_base_path checkpoints --sam_model_type vit_h --point_sampling_cache_dir tmp/sam_coco_mask_center_cache --mask_debug_out_dir tmp/sam_eval_masks_out --batch_size 32 --num_workers 8 --use_compile max-autotune --use_half bfloat16 --device cuda --output_json_path ${{ runner.temp }}/benchmark-results/sam-benchmark-results.json
+
+          # ${CONDA_RUN} python torchao/_models/sam/eval_combo.py --coco_root_dir datasets/coco2017 --coco_slice_name val2017 --sam_checkpoint_base_path checkpoints --sam_model_type vit_h --point_sampling_cache_dir tmp/sam_coco_mask_center_cache --mask_debug_out_dir tmp/sam_eval_masks_out --batch_size 32 --num_workers 8 --use_compile max-autotune --use_half bfloat16 --device cuda --compression autoquant --output_json_path ${{ runner.temp }}/benchmark-results/sam-benchmark-results.json
+          
+          # SAM 2.1
+          # ${CONDA_RUN} sh scripts/download_sam2_ckpts.sh ${CHECKPOINT_PATH}/sam2
+          # cd examples/sam2_amg_server
+          # hydra.errors.MissingConfigException: Cannot find primary config 'configs/sam2.1/sam2.1_hiera_l.yaml'. Check that it's in your config search path.
+          # ${CONDA_RUN} python server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json
+          # ${CONDA_RUN} python server.py ${CHECKPOINT_PATH}/sam2 large --port 4000 --host localhost --fast --use_autoquant --benchmark --dry --output_json_path ${{ runner.temp }}/benchmark-results/sam2-benchmark-results.json
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
         uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main

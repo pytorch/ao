@@ -28,6 +28,11 @@ import numpy as np
 import asyncio
 from contextlib import asynccontextmanager
 import contextlib
+from torchao._models.utils import (
+    get_arch_name,
+    write_json_result_ossci,
+    write_json_result_local,
+)
 
 from compile_export_utils import set_fast
 from compile_export_utils import set_furious
@@ -277,8 +282,10 @@ def benchmark_fn(func, inp, mask_generator, warmup=3, runs=10):
     t = time.time()
     for _ in range(runs):
         func(inp, mask_generator)
-    print(f"Benchmark took {(time.time() - t)/runs}s per iteration.")
-    max_memory_allocated()
+    avg_time_per_run = (time.time() - t)/runs
+    print(f"Benchmark took {avg_time_per_run}s per iteration.")
+    max_memory_allocated_bytes, max_memory_allocated_percentage = max_memory_allocated()
+    return avg_time_per_run, max_memory_allocated_bytes, max_memory_allocated_percentage
 
 
 def max_memory_allocated_stats():
@@ -294,7 +301,6 @@ def max_memory_allocated():
     mib = stats["bytes"] >> 20
     print(f"max_memory_allocated_bytes: {mib}MiB")
     print(f"max_memory_allocated_percentage: {stats['percentage']}%")
-
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
@@ -350,10 +356,10 @@ def model_type_to_paths(checkpoint_path, model_type):
 
 
 def set_autoquant(mask_generator):
+    import torchao
     from torchao import autoquant
-    from torchao.quantization import DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
     # NOTE: Not baseline feature
-    mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
+    mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder, qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
     mask_generator.predictor._transforms_device = mask_generator.predictor.device
     torch.set_float32_matmul_precision('high')
     # NOTE: this fails when we run
@@ -379,7 +385,9 @@ def main(checkpoint_path,
          dry=False,
          batch_size=1,
          load_fast="",
-         save_fast=""):
+         save_fast="",
+         output_json_path=None,
+         output_json_local=False):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -453,9 +461,9 @@ def main(checkpoint_path,
     if benchmark:
         print(f"batch size {batch_size} dog benchmark")
         if batch_size == 1:
-            benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
+            result = benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
         else:
-            benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+            result = benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
         for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
             print(f"batch size {batch_size} example shapes {i} benchmark")
@@ -470,6 +478,20 @@ def main(checkpoint_path,
                 random_images = random_images[:batch_size]
                 print("len(random_images): ", len(random_images))
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+
+        if output_json_path:
+            headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+            name = "sam2-" + model_type
+            arch = get_arch_name()
+            dtype = "autoquant" if use_autoquant else "noquant"
+            avg_time_per_run, max_memory_allocated_bytes, max_memory_allocated_percentage = result
+            memory_result = [name, dtype, device, arch, "memory(MiB)", max_memory_allocated_bytes, None]
+            memory_percent_result = [name, dtype, device, arch, "memory(%)", max_memory_allocated_percentage, None]
+            performance_result = [name, dtype, device, arch, "time_s(avg)", avg_time_per_run, None]
+            write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
+            write_json_result(output_json_path, headers, memory_result)
+            write_json_result(output_json_path, headers, memory_percent_result)
+            write_json_result(output_json_path, headers, performance_result)
 
     if profile is not None:
         print(f"Saving profile under {profile}")

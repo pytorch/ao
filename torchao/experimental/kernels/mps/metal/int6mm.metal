@@ -4,7 +4,7 @@ using namespace metal;
 /**
  * 6-Bit Quantized Linear.
  *
- * @param[A] M x K unquantized input tensor of floating point dtype (Float, Half, BFloat16)
+ * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (6 * K / 8)
  * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
  * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
@@ -35,25 +35,44 @@ kernel void int6pack_mm(
     for (uint32_t kb = 0; kb < k_block ; kb ++) {
       const float scale = float(scales[kb * N + n]);
       const float zero = float(zeros[kb * N + n]);
-      for(uint idx = 0; idx < groupSize && k < K; idx+=4, k+=4) {
+      for(uint idx = 0; idx < groupSize && k < K; idx+=8, k+=8) {
         const auto a_val0 = float(A_ptr[k + 0]);
         const auto a_val1 = float(A_ptr[k + 1]);
         const auto a_val2 = float(A_ptr[k + 2]);
         const auto a_val3 = float(A_ptr[k + 3]);
 
+        const auto a_val4 = float(A_ptr[k + 4]);
+        const auto a_val5 = float(A_ptr[k + 5]);
+        const auto a_val6 = float(A_ptr[k + 6]);
+        const auto a_val7 = float(A_ptr[k + 7]);
+
         uchar b0 = B_ptr[3 * (k / 4) + 0];
         uchar b1 = B_ptr[3 * (k / 4) + 1];
         uchar b2 = B_ptr[3 * (k / 4) + 2];
+
+        uchar b3 = B_ptr[3 * (k / 4) + 3];
+        uchar b4 = B_ptr[3 * (k / 4) + 4];
+        uchar b5 = B_ptr[3 * (k / 4) + 5];
 
         uchar w_val0 = ((b0 & 3) << 4) | (b1 & 15);
         uchar w_val1 = ((b0 & 12) << 2) | ((b1 & 240) >> 4);
         uchar w_val2 = ((b0 & 48)) | (b2 & 15);
         uchar w_val3 = ((b0 & 192) >> 2) | ((b2 & 240) >> 4);
 
+        uchar w_val4 = ((b3 & 3) << 4) | (b4 & 15);
+        uchar w_val5 = ((b3 & 12) << 2) | ((b4 & 240) >> 4);
+        uchar w_val6 = ((b3 & 48)) | (b5 & 15);
+        uchar w_val7 = ((b3 & 192) >> 2) | ((b5 & 240) >> 4);
+
         rc += a_val0 * (scale * float(w_val0) + zero);
         rc += a_val1 * (scale * float(w_val1) + zero);
         rc += a_val2 * (scale * float(w_val2) + zero);
         rc += a_val3 * (scale * float(w_val3) + zero);
+
+        rc += a_val4 * (scale * float(w_val4) + zero);
+        rc += a_val5 * (scale * float(w_val5) + zero);
+        rc += a_val6 * (scale * float(w_val6) + zero);
+        rc += a_val7 * (scale * float(w_val7) + zero);
       }
     }
     outputData[m * N + n] = T(rc);

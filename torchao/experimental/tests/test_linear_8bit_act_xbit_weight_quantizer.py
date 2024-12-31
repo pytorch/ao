@@ -129,7 +129,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         quantized_model = quantizer.quantize(model)
 
         print("Exporting quantized model")
-        exported = torch.export.export(quantized_model, (activations,))
+        exported = torch.export.export(quantized_model, (activations,), strict=True)
 
         print("Compiling quantized model")
         quantized_model_compiled = torch.compile(quantized_model)

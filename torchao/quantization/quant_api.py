@@ -28,6 +28,7 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
+    Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
@@ -72,6 +73,9 @@ from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
+from .qat import (
+    intx_quantization_aware_training,
+)
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -101,14 +105,29 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "intx_quantization_aware_training",
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
+    "gemlite_uintx_weight_only",
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
+
+# update according to the support matrix
+LAYOUT_TO_ZERO_POINT_DOMAIN = {
+    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
+    MarlinSparseLayout: [ZeroPointDomain.INT],
+    Int4CPULayout: [ZeroPointDomain.FLOAT],
+}
+
+LAYOUT_TO_PRESERVE_ZEROS = {
+    TensorCoreTiledLayout: False,
+    MarlinSparseLayout: True,
+    Int4CPULayout: False,
+}
 
 
 ######
@@ -629,8 +648,41 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
+def gemlite_uintx_weight_only(
+    group_size: Optional[int] = 64,
+    bit_width: int = 4,
+    packing_bitwidth: int = 32,
+    contiguous: Optional[bool] = None,
+):
+    """
+    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
+    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
+
+    Args:
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained
+        `bit_width`: bit width of the quantized weight.
+        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
+        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+    """
+
+    from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
+    use_hqq = True if bit_width == 4 else False
+    apply_fn = lambda weight: to_affine_quantized_intx(
+        weight,
+        **get_gemlite_aqt_kwargs(
+            weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+        ),
+    )
+    return _get_linear_subclass_inserter(apply_fn)
+
+
 def int4_weight_only(
-    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False
+    group_size=128,
+    layout=TensorCoreTiledLayout(inner_k_tiles=8),
+    use_hqq=False,
+    zero_point_domain=None,
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -650,6 +702,7 @@ def int4_weight_only(
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
+        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
     def apply_int4_weight_only_quant(weight):
@@ -665,17 +718,26 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
-        preserve_zero = False
+        preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+
+        nonlocal zero_point_domain
+        assert (
+            type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+        ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+        if zero_point_domain is None:
+            # the first value is the default one
+            zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
+        else:
+            assert (
+                zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+            ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
-            preserve_zero = True
-            zero_point_domain = ZeroPointDomain.INT
             assert (
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
@@ -741,8 +803,33 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _int8_symm_per_token_reduced_range_quant_noop_decode(
+    x: torch.Tensor,
+) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    if x.shape[1] == 1:
+        return x
+    else:
+        return to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            eps=eps,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
+        )
+
+
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC
+    layout=PlainLayout(),
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_only_decode=False,
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -769,11 +856,14 @@ def int8_dynamic_activation_int8_weight(
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
 
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if weight_only_decode:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
         else:
-            input_quant_func = _int8_asymm_per_token_quant
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(

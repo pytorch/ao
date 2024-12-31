@@ -11,7 +11,7 @@ import unittest
 
 from parameterized import parameterized
 
-libname = "libtorchao_ops_mps_linear_fp_act_xbit_weight_aten.dylib"
+libname = "libtorchao_ops_mps_aten.dylib"
 libpath = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
 )
@@ -39,22 +39,23 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         (nbit, *param)
         for nbit in range(1, 8)
         for param in [
-            (1, 8, 1, 32),
-            (1, 32, 1, 32),
-            (1, 32, 1, 64),
-            (1, 56, 1, 64),
-            (1, 64, 1, 64),
-            (1, 72, 1, 64),
-            (1, 1000, 1, 64),
-            (3, 64, 5, 64),
-            (7, 64, 23, 64),
-            (17, 120, 23, 128),
-            (17, 128, 23, 128),
-            (41, 144, 23, 128),
-            (41, 128, 23, 128),
-            (81, 8, 1, 256),
-            (19, 256, 17, 256),
-            (1, 1000, 81, 256),
+            (1, 8, 4, 32),
+            (1, 32, 4, 32),
+            (1, 32, 4, 64),
+            (1, 56, 4, 64),
+            (1, 64, 4, 64),
+            (1, 72, 4, 64),
+            (1, 1000, 4, 64),
+            (3, 64, 8, 64),
+            (7, 64, 20, 64),
+            (17, 120, 20, 128),
+            (17, 128, 20, 128),
+            (41, 144, 20, 128),
+            (41, 128, 20, 128),
+            (81, 8, 4, 256),
+            (19, 256, 28, 256),
+            (1, 1000, 28, 256),
+            (19, 8, 36, 256),
         ]
     ]
 

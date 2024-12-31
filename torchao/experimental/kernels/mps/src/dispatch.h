@@ -20,4 +20,18 @@ inline void dispatch_mm(
       threadsPerThreadgroup:MTLSizeMake(std::min(maxThreadsPerGroup, M), 1, 1)];
 }
 
+inline void dispatch_mm_Mr1xNr4_per_TG(
+    id<MTLComputeCommandEncoder> encoder,
+    int32_t maxThreadsPerGroup,
+    int32_t M,
+    int32_t N,
+    int32_t K) {
+  (void)K;
+  if (maxThreadsPerGroup < 32) {
+    throw std::runtime_error("Can't dispatch!");
+  }
+  [encoder dispatchThreads:MTLSizeMake(N / 4 * 32, 1, M)
+      threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+}
+
 } // namespace torchao::kernels::mps::lowbit::dispatch

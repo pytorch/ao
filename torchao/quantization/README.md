@@ -202,6 +202,17 @@ We also have a unified quantized tensor subclass that implements how to get a qu
 #### Layouts
 We extended the `layout` concept to represent different packing formats for a tensor. `AffineQuantizedTensor` supports `plain` and `tensor_core_tiled` layout. `plain` layout is used for `int8_weight_only` and `int8_dynamic_activation_int8_weight` and also as a default layout. `tensor_core_tiled` layout is used for `int4_weight_only` quantization and is packing the weights in a format that is compatible with tinygemm [int4mm](https://github.com/pytorch/pytorch/blob/39357ba06f48cda7d293a4995aa5eba2a46598b5/aten/src/ATen/native/native_functions.yaml#L4138) kernels.
 
+### Zero Point Domains
+```ZeroPointDomain``` is used to control the data types of zero points. ```ZeroPointDomain.None``` means zero_point is None, ```ZeroPointDomain.FLOAT``` means zero_point is in the floating point domain and ```ZeroPointDomain.INT``` means integer domain. For detailed implementation of different zero point data types, refer to [the reference implementation](../../test/quantization/test_quant_primitives.py).
+The following support matrix illustrates the relationship between layouts and zero point domains, which may be updated with backend changes:
+
+|Layout|None(Symmetric)|Float|Int|
+|------|---------------|-----|---|
+|TensorCoreTiledLayout| Yes | Yes(Default) | No|
+|Int4CPULayout | Yes | Yes(Default) | No |
+|MarlinSparseLayout | No | No | Yes(Default) |
+
+
 ### Full Affine Quantization Flow Example
 Let's use int4 weight only quantization that's targeting tinygemm int4 weight only quantized matmul
 as an example:
@@ -239,6 +250,8 @@ m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 group_size = 32
 # only works for torch 2.4+
 quantize_(m, int4_weight_only(group_size=group_size))
+## If different zero_point_domain needed
+# quantize_(m, int4_weight_only(group_size=group_size), zero_point_domain=ZeroPointDomain.FLOAT)
 
 # temporary workaround for tensor subclass + torch.compile
 # NOTE: this is only need for torch version < 2.5+
@@ -335,6 +348,9 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 |             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
 |             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
 
+### Gemlite Triton
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `torchao/_models/llama/generate.py`.
+
 ### UINTx Quantization
 We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
 
@@ -358,7 +374,19 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You try can out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+
+### Codebook Quantization
+The benchmarks below were run on a single NVIDIA-A6000 GPU.
+
+| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3-8B  | Base (bfloat16)         |  7.590              |  32.36        |  485.71                 | 16.19            | 15.01           |
+|             | codebook-4-64           |  9.533              |  1.73         |  8.62                   | 23.11            |  4.98           |
+| Llama-3.1-8B| Base (bfloat16)         |  7.713              |  32.16        |  482.70                 | 16.35            | 15.01           |
+|             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
+
+You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
 
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
