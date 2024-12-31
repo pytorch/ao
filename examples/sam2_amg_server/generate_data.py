@@ -118,6 +118,7 @@ def main(
     num_images=None,
     allow_recompiles=False,
     quiet=False,
+    gpu_preproc=False,
 ):
     start_time = time.time()
     if task_type not in TASK_TYPES:
@@ -249,23 +250,24 @@ def main(
                     center_points_label = center_points_label[:1]
 
         with record_function("load image bytes from disk"):
-            if True:
-                # img_bytes_tensor = bytearray(open('dog.jpg', "rb").read())
-                img_bytes_tensor = bytearray(open(input_path, "rb").read())
-            else:
+            if gpu_preproc:
+                # NOTE: We have to use numpy for the baseline
+                assert not baseline
                 from torchvision import io as tio
-                # img_bytes_tensor = tio.read_file('dog.jpg')
                 img_bytes_tensor = tio.read_file(input_path)
+            else:
+                img_bytes_tensor = bytearray(open(input_path, "rb").read())
 
         # We're including decoding the image, but not disk I/O in our latency calculation
         t1 = time.time()
         with record_function("decode image bytes"):
-            if True:
+            if gpu_preproc:
                 # NOTE: We have to use numpy for the baseline
-                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
-            else:
+                assert not baseline
                 from torchvision import io as tio
                 image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda', mode=tio.ImageReadMode.RGB)
+            else:
+                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
 
         # TODO: Write out an optional unit test based on dog.jpg and rerun
 
