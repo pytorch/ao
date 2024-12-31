@@ -374,7 +374,9 @@ def main(
         if not isinstance(value, int):
             all_stats[key] = str(int(value*1000)) + 'ms'
 
-    print(json.dumps(all_stats | max_memory_allocated_stats()))
+    mma_stats = max_memory_allocated_stats()
+    mma_stats["bytes_MiB"] = mma_stats["bytes"] >> 20
+    print(json.dumps(all_stats | mma_stats))
 
 
 main.__doc__ = main_docstring()
