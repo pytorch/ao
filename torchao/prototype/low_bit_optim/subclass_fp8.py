@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 
 import torch
 from torch import Tensor
@@ -13,13 +14,44 @@ _c10d_functional = torch.ops._c10d_functional
 DTYPE = torch.float8_e4m3fn
 
 
-def quantize_fp8(input: Tensor, block_size: int):
+def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
     shape = input.shape
     input = input.view(-1, block_size)
-    scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
+    k = None
+    SqrtMinMax = None
+
+    scale = input.abs().amax(-1).clip(1e-12)
+
+    if dynamic_range_expansion:
+        # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
+        # The idea is to align optimizer state distributions more closely
+        # with the FP8 representation range, reducing the quantization error.
+
+        k = torch.ones(input.shape[0], device=input.device)
+        expand_min = torch.tensor(16.0, device=input.device)
+        Rdtype = torch.tensor(
+            torch.finfo(DTYPE).max * torch.finfo(DTYPE).max / 2, device=input.device
+        )
+
+        MaxValue = (input.abs().amax(-1).clip(1e-20)).view(-1, 1)
+        MinValue = (input.abs().amin(-1).clip(1e-20)).view(-1, 1)
+
+        SqrtMinMax = torch.sqrt(MaxValue * MinValue).view(
+            -1
+        )  # geomatric mean of max and min
+        Rx = MaxValue / MinValue  # range of input max and min
+
+        k = (
+            torch.floor(torch.log2(Rdtype) / torch.log2(Rx) * expand_min) / expand_min
+        ).view(-1)  # calculating optimal value k dynamically
+        scale = (MaxValue / SqrtMinMax.view(-1, 1)) ** k.view(-1, 1)
+        input = input.sign() * ((input.abs() / SqrtMinMax.view(-1, 1)) ** k.view(-1, 1))
+
+    scale = (scale / torch.finfo(DTYPE).max).view(-1)
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
-    return codes.view(shape), scale
+
+    return codes.view(shape), scale, k, SqrtMinMax
 
 
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
@@ -29,10 +61,22 @@ class OptimStateFp8(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale"]
 
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor):
+    def __new__(
+        cls,
+        codes: Tensor,
+        scale: Tensor,
+        k: Optional[Tensor] = None,
+        sqrt_minmax_exp: Optional[Tensor] = None,
+    ):
         return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
-    def __init__(self, codes: Tensor, scale: Tensor):
+    def __init__(
+        self,
+        codes: Tensor,
+        scale: Tensor,
+        k: Optional[Tensor] = None,
+        sqrt_minmax_exp: Optional[Tensor] = None,
+    ):
         """Create quantized FP8 optimizer state.
 
         Args
@@ -47,32 +91,65 @@ class OptimStateFp8(TorchAOBaseTensor):
         assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
+        self.k = k
         self.block_size = codes.numel() // scale.numel()
+        self.sqrt_minmax_exp = sqrt_minmax_exp
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, []
+        return self.tensor_attrs + (
+            ["k", "sqrt_minmax_exp"] if self.k is not None else []
+        ), []
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+            *[
+                tensor_data_dict[name]
+                for name in (cls.tensor_attrs)
+                + (["k", "sqrt_minmax_exp"] if "k" in tensor_data_dict else [])
+            ],
+            *tensor_attributes,
         )
 
     def dequantize(self, output_dtype=None):
         float_data = self.codes.float()
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
 
+        if self.k is not None:
+            float_data = (
+                float_data.sign()
+                * float_data.abs() ** (1 / self.k.view(-1, 1))
+                * self.sqrt_minmax_exp.view(-1, 1)
+            )
+
         if output_dtype is not None:
             float_data = float_data.to(output_dtype)
+
         return float_data.view(self.codes.shape)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 256, device=None):
+    def zeros(
+        cls,
+        shape,
+        block_size: int = 256,
+        device=None,
+        dynamic_range_expansion: bool = False,
+    ):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
-        return cls(codes, scale)
+        k = (
+            torch.ones(codes.numel() // block_size, device=device)
+            if dynamic_range_expansion
+            else None
+        )
+        sqrt_minmax_exp = (
+            torch.ones(codes.numel() // block_size, device=device)
+            if dynamic_range_expansion
+            else None
+        )
+        return cls(codes, scale, k, sqrt_minmax_exp)
 
     def __repr__(self):
         return (
@@ -90,12 +167,21 @@ def _(func, types, args, kwargs):
         assert dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
+        if dst.k is not None:
+            dst.k.copy_(src.k)
+            dst.sqrt_minmax_exp.copy_(src.sqrt_minmax_exp)
 
     elif isinstance(dst, OptimStateFp8):
-        codes, scale = quantize_fp8(src, dst.block_size)
+        codes, scale, k, sqrt_minmax_exp = quantize_fp8(
+            src, dst.block_size, True if dst.k is not None else False
+        )
+
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
-
+        # Used for computation of dynamic range expansion
+        if dst.k is not None:
+            dst.k.copy_(k)
+            dst.sqrt_minmax_exp.copy_(sqrt_minmax_exp)
     else:
         dst.copy_(src.dequantize())
 
@@ -109,6 +195,8 @@ def _(func, types, args, kwargs):
     out = OptimStateFp8(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
+        args[0].k.to(device=device) if args[0].k is not None else None,
+        args[0].sqrt_minmax_exp.to(device=device) if args[0].k is not None else None,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
@@ -123,7 +211,7 @@ def _(func, types, args, kwargs):
 @OptimStateFp8.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimStateFp8(x.codes.view(shape), x.scale)
+    return OptimStateFp8(x.codes.view(shape), x.scale, x.k, x.sqrt_minmax_exp)
 
 
 @OptimStateFp8.implements(
@@ -146,6 +234,8 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
+        func(x.k, *args[1:], **kwargs) if x.k else None,
+        func(x.sqrt_minmax_exp, *args[1:], **kwargs) if x.k else None,
     )
 
 
