@@ -173,9 +173,12 @@ def main(image_paths,
         r_curry("save_export", {"num-images": 0,"export-model": str(export_model_path)}, environ)
 
         environ_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_load_export_inductor_cache_dir")}
-        rwc_curry("load_export", {"load-exported-model": str(export_model_path)}, environ_load)
+        load_export_kwarg = {"load-exported-model": str(export_model_path)}
+        rwc_curry("load_export_cold", load_export_kwarg, environ_load)
+        rwc_curry("load_export", load_export_kwarg, environ_load)
+        rwc_curry("load_export_gpu_preproc", load_export_kwarg | {"gpu-preproc": None}, environ_load)
 
-        environ_fast_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_load_export_inductor_cache_dir")}
+        environ_fast_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_fast_export_inductor_cache_dir")}
         fast_load_kwarg = {"fast": None, "load-exported-model": str(export_model_path)}
         rwc_curry("fast_export_cold",        fast_load_kwarg                        , environ_fast_load)
         rwc_curry("fast_export",             fast_load_kwarg                        , environ_fast_load)
@@ -193,7 +196,9 @@ def main(image_paths,
 
         environ_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_load_export_furious_inductor_cache_dir")}
         furious_load_kwarg = {"furious": None, "load-exported-model": str(export_model_path)}
-        rwc_curry("load_export_furious",                        furious_load_kwarg, environ_load)
+        rwc_curry("load_export_furious_cold", furious_load_kwarg, environ_load)
+        rwc_curry("load_export_furious", furious_load_kwarg, environ_load)
+        rwc_curry("load_export_furious_gpu_preproc", furious_load_kwarg | {"gpu-preproc": None}, environ_load)
 
         environ_fast_load = {"TORCHINDUCTOR_CACHE_DIR": str(output_base_path / f"{ttype}_fast_export_furious_inductor_cache_dir")}
         fast_furious_load_kwarg = furious_load_kwarg | {"fast": None}
