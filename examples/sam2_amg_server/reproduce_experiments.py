@@ -3,6 +3,7 @@ import os
 import fire
 import json
 import pandas as pd
+import time
 from pathlib import Path
 from compare_rle_lists import compare as compare_folders
 
@@ -46,22 +47,12 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
         pdb.set_trace()
         return None, None
 
-# TODO: Need experiments to measure time it takes to max-autotune
 
-# python generate_data.py 
-# ~/checkpoints/sam2
-# large
-# amg 
-# ~/blogs/sam2_amg_example/sav_val_image_paths_shuf_1000 
-# output_data_ao_sps  
-# --meta-folder ~/blogs/sam2_amg_example/annotated_images_baseline 
-# --overwrite 
-# --furious 
-# --num-images 1000 
-# --points-per-batch 1024
-
-
-def main(image_paths, output_base_path, dry=False, overwrite=False, resume=False):
+def main(image_paths,
+         output_base_path,
+         dry=False,
+         overwrite=False,
+         resume=False):
     output_base_path = Path(output_base_path)
     print("output_base_path: ", output_base_path)
     result_csv_path = output_base_path / "result.csv"
@@ -84,6 +75,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False, resume=False
             output_path.mkdir(exist_ok=(overwrite or resume))
         if overwrite:
             kwargs = kwargs | {"overwrite": None}
+        run_script_time = time.time()
         stdout, stderr = run_script_with_args(["generate_data.py",
                                                "~/checkpoints/sam2",
                                                "large",
@@ -93,6 +85,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False, resume=False
                                               kwargs | {"quiet": None},
                                               dry=dry,
                                               environ=environ)
+        run_script_time = time.time() - run_script_time
         if stdout is not None:
             with open(str(output_path) + ".stdout", 'w') as file:
                 file.write(stdout)
@@ -115,6 +108,7 @@ def main(image_paths, output_base_path, dry=False, overwrite=False, resume=False
                                                                compare_folders=True)
             all_stats["miou"] = miou_sum / miou_count
             all_stats["fail_count"] = fail_count
+        all_stats["run_script_time"] = run_script_time
         all_stats["task"] = task
         all_stats["experiment_name"] = output_path.name
         all_stats["environ"] = str(environ)
