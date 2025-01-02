@@ -13,10 +13,13 @@ or static scaling.
 from typing import Optional
 
 import torch
+import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
-from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.float8_linear import (
+    Float8Linear,
+)
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDelayed,
     NoopFwToFloat8BwDynamic,
@@ -26,7 +29,10 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
     hp_tensor_to_float8_static,
 )
-from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.float8_tensor import (
+    GemmInputRole,
+    hp_tensor_and_scale_to_float8,
+)
 from torchao.float8.float8_utils import (
     tensor_to_amax,
     tensor_to_scale,
@@ -36,6 +42,68 @@ from torchao.float8.fsdp_utils import (
     WeightWithDynamicFloat8CastTensor,
     WeightWithStaticFloat8CastTensor,
 )
+
+
+@torch._dynamo.allow_in_graph
+class manual_float8_matmul_with_args_in_float8(torch.autograd.Function):
+    """
+    Like torch.matmul, but with the arguments in float8
+
+    Note: this function requires all arguments to already be Float8Tensor objects,
+    which only supports tensorwise scaling granularity. The reason we didn't just make this
+    function support axiswise scaling granularity is because that would need very
+    careful testing of delayed scaling, as delayed scaling modifies buffers inplace.
+
+    In the future we'll probably have to unify, just postponing that until a future PR.
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        input_fp8,
+        weight_fp8_t,
+    ):
+        ctx.save_for_backward(input_fp8, weight_fp8_t)
+        # the reshapes are needed in order to make the shapes compatible with
+        # torch.mm
+        orig_shape = input_fp8.shape
+        input_fp8_reshaped = input_fp8.reshape(-1, orig_shape[-1])
+        res_bits = torch.mm(input_fp8_reshaped, weight_fp8_t)
+        res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
+        return res_bits
+
+    @staticmethod
+    def backward(ctx, grad_output_fp8):
+        input_fp8, weight_fp8_t = ctx.saved_tensors
+
+        # the reshapes are needed in order to make the shapes compatible with
+        # torch.mm
+        grad_output_fp8_orig_shape = grad_output_fp8.shape
+        grad_output_fp8_reshaped = grad_output_fp8.reshape(
+            -1, grad_output_fp8_orig_shape[-1]
+        )
+
+        # calculate grad_input
+        grad_input = torch.mm(
+            grad_output_fp8_reshaped,
+            weight_fp8_t.t(),
+        )
+        grad_input = grad_input.reshape(
+            *grad_output_fp8_orig_shape[:-1], grad_input.shape[-1]
+        )
+
+        input_fp8_orig_shape = input_fp8.shape
+        input_fp8_reshaped = input_fp8.reshape(-1, input_fp8_orig_shape[-1])
+
+        # calculate grad_weight
+        # Note: the variant below is slightly faster on LLaMa 3 8B pretraining
+        # compared to than calculating `grad_weight_t = input_fp8_t @ grad_output_fp8_reshaped`
+        grad_weight = torch.mm(
+            grad_output_fp8_reshaped.t(),
+            input_fp8_reshaped,
+        )
+
+        return grad_input, grad_weight.t()
 
 
 class StatefulFloat8Linear(Float8Linear):
@@ -245,10 +313,48 @@ class StatefulFloat8Linear(Float8Linear):
             )
         return output
 
+    def cast_weight_to_float8_t(
+        self,
+        weight: torch.Tensor,
+        weight_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if tensor_already_casted_to_fp8(weight):
+            return weight.t()
+        weight_fp8 = hp_tensor_and_scale_to_float8(
+            weight,
+            weight_scale,
+            self.config.cast_config_weight.target_dtype,
+            self.linear_mm_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        return weight_fp8.t()
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.has_any_delayed_scaling:
             self.float8_pre_forward(input)
-        output = super().forward(input)
+
+        input_fp8 = self.cast_input_to_float8(input)
+        # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
+        # weight_scale should be saved.
+        weight_scale = self.get_weight_scale(self.weight)
+
+        if self.config.force_recompute_fp8_weight_in_bwd:
+            weight_fp8_t = checkpoint.checkpoint(
+                self.cast_weight_to_float8_t,
+                self.weight,
+                weight_scale,
+            )
+        else:
+            weight_fp8_t = self.cast_weight_to_float8_t(self.weight, weight_scale)
+
+        output = manual_float8_matmul_with_args_in_float8.apply(input_fp8, weight_fp8_t)
+
+        # Cast grad_output to float8_e5m2 during backward
+        output = self.cast_output_to_float8_in_bw(output)
+
+        if self.bias is not None:
+            output = output + self.bias.to(output.dtype)
+
         if self.has_any_delayed_scaling:
             self.float8_post_forward()
         return output
