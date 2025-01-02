@@ -244,7 +244,9 @@ def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Ten
 
 
 # @torch.compile(fullgraph=True, dynamic=True)
-def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+def _mask_to_rle_pytorch_2_0_1(
+    tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor
+) -> (torch.Tensor, torch.Tensor):
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
     alt_lens = diff.sum(dim=1)
@@ -279,15 +281,17 @@ def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
         # else:
         #     change_indices = diff.nonzero()
         num_chunks = 8
-        assert num_chunks >= ((diff.numel() + 2147483646) // 2147483646), "Needed more chunks than expected."
+        assert num_chunks >= (
+            (diff.numel() + 2147483646) // 2147483646
+        ), "Needed more chunks than expected."
         change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
-        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff, change_indices)
-    return RLEData(alt_lens_nt=alt_lens_nt,
-                   counts_init=counts_init,
-                   b=b,
-                   h=h,
-                   w=w)
+    with torch.autograd.profiler.record_function(
+        "mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"
+    ):
+        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(
+            tensor, diff, change_indices
+        )
+    return RLEData(alt_lens_nt=alt_lens_nt, counts_init=counts_init, b=b, h=h, w=w)
 
 
 def _mask_to_rle_pytorch_2_1(rle_data: RLEData):

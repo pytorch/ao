@@ -770,6 +770,7 @@ class MapTensor(torch.Tensor):
         elems = self.elems.pin_memory()
         return wrap(elems)
 
+
 # ts is a higher dim Tensor
 def to_map_tensor(ts: torch.Tensor):
     return MapTensor(ts)

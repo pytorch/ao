@@ -151,7 +151,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         self.use_m2m = use_m2m
         self.multimask_output = multimask_output
 
-        # Store a reference to these on the model so I can overwrite them 
+        # Store a reference to these on the model so I can overwrite them
         # with compile annotation if desired
 
         self.calculate_stability_score = calculate_stability_score
@@ -528,7 +528,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             high_res_feats = self.predictor._features["high_res_feats"]
             image_embed = self.predictor._features["image_embed"]
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
-            assert self.multimask_output, "Currently require multimask_output set to True"
+            assert (
+                self.multimask_output
+            ), "Currently require multimask_output set to True"
             low_res_masks, iou_preds = self.predictor._predict_masks(
                 high_res_feats,
                 image_embed,

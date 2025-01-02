@@ -113,6 +113,7 @@ class SAM2ImagePredictor(torch.nn.Module):
 
         if isinstance(image, torch.Tensor):
             from torchvision.transforms.v2 import functional as F
+
             input_image = F.to_dtype(image, torch.float32, scale=True)
         else:
             input_image = self._transforms.to_tensor(image)
@@ -298,7 +299,9 @@ class SAM2ImagePredictor(torch.nn.Module):
             a subsequent iteration as mask input.
         """
         if return_type not in ["numpy", "torch"]:
-            raise ValueError(f"Expected return_type to be either numpy or torch, but got {return_type}")
+            raise ValueError(
+                f"Expected return_type to be either numpy or torch, but got {return_type}"
+            )
         if not self._is_image_set:
             raise RuntimeError(
                 "An image must be set with .set_image(...) before mask prediction."
@@ -320,7 +323,11 @@ class SAM2ImagePredictor(torch.nn.Module):
         )
 
         if return_type == "torch":
-            return masks.squeeze(0), iou_predictions.squeeze(0), low_res_masks.squeeze(0)
+            return (
+                masks.squeeze(0),
+                iou_predictions.squeeze(0),
+                low_res_masks.squeeze(0),
+            )
 
         masks_np = masks.squeeze(0).float().detach().cpu().numpy()
         iou_predictions_np = iou_predictions.squeeze(0).float().detach().cpu().numpy()
@@ -335,11 +342,19 @@ class SAM2ImagePredictor(torch.nn.Module):
             assert (
                 point_labels is not None
             ), "point_labels must be supplied if point_coords is supplied."
-            point_coords = torch.as_tensor(point_coords, dtype=torch.float).pin_memory().to(self.device, non_blocking=True)
+            point_coords = (
+                torch.as_tensor(point_coords, dtype=torch.float)
+                .pin_memory()
+                .to(self.device, non_blocking=True)
+            )
             unnorm_coords = self._transforms.transform_coords(
                 point_coords, normalize=normalize_coords, orig_hw=self._orig_hw[img_idx]
             )
-            labels = torch.as_tensor(point_labels, dtype=torch.int).pin_memory().to(self.device, non_blocking=True)
+            labels = (
+                torch.as_tensor(point_labels, dtype=torch.int)
+                .pin_memory()
+                .to(self.device, non_blocking=True)
+            )
             if len(unnorm_coords.shape) == 2:
                 unnorm_coords, labels = unnorm_coords[None, ...], labels[None, ...]
         if box is not None:
@@ -410,30 +425,35 @@ class SAM2ImagePredictor(torch.nn.Module):
             high_res_feats = self._features["high_res_feats"]
             image_embed = self._features["image_embed"]
             image_pe = self.model.sam_prompt_encoder.get_dense_pe().clone()
-            low_res_masks, iou_predictions = self._predict_masks(high_res_feats,
-                                                                 image_embed,
-                                                                 image_pe,
-                                                                 point_coords,
-                                                                 point_labels,
-                                                                 boxes=boxes,
-                                                                 mask_input=mask_input,
-                                                                 multimask_output=multimask_output,
-                                                                 img_idx=img_idx)
+            low_res_masks, iou_predictions = self._predict_masks(
+                high_res_feats,
+                image_embed,
+                image_pe,
+                point_coords,
+                point_labels,
+                boxes=boxes,
+                mask_input=mask_input,
+                multimask_output=multimask_output,
+                img_idx=img_idx,
+            )
         with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
-            masks, low_res_masks = self._predict_masks_postprocess(low_res_masks, img_idx, return_logits)
+            masks, low_res_masks = self._predict_masks_postprocess(
+                low_res_masks, img_idx, return_logits
+            )
             return masks, iou_predictions, low_res_masks
 
     def _predict_masks(
-            self,
-            high_res_feats_input,
-            image_embed,
-            image_pe,
-            point_coords,
-            point_labels,
-            boxes: Optional[torch.Tensor] = None,
-            mask_input: Optional[torch.Tensor] = None,
-            multimask_output: bool = True,
-            img_idx: int = -1):
+        self,
+        high_res_feats_input,
+        image_embed,
+        image_pe,
+        point_coords,
+        point_labels,
+        boxes: Optional[torch.Tensor] = None,
+        mask_input: Optional[torch.Tensor] = None,
+        multimask_output: bool = True,
+        img_idx: int = -1,
+    ):
         if point_coords is not None:
             concat_points = (point_coords, point_labels)
         else:
