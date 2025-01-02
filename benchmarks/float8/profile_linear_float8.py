@@ -349,6 +349,7 @@ def main(
         ).requires_grad_()
     else:
         M, K, N = 4096, 4096, 4096
+        M, K, N = 2048, 4096, 8192
         m_ref = torch.nn.Sequential(
             torch.nn.Linear(K, N, bias=False),
         )
