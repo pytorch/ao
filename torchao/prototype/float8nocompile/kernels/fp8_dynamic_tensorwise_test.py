@@ -45,13 +45,11 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
 
     # check scales
     assert torch.allclose(
-        x_fp8_row_major._scale, y_fp8_row_major._scale, atol=1e-3, rtol=1e-3
+        x_fp8_row_major._scale, y_fp8_row_major._scale, atol=0, rtol=0
     )
 
     # check data
-    assert allclose_fp8(
-        x_fp8_row_major._data, y_fp8_row_major._data, atol=1e-3, rtol=1e-3
-    )
+    assert allclose_fp8(x_fp8_row_major._data, y_fp8_row_major._data, atol=0, rtol=0)
 
     # check shapes
     assert x_fp8_row_major.shape == y_fp8_row_major.shape
@@ -179,13 +177,11 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
 
     # check scales
     assert torch.allclose(
-        x_fp8_col_major._scale, y_fp8_col_major._scale, atol=1e-3, rtol=1e-3
+        x_fp8_col_major._scale, y_fp8_col_major._scale, atol=0, rtol=0
     )
 
     # check data
-    assert allclose_fp8(
-        x_fp8_col_major._data, y_fp8_col_major._data, atol=1e-3, rtol=1e-3
-    )
+    assert allclose_fp8(x_fp8_col_major._data, y_fp8_col_major._data, atol=0, rtol=0)
 
     # check shapes
     assert x_fp8_col_major.shape == y_fp8_col_major.shape
@@ -360,7 +356,7 @@ def test_fp8_hp_to_fp8_row_and_col_major(
         )
 
 
-def allclose_fp8(tensor1, tensor2, atol=1e-3, rtol=1e-3):
+def allclose_fp8(tensor1, tensor2, atol=0, rtol=0):
     # convert fp8 tensors to a higher precision (e.g., float32) for comparison
     # since torch.allclose does not support fp8 tensors
     if tensor1.shape != tensor2.shape:
