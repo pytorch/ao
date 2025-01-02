@@ -428,6 +428,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         from torchao.dtypes import to_affine_quantized_intx
         from torchao.quantization.quant_api import _int8_symm_per_token_reduced_range_quant
 
+        # input settings
+        input_quant_func = _int8_symm_per_token_reduced_range_quant
+
         # weight settings
         mapping_type = MappingType.SYMMETRIC
 
@@ -437,23 +440,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
-
-        # input settings
-        def get_per_token_block_size(x):
-            block_size = list(x.shape)
-            for i in range(len(block_size) - 1):
-                block_size[i] = 1
-            return block_size
-
-        input_mapping_type = MappingType.SYMMETRIC
-        input_target_dtype = torch.int8
-        input_eps = 1e-5
-        input_quant_min = -127
-        input_quant_max = 127
         _layout = cls.layout
-        input_quant_func = _int8_symm_per_token_reduced_range_quant
-
         block_size = get_weight_block_size(weight)
+
         weight = to_affine_quantized_intx(
             weight,
             mapping_type,
