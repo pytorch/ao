@@ -312,13 +312,16 @@ class Float8Linear(torch.nn.Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        assert self.scaling_type_input is ScalingType.DYNAMIC
-        input_fp8 = hp_tensor_to_float8_dynamic(
-            input,
-            self.config.cast_config_input.target_dtype,
-            self.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-        )
+        if tensor_already_casted_to_fp8(input):
+            input_fp8 = input
+        else:
+            assert self.scaling_type_input is ScalingType.DYNAMIC
+            input_fp8 = hp_tensor_to_float8_dynamic(
+                input,
+                self.config.cast_config_input.target_dtype,
+                self.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+            )
         return input_fp8
 
     def get_weight_scale(self, weight: torch.Tensor) -> Optional[torch.Tensor]:
