@@ -426,6 +426,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized_intx
+        from torchao.quantization.quant_api import _int8_symm_per_token_reduced_range_quant
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
@@ -450,16 +451,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         input_quant_min = -127
         input_quant_max = 127
         _layout = cls.layout
-        input_quant_func = lambda x: to_affine_quantized_intx(
-            x,
-            input_mapping_type,
-            get_per_token_block_size(x),
-            input_target_dtype,
-            eps=input_eps,
-            quant_min=input_quant_min,
-            quant_max=input_quant_max,
-            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
-        )
+        input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(
@@ -937,6 +929,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
 
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
+        # TODO: make this serializable
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
             activation_granularity=cls.activation_granularity,
@@ -980,6 +973,7 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
 
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
+        # TODO: make this serializable
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
             activation_granularity=cls.activation_granularity,
