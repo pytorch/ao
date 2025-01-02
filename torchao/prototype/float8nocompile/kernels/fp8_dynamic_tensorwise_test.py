@@ -110,12 +110,12 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
 
     # check scales
     assert torch.allclose(
-        x_fp8_row_major_t._scale, y_fp8_row_major_t._scale, atol=1e-3, rtol=1e-3
+        x_fp8_row_major_t._scale, y_fp8_row_major_t._scale, atol=0, rtol=0
     )
 
     # check data
     assert allclose_fp8(
-        x_fp8_row_major_t._data, y_fp8_row_major_t._data, atol=1e-3, rtol=1e-3
+        x_fp8_row_major_t._data, y_fp8_row_major_t._data, atol=0, rtol=0
     )
 
     # check shapes
@@ -240,12 +240,12 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
 
     # check scales
     assert torch.allclose(
-        x_fp8_col_major_t._scale, y_fp8_col_major_t._scale, atol=1e-3, rtol=1e-3
+        x_fp8_col_major_t._scale, y_fp8_col_major_t._scale, atol=0, rtol=0
     )
 
     # check data
     assert allclose_fp8(
-        x_fp8_col_major_t._data, y_fp8_col_major_t._data, atol=1e-3, rtol=1e-3
+        x_fp8_col_major_t._data, y_fp8_col_major_t._data, atol=0, rtol=0
     )
 
     # check shapes
