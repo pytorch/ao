@@ -332,7 +332,7 @@ def _scale_atomic(
     EPS: tl.constexpr,
 ):
     # load previously computed global amax
-    global_amax = tl.load(amax_ptr).to(tl.float32)
+    global_amax = tl.load(amax_ptr).to(tl.float64)
 
     # compute scale, must be fp32
     scale = (fp8_dtype_max / tl.clamp(global_amax, min=EPS, max=float("inf"))).to(
