@@ -1,4 +1,5 @@
 import argparse
+import requests
 import time
 import os
 from datetime import datetime
@@ -6,9 +7,58 @@ from datetime import datetime
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from server import MODEL_TYPES_TO_MODEL
-from server import model_type_to_paths
 from pathlib import Path
+
+MODEL_TYPES_TO_CONFIG = {
+        "tiny": "sam2.1_hiera_t.yaml",
+        "small": "sam2.1_hiera_s.yaml",
+        "plus": "sam2.1_hiera_b+.yaml",
+        "large": "sam2.1_hiera_l.yaml",
+        }
+
+MODEL_TYPES_TO_MODEL = {
+        "tiny": "sam2.1_hiera_tiny.pt",
+        "small": "sam2.1_hiera_small.pt",
+        "plus": "sam2.1_hiera_base_plus.pt",
+        "large": "sam2.1_hiera_large.pt",
+        }
+
+MODEL_TYPES_TO_URL = {
+        "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+        "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+        "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
+        "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+        }
+
+
+def download_file(url, download_dir):
+    # Create the directory if it doesn't exist
+    download_dir = Path(download_dir)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    # Extract the file name from the URL
+    file_name = url.split('/')[-1]
+    # Define the full path for the downloaded file
+    file_path = download_dir / file_name
+    # Download the file
+    response = requests.get(url, stream=True)
+    response.raise_for_status()  # Raise an error for bad responses
+    # Write the file to the specified directory
+    print(f"Downloading '{file_name}' to '{download_dir}'")
+    with open(file_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+    print(f"Downloaded '{file_name}' to '{download_dir}'")
+
+def model_type_to_paths(checkpoint_path, model_type):
+    if model_type not in MODEL_TYPES_TO_MODEL.keys():
+        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+    sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
+    if not sam2_checkpoint.exists():
+        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
+    assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
+    model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
+    return sam2_checkpoint, model_cfg
 
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True

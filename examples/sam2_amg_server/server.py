@@ -34,6 +34,11 @@ from torchao._models.utils import (
     write_json_result_local,
 )
 
+from compile_export_utils import set_fast
+from compile_export_utils import set_furious
+from compile_export_utils import load_exported_model
+from compile_export_utils import export_model
+
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True
 inductorconfig.coordinate_descent_tuning = True
@@ -140,10 +145,13 @@ def iou(mask1, mask2):
     return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
 
 
-def show_anns(anns, rle_to_mask):
+def show_anns(anns, rle_to_mask, sort_by_area=True, seed=None):
     if len(anns) == 0:
         return
-    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    if sort_by_area:
+        sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    else:
+        sorted_anns = anns
     ax = plt.gca()
     ax.set_autoscale_on(False)
 
@@ -152,6 +160,8 @@ def show_anns(anns, rle_to_mask):
 
     img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
     img[:,:,3] = 0
+
+    np.random.seed(seed)
     ms = []
     for ann in sorted_anns:
         m = ann['segmentation']
@@ -280,13 +290,19 @@ def benchmark_fn(func, inp, mask_generator, warmup=3, runs=10):
     return avg_time_per_run, max_memory_allocated_bytes, max_memory_allocated_percentage
 
 
-def max_memory_allocated():
+def max_memory_allocated_stats():
     max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
     _, total_memory = torch.cuda.mem_get_info()
     max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
-    max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
-    return max_memory_allocated_bytes, max_memory_allocated_percentage
+    return {"bytes": max_memory_allocated_bytes,
+            "percentage": max_memory_allocated_percentage}
+
+
+def max_memory_allocated():
+    stats = max_memory_allocated_stats()
+    mib = stats["bytes"] >> 20
+    print(f"max_memory_allocated_bytes: {mib}MiB")
+    print(f"max_memory_allocated_percentage: {stats['percentage']}%")
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
@@ -340,199 +356,6 @@ def model_type_to_paths(checkpoint_path, model_type):
     model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
     return sam2_checkpoint, model_cfg
 
-
-def aot_compile(model_directory, name, fn, sample_args):
-    path = Path(model_directory) / Path(f"{name}.pt2")
-    print(f"Saving at {path=}")
-    options = {
-        "max_autotune": True,
-        "triton.cudagraphs": True,
-    }
-
-    exported = torch.export.export_for_inference(fn, sample_args)
-    output_path = torch._inductor.aoti_compile_and_package(
-        exported,
-        package_path=str(path),
-        inductor_configs=options,
-    )
-    return output_path
-
-
-def aot_load(path):
-    return torch._export.aot_load(path, "cuda")
-
-class FunctionModel(torch.nn.Module):
-
-    def __init__(self, module, fn_name):
-        super().__init__()
-        self.module = module
-        self.fn_name = fn_name
-
-    def forward(self, *args):
-        return getattr(self.module, self.fn_name)(*args)
-
-
-def set_aot_fast(mask_generator, model_directory):
-    example_input = torch.empty(1, 3, 1024, 1024)
-    example_input = example_input.to(mask_generator.predictor._image_dtype)
-    example_input = (example_input.to(mask_generator.predictor.device),)
-    aot_compile(model_directory,
-                "sam2_image_encoder",
-                mask_generator.predictor.model.image_encoder,
-                example_input)
-
-    # NOTE: THIS DOESN'T WORK YET!
-    # example_input_0_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_0_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
-    # example_input = ([example_input_0_0, example_input_0_1],
-    #                  example_input_1,
-    #                  example_input_2,
-    #                  example_input_3,
-    #                  None,
-    #                  None,
-    #                  True,
-    #                  True,
-    #                  -1)
-    # mask_generator.forward = mask_generator.predictor._predict_masks_with_features
-    # mask_generator(*example_input)
-    # aot_compile("sam2__predict_masks_with_features",
-    #             mask_generator,
-    #             example_input)
-
-    # example_input_2 = torch.empty(1024, 1, 2, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 1, dtype=torch.int32, device=mask_generator.predictor.device)
-    # aot_compile("sam2_sam_prompt_encoder",
-    #             mask_generator.predictor.model.sam_prompt_encoder,
-    #             ((example_input_2, example_input_3),
-    #              None,
-    #              None))
-
-    # NOTE: THIS DOESN'T WORK YET!
-    # example_input_0 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device)
-    # example_input_3 = torch.empty(1024, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device)
-
-    # example_input_4_0 = torch.empty(1, 32, 256, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_4_1 = torch.empty(1, 64, 128, 128, dtype=torch.float16, device=mask_generator.predictor.device)
-
-    # example_input = (example_input_0,
-    #                  example_input_1,
-    #                  example_input_2,
-    #                  example_input_3,
-    #                  True,
-    #                  True,
-    #                  [example_input_4_0, example_input_4_1])
-    # print("Example")
-    # mask_generator.predictor.model.sam_mask_decoder(*example_input)
-    # print("Example done")
-    # aot_compile("sam2_sam_mask_decoder",
-    #             mask_generator.predictor.model.sam_mask_decoder,
-    #             example_input)
-
-    # example_input_0 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_1 = torch.empty(1024, 256, 64, 64, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input_2 = torch.empty(1024, 8, 256, dtype=torch.float16, device=mask_generator.predictor.device)
-    # example_input = (example_input_0, example_input_1, example_input_2)
-
-    # mask_generator.predictor.model.sam_mask_decoder.transformer(*example_input)
-    # aot_compile("sam2_sam_mask_decoder_transformer",
-    #             mask_generator.predictor.model.sam_mask_decoder.transformer,
-    #             example_input)
-
-
-
-
-class LoadedModel(torch.nn.Module):
-
-    def __init__(self, aoti_compiled_model):
-        super().__init__()
-        self.aoti_compiled_model = aoti_compiled_model
-
-    def forward(self, *args):
-        return self.aoti_compiled_model(*args)
-
-class LoadedDecoder(torch.nn.Module):
-
-    def __init__(self, aoti_compiled_model, other):
-        super().__init__()
-        self.aoti_compiled_model = aoti_compiled_model
-        self.other = other
-
-    def forward(self, *args):
-        return self.aoti_compiled_model(*args)
-
-    def get_dense_pe(self, *args, **kwargs) -> torch.Tensor:
-        return self.other.get_dense_pe(*args, **kwargs)
-
-def load_aot_fast(mask_generator, model_directory):
-    t0 = time.time()
-    path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
-    assert path.exists(), f"Expected {path} to exist."
-    print(f"Start load from {path}")
-    pkg = torch._inductor.aoti_load_package(str(path))
-    pkg_m = LoadedModel(pkg)
-    mask_generator.predictor.model.image_encoder = pkg_m
-
-    # NOTE: This doesn't work yet!
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2__predict_masks_with_features.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # mask_generator.predictor._predict_masks_with_features = pkg_m.forward
-
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_prompt_encoder.pt2"))
-    # pkg_m = LoadedDecoder(pkg, mask_generator.predictor.model.sam_prompt_encoder)
-    # mask_generator.predictor.model.sam_prompt_encoder = pkg_m
-
-    # NOTE: This doesn't work yet!
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # pkg_m.conv_s0 = mask_generator.predictor.model.sam_mask_decoder.conv_s0
-    # pkg_m.conv_s1 = mask_generator.predictor.model.sam_mask_decoder.conv_s1
-    # mask_generator.predictor.model.sam_mask_decoder = pkg_m
-
-    # pkg = torch._inductor.aoti_load_package(os.path.join(os.getcwd(), "sam2_sam_mask_decoder_transformer.pt2"))
-    # pkg_m = LoadedModel(pkg)
-    # mask_generator.predictor.model.sam_mask_decoder.transformer = pkg_m
-
-    print(f"End load. Took {time.time() - t0}s")
-
-
-def set_fast(mask_generator, load_fast=""):
-    if load_fast == "":
-        # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.image_encoder = torch.compile(
-            mask_generator.predictor.model.image_encoder,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-    mask_generator.predictor._predict_masks = torch.compile(
-        mask_generator.predictor._predict_masks,
-        mode="max-autotune",
-        fullgraph=True,
-        dynamic=False,
-    )
-
-    # mask_generator.predictor._predict_masks_postprocess = torch.compile(
-    #     mask_generator.predictor._predict_masks_postprocess,
-    #     fullgraph=True,
-    #     dynamic=True,
-    # )
-
-
-def set_furious(mask_generator):
-    mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
-    # NOTE: Not baseline feature
-    mask_generator.predictor._image_dtype = torch.float16
-    mask_generator.predictor._transforms_device = mask_generator.predictor.device
-    torch.set_float32_matmul_precision('high')
-    mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
-    # NOTE: Not baseline feature
-    mask_generator.predictor.model.sam_mask_decoder._src_dtype = torch.float16
 
 def set_autoquant(mask_generator):
     import torchao
@@ -596,7 +419,7 @@ def main(checkpoint_path,
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
     if load_fast != "":
-        load_aot_fast(mask_generator, load_fast)
+        load_exported_model(mask_generator, load_fast, "amg", furious, batch_size, points_per_batch)
 
     if furious:
         set_furious(mask_generator)
@@ -605,7 +428,12 @@ def main(checkpoint_path,
         assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         print(f"Saving compiled models under directory {save_fast}")
-        set_aot_fast(mask_generator, save_fast)
+        export_model(mask_generator,
+                     save_fast,
+                     "amg",
+                     furious=furious,
+                     batch_size=batch_size,
+                     points_per_batch=points_per_batch)
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
@@ -618,6 +446,10 @@ def main(checkpoint_path,
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
+
+    # from torchvision import io as tio
+    # img_bytes_tensor = tio.read_file('dog.jpg')
+    # image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda', mode=tio.ImageReadMode.RGB)
 
     if unittest:
         if batch_size == 1:
