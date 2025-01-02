@@ -660,7 +660,8 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         # Recalculate boxes and remove any new duplicates
         masks = torch.cat(new_masks, dim=0)
-        boxes = self.batched_mask_to_box(masks)
+        # TODO: This doesn't use the possibly compiled self.batched_mask_to_box
+        boxes = batched_mask_to_box(masks)
         keep_by_nms = batched_nms(
             boxes.float(),
             torch.as_tensor(scores),
