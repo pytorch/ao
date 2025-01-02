@@ -8,12 +8,13 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import lm_eval
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.utils import _lm_eval_available, _MultiInput
 from torchao.quantization.GPTQ_MT import MultiTensor
-import lm_eval
+from torchao.quantization.utils import _MultiInput
+
 try:  # lm_eval version 0.4
     from lm_eval.evaluator import evaluate  # pyre-ignore[21]
     from lm_eval.models.huggingface import HFLM as eval_wrapper  # pyre-ignore[21]
@@ -24,8 +25,7 @@ except:  # lm_eval version 0.3
     eval_wrapper = base.BaseLM
     get_task_dict = tasks.get_task_dict
     evaluate = evaluator.evaluate
-import torch
-import torch.nn.functional as F
+
 
 class MultiTensorInputRecorder(eval_wrapper):
     def __init__(
@@ -140,7 +140,9 @@ class MultiTensorInputRecorder(eval_wrapper):
         if T >= self.calibration_seq_length:
             inps = inps[: self.calibration_seq_length]
         else:
-            inps = F.pad(inps, (0, self.calibration_seq_length - T), value=self.pad_token)
+            inps = F.pad(
+                inps, (0, self.calibration_seq_length - T), value=self.pad_token
+            )
 
         inps = inps.unsqueeze(0)
         model_in = self.input_prep_func(inps)
@@ -154,6 +156,7 @@ class MultiTensorInputRecorder(eval_wrapper):
 
     def _model_generate(self, context, max_length, eos_token_id):
         raise Exception("unimplemented")
+
 
 class InputRecorder(eval_wrapper):
     """
@@ -196,8 +199,7 @@ class InputRecorder(eval_wrapper):
         # need to take inps and convert to corrent input
         # for model
         self.input_prep_func = (
-            input_prep_func if input_prep_func is not None
-            else lambda x: (x,)
+            input_prep_func if input_prep_func is not None else lambda x: (x,)
         )
 
         self.pad_calibration_inputs = pad_calibration_inputs
@@ -307,17 +309,14 @@ class InputRecorder(eval_wrapper):
     def _model_generate(self, context, max_length, eos_token_id):
         raise Exception("unimplemented")
 
+
 class TransformerEvalWrapper(InputRecorder):
     """
     A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
     """
+
     def __init__(
-        self,
-        model,
-        tokenizer,
-        max_seq_length,
-        input_prep_func=None,
-        device="cuda"
+        self, model, tokenizer, max_seq_length, input_prep_func=None, device="cuda"
     ):
         super().__init__(tokenizer, None)
         self._model = model
@@ -328,8 +327,7 @@ class TransformerEvalWrapper(InputRecorder):
         # need to take inps and convert to corrent input
         # for model
         self.input_prep_func = (
-            input_prep_func if input_prep_func is not None
-            else lambda x: (x,)
+            input_prep_func if input_prep_func is not None else lambda x: (x,)
         )
 
     def _model_call(self, inps):
@@ -343,7 +341,7 @@ class TransformerEvalWrapper(InputRecorder):
         return logits
 
     def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception('unimplemented')
+        raise Exception("unimplemented")
 
     def run_eval(self, tasks, limit):
         try:

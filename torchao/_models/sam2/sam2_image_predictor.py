@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -13,7 +12,6 @@ import torch
 from PIL.Image import Image
 
 from torchao._models.sam2.modeling.sam2_base import SAM2Base
-
 from torchao._models.sam2.utils.transforms import SAM2Transforms
 
 
@@ -318,7 +316,6 @@ class SAM2ImagePredictor(torch.nn.Module):
     def _prep_prompts(
         self, point_coords, point_labels, box, mask_logits, normalize_coords, img_idx=-1
     ):
-
         unnorm_coords, labels, unnorm_box, mask_input = None, None, None, None
         if point_coords is not None:
             assert (
@@ -398,20 +395,31 @@ class SAM2ImagePredictor(torch.nn.Module):
             )
 
         with torch.autograd.profiler.record_function("_predict_masks"):
-            low_res_masks, iou_predictions = self._predict_masks(point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx)
+            low_res_masks, iou_predictions = self._predict_masks(
+                point_coords,
+                point_labels,
+                boxes,
+                mask_input,
+                multimask_output,
+                return_logits,
+                img_idx,
+            )
         with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
-            masks, low_res_masks = self._predict_masks_postprocess(low_res_masks, img_idx, iou_predictions, return_logits)
+            masks, low_res_masks = self._predict_masks_postprocess(
+                low_res_masks, img_idx, iou_predictions, return_logits
+            )
             return masks, iou_predictions, low_res_masks
 
     def _predict_masks(
-            self,
-            point_coords,
-            point_labels,
-            boxes: Optional[torch.Tensor] = None,
-            mask_input: Optional[torch.Tensor] = None,
-            multimask_output: bool = True,
-            return_logits: bool = False,
-            img_idx: int = -1):
+        self,
+        point_coords,
+        point_labels,
+        boxes: Optional[torch.Tensor] = None,
+        mask_input: Optional[torch.Tensor] = None,
+        multimask_output: bool = True,
+        return_logits: bool = False,
+        img_idx: int = -1,
+    ):
         if point_coords is not None:
             concat_points = (point_coords, point_labels)
         else:
@@ -448,7 +456,9 @@ class SAM2ImagePredictor(torch.nn.Module):
         ]
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
-                image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
+                image_embeddings=self._features["image_embed"][img_idx]
+                .unsqueeze(0)
+                .clone(),
                 image_pe=self.model.sam_prompt_encoder.get_dense_pe().clone(),
                 sparse_prompt_embeddings=sparse_embeddings.clone(),
                 dense_prompt_embeddings=dense_embeddings.clone(),
@@ -459,9 +469,13 @@ class SAM2ImagePredictor(torch.nn.Module):
 
         return low_res_masks, iou_predictions
 
-    def _predict_masks_postprocess(self, low_res_masks, img_idx, return_logits, channel_1=False):
+    def _predict_masks_postprocess(
+        self, low_res_masks, img_idx, return_logits, channel_1=False
+    ):
         # TODO: Might want to defer this until after data["iou_preds"] > self.pred_iou_thresh
-        with torch.autograd.profiler.record_function("self._transforms.postprocess_masks"):
+        with torch.autograd.profiler.record_function(
+            "self._transforms.postprocess_masks"
+        ):
             # Upscale the masks to the original image resolution
             if channel_1:
                 masks = self._transforms.postprocess_masks_1_channel(
