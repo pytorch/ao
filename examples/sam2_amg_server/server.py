@@ -36,6 +36,8 @@ from torchao._models.utils import (
 
 from compile_export_utils import set_fast
 from compile_export_utils import set_furious
+from compile_export_utils import load_exported_model
+from compile_export_utils import export_model
 
 from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True
@@ -417,7 +419,7 @@ def main(checkpoint_path,
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
     if load_fast != "":
-        load_aot_fast(mask_generator, load_fast)
+        load_exported_model(mask_generator, load_fast, "amg", furious, batch_size, points_per_batch)
 
     if furious:
         set_furious(mask_generator)
@@ -426,7 +428,12 @@ def main(checkpoint_path,
         assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         print(f"Saving compiled models under directory {save_fast}")
-        set_aot_fast(mask_generator, save_fast)
+        export_model(mask_generator,
+                     save_fast,
+                     "amg",
+                     furious=furious,
+                     batch_size=batch_size,
+                     points_per_batch=points_per_batch)
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
