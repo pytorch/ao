@@ -421,9 +421,6 @@ def main(checkpoint_path,
 
     if furious:
         set_furious(mask_generator)
-    # since autoquant is replicating what furious mode is doing, don't use these two together
-    elif use_autoquant:
-        set_autoquant(mask_generator)
 
     if save_fast != "":
         assert load_fast == "", "Can't save compiled models while loading them with --load-fast."
@@ -434,6 +431,11 @@ def main(checkpoint_path,
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         set_fast(mask_generator, load_fast)
+
+    # since autoquant is replicating what furious mode is doing, don't use these two together
+    if use_autoquant:
+        assert not furious, "use autoquant can't be used together with furious"
+        set_autoquant(mask_generator)
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
