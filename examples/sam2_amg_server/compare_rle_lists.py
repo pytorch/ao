@@ -1,4 +1,5 @@
 import fire
+from pathlib import Path
 import torch
 import json
 from torchao._models.sam2.utils.amg import rle_to_mask
@@ -42,34 +43,73 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
     miou_sum = 0.0
     miou_count = 0.0
     equal_count = 0
-    for ((v0_mask, _), (v1_mask, _)) in zip(v0_masks, v1_masks):
+    for i, ((v0_mask, _), (v1_mask, _)) in enumerate(zip(v0_masks, v1_masks)):
         miou_sum += iou(v0_mask, v1_mask)
         miou_count += 1
         equal_count += torch.equal(v0_mask, v1_mask)
         if verbose:
-            print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+            # If sorted we don't map back to the original key
+            # TODO: Could recover the indices for this
+            if order_by_area:
+                print(f"IoU is {iou(v0_mask, v1_mask)}")
+            else:
+                print(f"mask {i} IoU is iou(v0_mask, v1_mask)")
 
-    return miou_sum / miou_count, equal_count
+    return float((miou_sum / miou_count).item()), equal_count
 
 
-def main(path0, path1, strict=False):
+def compare_masks_str(str0, str1, strict):
+    masks0 = json.loads(str0)
+    masks1 = json.loads(str1)
+    if masks0.keys() != masks1.keys():
+        if strict:
+            return None, None, True
+
+    # TODO: We might not want to order_by_area when comparing
+    # masks from specific input points.
+    m, e = compare_masks(masks0, masks1, order_by_area=True)
+    return m, e, False
+
+
+def compare(path0, path1, strict=False, compare_folders=False):
     # path0 are candidates and path1 the ground truth
     fail_count = 0
     miou_sum = 0.0
     miou_count = 0
-    with open(path0, 'r') as f0, open(path1, 'r') as f1:
-        for line0, line1 in zip(f0, f1):
-            masks0 = json.loads(line0)
-            masks1 = json.loads(line1)
-            if masks0.keys() != masks1.keys():
-                if strict:
+    if compare_folders:
+        path0, path1 = Path(path0), Path(path1)
+        assert path0.is_dir()
+        assert path1.is_dir()
+        mask_files0 = [f.relative_to(path0) for f in list(path0.rglob('*.json'))]
+        mask_files1 = [f.relative_to(path1) for f in list(path1.rglob('*.json'))]
+        assert all(m0 == m1 for (m0, m1) in zip(mask_files0, mask_files1))
+        for (m0, m1) in zip(mask_files0, mask_files1):
+            with open(path0 / m0, 'r') as f0, open(path1 / m1, 'r') as f1:
+                m, e, fail = compare_masks_str(f0.read(), f1.read(), strict)
+                if fail:
                     fail_count += 1
-                    continue
+                else:
+                    miou_sum += m
+                    miou_count += 1
 
-            m, e = compare_masks(masks0, masks1, order_by_area=True)
-            miou_sum += m
-            miou_count += 1
+    else:
+        with open(path0, 'r') as f0, open(path1, 'r') as f1:
+            for line0, line1 in zip(f0, f1):
+                m, e, fail = compare_masks_str(line0, line1, strict)
+                if fail:
+                    fail_count += 1
+                else:
+                    miou_sum += m
+                    miou_count += 1
 
+    return miou_count, miou_sum, fail_count
+
+
+def main(path0, path1, strict=False, compare_folders=False):
+    miou_count, miou_sum, fail_count = compare(path0,
+                                               path1,
+                                               strict=strict,
+                                               compare_folders=compare_folders)
     print(f"fail_count: {fail_count} mIoU: {miou_sum / miou_count}")
 
 

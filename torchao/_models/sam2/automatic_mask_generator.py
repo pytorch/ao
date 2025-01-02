@@ -152,6 +152,12 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         self.use_m2m = use_m2m
         self.multimask_output = multimask_output
 
+        # Store a reference to these on the model so I can overwrite them 
+        # with compile annotation if desired
+
+        self.calculate_stability_score = calculate_stability_score
+        self.batched_mask_to_box = batched_mask_to_box
+
     @classmethod
     def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2AutomaticMaskGenerator":
         """
@@ -486,11 +492,20 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             # allow earlier filtering by predicted iou
             # masks, iou_preds, low_res_masks = self.predictor._predict(
             masks = None
+            high_res_feats = self.predictor._features["high_res_feats"]
+            image_embed = self.predictor._features["image_embed"]
+            image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
+            assert self.multimask_output, "Currently require multimask_output set to True"
             low_res_masks, iou_preds = self.predictor._predict_masks(
+                high_res_feats,
+                image_embed,
+                image_pe,
                 in_points[:, None, :],
                 in_labels[:, None],
+                boxes=None,
+                mask_input=None,
                 multimask_output=self.multimask_output,
-                return_logits=True,
+                img_idx=-1,
             )
 
         x0, y0, _, _ = crop_box
@@ -533,7 +548,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
             with torch.autograd.profiler.record_function("calculate_stability_score"):
                 # Calculate and filter by stability score
-                data["stability_score"] = calculate_stability_score(
+                data["stability_score"] = self.calculate_stability_score(
                     data["masks"], self.mask_threshold, self.stability_score_offset
                 )
             with torch.autograd.profiler.record_function("stability_score_thresh"):
@@ -559,7 +574,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                 keep_mask = data["iou_preds"] > self.pred_iou_thresh
                 data.filter(keep_mask)
 
-            data["stability_score"] = calculate_stability_score(
+            data["stability_score"] = self.calculate_stability_score(
                 data["masks"], self.mask_threshold, self.stability_score_offset
             )
             if self.stability_score_thresh > 0.0:
@@ -569,7 +584,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         with torch.autograd.profiler.record_function("Threshold masks and calculate boxes"):
             # Threshold masks and calculate boxes
             data["masks"] = data["masks"] > self.mask_threshold
-            data["boxes"] = batched_mask_to_box(data["masks"])
+            data["boxes"] = self.batched_mask_to_box(data["masks"])
 
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
@@ -645,6 +660,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         # Recalculate boxes and remove any new duplicates
         masks = torch.cat(new_masks, dim=0)
+        # TODO: This doesn't use the possibly compiled self.batched_mask_to_box
         boxes = batched_mask_to_box(masks)
         keep_by_nms = batched_nms(
             boxes.float(),

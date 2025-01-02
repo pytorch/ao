@@ -215,7 +215,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     """
     Encodes masks to an uncompressed RLE, in the format expected by
@@ -237,7 +237,7 @@ def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Ten
     return diff
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
@@ -264,11 +264,15 @@ def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"):
         diff = _mask_to_rle_pytorch_2_0_0(tensor)
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: nonzero"):
-        if diff.numel() > 2147483646:
-            num_chunks = (diff.numel() + 2147483646) // 2147483646
-            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
-        else:
-            change_indices = diff.nonzero()
+        # NOTE: While we could operate on less chunks, a set number of chunks prevents recompilations
+        # if diff.numel() > 2147483646:
+        #     num_chunks = (diff.numel() + 2147483646) // 2147483646
+        #     change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
+        # else:
+        #     change_indices = diff.nonzero()
+        num_chunks = 8
+        assert num_chunks >= ((diff.numel() + 2147483646) // 2147483646), "Needed more chunks than expected."
+        change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
         alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff, change_indices)
     return RLEData(alt_lens_nt=alt_lens_nt,
@@ -306,7 +310,8 @@ def area_from_rle(rle: Dict[str, Any]) -> int:
     return sum(rle["counts"][1::2])
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# TODO: Turn this on if you can mitigate recompiles!
+# @torch.compile(fullgraph=True, dynamic=True)
 def calculate_stability_score(
     masks: torch.Tensor, mask_threshold: float, threshold_offset: float
 ) -> torch.Tensor:
@@ -456,7 +461,8 @@ def coco_encode_rle(uncompressed_rle: Dict[str, Any]) -> Dict[str, Any]:
     return rle
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# TODO: Turn this on if you can mitigate recompiles!
+# @torch.compile(fullgraph=True, dynamic=True)
 def batched_mask_to_box(masks: torch.Tensor) -> torch.Tensor:
     """
     Calculates boxes in XYXY format around masks. Return [0,0,0,0] for
