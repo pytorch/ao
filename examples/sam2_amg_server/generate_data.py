@@ -113,8 +113,29 @@ def gen_masks_ao_batch(task_type,
     # image transforms will resize to full size anyway.
     image_tensors += [image_tensors[-1]] * (batch_size - len(image_tensors))
     assert len(image_tensors) == batch_size
+    if center_points_batch is not None:
+        center_points_batch += ((center_points_batch[-1],)
+                                * (batch_size - len(center_points_batch)))
+        assert len(center_points_batch) == batch_size
+    if center_points_label_batch is not None:
+        center_points_label_batch += ((center_points_label_batch[-1],)
+                                      * (batch_size - len(center_points_label_batch)))
+        assert len(center_points_label_batch) == batch_size
     if task_type == "amg":
         return mask_generator.generate_batch(image_tensors)
+    elif task_type == "sps":
+        mask_generator.predictor.set_image_batch(image_tensors)
+        masks, scores, _ = mask_generator.predictor.predict(
+            point_coords=center_points_batch,
+            point_labels=center_points_label_batch,
+            multimask_output=True,
+            return_logits=False,
+            return_type="torch",
+        )
+        # TODO: This isn't exactly efficient
+        masks = torch.stack([mask[i] for (mask, i) in zip(
+            masks.unbind(), torch.argmax(scores, dim=1).tolist())])
+        return masks
     raise ValueError("gen_masks_ao_batch doesn't support {task_type}")
 
 
@@ -161,11 +182,6 @@ def gen_masks_ao(task_type,
         scores = scores.elems
         # TODO: This isn't exactly efficient
         masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
-    
-        # TODO: NEXT!!
-        # TODO: export the model at the end to include recompilations.
-        # Could export the predict method and the mask_to_rle_pytorch_2 function
-        # I think mask_to_rle_pytorch_2 recompiles
     return masks
 
 
@@ -195,7 +211,7 @@ def gen_masks(task_type,
                                        center_points_label)
             masks_batch.append(masks)
         return masks_batch
-    if task_type == "amg":
+    if task_type in ["amg", "sps"]:
         return gen_masks_ao_batch(task_type,
                                   image_tensors,
                                   mask_generator,
@@ -560,5 +576,5 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    profiler_runner("asdf.json.gz", fire.Fire, main)
-    # fire.Fire(main)
+    # profiler_runner("asdf.json.gz", fire.Fire, main)
+    fire.Fire(main)
