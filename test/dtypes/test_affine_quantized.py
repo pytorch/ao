@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import Int4CPULayout, SemiSparseLayout
+from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
     int4_weight_only,
@@ -48,6 +48,15 @@ def get_quantization_functions(
                 )
         else:
             base_functions.append(int4_weight_only(group_size=32))
+            if device == "cuda":
+                base_functions.append(
+                    int8_dynamic_activation_int4_weight(
+                        group_size=None,
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=CutlassInt4PackedLayout(),
+                    )
+                )
 
     if do_sparse:
         base_functions.append(
