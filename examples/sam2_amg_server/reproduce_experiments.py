@@ -51,7 +51,10 @@ def main(image_paths,
          output_base_path,
          dry=False,
          overwrite=False,
-         resume=False):
+         resume=False,
+         batch_size=1):
+    assert batch_size > 0
+    print("batch_size: ", batch_size)
     output_base_path = Path(output_base_path)
     print("output_base_path: ", output_base_path)
     result_csv_path = output_base_path / "result.csv"
@@ -141,7 +144,7 @@ def main(image_paths,
                                               {},
                                               dry=dry)
 
-    for ttype, batch_size in itertools.product(["amg", "sps", "mps"], [8, 1]):
+    for ttype in ["amg", "sps", "mps"]:
         meta_kwarg = {} if ttype == "amg" else {"meta-folder": output_base_path / "amg_baseline_annotations"}
         # Generate baseline data
         ppb = {'amg': 64, 'sps': 1, 'mps': None}[ttype]
