@@ -426,7 +426,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized_intx
-        from torchao.quantization.quant_api import _int8_symm_per_token_reduced_range_quant
+        from torchao.quantization.quant_api import (
+            _int8_symm_per_token_reduced_range_quant,
+        )
 
         # input settings
         input_quant_func = _int8_symm_per_token_reduced_range_quant
@@ -1270,3 +1272,7 @@ def autoquant(
         model(*example_input)
 
     return model
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals(ALL_AUTOQUANT_CLASS_LIST)
