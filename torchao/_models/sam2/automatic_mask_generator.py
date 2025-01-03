@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # Adapted from https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/automatic_mask_generator.py
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -34,6 +34,7 @@ from torchao._models.sam2.utils.amg import (
     uncrop_masks,
     uncrop_points,
 )
+from torchao._models.sam2.utils.misc import get_image_size
 
 
 class SAM2AutomaticMaskGenerator(torch.nn.Module):
@@ -239,8 +240,8 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         data = self._generate_masks_batch(images)
         return [self._encode_masks(d) for d in data]
 
-    def _generate_masks(self, image: np.ndarray) -> MaskData:
-        orig_size = image.shape[:2]
+    def _generate_masks(self, image: Union[np.ndarray, torch.Tensor]) -> MaskData:
+        orig_size = get_image_size(image)
         crop_boxes, layer_idxs = generate_crop_boxes(
             orig_size, self.crop_n_layers, self.crop_overlap_ratio
         )
@@ -277,7 +278,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         all_crop_boxes = []
         all_layer_idxs = []
         for image in images:
-            orig_size = image.shape[:2]
+            orig_size = get_image_size(image)
             all_orig_size.append(orig_size)
             crop_boxes, layer_idxs = generate_crop_boxes(
                 orig_size, self.crop_n_layers, self.crop_overlap_ratio
@@ -299,7 +300,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         # Crop the image and calculate embeddings
         x0, y0, x1, y1 = crop_box
         cropped_im = image[y0:y1, x0:x1, :]
-        cropped_im_size = cropped_im.shape[:2]
+        cropped_im_size = get_image_size(cropped_im)
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
 
@@ -377,8 +378,15 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         all_cropped_im = []
         for (image, crop_box) in zip(all_image, all_crop_box):
             x0, y0, x1, y1 = crop_box
-            assert isinstance(image, np.ndarray)
-            cropped_im = image[y0:y1, x0:x1, :]
+            if isinstance(image, np.ndarray):
+                # HxWxC
+                cropped_im = image[y0:y1, x0:x1, :]
+            elif isinstance(image, torch.Tensor):
+                # CxHxW
+                cropped_im = image[:, y0:y1, x0:x1]
+            else:
+                raise ValueError("Expected image to be of type np.ndarray or "
+                                 f"torch.Tensor, but got {type(cropped_im)}")
             all_cropped_im.append(cropped_im)
 
         with torch.autograd.profiler.record_function("set_batch_image"):
@@ -388,9 +396,8 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         batch_features = self.predictor._features
         all_crop_data = []
         for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
-            cropped_im_size = cropped_im.shape[:2]
-            self.predictor.reset_predictor()
-            self.predictor._orig_hw = [cropped_im.shape[:2]]
+            cropped_im_size = get_image_size(cropped_im)
+            self.predictor._orig_hw = [get_image_size(cropped_im)]
             self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
                                         "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
             i += 1

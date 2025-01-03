@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
+from typing import Union
 
 
 def get_sdpa_settings():
@@ -347,3 +348,17 @@ def concat_points(old_point_inputs, new_points, new_labels):
         labels = torch.cat([old_point_inputs["point_labels"], new_labels], dim=1)
 
     return {"point_coords": points, "point_labels": labels}
+
+
+def get_image_size(image: Union[np.ndarray, torch.Tensor]):
+    if isinstance(image, np.ndarray):
+        return image.shape[:2]
+    elif isinstance(image, torch.Tensor):
+        _, h, w = image.shape
+        return (h, w)
+    elif isinstance(image, Image):
+        w, h = image.size
+        return (h, w)
+    else:
+        raise NotImplementedError("Only support np.ndarray, torch.Tensor"
+                                  f"or PIL Image, but got {type(image)}")

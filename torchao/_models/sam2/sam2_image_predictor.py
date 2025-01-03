@@ -15,6 +15,7 @@ from PIL.Image import Image
 from torchao._models.sam2.modeling.sam2_base import SAM2Base
 
 from torchao._models.sam2.utils.transforms import SAM2Transforms
+from torchao._models.sam2.utils.misc import get_image_size
 
 
 class SAM2ImagePredictor(torch.nn.Module):
@@ -101,17 +102,7 @@ class SAM2ImagePredictor(torch.nn.Module):
         """
         self.reset_predictor()
         # Transform the image to the form expected by the model
-        if isinstance(image, np.ndarray):
-            logging.info("For numpy array image, we assume (HxWxC) format")
-            self._orig_hw = [image.shape[:2]]
-        elif isinstance(image, Image):
-            w, h = image.size
-            self._orig_hw = [(h, w)]
-        elif isinstance(image, torch.Tensor):
-            _, h, w = image.shape
-            self._orig_hw = [(h, w)]
-        else:
-            raise NotImplementedError("Image format not supported")
+        self._orig_hw = [get_image_size(image)]
 
         if isinstance(image, torch.Tensor):
             # from torchvision.transforms.v2 import functional as F
@@ -149,7 +140,7 @@ class SAM2ImagePredictor(torch.nn.Module):
     @torch.no_grad()
     def set_image_batch(
         self,
-        image_list: List[Union[np.ndarray]],
+        image_list: List[Union[np.ndarray, torch.Tensor]],
     ) -> None:
         """
         Calculates the image embeddings for the provided image batch, allowing
@@ -161,15 +152,15 @@ class SAM2ImagePredictor(torch.nn.Module):
         """
         self.reset_predictor()
         assert isinstance(image_list, list)
-        self._orig_hw = []
-        for image in image_list:
-            assert isinstance(
-                image, np.ndarray
-            ), "Images are expected to be an np.ndarray in RGB format, and of shape  HWC"
-            self._orig_hw.append(image.shape[:2])
+        self._orig_hw = list(map(get_image_size, image_list))
         with torch.autograd.profiler.record_function("forward_batch"):
             # Transform the image to the form expected by the model
-            img_batch = self._transforms.forward_batch(image_list)
+            # img_batch = self._transforms.forward_batch(image_list)
+            image_list = [self._transforms.to_tensor(img) if isinstance(
+                img, np.ndarray) else img for img in image_list]
+            image_list = [self._transforms.transforms(
+                img) for img in image_list]
+            img_batch = torch.stack(image_list, dim=0)
             img_batch = img_batch.to(self.device)
             img_batch = img_batch.to(self._image_dtype)
         batch_size = img_batch.shape[0]

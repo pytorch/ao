@@ -100,6 +100,24 @@ def gen_masks_baseline(task_type,
     return masks
 
 
+@record_function("generate_ao_batch")
+def gen_masks_ao_batch(task_type,
+                       image_tensors,
+                       mask_generator,
+                       batch_size,
+                       center_points_batch=None,
+                       center_points_label_batch=None):
+    assert isinstance(image_tensors, list)
+    assert len(image_tensors) <= batch_size
+    # NOTE: We could create a smaller padding image of 0 size, but
+    # image transforms will resize to full size anyway.
+    image_tensors += [image_tensors[-1]] * (batch_size - len(image_tensors))
+    assert len(image_tensors) == batch_size
+    if task_type == "amg":
+        return mask_generator.generate_batch(image_tensors)
+    raise ValueError("gen_masks_ao_batch doesn't support {task_type}")
+
+
 @record_function("generate_ao")
 def gen_masks_ao(task_type,
                  image_tensor,
@@ -125,7 +143,7 @@ def gen_masks_ao(task_type,
         # First we do batching of prompts
         # Use MapTensor to create pseudobatches of points and labels
         mask_generator.predictor.set_image(image_tensor)
-    
+
         center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
         center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
         from torchao._models.sam2.map_tensor import to_map_tensor
@@ -159,25 +177,41 @@ def gen_masks(task_type,
               baseline,
               verbose,
               batch_size):
-    masks_batch = []
-    for (image_tensor, center_points, center_points_label) in zip(image_tensors, center_points_batch, center_points_label_batch):
-        if verbose:
+    if verbose:
+        for image_tensor in image_tensors:
             timestamped_print(
                 f"Generating mask of size {tuple(image_tensor.shape)}."
             )
-        if baseline:
+    if baseline:
+        masks_batch = []
+        for data_i in zip(image_tensors,
+                          center_points_batch,
+                          center_points_label_batch):
+            (image_tensor, center_points, center_points_label) = data_i
             masks = gen_masks_baseline(task_type,
                                        image_tensor,
                                        mask_generator,
                                        center_points,
                                        center_points_label)
-        else:
-            masks = gen_masks_ao(task_type,
-                                 image_tensor,
-                                 mask_generator,
-                                 center_points,
-                                 center_points_label)
-
+            masks_batch.append(masks)
+        return masks_batch
+    if task_type == "amg":
+        return gen_masks_ao_batch(task_type,
+                                  image_tensors,
+                                  mask_generator,
+                                  batch_size,
+                                  center_points_batch,
+                                  center_points_label_batch)
+    masks_batch = []
+    for data_i in zip(image_tensors,
+                      center_points_batch,
+                      center_points_label_batch):
+        (image_tensor, center_points, center_points_label) = data_i
+        masks = gen_masks_ao(task_type,
+                             image_tensor,
+                             mask_generator,
+                             center_points,
+                             center_points_label)
         masks_batch.append(masks)
     return masks_batch
 
@@ -500,7 +534,7 @@ def main(
                                                  masks,
                                                  mask_to_rle_pytorch))
 
-        latencies.append(time.time() - t1)
+        latencies.append((time.time() - t1) / len(batch))
 
         for ((rle_dict), (_, _, output_rle_json_path, _)) in zip(rle_dicts, batch):
             save_rle_dict_to_path(rle_dict, output_rle_json_path, verbose)
@@ -508,6 +542,7 @@ def main(
     end_time = time.time()
     total_time = end_time - start_time
     all_stats = {}
+    all_stats["batch_size"] = batch_size
     all_stats["total_time"] = f"{total_time}s"
     all_stats["total_img_s"] = f"{len(input_paths) / total_time}img/s"
     if len(input_paths) > 0:
