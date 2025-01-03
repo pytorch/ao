@@ -351,7 +351,8 @@ def batched_zip(input_paths,
             batch = []
         batch.append((input_path, output_image_path, output_rle_json_path, meta_path))
         i += 1
-    yield batch
+    if len(batch) > 0:
+        yield batch
 
 
 # TODO: Generate baseline data
@@ -502,7 +503,7 @@ def main(
                         export_model,
                         task_type,
                         furious=furious,
-                        batch_size=1,
+                        batch_size=batch_size,
                         points_per_batch=points_per_batch,
                         overwrite=overwrite)
     if load_exported_model == "":
@@ -513,8 +514,8 @@ def main(
         load_exported_model_fn(mask_generator,
                                load_exported_model,
                                task_type,
-                               furious,
-                               batch_size=1,
+                               furious=furious,
+                               batch_size=batch_size,
                                points_per_batch=points_per_batch)
     if fast:
         set_fast(mask_generator,
@@ -525,6 +526,7 @@ def main(
     # TODO: Write out an optional unit test based on dog.jpg and rerun
     latencies = []
     num_images = len(input_paths) if num_images is None else num_images
+    num_batches = ((num_images + batch_size - 1) // batch_size)
     input_paths = input_paths[:num_images]
 
     all_input_paths = input_paths
@@ -538,7 +540,7 @@ def main(
                     all_output_rle_json_paths,
                     all_meta_paths,
                     batch_size),
-        total=((num_images + batch_size - 1) // batch_size),
+        total=num_batches,
         disable=quiet,
     ):
         data = []

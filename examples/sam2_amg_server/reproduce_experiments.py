@@ -141,9 +141,7 @@ def main(image_paths,
                                               {},
                                               dry=dry)
 
-    # TODO: Something about sps + torch.compile is messed up
-
-    for ttype, batch_size in itertools.product(["amg", "sps", "mps"], [16, 1]):
+    for ttype, batch_size in itertools.product(["amg", "sps", "mps"], [8, 1]):
         meta_kwarg = {} if ttype == "amg" else {"meta-folder": output_base_path / "amg_baseline_annotations"}
         # Generate baseline data
         ppb = {'amg': 64, 'sps': 1, 'mps': None}[ttype]
