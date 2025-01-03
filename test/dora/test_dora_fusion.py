@@ -1,18 +1,16 @@
+import itertools
 import sys
 
 import pytest
+import torch
+
+from torchao.prototype.dora.kernels.matmul import triton_mm
+from torchao.prototype.dora.kernels.smallk import triton_mm_small_k
 
 if sys.version_info < (3, 11):
     pytest.skip("requires Python >= 3.11", allow_module_level=True)
 
 triton = pytest.importorskip("triton", reason="requires triton")
-
-import itertools
-
-import torch
-
-from torchao.prototype.dora.kernels.matmul import triton_mm
-from torchao.prototype.dora.kernels.smallk import triton_mm_small_k
 
 torch.manual_seed(0)
 
@@ -48,13 +46,7 @@ def _arg_to_id(arg):
 
 
 def check(expected, actual, dtype):
-    if dtype == torch.float32:
-        atol = 1e-4
-    elif dtype == torch.float16:
-        atol = 1e-3
-    elif dtype == torch.bfloat16:
-        atol = 1e-2
-    else:
+    if dtype not in [torch.float32, torch.float16, torch.bfloat16]:
         raise ValueError(f"Unsupported dtype: {dtype}")
     diff = (expected - actual).abs().max()
     print(f"diff: {diff}")

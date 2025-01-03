@@ -86,7 +86,7 @@ def run(args, file_prefix):
     model_config = LlamaConfig()
     try:
         model_config_dict = getattr(model_configs, args.model_config.upper())
-    except:
+    except Exception:
         raise ValueError(f"Model config {args.model_config} not found")
     model_config.update(model_config_dict)
     model = LlamaForCausalLM(model_config).to("cuda")
@@ -163,7 +163,7 @@ def run(args, file_prefix):
     if args.torch_profiler:
         print(f"Finished profiling, outputs saved to {args.output_dir}/{file_prefix}*")
     else:
-        print(f"Finished profiling")
+        print("Finished profiling")
 
 
 if __name__ == "__main__":
