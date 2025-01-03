@@ -62,6 +62,217 @@ def timestamped_print(*args, **kwargs):
     print(f"[{timestamp}]", *args, **kwargs)
 
 
+@record_function("generate_baseline")
+def gen_masks_baseline(task_type,
+                       image_tensor,
+                       mask_generator,
+                       center_points=None,
+                       center_points_label=None):
+    if task_type != "amg":
+        assert center_points is not None
+        assert center_points_label is not None
+    if task_type == "amg":
+        masks = mask_generator.generate(image_tensor)
+    elif task_type == "sps":
+        mask_generator.predictor.set_image(image_tensor)
+        masks, scores, _ = mask_generator.predictor.predict(
+            point_coords=center_points,
+            point_labels=center_points_label,
+            multimask_output=True,
+            return_logits=False,
+        )
+        masks = torch.from_numpy(masks[np.argmax(scores).item()])
+        masks = masks.to(torch.bool)
+    elif task_type == "mps":
+        mask_generator.predictor.set_image(image_tensor)
+        masks = []
+        for i in range(len(center_points)):
+            mask, score, _ = mask_generator.predictor.predict(
+                point_coords=center_points[i:i+1],
+                point_labels=center_points_label[i:i+1],
+                multimask_output=True,
+                return_logits=False,
+            )
+            mask = torch.from_numpy(mask[np.argmax(score).item()])
+            mask = mask.to(torch.bool)
+            masks.append(mask)
+        masks = torch.stack(masks)
+    return masks
+
+
+@record_function("generate_ao")
+def gen_masks_ao(task_type,
+                 image_tensor,
+                 mask_generator,
+                 center_points=None,
+                 center_points_label=None):
+    if task_type == "amg":
+        masks = mask_generator.generate(image_tensor)
+    elif task_type == "sps":
+        mask_generator.predictor.set_image(image_tensor)
+        masks, scores, _ = mask_generator.predictor.predict(
+            point_coords=center_points,
+            point_labels=center_points_label,
+            multimask_output=True,
+            return_logits=False,
+            return_type="torch",
+        )
+        masks = masks.index_select(0, torch.argmax(scores))[0]
+    elif task_type == "mps":
+        # NOTE: There are multiple opportunities for batching here
+        # Batching of images
+        # Batching of prompts
+        # First we do batching of prompts
+        # Use MapTensor to create pseudobatches of points and labels
+        mask_generator.predictor.set_image(image_tensor)
+    
+        center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
+        center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
+        from torchao._models.sam2.map_tensor import to_map_tensor
+        center_points_torch = to_map_tensor(center_points_torch)
+        center_points_label_torch = to_map_tensor(center_points_label_torch)
+        masks, scores, _ = mask_generator.predictor.predict(
+            point_coords=center_points_torch,
+            point_labels=center_points_label_torch,
+            multimask_output=True,
+            return_logits=False,
+            return_type="torch",
+        )
+        # Unwrapping MapTensor
+        masks = masks.elems
+        scores = scores.elems
+        # TODO: This isn't exactly efficient
+        masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
+    
+        # TODO: NEXT!!
+        # TODO: export the model at the end to include recompilations.
+        # Could export the predict method and the mask_to_rle_pytorch_2 function
+        # I think mask_to_rle_pytorch_2 recompiles
+    return masks
+
+
+def gen_masks(task_type,
+              image_tensors,
+              mask_generator,
+              center_points_batch,
+              center_points_label_batch,
+              baseline,
+              verbose,
+              batch_size):
+    masks_batch = []
+    for (image_tensor, center_points, center_points_label) in zip(image_tensors, center_points_batch, center_points_label_batch):
+        if verbose:
+            timestamped_print(
+                f"Generating mask of size {tuple(image_tensor.shape)}."
+            )
+        if baseline:
+            masks = gen_masks_baseline(task_type,
+                                       image_tensor,
+                                       mask_generator,
+                                       center_points,
+                                       center_points_label)
+        else:
+            masks = gen_masks_ao(task_type,
+                                 image_tensor,
+                                 mask_generator,
+                                 center_points,
+                                 center_points_label)
+
+        masks_batch.append(masks)
+    return masks_batch
+
+
+def data_from_file_path(task_type,
+                        verbose,
+                        meta_path,
+                        input_path,
+                        gpu_preproc,
+                        baseline):
+    center_points, center_points_label = None, None
+    if task_type != "amg":
+        if verbose:
+            timestamped_print(f"Loading meta from {meta_path}")
+        with open(meta_path, 'r') as file:
+            amg_masks = list(json.load(file).values())
+            amg_masks = sorted(amg_masks, key=(lambda x: x['area']), reverse=True)
+            # center points for biggest area first.
+            center_points = [mask['center_point'] for mask in amg_masks]
+            center_points = np.array(center_points)
+            center_points_label = np.array(len(center_points) * [1])
+            if task_type == "sps":
+                center_points = center_points[:1]
+                center_points_label = center_points_label[:1]
+
+    with record_function("load image bytes from disk"):
+        if gpu_preproc:
+            # NOTE: We have to use numpy for the baseline
+            assert not baseline
+            from torchvision import io as tio
+            img_bytes_tensor = tio.read_file(input_path)
+        else:
+            img_bytes_tensor = bytearray(open(input_path, "rb").read())
+
+    return img_bytes_tensor, center_points, center_points_label
+
+
+def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
+    image_tensors = []
+    for img_bytes_tensor in img_bytes_tensors:
+        with record_function("decode image bytes"):
+            if gpu_preproc:
+                # NOTE: We have to use numpy for the baseline
+                assert not baseline
+                from torchvision import io as tio
+                image_tensor = tio.decode_jpeg(img_bytes_tensor,
+                                               device='cuda',
+                                               mode=tio.ImageReadMode.RGB)
+            else:
+                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
+            image_tensors.append(image_tensor)
+    return image_tensors
+
+
+def rle_dict_from_masks(task_type, masks, mask_to_rle_pytorch):
+    with record_function("mask_to_rle_pytorch"):
+        if task_type == "sps":
+            masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]
+            masks = [{'segmentation': masks}]
+        elif task_type == "mps":
+            masks = mask_to_rle_pytorch(masks)
+            masks = [{'segmentation': mask} for mask in masks]
+
+    with record_function("masks_to_rle_dict"):
+        rle_dict = masks_to_rle_dict(masks)
+
+    return rle_dict
+
+
+def save_rle_dict_to_path(rle_dict, output_rle_json_path, verbose):
+    with record_function("json.dumps"):
+        if verbose:
+            timestamped_print(f"Storing rle under {output_rle_json_path}")
+        output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
+        with open(output_rle_json_path, "w") as file:
+            file.write(json.dumps(rle_dict, indent=4))
+
+
+def batched_zip(input_paths,
+                output_image_paths,
+                output_rle_json_paths,
+                meta_paths,
+                batch_size):
+    i = 0
+    batch = []
+    for input_path, output_image_path, output_rle_json_path, meta_path in zip(input_paths, output_image_paths, output_rle_json_paths, meta_paths):
+        if i == batch_size:
+            yield batch
+            i = 0
+            batch = []
+        batch.append((input_path, output_image_path, output_rle_json_path, meta_path))
+        i += 1
+    yield batch
+
+
 # TODO: Generate baseline data
 # Do this based on a file with ~1000 paths
 # AMG: Automatic mask generation
@@ -119,6 +330,7 @@ def main(
     allow_recompiles=False,
     quiet=False,
     gpu_preproc=False,
+    batch_size=1,
 ):
     start_time = time.time()
     if task_type not in TASK_TYPES:
@@ -227,143 +439,63 @@ def main(
                  loaded_exported_model=(load_exported_model != ""),
                  allow_recompiles=allow_recompiles)
 
+    # TODO: Write out an optional unit test based on dog.jpg and rerun
     latencies = []
     num_images = len(input_paths) if num_images is None else num_images
     input_paths = input_paths[:num_images]
-    for input_path, filename, output_image_path, output_rle_json_path, meta_path in tqdm(
-        zip(input_paths, filenames, output_image_paths, output_rle_json_paths, meta_paths),
-        total=num_images,
+
+    all_input_paths = input_paths
+    all_output_image_paths = output_image_paths
+    all_output_rle_json_paths = output_rle_json_paths
+    all_meta_paths = meta_paths
+
+    for batch in tqdm(
+        batched_zip(all_input_paths,
+                    all_output_image_paths,
+                    all_output_rle_json_paths,
+                    all_meta_paths,
+                    batch_size),
+        total=((num_images + batch_size) // batch_size),
         disable=quiet,
     ):
-        if task_type != "amg":
-            if verbose:
-                timestamped_print(f"Loading meta from {meta_path}")
-            with open(meta_path, 'r') as file:
-                amg_masks = list(json.load(file).values())
-                amg_masks = sorted(amg_masks, key=(lambda x: x['area']), reverse=True)
-                # center points for biggest area first.
-                center_points = [mask['center_point'] for mask in amg_masks]
-                center_points = np.array(center_points)
-                center_points_label = np.array(len(center_points) * [1])
-                if task_type == "sps":
-                    center_points = center_points[:1]
-                    center_points_label = center_points_label[:1]
+        data = []
+        for (input_path, _, _, meta_path) in batch:
+            # img_bytes_tensor, center_points, center_points_label
+            data.append(data_from_file_path(task_type,
+                                            verbose,
+                                            meta_path,
+                                            input_path,
+                                            gpu_preproc,
+                                            baseline))
 
-        with record_function("load image bytes from disk"):
-            if gpu_preproc:
-                # NOTE: We have to use numpy for the baseline
-                assert not baseline
-                from torchvision import io as tio
-                img_bytes_tensor = tio.read_file(input_path)
-            else:
-                img_bytes_tensor = bytearray(open(input_path, "rb").read())
-
-        # We're including decoding the image, but not disk I/O in our latency calculation
+        # We're including decoding the image, but not
+        # disk I/O in our latency calculation
         t1 = time.time()
-        with record_function("decode image bytes"):
-            if gpu_preproc:
-                # NOTE: We have to use numpy for the baseline
-                assert not baseline
-                from torchvision import io as tio
-                image_tensor = tio.decode_jpeg(img_bytes_tensor, device='cuda', mode=tio.ImageReadMode.RGB)
-            else:
-                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
 
-        # TODO: Write out an optional unit test based on dog.jpg and rerun
+        image_tensors = decode_img_bytes(list(zip(*data))[0],
+                                         gpu_preproc,
+                                         baseline)
 
-        with record_function("generate"):
-            if baseline:
-                if verbose:
-                    timestamped_print(
-                        f"Generating mask for image {input_path} of size {tuple(image_tensor.shape)}."
-                    )
-                if task_type == "amg":
-                    masks = mask_generator.generate(image_tensor)
-                elif task_type == "sps":
-                    mask_generator.predictor.set_image(image_tensor)
-                    masks, scores, _ = mask_generator.predictor.predict(
-                        point_coords=center_points,
-                        point_labels=center_points_label,
-                        multimask_output=True,
-                        return_logits=False,
-                    )
-                    masks = torch.from_numpy(masks[np.argmax(scores).item()]).to(torch.bool)
-                elif task_type == "mps":
-                    mask_generator.predictor.set_image(image_tensor)
-                    masks = []
-                    for i in range(len(center_points)):
-                        mask, score, _ = mask_generator.predictor.predict(
-                            point_coords=center_points[i:i+1],
-                            point_labels=center_points_label[i:i+1],
-                            multimask_output=True,
-                            return_logits=False,
-                        )
-                        mask = torch.from_numpy(mask[np.argmax(score).item()]).to(torch.bool)
-                        masks.append(mask)
-                    masks = torch.stack(masks)
-            else:
-                if task_type == "amg":
-                    masks = mask_generator.generate(image_tensor)
-                elif task_type == "sps":
-                    mask_generator.predictor.set_image(image_tensor)
-                    masks, scores, _ = mask_generator.predictor.predict(
-                        point_coords=center_points,
-                        point_labels=center_points_label,
-                        multimask_output=True,
-                        return_logits=False,
-                        return_type="torch",
-                    )
-                    masks = masks.index_select(0, torch.argmax(scores))[0]
-                elif task_type == "mps":
-                    # NOTE: There are multiple opportunities for batching here
-                    # Batching of images
-                    # Batching of prompts
-                    # First we do batching of prompts
-                    # Use MapTensor to create pseudobatches of points and labels
-                    mask_generator.predictor.set_image(image_tensor)
+        masks_batch = gen_masks(task_type,
+                                image_tensors,
+                                mask_generator,
+                                list(zip(*data))[1],  # center_points
+                                list(zip(*data))[2],  # center_points_label
+                                baseline,
+                                verbose,
+                                batch_size)
 
-                    center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
-                    center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
-                    from torchao._models.sam2.map_tensor import to_map_tensor
-                    center_points_torch = to_map_tensor(center_points_torch)
-                    center_points_label_torch = to_map_tensor(center_points_label_torch)
-                    masks, scores, _ = mask_generator.predictor.predict(
-                        point_coords=center_points_torch,
-                        point_labels=center_points_label_torch,
-                        multimask_output=True,
-                        return_logits=False,
-                        return_type="torch",
-                    )
-                    # Unwrapping MapTensor
-                    masks = masks.elems
-                    scores = scores.elems
-                    # TODO: This isn't exactly efficient
-                    masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
-
-                    # TODO: NEXT!!
-                    # TODO: export the model at the end to include recompilations.
-                    # Could export the predict method and the mask_to_rle_pytorch_2 function
-                    # I think mask_to_rle_pytorch_2 recompiles
-
-        with record_function("mask_to_rle_pytorch"):
-            if task_type == "sps":
-                masks = mask_to_rle_pytorch(masks.unsqueeze(0))[0]
-                masks = [{'segmentation': masks}]
-            elif task_type == "mps":
-                masks = mask_to_rle_pytorch(masks)
-                masks = [{'segmentation': mask} for mask in masks]
-
-        with record_function("masks_to_rle_dict"):
-            rle_dict = masks_to_rle_dict(masks)
+        rle_dicts = []
+        for masks in masks_batch:
+            rle_dicts.append(rle_dict_from_masks(task_type,
+                                                 masks,
+                                                 mask_to_rle_pytorch))
 
         latencies.append(time.time() - t1)
 
-        with record_function("json.dumps"):
-            if verbose:
-                timestamped_print(f"Storing rle under {output_rle_json_path}")
-            output_rle_json_path.parent.mkdir(parents=False, exist_ok=True)
-            with open(output_rle_json_path, "w") as file:
-                file.write(json.dumps(rle_dict, indent=4))
+        for ((rle_dict), (_, _, output_rle_json_path, _)) in zip(rle_dicts, batch):
+            save_rle_dict_to_path(rle_dict, output_rle_json_path, verbose)
+
     end_time = time.time()
     total_time = end_time - start_time
     all_stats = {}
@@ -384,5 +516,5 @@ def main(
 
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
-    # profiler_runner("asdf.json.gz", fire.Fire, main)
-    fire.Fire(main)
+    profiler_runner("asdf.json.gz", fire.Fire, main)
+    # fire.Fire(main)
