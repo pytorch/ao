@@ -14,6 +14,9 @@ from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
 from torchao._models.sam2.modeling.sam2_base import SAM2Base
 from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 from torchao._models.sam2.utils.amg import (
+    MaskData,
+    _mask_to_rle_pytorch_2_0,
+    _mask_to_rle_pytorch_2_1,
     area_from_rle,
     batch_iterator,
     batched_mask_to_box,
@@ -22,12 +25,8 @@ from torchao._models.sam2.utils.amg import (
     calculate_stability_score,
     coco_encode_rle,
     generate_crop_boxes,
-    is_box_near_crop_edge,
     is_box_near_crop_edge_torch,
     mask_to_rle_pytorch,
-    _mask_to_rle_pytorch_2_0,
-    _mask_to_rle_pytorch_2_1,
-    MaskData,
     remove_small_regions,
     rle_to_mask,
     uncrop_boxes_xyxy,
@@ -152,7 +151,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         self.use_m2m = use_m2m
         self.multimask_output = multimask_output
 
-        # Store a reference to these on the model so I can overwrite them 
+        # Store a reference to these on the model so I can overwrite them
         # with compile annotation if desired
 
         self.calculate_stability_score = calculate_stability_score
@@ -285,9 +284,14 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             all_crop_boxes.append(crop_boxes)
             all_layer_idxs.append(layer_idxs)
 
-        all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+        all_data = self._process_crop_batch(
+            images, all_crop_boxes, all_layer_idxs, all_orig_size
+        )
 
-        return [self._deduplicate_masks(crop_boxes, data) for (crop_boxes, data) in zip(all_crop_boxes, all_data)]
+        return [
+            self._deduplicate_masks(crop_boxes, data)
+            for (crop_boxes, data) in zip(all_crop_boxes, all_data)
+        ]
 
     def _process_crop(
         self,
@@ -303,10 +307,13 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
 
-        return self._process_crop_points(cropped_im_size, crop_layer_idx, crop_box, orig_size)
+        return self._process_crop_points(
+            cropped_im_size, crop_layer_idx, crop_box, orig_size
+        )
 
-    def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
-
+    def _process_crop_points(
+        self, cropped_im_size, crop_layer_idx, crop_box, orig_size
+    ):
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
         points_for_image = self.point_grids[crop_layer_idx] * points_scale
@@ -349,7 +356,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         with torch.autograd.profiler.record_function("uncrop_points"):
             data["points"] = uncrop_points(data["points"], crop_box)
         with torch.autograd.profiler.record_function("crop_boxes"):
-            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
+            data["crop_boxes"] = torch.tensor(
+                [crop_box for _ in range(len(data["rles"]))]
+            )
 
         return data
 
@@ -364,7 +373,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         all_crop_box = []
         all_layer_idx = []
         all_orig_size = []
-        for (image, orig_size, crop_boxes, layer_idxs) in zip(images, all_orig_size_compact, all_crop_boxes, all_layer_idxs):
+        for image, orig_size, crop_boxes, layer_idxs in zip(
+            images, all_orig_size_compact, all_crop_boxes, all_layer_idxs
+        ):
             # Iterate over image crops
             for crop_box, layer_idx in zip(crop_boxes, layer_idxs):
                 all_image.append(image)
@@ -375,7 +386,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         # # TODO: NOTE: Calling process_crop in a loop like this might be an issue, because the predictor is stateful
 
         all_cropped_im = []
-        for (image, crop_box) in zip(all_image, all_crop_box):
+        for image, crop_box in zip(all_image, all_crop_box):
             x0, y0, x1, y1 = crop_box
             assert isinstance(image, np.ndarray)
             cropped_im = image[y0:y1, x0:x1, :]
@@ -387,12 +398,18 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         i = 0
         batch_features = self.predictor._features
         all_crop_data = []
-        for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
+        for cropped_im, crop_box, layer_idx, orig_size in zip(
+            all_cropped_im, all_crop_box, all_layer_idx, all_orig_size
+        ):
             cropped_im_size = cropped_im.shape[:2]
             self.predictor.reset_predictor()
             self.predictor._orig_hw = [cropped_im.shape[:2]]
-            self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
-                                        "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
+            self.predictor._features = {
+                "image_embed": batch_features["image_embed"][i].unsqueeze(0),
+                "high_res_feats": [
+                    b[i].unsqueeze(0) for b in batch_features["high_res_feats"]
+                ],
+            }
             i += 1
             self.predictor._is_image_set = True
 
@@ -425,9 +442,21 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                     orig_h, orig_w = orig_size
 
                     orig_box = [0, 0, orig_w, orig_h]
-                    orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=self.predictor.device)
-                    crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=self.predictor.device)
-                    data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
+                    orig_box_torch = torch.as_tensor(
+                        orig_box, dtype=torch.float, device=self.predictor.device
+                    )
+                    crop_box_torch = torch.as_tensor(
+                        crop_box, dtype=torch.float, device=self.predictor.device
+                    )
+                    data = self._process_batch_fullgraph(
+                        points,
+                        im_size,
+                        crop_box,
+                        crop_box_torch,
+                        orig_size,
+                        normalize,
+                        orig_box_torch,
+                    )
                     all_batch_iterator_data.append(data)
                 self.predictor.reset_predictor()
 
@@ -435,7 +464,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             with torch.autograd.profiler.record_function("all mask_to_rle_pytorch_2"):
                 for data in all_batch_iterator_data:
                     # Compress to RLE
-                    data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
+                    data["masks"] = uncrop_masks(
+                        data["masks"], crop_box, orig_h, orig_w
+                    )
                     # TODO: Capture all these masks in a single NT for mask_to_rle_pytorch_2
                     # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
                     # to cause a single DtoH sync
@@ -455,7 +486,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         i = 0
         all_data = []
-        for (_, _, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
+        for _, _, crop_boxes, layer_idxs in zip(
+            images, all_orig_size, all_crop_boxes, all_layer_idxs
+        ):
             data = None
             for _, _ in zip(crop_boxes, layer_idxs):
                 if data is None:
@@ -495,7 +528,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             high_res_feats = self.predictor._features["high_res_feats"]
             image_embed = self.predictor._features["image_embed"]
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
-            assert self.multimask_output, "Currently require multimask_output set to True"
+            assert (
+                self.multimask_output
+            ), "Currently require multimask_output set to True"
             low_res_masks, iou_preds = self.predictor._predict_masks(
                 high_res_feats,
                 image_embed,
@@ -522,7 +557,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                     iou_preds = iou_preds.flatten(0, 1).unsqueeze(1)[keep_index]
                     points = points[keep_index]
         if masks is None:
-            masks, low_res_mask = self.predictor._predict_masks_postprocess(low_res_masks, -1, True, channel_1=low_res_masks.size(1) == 1)
+            masks, low_res_mask = self.predictor._predict_masks_postprocess(
+                low_res_masks, -1, True, channel_1=low_res_masks.size(1) == 1
+            )
 
         # Serialize predictions and store in MaskData
         with torch.autograd.profiler.record_function("MaskData"):
@@ -581,7 +618,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
                 keep_mask = data["stability_score"] >= self.stability_score_thresh
                 data.filter(keep_mask)
 
-        with torch.autograd.profiler.record_function("Threshold masks and calculate boxes"):
+        with torch.autograd.profiler.record_function(
+            "Threshold masks and calculate boxes"
+        ):
             # Threshold masks and calculate boxes
             data["masks"] = data["masks"] > self.mask_threshold
             data["boxes"] = self.batched_mask_to_box(data["masks"])
@@ -589,7 +628,10 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
             keep_mask = ~is_box_near_crop_edge_torch(
-                data["boxes"], crop_box, crop_box_torch, orig_box_torch,
+                data["boxes"],
+                crop_box,
+                crop_box_torch,
+                orig_box_torch,
             )
 
         with torch.autograd.profiler.record_function("filter(keep_mask)"):
@@ -611,13 +653,25 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         orig_box = [0, 0, orig_w, orig_h]
         orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float)
         orig_box_torch = orig_box_torch.pin_memory()
-        orig_box_torch = orig_box_torch.to(device=self.predictor.device, non_blocking=True)
+        orig_box_torch = orig_box_torch.to(
+            device=self.predictor.device, non_blocking=True
+        )
 
         crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float)
         crop_box_torch = crop_box_torch.pin_memory()
-        crop_box_torch = crop_box_torch.to(device=self.predictor.device, non_blocking=True)
+        crop_box_torch = crop_box_torch.to(
+            device=self.predictor.device, non_blocking=True
+        )
 
-        data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
+        data = self._process_batch_fullgraph(
+            points,
+            im_size,
+            crop_box,
+            crop_box_torch,
+            orig_size,
+            normalize,
+            orig_box_torch,
+        )
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE

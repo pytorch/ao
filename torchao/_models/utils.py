@@ -1,10 +1,12 @@
-import json
-import torch
-import platform
-import os
 import datetime
 import hashlib
+import json
+import os
+import platform
 import time
+
+import torch
+
 
 def get_arch_name() -> str:
     if torch.cuda.is_available():
