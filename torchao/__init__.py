@@ -27,6 +27,11 @@ if not _IS_FBCODE:
         assert len(so_files) == 1, f"Expected one _C*.so file, found {len(so_files)}"
         torch.ops.load_library(so_files[0])
         from . import ops
+
+        experimental_lib = list(Path(__file__).parent.glob("libtorchao_ops_aten.*"))
+        if len(experimental_lib) > 0:
+            assert len(so_files) == 1, f"Expected at most one libtorchao_ops_aten.* file, found {len(experimental_lib)}"
+            torch.ops.load_library(experimental_lib[0])
     except:
         logging.debug("Skipping import of cpp extensions")
 
