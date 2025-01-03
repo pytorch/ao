@@ -43,9 +43,7 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
         return result.stdout, result.stderr
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e}")
-        import pdb
-        pdb.set_trace()
-        return None, None
+        return None, e.stderr
 
 
 def main(image_paths,
@@ -100,7 +98,11 @@ def main(image_paths,
         if dry:
             return {}
 
-        all_stats = json.loads(stdout.split("\n")[-2])
+        if stdout is None:
+            all_stats = {}
+            all_stats["likely_failed_stderr"] = str(stderr)
+        else:
+            all_stats = json.loads(stdout.split("\n")[-2])
         if baseline_folder is not None:
             miou_count, miou_sum, fail_count = compare_folders(str(output_path),
                                                                str(baseline_folder),
