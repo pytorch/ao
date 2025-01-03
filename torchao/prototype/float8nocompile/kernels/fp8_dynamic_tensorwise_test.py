@@ -48,7 +48,7 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
     )
 
     # check data
-    assert allclose_fp8(x_fp8_row_major._data, y_fp8_row_major._data, atol=0, rtol=0)
+    assert torch.all(torch.eq(x_fp8_row_major._data, y_fp8_row_major._data))
 
     # check shapes
     assert x_fp8_row_major.shape == y_fp8_row_major.shape
@@ -180,7 +180,7 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     )
 
     # check data
-    assert allclose_fp8(x_fp8_col_major._data, y_fp8_col_major._data, atol=0, rtol=0)
+    assert torch.all(torch.eq(x_fp8_col_major._data, y_fp8_col_major._data))
 
     # check shapes
     assert x_fp8_col_major.shape == y_fp8_col_major.shape
@@ -244,8 +244,8 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     )
 
     # check data
-    assert allclose_fp8(
-        x_fp8_col_major_t._data, y_fp8_col_major_t._data, atol=0, rtol=0
+    assert torch.all(
+        torch.eq(x_fp8_col_major_t._data, y_fp8_col_major_t._data, atol=0, rtol=0)
     )
 
     # check shapes
@@ -271,16 +271,3 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
             torch.float8_e4m3fn,
             LinearMMConfig(),
         )
-
-
-def allclose_fp8(tensor1, tensor2, atol=0, rtol=0):
-    # convert fp8 tensors to a higher precision (e.g., float32) for comparison
-    # since torch.allclose does not support fp8 tensors
-    if tensor1.shape != tensor2.shape:
-        raise ValueError("Tensors must have the same shape for comparison.")
-    if tensor1.dtype != tensor2.dtype:
-        raise ValueError("Tensors must have the same dtype for comparison.")
-
-    tensor1_fp32 = tensor1.to(torch.float32)
-    tensor2_fp32 = tensor2.to(torch.float32)
-    return torch.allclose(tensor1_fp32, tensor2_fp32, atol=atol, rtol=rtol)
