@@ -114,9 +114,7 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     )
 
     # check data
-    assert allclose_fp8(
-        x_fp8_row_major_t._data, y_fp8_row_major_t._data, atol=0, rtol=0
-    )
+    assert torch.all(torch.eq(x_fp8_row_major_t._data, y_fp8_row_major_t._data))
 
     # check shapes
     assert x_fp8_row_major_t.shape == y_fp8_row_major_t.shape
