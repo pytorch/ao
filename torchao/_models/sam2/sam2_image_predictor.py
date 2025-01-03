@@ -114,8 +114,9 @@ class SAM2ImagePredictor(torch.nn.Module):
             raise NotImplementedError("Image format not supported")
 
         if isinstance(image, torch.Tensor):
-            from torchvision.transforms.v2 import functional as F
-            input_image = F.to_dtype(image, torch.float32, scale=True)
+            # from torchvision.transforms.v2 import functional as F
+            # input_image = F.to_dtype(image, torch.float32, scale=True)
+            input_image = image
         else:
             input_image = self._transforms.to_tensor(image)
 

@@ -226,8 +226,15 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
                 image_tensor = tio.decode_jpeg(img_bytes_tensor,
                                                device='cuda',
                                                mode=tio.ImageReadMode.RGB)
+                from torchvision.transforms.v2 import functional as F
+                image_tensor = F.to_dtype(image_tensor,
+                                          torch.float32,
+                                          scale=True)
             else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
+                from torchvision.transforms import ToTensor
+                if not baseline:
+                    image_tensor = ToTensor()(image_tensor)
             image_tensors.append(image_tensor)
     return image_tensors
 
@@ -332,6 +339,8 @@ def main(
     gpu_preproc=False,
     batch_size=1,
 ):
+    if batch_size <= 0:
+        raise ValueError("Expected --batch_size to be at least 1 but got {batch_size}")
     start_time = time.time()
     if task_type not in TASK_TYPES:
         raise ValueError(f"Expected task_type to be one of {','.join(TASK_TYPES)}, but got {task_type}")
@@ -455,7 +464,7 @@ def main(
                     all_output_rle_json_paths,
                     all_meta_paths,
                     batch_size),
-        total=((num_images + batch_size) // batch_size),
+        total=((num_images + batch_size - 1) // batch_size),
         disable=quiet,
     ):
         data = []
