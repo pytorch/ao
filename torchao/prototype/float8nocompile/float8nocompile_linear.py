@@ -16,7 +16,7 @@ from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_linear import manual_float8_matmul_with_args_in_float8
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
-from torchao.float8.float8_utils import tensor_to_scale
+from torchao.float8.float8_utils import is_row_major, tensor_to_scale
 
 from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     ToFP8ColumnMajor,
@@ -183,6 +183,12 @@ class matmul_with_args_in_fp8(torch.autograd.Function):
         input_fp8_row_major,
         weight_t_fp8_col_major,
     ):
+        assert is_row_major(
+            input_fp8_row_major.stride()
+        ), "input_fp8_row_major tensor must be in row-major format"
+        assert not is_row_major(
+            weight_t_fp8_col_major.stride()
+        ), "weight_t_fp8_col_major tensor must be in column-major format"
         ctx.save_for_backward(input_fp8_row_major, weight_t_fp8_col_major)
         output = torch.mm(input_fp8_row_major, weight_t_fp8_col_major)
         return output
