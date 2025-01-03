@@ -46,11 +46,11 @@ def latencies_statistics(data):
         'p999': p999,
         'max': max,
         'argmax': argmax,
-        'first': data[0],
-        'second': data[1],
-        'third': data[2],
-        'fourth': data[3],
-        'fifth': data[4],
+        'first': data[0] if len(data) > 0 else 0,
+        'second': data[1] if len(data) > 1 else 0,
+        'third': data[2] if len(data) > 2 else 0,
+        'fourth': data[3] if len(data) > 3 else 0,
+        'fifth': data[4] if len(data) > 4 else 0,
     })
     return statistics_dict
 

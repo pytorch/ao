@@ -503,16 +503,22 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             image_embed = self.predictor._features["image_embed"]
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
             assert self.multimask_output, "Currently require multimask_output set to True"
+            high_res_feats_input = [
+                feat_level[-1].unsqueeze(0)
+                # for feat_level in self._features["high_res_feats"]
+                for feat_level in high_res_feats
+            ]
+            image_embed_input = image_embed[-1].unsqueeze(0)
             low_res_masks, iou_preds = self.predictor._predict_masks(
-                high_res_feats,
-                image_embed,
+                high_res_feats_input,
+                image_embed_input,
                 image_pe,
                 in_points[:, None, :],
                 in_labels[:, None],
                 boxes=None,
                 mask_input=None,
                 multimask_output=self.multimask_output,
-                img_idx=-1,
+                # img_idx=-1,
             )
 
         x0, y0, _, _ = crop_box
