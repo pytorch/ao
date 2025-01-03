@@ -4,6 +4,7 @@ import fire
 import json
 import pandas as pd
 import time
+import itertools
 from pathlib import Path
 from compare_rle_lists import compare as compare_folders
 
@@ -142,7 +143,7 @@ def main(image_paths,
 
     # TODO: Something about sps + torch.compile is messed up
 
-    for ttype in ["amg", "sps", "mps"]:
+    for ttype, batch_size in itertools.product(["amg", "sps", "mps"], [16, 1]):
         meta_kwarg = {} if ttype == "amg" else {"meta-folder": output_base_path / "amg_baseline_annotations"}
         # Generate baseline data
         ppb = {'amg': 64, 'sps': 1, 'mps': None}[ttype]
@@ -158,11 +159,19 @@ def main(image_paths,
         ppb = {'amg': 1024, 'sps': 1, 'mps': None}[ttype]
         ppb_kwarg = {} if ppb is None else {"points-per-batch": ppb}
 
+        batch_size_kwarg = {'batch-size': batch_size}
+
         def rwc_curry(output_path: Path, kwargs, environ):
-            return run_with_compare(ttype, f"{ttype}_ao_ppb_{ppb}_" + output_path, kwargs | ppb_kwarg | meta_kwarg, environ=environ)
+            return run_with_compare(ttype,
+                                    f"{ttype}_ao_ppb_{ppb}_" + output_path,
+                                    kwargs | ppb_kwarg | meta_kwarg | batch_size_kwarg,
+                                    environ=environ)
 
         def r_curry(output_path: Path, kwargs, environ):
-            return run(ttype, f"{ttype}_ao_ppb_{ppb}_" + output_path, kwargs | ppb_kwarg | meta_kwarg, environ=environ)
+            return run(ttype,
+                       f"{ttype}_ao_ppb_{ppb}_" + output_path,
+                       kwargs | ppb_kwarg | meta_kwarg | batch_size_kwarg,
+                       environ=environ)
 
         rwc_curry("basic", {}, None)
 
