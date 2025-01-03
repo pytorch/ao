@@ -136,6 +136,29 @@ def gen_masks_ao_batch(task_type,
         masks = torch.stack([mask[i] for (mask, i) in zip(
             masks.unbind(), torch.argmax(scores, dim=1).tolist())])
         return masks
+    elif task_type == "mps":
+        mask_generator.predictor.set_image_batch(image_tensors)
+
+        center_points_torch_batch = [torch.from_numpy(t).unsqueeze(1) for t in center_points_batch]
+        center_points_label_torch_batch = [torch.from_numpy(t).unsqueeze(1) for t in center_points_label_batch]
+        from torchao._models.sam2.map_tensor import to_map_tensor
+        center_points_torch_batch = list(map(to_map_tensor, center_points_torch_batch))
+        center_points_label_torch_batch = list(map(to_map_tensor, center_points_label_torch_batch))
+        masks_batch, scores_batch, _ = mask_generator.predictor.predict_batch(
+            point_coords_batch=center_points_torch_batch,
+            point_labels_batch=center_points_label_torch_batch,
+            multimask_output=True,
+            return_logits=False,
+            return_type="torch",
+        )
+        result_masks = []
+        for masks_m, scores_m in zip(masks_batch, scores_batch):
+            # Unwrapping MapTensor
+            masks = masks_m.elems.squeeze(1)
+            scores = scores_m.elems.squeeze(1)
+            # TODO: This isn't exactly efficient
+            result_masks.append(torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())]))
+        return result_masks
     raise ValueError("gen_masks_ao_batch doesn't support {task_type}")
 
 
@@ -211,7 +234,7 @@ def gen_masks(task_type,
                                        center_points_label)
             masks_batch.append(masks)
         return masks_batch
-    if task_type in ["amg", "sps"]:
+    if batch_size > 1 and task_type in ["amg", "sps", "mps"]:
         return gen_masks_ao_batch(task_type,
                                   image_tensors,
                                   mask_generator,
@@ -229,6 +252,7 @@ def gen_masks(task_type,
                              center_points,
                              center_points_label)
         masks_batch.append(masks)
+    assert len(masks_batch) == 1
     return masks_batch
 
 

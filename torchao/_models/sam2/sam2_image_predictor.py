@@ -194,10 +194,13 @@ class SAM2ImagePredictor(torch.nn.Module):
         multimask_output: bool = True,
         return_logits: bool = False,
         normalize_coords=True,
+        return_type: str = "numpy",
     ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """This function is very similar to predict(...), however it is used for batched mode, when the model is expected to generate predictions on multiple images.
         It returns a tuple of lists of masks, ious, and low_res_masks_logits.
         """
+        if return_type not in ["numpy", "torch"]:
+            raise ValueError(f"Expected return_type to be either numpy or torch, but got {return_type}")
         assert self._is_batch, "This function should only be used when in batched mode"
         if not self._is_image_set:
             raise RuntimeError(
@@ -236,14 +239,15 @@ class SAM2ImagePredictor(torch.nn.Module):
                 return_logits=return_logits,
                 img_idx=img_idx,
             )
-            masks_np = masks.squeeze(0).float().detach().cpu().numpy()
-            iou_predictions_np = (
-                iou_predictions.squeeze(0).float().detach().cpu().numpy()
-            )
-            low_res_masks_np = low_res_masks.squeeze(0).float().detach().cpu().numpy()
-            all_masks.append(masks_np)
-            all_ious.append(iou_predictions_np)
-            all_low_res_masks.append(low_res_masks_np)
+            if return_type == "numpy":
+                masks = masks.squeeze(0).float().detach().cpu().numpy()
+                iou_predictions = (
+                    iou_predictions.squeeze(0).float().detach().cpu().numpy()
+                )
+                low_res_masks = low_res_masks.squeeze(0).float().detach().cpu().numpy()
+            all_masks.append(masks)
+            all_ious.append(iou_predictions)
+            all_low_res_masks.append(low_res_masks)
 
         return all_masks, all_ious, all_low_res_masks
 
@@ -405,15 +409,21 @@ class SAM2ImagePredictor(torch.nn.Module):
             high_res_feats = self._features["high_res_feats"]
             image_embed = self._features["image_embed"]
             image_pe = self.model.sam_prompt_encoder.get_dense_pe().clone()
-            low_res_masks, iou_predictions = self._predict_masks(high_res_feats,
-                                                                 image_embed,
+            high_res_feats_input = [
+                feat_level[img_idx].unsqueeze(0)
+                # for feat_level in self._features["high_res_feats"]
+                for feat_level in high_res_feats
+            ]
+            image_embed_input = image_embed[img_idx].unsqueeze(0)
+            low_res_masks, iou_predictions = self._predict_masks(high_res_feats_input,
+                                                                 image_embed_input,
                                                                  image_pe,
                                                                  point_coords,
                                                                  point_labels,
                                                                  boxes=boxes,
                                                                  mask_input=mask_input,
-                                                                 multimask_output=multimask_output,
-                                                                 img_idx=img_idx)
+                                                                 multimask_output=multimask_output)
+            # img_idx=img_idx)
         with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
             masks, low_res_masks = self._predict_masks_postprocess(low_res_masks, img_idx, return_logits)
             return masks, iou_predictions, low_res_masks
@@ -427,8 +437,10 @@ class SAM2ImagePredictor(torch.nn.Module):
             point_labels,
             boxes: Optional[torch.Tensor] = None,
             mask_input: Optional[torch.Tensor] = None,
-            multimask_output: bool = True,
-            img_idx: int = -1):
+            multimask_output: bool = True):
+        # NOTE: img_idx causes unnecessary recompilations, because
+        # the int guard will fail otherwise.
+        #   img_idx: int = -1):
         if point_coords is not None:
             concat_points = (point_coords, point_labels)
         else:
@@ -459,15 +471,17 @@ class SAM2ImagePredictor(torch.nn.Module):
         batched_mode = (
             concat_points is not None and concat_points[0].shape[0] > 1
         )  # multi object prediction
-        high_res_features = [
-            feat_level[img_idx].unsqueeze(0).clone()
-            # for feat_level in self._features["high_res_feats"]
-            for feat_level in high_res_feats_input
-        ]
+        # high_res_features = [
+        #     feat_level[img_idx].unsqueeze(0).clone()
+        #     # for feat_level in self._features["high_res_feats"]
+        #     for feat_level in high_res_feats_input
+        # ]
+        high_res_features = high_res_feats_input
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
                 # image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
-                image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
+                # image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
+                image_embeddings=image_embed,
                 # image_pe=self.model.sam_prompt_encoder.get_dense_pe().clone(),
                 image_pe=image_pe,
                 sparse_prompt_embeddings=sparse_embeddings.clone(),
