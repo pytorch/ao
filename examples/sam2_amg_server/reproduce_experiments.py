@@ -107,7 +107,7 @@ def main(image_paths,
             all_stats["likely_failed_stderr"] = str(stderr)
         else:
             all_stats = json.loads(stdout.split("\n")[-2])
-        if baseline_folder is not None:
+        if baseline_folder is not None and (stdout is not None):
             miou_count, miou_sum, fail_count = compare_folders(str(output_path),
                                                                str(baseline_folder),
                                                                strict=True,
@@ -122,6 +122,7 @@ def main(image_paths,
         if not overwrite and all_stats_file.exists():
             raise ValueError(f"{all_stats_file} already exists. Use --overwrite to overwrite.")
         with open(all_stats_file, 'w') as file:
+            print("\n".join(f"{k}: {all_stats[k]}" for k in sorted(all_stats.keys())))
             file.write(json.dumps(all_stats, indent=4))
 
         # TODO:: Save this and use overwrite to check for it before writing

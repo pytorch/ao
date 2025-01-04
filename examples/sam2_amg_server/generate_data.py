@@ -125,16 +125,16 @@ def gen_masks_ao_batch(task_type,
         return mask_generator.generate_batch(image_tensors)
     elif task_type == "sps":
         mask_generator.predictor.set_image_batch(image_tensors)
-        masks, scores, _ = mask_generator.predictor.predict(
-            point_coords=center_points_batch,
-            point_labels=center_points_label_batch,
+        masks, scores, _ = mask_generator.predictor.predict_batch(
+            point_coords_batch=center_points_batch,
+            point_labels_batch=center_points_label_batch,
             multimask_output=True,
             return_logits=False,
             return_type="torch",
         )
         # TODO: This isn't exactly efficient
-        masks = torch.stack([mask[i] for (mask, i) in zip(
-            masks.unbind(), torch.argmax(scores, dim=1).tolist())])
+        masks = [m[0][s] for (m, s) in zip(masks, torch.stack(
+            scores).squeeze(1).argmax(dim=1).tolist())]
         return masks
     elif task_type == "mps":
         mask_generator.predictor.set_image_batch(image_tensors)

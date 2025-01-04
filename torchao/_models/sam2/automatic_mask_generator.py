@@ -34,7 +34,10 @@ from torchao._models.sam2.utils.amg import (
     uncrop_masks,
     uncrop_points,
 )
-from torchao._models.sam2.utils.misc import get_image_size
+from torchao._models.sam2.utils.misc import (
+    get_image_size,
+    crop_image,
+)
 
 
 class SAM2AutomaticMaskGenerator(torch.nn.Module):
@@ -298,8 +301,7 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
         orig_size: Tuple[int, ...],
     ) -> MaskData:
         # Crop the image and calculate embeddings
-        x0, y0, x1, y1 = crop_box
-        cropped_im = image[y0:y1, x0:x1, :]
+        cropped_im = crop_image(image, crop_box)
         cropped_im_size = get_image_size(cropped_im)
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
@@ -375,19 +377,8 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
 
         # # TODO: NOTE: Calling process_crop in a loop like this might be an issue, because the predictor is stateful
 
-        all_cropped_im = []
-        for (image, crop_box) in zip(all_image, all_crop_box):
-            x0, y0, x1, y1 = crop_box
-            if isinstance(image, np.ndarray):
-                # HxWxC
-                cropped_im = image[y0:y1, x0:x1, :]
-            elif isinstance(image, torch.Tensor):
-                # CxHxW
-                cropped_im = image[:, y0:y1, x0:x1]
-            else:
-                raise ValueError("Expected image to be of type np.ndarray or "
-                                 f"torch.Tensor, but got {type(cropped_im)}")
-            all_cropped_im.append(cropped_im)
+        all_cropped_im = [crop_image(image, crop_box)
+                          for image, crop_box in zip(all_image, all_crop_box)]
 
         with torch.autograd.profiler.record_function("set_batch_image"):
             self.predictor.set_image_batch(all_cropped_im)
@@ -504,11 +495,11 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
             assert self.multimask_output, "Currently require multimask_output set to True"
             high_res_feats_input = [
-                feat_level[-1].unsqueeze(0)
+                feat_level[-1].unsqueeze(0).clone()
                 # for feat_level in self._features["high_res_feats"]
                 for feat_level in high_res_feats
             ]
-            image_embed_input = image_embed[-1].unsqueeze(0)
+            image_embed_input = image_embed[-1].unsqueeze(0).clone()
             low_res_masks, iou_preds = self.predictor._predict_masks(
                 high_res_feats_input,
                 image_embed_input,

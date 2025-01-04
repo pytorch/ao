@@ -245,9 +245,10 @@ class SAM2ImagePredictor(torch.nn.Module):
                     iou_predictions.squeeze(0).float().detach().cpu().numpy()
                 )
                 low_res_masks = low_res_masks.squeeze(0).float().detach().cpu().numpy()
-            all_masks.append(masks)
-            all_ious.append(iou_predictions)
-            all_low_res_masks.append(low_res_masks)
+            # NOTE: Need these additional clones to prevent overwriting tensor output of CUDAGraph
+            all_masks.append(masks.clone())
+            all_ious.append(iou_predictions.clone())
+            all_low_res_masks.append(low_res_masks.clone())
 
         return all_masks, all_ious, all_low_res_masks
 
@@ -410,11 +411,11 @@ class SAM2ImagePredictor(torch.nn.Module):
             image_embed = self._features["image_embed"]
             image_pe = self.model.sam_prompt_encoder.get_dense_pe().clone()
             high_res_feats_input = [
-                feat_level[img_idx].unsqueeze(0)
+                feat_level[img_idx].unsqueeze(0).clone()
                 # for feat_level in self._features["high_res_feats"]
                 for feat_level in high_res_feats
             ]
-            image_embed_input = image_embed[img_idx].unsqueeze(0)
+            image_embed_input = image_embed[img_idx].unsqueeze(0).clone()
             low_res_masks, iou_predictions = self._predict_masks(high_res_feats_input,
                                                                  image_embed_input,
                                                                  image_pe,

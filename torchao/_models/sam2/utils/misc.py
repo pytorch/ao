@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
-from typing import Union
+from typing import Union, Tuple
 
 
 def get_sdpa_settings():
@@ -362,3 +362,17 @@ def get_image_size(image: Union[np.ndarray, torch.Tensor]):
     else:
         raise NotImplementedError("Only support np.ndarray, torch.Tensor"
                                   f"or PIL Image, but got {type(image)}")
+
+
+def crop_image(image: Union[np.ndarray, torch.Tensor],
+               crop_box: Tuple[int, int, int, int]):
+    x0, y0, x1, y1 = crop_box
+    if isinstance(image, np.ndarray):
+        # HxWxC
+        return image[y0:y1, x0:x1, :]
+    elif isinstance(image, torch.Tensor):
+        # CxHxW
+        return image[:, y0:y1, x0:x1]
+    else:
+        raise ValueError("Expected image to be of type np.ndarray or "
+                         f"torch.Tensor, but got {type(image)}")
