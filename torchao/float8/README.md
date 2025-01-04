@@ -174,6 +174,12 @@ For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium
 
 Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements.  Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling, so the observed performance of delayed scaling is close to that of dynamic scaling. As the torch.compile limitations are fixed, we expect delayed scaling to eventually become more performant compared to dynamic scaling.
 
+As a short-term workaround of the delayed scaling performance issue, we implemented `_prototype_register_float8_delayed_scaling_inductor_passes`, which explicitly replaces `max(x)` with `max(max(x, dim=-1))`, enabling the fusion of amax scaling factor calculation and fp8 casting.
+To use this solution, simply add the following line at the beginning of your user code:
+```
+torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()
+```
+
 ## torch.compile behavior vs speedup
 
 There are a couple of limitations in how torch.compile generates float8 scaling and casting kernels (see the performance section of https://github.com/pytorch/ao/issues/556).  As the limitations get resolved, we expect to reach improved performance.

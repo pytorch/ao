@@ -50,6 +50,7 @@ from utils import (
     profiler_output_to_filtered_time_by_kernel_name,
     update_triton_kernels_in_prof_chome_trace_with_torch_logs,
 )
+from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -207,7 +208,7 @@ def profile_function(
         # by default torch.compile appends to log_file_name, so we delete it
         # if it exists
         if os.path.isfile(config.logs_file_path):
-            pathlib.Path.unlink(config.logs_file_path)
+            pathlib.Path(config.logs_file_path).unlink()
         torch._logging._init_logs(log_file_name=config.logs_file_path)
             
 
@@ -288,6 +289,7 @@ def main(
     add_inductor_metadata_to_trace: bool = True,
     enable_sync_amax_history: bool = True,
     enable_activation_checkpointing: bool = False,
+    enable_float8_delayed_scaling_inductor_passes: bool = False,
 ):
     assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
@@ -318,6 +320,10 @@ def main(
     print(f"model_type is set to    | {model_type}")
     print(f"scaling_repr is set to  | {scaling_repr}")
     print(f"enable_activation_checkpointing is set to {enable_activation_checkpointing}")
+    print(f"enable_float8_delayed_scaling_inductor_passes is set to {enable_float8_delayed_scaling_inductor_passes}")
+
+    if enable_float8_delayed_scaling_inductor_passes:
+        _prototype_register_float8_delayed_scaling_inductor_passes()
 
     device = "cuda"
     ref_dtype = torch.bfloat16
