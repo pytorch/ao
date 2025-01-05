@@ -381,10 +381,10 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <h1>Source code for torchao.sparsity.utils</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">random</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>
-<span class="kn">from</span> <span class="nn">torch.ao.quantization.observer</span> <span class="kn">import</span> <span class="n">UniformQuantizationObserverBase</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.ao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformQuantizationObserverBase</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;create_block_sparse_tensor&quot;</span><span class="p">,</span>
@@ -394,7 +394,7 @@
 <span class="p">]</span>
 
 
-<span class="k">def</span> <span class="nf">create_block_sparse_tensor</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">sparsity</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_block_sparse_tensor</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">sparsity</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
     <span class="k">assert</span> <span class="p">(</span>
         <span class="n">sparsity</span> <span class="o">&lt;=</span> <span class="mf">1.0</span> <span class="ow">and</span> <span class="n">sparsity</span> <span class="o">&gt;=</span> <span class="mf">0.0</span>
     <span class="p">),</span> <span class="s2">&quot;sparsity should be a value between 0 and 1&quot;</span>
@@ -406,7 +406,7 @@
     <span class="k">return</span> <span class="n">A</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
 
 
-<span class="k">def</span> <span class="nf">create_semi_structured_tensor</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_semi_structured_tensor</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This function returns a 1:2 sparse matrix of size (r, c).</span>
 <span class="sd">    Note that this means this matrix will also be 2:4 and 4:8 sparse as well.</span>
@@ -423,12 +423,12 @@
 
 
 <span class="c1"># Observers</span>
-<div class="viewcode-block" id="PerChannelNormObserver"><a class="viewcode-back" href="../../../generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver">[docs]</a><span class="k">class</span> <span class="nc">PerChannelNormObserver</span><span class="p">(</span><span class="n">UniformQuantizationObserverBase</span><span class="p">):</span>
+<div class="viewcode-block" id="PerChannelNormObserver"><a class="viewcode-back" href="../../../generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">PerChannelNormObserver</span><span class="p">(</span><span class="n">UniformQuantizationObserverBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    A custom observer that computes the L2 norm of each channel and stores it in a buffer.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># init with fixed qparams for quantization flow</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">quint8</span><span class="p">,</span>
@@ -445,7 +445,7 @@
 
     <span class="c1">#  inconsistently.</span>
 
-<div class="viewcode-block" id="PerChannelNormObserver.forward"><a class="viewcode-back" href="../../../generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_orig</span><span class="p">):</span>
+<div class="viewcode-block" id="PerChannelNormObserver.forward"><a class="viewcode-back" href="../../../generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_orig</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">x_orig</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">x_orig</span>
         <span class="n">x</span> <span class="o">=</span> <span class="n">x_orig</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>  <span class="c1"># avoid keeping autograd tape</span>
@@ -467,13 +467,13 @@
 
     <span class="c1">#  inconsistently.</span>
 
-    <span class="k">def</span> <span class="nf">calculate_qparams</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_qparams</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
             <span class="s2">&quot;PerChannelNormObserver is designed to store activations only. &quot;</span>
         <span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">mask_creator</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">mask_creator</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">N</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
     <span class="n">M</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>

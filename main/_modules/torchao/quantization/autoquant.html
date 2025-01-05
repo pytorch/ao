@@ -381,12 +381,12 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <h1>Source code for torchao.quantization.autoquant</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">torch</span>
-<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-<span class="kn">from</span> <span class="nn">torch.utils._python_dispatch</span> <span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils._python_dispatch</span><span class="w"> </span><span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
 
-<span class="kn">import</span> <span class="nn">torchao</span>
-<span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torchao</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
@@ -394,21 +394,21 @@
     <span class="n">SemiSparseLayout</span><span class="p">,</span>
     <span class="n">TensorCoreTiledLayout</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.dtypes.utils</span> <span class="kn">import</span> <span class="n">Layout</span>
-<span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
-<span class="kn">from</span> <span class="nn">torchao.kernel</span> <span class="kn">import</span> <span class="n">safe_int_mm</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_quantized_tensor</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Layout</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8MMConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">safe_int_mm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.linear_activation_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.quantization.utils</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">compute_error</span><span class="p">,</span>
     <span class="n">quantize_activation_per_token_absmax</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
@@ -416,11 +416,11 @@
     <span class="n">is_sm_at_least_90</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="kn">from</span> <span class="nn">.granularity</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">PerRow</span><span class="p">,</span>
     <span class="n">PerTensor</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.subclass</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa</span>
     <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
@@ -444,16 +444,16 @@
 <span class="n">AUTOQUANT_CACHE</span> <span class="o">=</span> <span class="p">{}</span>
 
 
-<span class="k">def</span> <span class="nf">check_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">AUTOQUANT_CACHE</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">update_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">update_cache</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">):</span>
     <span class="n">AUTOQUANT_CACHE</span><span class="p">[(</span><span class="bp">cls</span><span class="p">,)</span> <span class="o">+</span> <span class="n">shapes_and_dtype</span><span class="p">]</span> <span class="o">=</span> <span class="n">res</span>
 
 
 <span class="c1"># TODO: Document the methods</span>
-<span class="k">class</span> <span class="nc">AutoQuantizableLinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AutoQuantizableLinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    A subclass of torch.Tensor that, when run, finds the best type of quantization for itself and swaps</span>
 <span class="sd">    its data with the quantized version.</span>
@@ -468,7 +468,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="fm">__new__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">weight</span><span class="p">,</span>
         <span class="n">qtensor_class_list</span><span class="p">,</span>
@@ -488,7 +488,7 @@
         <span class="n">shape</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">weight</span><span class="p">,</span>
         <span class="n">qtensor_class_list</span><span class="p">,</span>
@@ -503,14 +503,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">mode</span> <span class="o">=</span> <span class="n">mode</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">min_sqnr</span> <span class="o">=</span> <span class="n">min_sqnr</span>
 
-    <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(data=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, qtensor_class_list=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">qtensor_class_list</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">log_shape</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_autoquant</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">log_shape</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_autoquant</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="n">act_mat</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
         <span class="n">logged_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
         <span class="n">logged_shapes</span> <span class="o">=</span> <span class="p">(</span>
@@ -526,7 +526,7 @@
             <span class="k">if</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">tune_autoquant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">best_time</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">tune_autoquant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">best_time</span><span class="p">):</span>
         <span class="n">act_shape</span><span class="p">,</span> <span class="n">w_shape</span><span class="p">,</span> <span class="n">bias_shape</span><span class="p">,</span> <span class="n">act_dtype</span> <span class="o">=</span> <span class="n">shapes_and_dtype</span>
         <span class="k">if</span> <span class="n">check_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
@@ -564,7 +564,7 @@
                 <span class="n">update_cache</span><span class="p">(</span><span class="n">q_cls</span><span class="p">,</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">res</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span> <span class="nf">to_quantized</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">error_on_unseen</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_quantized</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">error_on_unseen</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">error_on_unseen</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">logged_data</span> <span class="o">==</span> <span class="p">{}:</span>
             <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
                 <span class="s2">&quot;must run module normally to get shape, dtype info for autoquant&quot;</span>
@@ -579,7 +579,7 @@
         <span class="n">ran_new_benchmarks</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="n">print_shape_once</span> <span class="o">=</span> <span class="kc">True</span>
 
-        <span class="k">def</span> <span class="nf">count_shapes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">do_print</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">count_shapes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">do_print</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
             <span class="n">differe_shape_count</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="k">for</span> <span class="n">shapes_and_dtype</span><span class="p">,</span> <span class="n">times_seen</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">logged_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                 <span class="n">differe_shape_count</span> <span class="o">+=</span> <span class="mi">1</span>
@@ -638,7 +638,7 @@
         <span class="bp">self</span> <span class="o">=</span> <span class="n">best_cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span>
 
-    <span class="k">def</span> <span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
             <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">qtensor_class_list</span><span class="p">,</span>
@@ -647,7 +647,7 @@
             <span class="n">min_sqnr</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">min_sqnr</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;weight&quot;</span><span class="p">],</span> <span class="p">[</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">qtensor_class_list</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">mode</span><span class="p">,</span>
@@ -657,7 +657,7 @@
         <span class="p">]</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">__tensor_unflatten__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">tensor_attributes</span><span class="p">,</span> <span class="n">outer_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">outer_stride</span><span class="o">=</span><span class="kc">None</span>
     <span class="p">):</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;weight&quot;</span><span class="p">]</span>
@@ -673,11 +673,11 @@
         <span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">qtensor_class_list</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">qtensor_class_list</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">qtensor_class_list</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
 
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">:</span>
@@ -695,7 +695,7 @@
             <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ERR: subclass doesn&#39;t implement </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
                 <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
@@ -703,7 +703,7 @@
 
 
 <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-<span class="k">def</span> <span class="nf">do_autoquant_bench</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">do_autoquant_bench</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -722,19 +722,19 @@
         <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">graph</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">):</span>
             <span class="n">op</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
-            <span class="kn">from</span> <span class="nn">torch._inductor.runtime.benchmarking</span> <span class="kn">import</span> <span class="n">benchmarker</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.runtime.benchmarking</span><span class="w"> </span><span class="kn">import</span> <span class="n">benchmarker</span>
 
             <span class="n">res</span> <span class="o">=</span> <span class="n">benchmarker</span><span class="o">.</span><span class="n">benchmark_gpu</span><span class="p">(</span>
                 <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
             <span class="p">)</span>
         <span class="k">elif</span> <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">:</span>
-            <span class="kn">from</span> <span class="nn">torch._inductor.runtime.runtime_utils</span> <span class="kn">import</span> <span class="n">do_bench_gpu</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.runtime.runtime_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">do_bench_gpu</span>
 
             <span class="n">res</span> <span class="o">=</span> <span class="n">do_bench_gpu</span><span class="p">(</span>
                 <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="kn">from</span> <span class="nn">torch._inductor.utils</span> <span class="kn">import</span> <span class="n">do_bench</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">do_bench</span>
 
             <span class="n">res</span> <span class="o">=</span> <span class="n">do_bench</span><span class="p">(</span>
                 <span class="k">lambda</span><span class="p">:</span> <span class="n">graph</span><span class="o">.</span><span class="n">replay</span><span class="p">(),</span> <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span> <span class="n">rep</span><span class="o">=</span><span class="n">rep</span><span class="p">,</span> <span class="n">return_mode</span><span class="o">=</span><span class="s2">&quot;median&quot;</span>
@@ -742,7 +742,7 @@
     <span class="k">return</span> <span class="n">res</span>
 
 
-<span class="k">def</span> <span class="nf">_is_interpolate_mode</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_interpolate_mode</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
     <span class="k">if</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span>
         <span class="ow">and</span> <span class="n">mode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;interpolate&quot;</span>
@@ -753,7 +753,7 @@
     <span class="k">return</span> <span class="kc">False</span>
 
 
-<span class="k">class</span> <span class="nc">AQMixin</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQMixin</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Tests and benchmarks the autoquantization process for the given activation matrix, weight, and bias.</span>
 
@@ -770,7 +770,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
         <span class="n">w_qtensor</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">_is_interpolate_mode</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
             <span class="n">q_c_op</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
@@ -789,7 +789,7 @@
         <span class="k">return</span> <span class="n">res</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt8DynamicallyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AQMixin</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt8DynamicallyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AQMixin</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -797,7 +797,7 @@
     <span class="n">aq_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">()</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="c1"># TODO test if this is valid</span>
         <span class="c1"># in_features = weight.shape[1]</span>
         <span class="c1"># int8 dynamic quantization only has benefit when in_feature &gt; 16</span>
@@ -808,8 +808,8 @@
             <span class="k">return</span> <span class="n">weight</span>
 
         <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_intx</span>
-        <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="p">(</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_intx</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">,</span>
         <span class="p">)</span>
 
@@ -819,7 +819,7 @@
         <span class="c1"># weight settings</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
 
-        <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
@@ -843,7 +843,7 @@
         <span class="k">return</span> <span class="n">weight</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Tests and benchmarks the autoquantization process with special handling for interpolate mode.</span>
 
@@ -902,23 +902,23 @@
         <span class="k">return</span> <span class="n">res_f</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt8DynamicallyQuantizedSemiSparseLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt8DynamicallyQuantizedSemiSparseLinearWeight</span><span class="p">(</span>
     <span class="n">AQInt8DynamicallyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">SemiSparseLayout</span><span class="p">()</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]):</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_autoquant_test</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">best_time</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt8WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt8WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
@@ -934,7 +934,7 @@
         <span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt8WeightOnlyQuantizedLinearWeight2</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt8WeightOnlyQuantizedLinearWeight2</span><span class="p">(</span>
     <span class="n">AQInt8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">AQMixin</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -943,7 +943,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Performs the quantized linear operations</span>
 
@@ -965,14 +965,14 @@
         <span class="k">return</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">orig_dtype</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_autoquant_test</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">act_mat</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
         <span class="c1"># if act_mat has batchsize&gt;2 don&#39;t use this kernel</span>
         <span class="k">if</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">32</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">inf</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_autoquant_test</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt8WeightOnlyQuantizedLinearWeight3</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt8WeightOnlyQuantizedLinearWeight3</span><span class="p">(</span>
     <span class="n">AQInt8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">AQMixin</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -981,7 +981,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="n">orig_shape</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span>
             <span class="n">act_mat</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">orig_shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
@@ -993,7 +993,7 @@
         <span class="k">return</span> <span class="n">y</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt4G32WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt4G32WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version of Int4WeightOnlyQuantizedLinearWeight</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1003,7 +1003,7 @@
     <span class="n">aq_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">group_size</span>
         <span class="n">_layout</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">aq_layout</span>
 
@@ -1043,37 +1043,37 @@
         <span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt4G64WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt4G64WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt4G128WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt4G128WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt4G256WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt4G256WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span>
 
 
-<span class="k">class</span> <span class="nc">AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight</span><span class="p">(</span>
     <span class="n">AQInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">aq_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">MarlinSparseLayout</span><span class="p">()</span>
 
 
-<span class="k">class</span> <span class="nc">AQGemliteInt4G32WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQGemliteInt4G32WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.gemlite_layout</span> <span class="kn">import</span> <span class="n">get_gemlite_aqt_kwargs</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.gemlite_layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_gemlite_aqt_kwargs</span>
 
         <span class="n">bit_width</span> <span class="o">=</span> <span class="mi">4</span>
         <span class="n">packing_bitwidth</span> <span class="o">=</span> <span class="mi">32</span>
@@ -1087,25 +1087,25 @@
         <span class="p">)</span><span class="o">.</span><span class="n">from_hp_to_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">aqt_kwargs</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQGemliteInt4G64WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQGemliteInt4G64WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQGemliteInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
 
 
-<span class="k">class</span> <span class="nc">AQGemliteInt4G128WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQGemliteInt4G128WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQGemliteInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
 
 
-<span class="k">class</span> <span class="nc">AQGemliteInt4G256WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQGemliteInt4G256WeightOnlyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQGemliteInt4G32WeightOnlyQuantizedLinearWeight</span>
 <span class="p">):</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span>
 
 
-<span class="k">class</span> <span class="nc">AQDefaultLinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQDefaultLinearWeight</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    A class to be used in concert with AutoQuantizableLinearWeight to provide a</span>
 <span class="sd">    default/non-quantized option. Only implements the bare minimum needed to work with the</span>
@@ -1114,26 +1114,26 @@
 <span class="sd">    is not a tensor subclass, but rather the float tensor.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">weight</span>
 
 
-<span class="k">class</span> <span class="nc">Float32Tensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float32Tensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Tensor subclass tensor for fp32 dtype&quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
         <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
@@ -1142,18 +1142,18 @@
             <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
             <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span>
         <span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
 <span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
-<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span> <span class="o">=</span> <span class="p">(</span>
         <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
         <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
@@ -1163,21 +1163,21 @@
 
 
 <span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
         <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
     <span class="p">)</span>
 
 
 <span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
         <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
     <span class="p">)</span>
 
 
 <span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">_to_copy</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
         <span class="n">func</span><span class="p">,</span>
         <span class="n">args</span><span class="p">,</span>
@@ -1186,12 +1186,12 @@
     <span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">BFloat16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BFloat16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
         <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
@@ -1201,12 +1201,12 @@
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">Float16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="n">_DTYPE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span>
         <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span>
@@ -1216,7 +1216,7 @@
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat32LinearWeight</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat32LinearWeight</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for float32 precision weight</span>
 
@@ -1225,11 +1225,11 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQFloat32LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQBFloat16LinearWeight</span><span class="p">(</span><span class="n">BFloat16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQBFloat16LinearWeight</span><span class="p">(</span><span class="n">BFloat16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for bfloat16 precision weight</span>
 
@@ -1238,11 +1238,11 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQBFloat16LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat16LinearWeight</span><span class="p">(</span><span class="n">Float16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat16LinearWeight</span><span class="p">(</span><span class="n">Float16Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version for float16 precision weight</span>
 
@@ -1251,11 +1251,11 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQFloat16LinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    AutoQuantizable version of Float8WeightOnlyQuantizedLinearWeight for target_dtype=torch.float8_e4m3fn</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1263,18 +1263,18 @@
     <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">act_mat</span><span class="p">,</span> <span class="n">w_qtensor</span><span class="o">.</span><span class="n">dequantize</span><span class="p">(),</span> <span class="n">bias</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">AQFloat8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="bp">cls</span><span class="p">)</span><span class="o">.</span><span class="n">from_hp_to_floatx</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="o">=</span><span class="bp">cls</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">,</span> <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">()</span>
         <span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQMixin</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1284,19 +1284,19 @@
     <span class="n">activation_granularity</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
-        <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_input_activation_quant_func_fp8</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">_input_activation_quant_func_fp8</span>
 
         <span class="c1"># weight settings</span>
-        <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
 
         <span class="c1"># input settings</span>
-        <span class="k">def</span> <span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
                 <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
@@ -1324,7 +1324,7 @@
         <span class="k">return</span> <span class="n">weight</span>
 
 
-<span class="k">class</span> <span class="nc">AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight</span><span class="p">(</span>
     <span class="n">AQMixin</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1334,13 +1334,13 @@
     <span class="n">activation_granularity</span> <span class="o">=</span> <span class="n">PerTensor</span><span class="p">()</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
         <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
-        <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_input_activation_quant_func_fp8</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">_input_activation_quant_func_fp8</span>
 
         <span class="c1"># weight settings</span>
-        <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="k">assert</span> <span class="n">x</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only works for 2D tensors&quot;</span>
             <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
 
@@ -1436,13 +1436,13 @@
 <span class="n">ALL_AUTOQUANT_CLASS_LIST</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">ALL_AUTOQUANT_CLASS_LIST</span><span class="p">))</span>
 
 
-<span class="k">def</span> <span class="nf">_change_linears_to_autoquantizable</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_change_linears_to_autoquantizable</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the</span>
 <span class="sd">    AutoQuantizableLinearWeight tensor subclass. Expectation is that this is followed</span>
 <span class="sd">    by running the model and then calling _change_autoquantizable_to_quantized</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_is_linear</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">_is_linear</span>
 
     <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;filter_fn&quot;</span><span class="p">,</span> <span class="n">_is_linear</span><span class="p">)</span>
     <span class="n">_</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span>
@@ -1453,7 +1453,7 @@
     <span class="p">)</span>
     <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;mode&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">])</span>
     <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;min_sqnr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;min_sqnr&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">_get_subclass_inserter</span><span class="p">,</span>
         <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1465,7 +1465,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">_change_autoquantizable_to_quantized</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_change_autoquantizable_to_quantized</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span> <span class="n">supress_autoquant_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1480,7 +1480,7 @@
     <span class="k">if</span> <span class="n">supress_autoquant_errors</span><span class="p">:</span>
         <span class="n">hold_supress_errors</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">suppress_errors</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">suppress_errors</span> <span class="o">=</span> <span class="kc">True</span>
-        <span class="kn">import</span> <span class="nn">logging</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
         <span class="n">torch</span><span class="o">.</span><span class="n">_logging</span><span class="o">.</span><span class="n">set_logs</span><span class="p">(</span><span class="n">inductor</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">,</span> <span class="n">dynamo</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">)</span>
     <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span>
@@ -1489,7 +1489,7 @@
         <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="n">error_on_unseen</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;error_on_unseen&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">_get_subclass_inserter</span><span class="p">,</span>
         <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1518,7 +1518,7 @@
 <span class="c1"># TODO: Document all the modes</span>
 <span class="c1"># TODO: Mode being a list is weird, should be a string or some object</span>
 <div class="viewcode-block" id="autoquant"><a class="viewcode-back" href="../../../generated/torchao.quantization.autoquant.html#torchao.quantization.autoquant">[docs]</a><span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-<span class="k">def</span> <span class="nf">autoquant</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">autoquant</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span>
     <span class="n">example_input</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">qtensor_class_list</span><span class="o">=</span><span class="n">DEFAULT_AUTOQUANT_CLASS_LIST</span><span class="p">,</span>
@@ -1620,7 +1620,7 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="c1"># the hook we will use to intercept the model forward and perform</span>
         <span class="c1"># autoquantization</span>
-        <span class="k">def</span> <span class="nf">autoquant_prehook</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">autoquant_prehook</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
             <span class="n">real_model</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
             <span class="n">module</span><span class="o">.</span><span class="n">finalize_autoquant</span><span class="p">()</span>
             <span class="k">return</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span>
@@ -1633,7 +1633,7 @@
 
     <span class="c1"># note the torch.compile wrapper (eval_frame) moves the assignment of any assigned</span>
     <span class="c1"># attributes to the inner model that didn&#39;t exist before, so we have to call delattr on the inner model</span>
-    <span class="k">def</span> <span class="nf">finalize_autoquant</span><span class="p">():</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">finalize_autoquant</span><span class="p">():</span>
         <span class="n">_change_autoquantizable_to_quantized</span><span class="p">(</span>
             <span class="n">real_model</span><span class="p">,</span>
             <span class="n">supress_autoquant_errors</span><span class="p">,</span>

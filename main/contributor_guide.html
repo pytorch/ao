@@ -473,13 +473,13 @@ dequantize op: dequantizes the low precision tensor into the high precision tens
 <p>Take <a class="reference external" href="https://pytorch.org/docs/stable/sparse.html#sparse-coo-tensors">sparse COO tensor</a> as an example, it has <cite>torch.sparse_coo</cite> layout, and <a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/SparseTensorImpl.h">SparseTensorImpl</a> which changes how the tensor is stored.</p>
 <p>The idea of packing the tensor into different formats fits nicely with the layout concept, that’s why we want to reuse this for packing. We can use <cite>Layout</cite> for different type of packing format and <cite>TensorImpl</cite> for different storage format implementations. And new TensorImpl that stores the Tensor in a packed format can be added at python level tensor subclasses without modifying C++ pytorch core code.</p>
 <p>For example, for <code class="docutils literal notranslate"><span class="pre">_weight_int4pack_mm</span></code> we need to pack the weight to an format that is friendly for Tensor Core, we call it <a class="reference external" href="https://github.com/pytorch/ao/blob/e41ca4ee41f5f1fe16c59e00cffb4dd33d25e56d/torchao/dtypes/affine_quantized_tensor.py#L573">TensorCoreTiledLayout</a>. We add a <code class="docutils literal notranslate"><span class="pre">tensor_impl</span></code> for the quantized tensor to store the packed (or unpacked) weight, and we use <code class="docutils literal notranslate"><span class="pre">layout</span></code> to store different parameters that’s relevant for packing:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
   <span class="c1"># tensor_impl is also implemented with tensor subclass</span>
   <span class="n">tensor_impl</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
 
   <span class="c1"># to not conflict with existing layout property, we use `_layout`</span>
   <span class="nd">@property</span>
-  <span class="k">def</span> <span class="nf">_layout</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Layout</span><span class="p">:</span>
+  <span class="k">def</span><span class="w"> </span><span class="nf">_layout</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Layout</span><span class="p">:</span>
       <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">_layout</span>
 </pre></div>
 </div>

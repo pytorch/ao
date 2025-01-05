@@ -387,18 +387,18 @@
 <span class="c1"># This source code is licensed under the license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
-<span class="kn">import</span> <span class="nn">math</span>
-<span class="kn">from</span> <span class="nn">enum</span> <span class="kn">import</span> <span class="n">Enum</span><span class="p">,</span> <span class="n">auto</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span><span class="p">,</span> <span class="n">auto</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="kn">from</span> <span class="nn">torchao.prototype.custom_fp_utils</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.custom_fp_utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">_f32_to_floatx_unpacked</span><span class="p">,</span>
     <span class="n">_floatx_unpacked_to_f32</span><span class="p">,</span>
     <span class="n">_n_ones</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_3</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">_is_float8_type</span><span class="p">,</span>
@@ -424,7 +424,7 @@
 <span class="p">]</span>
 
 
-<div class="viewcode-block" id="MappingType"><a class="viewcode-back" href="../../../generated/torchao.quantization.MappingType.html#torchao.quantization.MappingType">[docs]</a><span class="k">class</span> <span class="nc">MappingType</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="MappingType"><a class="viewcode-back" href="../../../generated/torchao.quantization.MappingType.html#torchao.quantization.MappingType">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">MappingType</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;How floating point number is mapped to integer number</span>
 
 <span class="sd">    symmetric mapping means floating point range is symmetrically mapped to integer range</span>
@@ -448,7 +448,7 @@
     <span class="n">ASYMMETRIC</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span></div>
 
 
-<div class="viewcode-block" id="ZeroPointDomain"><a class="viewcode-back" href="../../../generated/torchao.quantization.ZeroPointDomain.html#torchao.quantization.ZeroPointDomain">[docs]</a><span class="k">class</span> <span class="nc">ZeroPointDomain</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="ZeroPointDomain"><a class="viewcode-back" href="../../../generated/torchao.quantization.ZeroPointDomain.html#torchao.quantization.ZeroPointDomain">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">ZeroPointDomain</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Enum that indicate whether zero_point is in integer domain or floating point domain</span>
 
 <span class="sd">    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)</span>
@@ -461,7 +461,7 @@
     <span class="n">NONE</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span></div>
 
 
-<div class="viewcode-block" id="TorchAODType"><a class="viewcode-back" href="../../../generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType">[docs]</a><span class="k">class</span> <span class="nc">TorchAODType</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="TorchAODType"><a class="viewcode-back" href="../../../generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">TorchAODType</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Placeholder for dtypes that do not exist in PyTorch core yet.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -557,7 +557,7 @@
 
 
 <span class="c1"># TODO: decide on if we want to allow custom quant_min/quant_max here</span>
-<span class="k">def</span> <span class="nf">_get_and_check_qmin_qmax</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_and_check_qmin_qmax</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get quant_min and quant_max args based on dtype and also</span>
 <span class="sd">    verify that they are within the range of possible quant_min/quant_max</span>
 <span class="sd">    for dtype</span>
@@ -588,7 +588,7 @@
     <span class="k">return</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span>
 
 
-<span class="k">def</span> <span class="nf">_get_reduction_params</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="n">input_size</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_reduction_params</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="n">input_size</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Given block_size and input size find the parameters for reduction:</span>
 
 <span class="sd">    Output:</span>
@@ -630,7 +630,7 @@
 
 
 <div class="viewcode-block" id="quantize_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_affine.html#torchao.quantization.quantize_affine">[docs]</a><span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-<span class="k">def</span> <span class="nf">quantize_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -686,7 +686,7 @@
 
 
 <span class="nd">@register_custom_op</span>
-<span class="k">def</span> <span class="nf">_quantize_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -721,7 +721,7 @@
     <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">_quantize_affine_no_dtype_cast</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize_affine_no_dtype_cast</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -791,7 +791,7 @@
     <span class="k">return</span> <span class="n">quant</span>
 
 
-<div class="viewcode-block" id="dequantize_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.dequantize_affine.html#torchao.quantization.dequantize_affine">[docs]</a><span class="k">def</span> <span class="nf">dequantize_affine</span><span class="p">(</span>
+<div class="viewcode-block" id="dequantize_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.dequantize_affine.html#torchao.quantization.dequantize_affine">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -838,7 +838,7 @@
 
 
 <span class="nd">@register_custom_op</span>
-<span class="k">def</span> <span class="nf">_dequantize_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -873,7 +873,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">_dequantize_affine_no_dtype_check</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_dequantize_affine_no_dtype_check</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -947,7 +947,7 @@
     <span class="k">return</span> <span class="n">dequant</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">original_shape</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="fake_quantize_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.fake_quantize_affine.html#torchao.quantization.fake_quantize_affine">[docs]</a><span class="k">def</span> <span class="nf">fake_quantize_affine</span><span class="p">(</span>
+<div class="viewcode-block" id="fake_quantize_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.fake_quantize_affine.html#torchao.quantization.fake_quantize_affine">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">fake_quantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -991,7 +991,7 @@
     <span class="k">return</span> <span class="n">fq</span></div>
 
 
-<div class="viewcode-block" id="fake_quantize_affine_cachemask"><a class="viewcode-back" href="../../../generated/torchao.quantization.fake_quantize_affine_cachemask.html#torchao.quantization.fake_quantize_affine_cachemask">[docs]</a><span class="k">def</span> <span class="nf">fake_quantize_affine_cachemask</span><span class="p">(</span>
+<div class="viewcode-block" id="fake_quantize_affine_cachemask"><a class="viewcode-back" href="../../../generated/torchao.quantization.fake_quantize_affine_cachemask.html#torchao.quantization.fake_quantize_affine_cachemask">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">fake_quantize_affine_cachemask</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1034,7 +1034,7 @@
     <span class="k">return</span> <span class="p">(</span><span class="n">dq</span><span class="p">,</span> <span class="n">mask</span><span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">_do_fake_quantize_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_do_fake_quantize_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1073,7 +1073,7 @@
 
 
 <div class="viewcode-block" id="choose_qparams_affine"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_affine.html#torchao.quantization.choose_qparams_affine">[docs]</a><span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-<span class="k">def</span> <span class="nf">choose_qparams_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
@@ -1133,7 +1133,7 @@
     <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="choose_qparams_affine_with_min_max"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_affine_with_min_max.html#torchao.quantization.choose_qparams_affine_with_min_max">[docs]</a><span class="k">def</span> <span class="nf">choose_qparams_affine_with_min_max</span><span class="p">(</span>
+<div class="viewcode-block" id="choose_qparams_affine_with_min_max"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_affine_with_min_max.html#torchao.quantization.choose_qparams_affine_with_min_max">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_affine_with_min_max</span><span class="p">(</span>
     <span class="n">min_val</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">max_val</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span><span class="p">,</span>
@@ -1175,7 +1175,7 @@
 
 
 <span class="nd">@register_custom_op</span>
-<span class="k">def</span> <span class="nf">_choose_qparams_affine</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_choose_qparams_affine</span><span class="p">(</span>
     <span class="nb">input</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
     <span class="n">mapping_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
@@ -1311,7 +1311,7 @@
     <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">),</span> <span class="n">zero_point</span>
 
 
-<span class="k">def</span> <span class="nf">choose_qparams_and_quantize_affine_qqq</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_and_quantize_affine_qqq</span><span class="p">(</span>
     <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">num_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -1342,7 +1342,7 @@
         <span class="n">w_ref</span> <span class="o">=</span> <span class="p">(</span><span class="n">q_w</span> <span class="o">-</span> <span class="n">half_q_val</span><span class="p">)</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_group</span>
 
         <span class="c1"># Restore original shapes</span>
-        <span class="k">def</span> <span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
             <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span><span class="p">))</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
             <span class="k">return</span> <span class="n">w</span>
 
@@ -1381,7 +1381,7 @@
     <span class="k">return</span> <span class="n">q_w</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">w_ref</span>
 
 
-<span class="k">def</span> <span class="nf">dequantize_affine_qqq</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_qqq</span><span class="p">(</span>
     <span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">s_group</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">s_channel</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1406,7 +1406,7 @@
         <span class="n">w_dq</span> <span class="o">=</span> <span class="p">(</span><span class="n">w</span> <span class="o">-</span> <span class="n">half_q_val</span><span class="p">)</span><span class="o">.</span><span class="n">half</span><span class="p">()</span> <span class="o">*</span> <span class="n">s_group</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
 
         <span class="c1"># Restore original shapes</span>
-        <span class="k">def</span> <span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">reshape_w</span><span class="p">(</span><span class="n">w</span><span class="p">):</span>
             <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">size_n</span><span class="p">,</span> <span class="n">size_k</span><span class="p">))</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
             <span class="k">return</span> <span class="n">w</span>
 
@@ -1427,7 +1427,7 @@
 <span class="c1"># HQQ</span>
 <span class="c1">############################################################################</span>
 <span class="c1"># Shrinking operator (proximal operator for the lp norm)</span>
-<span class="k">def</span> <span class="nf">_shrink_lp_op</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">beta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">lp_norm</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_shrink_lp_op</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">beta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">lp_norm</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">lp_norm</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">beta</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
@@ -1438,7 +1438,7 @@
 
 <span class="c1"># Proximal solver || W - dequantize(quantize(W))||_p^p</span>
 <span class="nd">@torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">()</span>
-<span class="k">def</span> <span class="nf">optimize_weights_proximal_legacy</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">optimize_weights_proximal_legacy</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">zero</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1499,12 +1499,12 @@
 
 
 <span class="c1"># Mainly used to check if the group-size is divisible by numel()</span>
-<span class="k">def</span> <span class="nf">_is_divisible</span><span class="p">(</span><span class="n">val1</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">val2</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_divisible</span><span class="p">(</span><span class="n">val1</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">val2</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
     <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">val2</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">val1</span> <span class="o">/</span> <span class="n">val2</span><span class="p">))</span> <span class="o">==</span> <span class="n">val1</span>
 
 
 <span class="c1"># Converts hqq format W_dequant = (W_q - zero)*scale into affinequantized format: (W_q - mid_point)*scale_ao + zero_ao</span>
-<span class="k">def</span> <span class="nf">_convert_to_affinequantized_format</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_convert_to_affinequantized_format</span><span class="p">(</span>
     <span class="n">W_q</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">zero</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1521,7 +1521,7 @@
 
 
 <span class="c1"># Main hqq quantizer function</span>
-<div class="viewcode-block" id="choose_qparams_and_quantize_affine_hqq"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_and_quantize_affine_hqq.html#torchao.quantization.choose_qparams_and_quantize_affine_hqq">[docs]</a><span class="k">def</span> <span class="nf">choose_qparams_and_quantize_affine_hqq</span><span class="p">(</span>
+<div class="viewcode-block" id="choose_qparams_and_quantize_affine_hqq"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_and_quantize_affine_hqq.html#torchao.quantization.choose_qparams_and_quantize_affine_hqq">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_and_quantize_affine_hqq</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">nbits</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span>
@@ -1615,7 +1615,7 @@
     <span class="k">return</span> <span class="n">W_q</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero</span><span class="p">,</span> <span class="n">shape</span></div>
 
 
-<div class="viewcode-block" id="choose_qparams_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_affine_floatx.html#torchao.quantization.choose_qparams_affine_floatx">[docs]</a><span class="k">def</span> <span class="nf">choose_qparams_affine_floatx</span><span class="p">(</span>
+<div class="viewcode-block" id="choose_qparams_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.choose_qparams_affine_floatx.html#torchao.quantization.choose_qparams_affine_floatx">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_affine_floatx</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="c1"># _n_ones() is not compatible with torch.compile() due to &lt;&lt; operator</span>
@@ -1635,7 +1635,7 @@
     <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="quantize_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_affine_floatx.html#torchao.quantization.quantize_affine_floatx">[docs]</a><span class="k">def</span> <span class="nf">quantize_affine_floatx</span><span class="p">(</span>
+<div class="viewcode-block" id="quantize_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_affine_floatx.html#torchao.quantization.quantize_affine_floatx">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine_floatx</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Quantizes the float32 high precision floating point tensor to low precision floating point number and</span>
@@ -1646,7 +1646,7 @@
     <span class="k">return</span> <span class="n">tensor_floatx</span></div>
 
 
-<div class="viewcode-block" id="dequantize_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.dequantize_affine_floatx.html#torchao.quantization.dequantize_affine_floatx">[docs]</a><span class="k">def</span> <span class="nf">dequantize_affine_floatx</span><span class="p">(</span>
+<div class="viewcode-block" id="dequantize_affine_floatx"><a class="viewcode-back" href="../../../generated/torchao.quantization.dequantize_affine_floatx.html#torchao.quantization.dequantize_affine_floatx">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_floatx</span><span class="p">(</span>
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>

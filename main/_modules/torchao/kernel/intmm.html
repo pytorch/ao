@@ -381,16 +381,16 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <h1>Source code for torchao.kernel.intmm</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">os</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="c1"># Only works for torch2.2 or newer.</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">:</span>
-        <span class="kn">from</span> <span class="nn">torchao.kernel</span> <span class="kn">import</span> <span class="n">intmm_triton</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">intmm_triton</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">intmm_triton</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
@@ -402,10 +402,10 @@
 
 <span class="c1"># torch._int_mm doesn&#39;t exist before 2.2</span>
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="nn">torch._dynamo</span> <span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">dynamo_is_compiling</span>
-    <span class="kn">from</span> <span class="nn">torch._higher_order_ops.out_dtype</span> <span class="kn">import</span> <span class="n">out_dtype</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torch._dynamo</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">dynamo_is_compiling</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torch._higher_order_ops.out_dtype</span><span class="w"> </span><span class="kn">import</span> <span class="n">out_dtype</span>
 
-    <span class="k">def</span> <span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Performs a safe integer matrix multiplication, considering different paths for</span>
 <span class="sd">        torch.compile, cublas, and fallback cases.</span>
@@ -435,13 +435,10 @@
         <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;need both tensors to be on the same device but got </span><span class="si">{</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">device_cpu</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">]</span>
         <span class="c1"># with input.shape = [i,j] and mat2.shape = [j,k]</span>
-        <span class="n">i_is_strictly_greater_than_16</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">16</span>
         <span class="n">j_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
         <span class="n">k_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
         <span class="n">bad_dimensions_for_cublas</span> <span class="o">=</span> <span class="ow">not</span> <span class="p">(</span>
-            <span class="n">i_is_strictly_greater_than_16</span>
-            <span class="ow">and</span> <span class="n">j_is_nonzero_multiple_of_8</span>
-            <span class="ow">and</span> <span class="n">k_is_nonzero_multiple_of_8</span>
+            <span class="n">j_is_nonzero_multiple_of_8</span> <span class="ow">and</span> <span class="n">k_is_nonzero_multiple_of_8</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">device_cpu</span> <span class="ow">or</span> <span class="n">bad_dimensions_for_cublas</span><span class="p">:</span>
@@ -469,7 +466,7 @@
             <span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
 
-<div class="viewcode-block" id="safe_int_mm"><a class="viewcode-back" href="../../../generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm">[docs]</a>    <span class="k">def</span> <span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<div class="viewcode-block" id="safe_int_mm"><a class="viewcode-back" href="../../../generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Performs a fallback integer matrix multiplication for torch versions before 2.2.</span>
 
@@ -487,7 +484,7 @@
         <span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">int_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">int_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,</span>
 <span class="sd">    otherwise falls back to safe_int_mm.</span>
@@ -504,7 +501,7 @@
     <span class="k">return</span> <span class="n">safe_int_mm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="int_scaled_matmul"><a class="viewcode-back" href="../../../generated/torchao.quantization.int_scaled_matmul.html#torchao.quantization.int_scaled_matmul">[docs]</a><span class="k">def</span> <span class="nf">int_scaled_matmul</span><span class="p">(</span>
+<div class="viewcode-block" id="int_scaled_matmul"><a class="viewcode-back" href="../../../generated/torchao.quantization.int_scaled_matmul.html#torchao.quantization.int_scaled_matmul">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">int_scaled_matmul</span><span class="p">(</span>
     <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scales1</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>

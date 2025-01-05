@@ -400,7 +400,7 @@ support lowering for the quantized model from this flow yet</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
 size is more fine grained</p></li>
-<li><p><strong>layout</strong> – layout type for quantized weight tensor, only supports <cite>PlainLayout()</cite> and <cite>MarlinQQQLayout()</cite> for now</p></li>
+<li><p><strong>layout</strong> – layout type for quantized weight tensor, only supports <cite>MarlinQQQLayout()</cite> and <cite>CutlassInt4PackedLayout()</cite> for now</p></li>
 <li><p><strong>mapping_type</strong> – quantization type for weight, controls the weight quantization is symmetric or asymmetric</p></li>
 <li><p><strong>act_mapping_type</strong> – quantization type for activation, controls the activation quantization is symmetric or asymmetric</p></li>
 </ul>

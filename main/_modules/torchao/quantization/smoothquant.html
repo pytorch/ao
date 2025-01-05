@@ -395,10 +395,10 @@
 <span class="sd">parts of transformer blocks.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>
-<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">dynamically_quantize_per_channel</span><span class="p">,</span>
     <span class="n">quant_int8_dynamic_per_token_linear</span><span class="p">,</span>
 <span class="p">)</span>
@@ -413,7 +413,7 @@
 <span class="p">]</span>
 
 
-<span class="k">def</span> <span class="nf">get_scale</span><span class="p">(</span><span class="n">X_absmax</span><span class="p">,</span> <span class="n">W_absmax</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_scale</span><span class="p">(</span><span class="n">X_absmax</span><span class="p">,</span> <span class="n">W_absmax</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Calculate the scale based on abs(max(X)), abs(max(W)), and alpha.</span>
 
@@ -431,8 +431,8 @@
     <span class="k">return</span> <span class="n">div</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
 
 
-<span class="k">class</span> <span class="nc">SmoothFakeDynQuantMixin</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">init_smoothquant_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SmoothFakeDynQuantMixin</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">init_smoothquant_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">calibrating</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;smooth_scale&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
@@ -452,7 +452,7 @@
         <span class="c1"># self.store_w_int_repr_t = True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">store_w_int_repr_t</span> <span class="o">=</span> <span class="kc">False</span>
 
-    <span class="k">def</span> <span class="nf">update_x_running_abs_max</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_x_running_abs_max</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
         <span class="c1"># update the running max of incoming activations</span>
         <span class="n">all_dims_except_last</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
         <span class="n">cur_abs_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="n">all_dims_except_last</span><span class="p">)</span>
@@ -461,7 +461,7 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">cur_abs_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">get_scaled_quantized_w</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_scaled_quantized_w</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="c1"># inference</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">smooth_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
@@ -486,10 +486,10 @@
         <span class="n">W_int_repr</span> <span class="o">=</span> <span class="n">W_int_repr</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">W_int_repr</span><span class="p">,</span> <span class="n">W_scales</span><span class="p">,</span> <span class="n">W_zps</span>
 
-    <span class="k">def</span> <span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">fold_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fold_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="c1"># note: _W_zps are zeroes and they are ignored</span>
         <span class="c1"># TODO(future PR): set up serialization for this</span>
         <span class="n">W_int_repr</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_scales</span><span class="p">,</span> <span class="n">_W_zps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_scaled_quantized_w</span><span class="p">()</span>
@@ -501,7 +501,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;W_int_repr&quot;</span><span class="p">,</span> <span class="n">W_int_repr</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
         <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
 
-    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets `self.x_running_abs_max` to a value which will lead to smooth scale</span>
 <span class="sd">        of all ones if `alpha=0.5`, to enable performance benchmarking without</span>
@@ -510,19 +510,19 @@
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
 
 
-<span class="k">class</span> <span class="nc">SmoothFakeDynamicallyQuantizedLinear</span><span class="p">(</span><span class="n">SmoothFakeDynQuantMixin</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SmoothFakeDynamicallyQuantizedLinear</span><span class="p">(</span><span class="n">SmoothFakeDynQuantMixin</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This is a replacement for `torch.nn.Linear` which implements dynamic per-token</span>
 <span class="sd">    activation quantization and dynamic per-channel weight quantization based on</span>
 <span class="sd">    Smoothquant scaling.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">alpha</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;alpha&quot;</span><span class="p">)</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">init_smoothquant_variables</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibrating</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">update_x_running_abs_max</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
             <span class="n">Y</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
@@ -541,7 +541,7 @@
         <span class="k">return</span> <span class="n">Y</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span> <span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">mod</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">mod</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Converts a `mod` of class `torch.nn.Linear` to the smooth fake quantized</span>
 <span class="sd">        version of it.  Note: requires calibration.</span>
@@ -560,7 +560,7 @@
         <span class="n">new_mod</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device_to_use</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">new_mod</span>
 
-    <span class="k">def</span> <span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_inference</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Calculates the smoothquant scale based on calibration</span>
 <span class="sd">        in preparation for inference</span>
@@ -574,7 +574,7 @@
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">fold_weight</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_debug_x_absmax</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">w_absmax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">x_running_abs_max</span> <span class="o">=</span> <span class="n">w_absmax</span>
 
@@ -589,7 +589,7 @@
 <span class="p">}</span>
 
 
-<div class="viewcode-block" id="swap_linear_with_smooth_fq_linear"><a class="viewcode-back" href="../../../generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear">[docs]</a><span class="k">def</span> <span class="nf">swap_linear_with_smooth_fq_linear</span><span class="p">(</span>
+<div class="viewcode-block" id="swap_linear_with_smooth_fq_linear"><a class="viewcode-back" href="../../../generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">swap_linear_with_smooth_fq_linear</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span> <span class="n">skip_fqn_list</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -621,7 +621,7 @@
             <span class="n">swap_linear_with_smooth_fq_linear</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">skip_fqn_list</span><span class="p">,</span> <span class="n">new_fqn</span><span class="p">,</span> <span class="n">alpha</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="smooth_fq_linear_to_inference"><a class="viewcode-back" href="../../../generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference">[docs]</a><span class="k">def</span> <span class="nf">smooth_fq_linear_to_inference</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">debug_skip_calibration</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<div class="viewcode-block" id="smooth_fq_linear_to_inference"><a class="viewcode-back" href="../../../generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">smooth_fq_linear_to_inference</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">debug_skip_calibration</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.</span>
 
@@ -642,7 +642,7 @@
 
 <span class="c1"># useful for quickly toggling smoothquant debug settings on all smoothquant</span>
 <span class="c1"># modules in a model</span>
-<span class="k">def</span> <span class="nf">set_smooth_fq_attribute</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">attribute_name</span><span class="p">,</span> <span class="n">new_attribute_val</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">set_smooth_fq_attribute</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">attribute_name</span><span class="p">,</span> <span class="n">new_attribute_val</span><span class="p">):</span>
     <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">source_cls_to_target_cls</span><span class="o">.</span><span class="n">values</span><span class="p">())):</span>
             <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">attribute_name</span><span class="p">):</span>
