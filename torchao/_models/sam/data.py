@@ -1,10 +1,10 @@
-import torch
 import diskcache
-from pycocotools.coco import COCO
 import numpy as np
-from scipy import ndimage
-import skimage.io as io
 import skimage.color as color
+import skimage.io as io
+import torch
+from pycocotools.coco import COCO
+from scipy import ndimage
 
 
 def _get_center_point(mask, ann_id, cache):
@@ -44,7 +44,7 @@ def _get_center_point(mask, ann_id, cache):
     # TODO(future): approximate better by adding more directions
     distances_to_check_deg = [0, 90, 180, 270]
 
-    global_min_max_distance = float('-inf')
+    global_min_max_distance = float("-inf")
     global_coords = None
     # For now, terminate early to speed up the calculation as long as
     # the point sample is gooe enough. This sacrifices the quality of point
@@ -83,8 +83,9 @@ def _get_center_point(mask, ann_id, cache):
                     # RIGHT
                     cur_col_idx = col_idx
 
-                    while cur_col_idx <= mask.shape[1] - 1 and \
-                            mask[row_idx, cur_col_idx]:
+                    while (
+                        cur_col_idx <= mask.shape[1] - 1 and mask[row_idx, cur_col_idx]
+                    ):
                         cur_col_idx += 1
                     cur_col_idx -= 1
                     distance = cur_col_idx - col_idx
@@ -93,8 +94,9 @@ def _get_center_point(mask, ann_id, cache):
                 elif direction == 180:
                     # DOWN
                     cur_row_idx = row_idx
-                    while cur_row_idx <= mask.shape[0] - 1 and \
-                            mask[cur_row_idx, col_idx]:
+                    while (
+                        cur_row_idx <= mask.shape[0] - 1 and mask[cur_row_idx, col_idx]
+                    ):
                         cur_row_idx = cur_row_idx + 1
                     cur_row_idx -= 1
                     distance = cur_row_idx - row_idx
@@ -120,16 +122,18 @@ def _get_center_point(mask, ann_id, cache):
     return global_coords
 
 
-def build_datapoint(imgId,
-                    coco,
-                    pixel_mean,
-                    pixel_std,
-                    coco_root_dir,
-                    coco_slice_name,
-                    catIds,
-                    cache,
-                    predictor,
-                    pad_input_image_batch):
+def build_datapoint(
+    imgId,
+    coco,
+    pixel_mean,
+    pixel_std,
+    coco_root_dir,
+    coco_slice_name,
+    catIds,
+    cache,
+    predictor,
+    pad_input_image_batch,
+):
     img = coco.loadImgs(imgId)[0]
 
     file_location = f'{coco_root_dir}/{coco_slice_name}/{img["file_name"]}'
@@ -140,14 +144,14 @@ def build_datapoint(imgId,
         I = color.gray2rgb(I)
 
     # load and display instance annotations
-    annIds = coco.getAnnIds(imgIds=img['id'], catIds=catIds, iscrowd=None)
+    annIds = coco.getAnnIds(imgIds=img["id"], catIds=catIds, iscrowd=None)
     anns = coco.loadAnns(annIds)
 
     # approximate the center point of each mask
     coords_list = []
     gt_masks_list = []
     for ann in anns:
-        ann_id = ann['id']
+        ann_id = ann["id"]
         mask = coco.annToMask(ann)
         gt_masks_list.append(torch.tensor(mask))
         coords = _get_center_point(mask, ann_id, cache)
@@ -159,8 +163,7 @@ def build_datapoint(imgId,
     # Transform the image to the form expected by the model
     input_image = predictor.transform.apply_image(image)
     input_image_torch = torch.as_tensor(input_image)
-    input_image_torch = input_image_torch.permute(
-        2, 0, 1).contiguous()[None, :, :, :]
+    input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
     predictor_input_size = input_image_torch.shape[-2:]
 
     # Preprocess
@@ -181,15 +184,17 @@ def build_datapoint(imgId,
     return image, coords_list, gt_masks_list, anns, x, predictor_input_size
 
 
-def build_data(coco_img_ids,
-               coco,
-               catIds,
-               coco_root_dir,
-               coco_slice_name,
-               point_sampling_cache_dir,
-               predictor,
-               use_half,
-               pad_input_image_batch):
+def build_data(
+    coco_img_ids,
+    coco,
+    catIds,
+    coco_root_dir,
+    coco_slice_name,
+    point_sampling_cache_dir,
+    predictor,
+    use_half,
+    pad_input_image_batch,
+):
     cache = diskcache.Cache(point_sampling_cache_dir)
     # make sure you clear the cache if you change the point sampling algorithm
     # cache.clear()
@@ -204,23 +209,26 @@ def build_data(coco_img_ids,
         for img_idx in indicies:
             imgId = coco_img_ids[img_idx]
 
-            datapoint = build_datapoint(imgId,
-                                        coco,
-                                        pixel_mean,
-                                        pixel_std,
-                                        coco_root_dir,
-                                        coco_slice_name,
-                                        catIds,
-                                        cache,
-                                        predictor,
-                                        pad_input_image_batch)
+            datapoint = build_datapoint(
+                imgId,
+                coco,
+                pixel_mean,
+                pixel_std,
+                coco_root_dir,
+                coco_slice_name,
+                catIds,
+                cache,
+                predictor,
+                pad_input_image_batch,
+            )
             I, coords_list, gt_masks_list, anns, x, predictor_input_size = datapoint
             if len(coords_list) == 0:
                 continue
             batch[0].append(x)
             # batch[0].append(x[0])
             coords_list = predictor.transform.apply_coords(
-                np.array(coords_list), I.shape[:2])
+                np.array(coords_list), I.shape[:2]
+            )
             coords_list = torch.tensor(coords_list, dtype=torch.float)
 
             batch[1].append(coords_list.reshape(-1))
@@ -267,16 +275,14 @@ def build_data(coco_img_ids,
 
 
 def setup_coco_img_ids(coco_root_dir, coco_slice_name, coco_category_names, img_id):
-    annFile = '{}/annotations/instances_{}.json'.format(
-        coco_root_dir, coco_slice_name)
+    annFile = "{}/annotations/instances_{}.json".format(coco_root_dir, coco_slice_name)
 
     # initialize COCO api for instance annotations
     coco = COCO(annFile)
 
     # display COCO categories and supercategories
     cats = coco.loadCats(coco.getCatIds())
-    cat_id_to_cat = {cat['id']: cat for cat in cats}
-    nms = [cat['name'] for cat in cats]
+    cat_id_to_cat = {cat["id"]: cat for cat in cats}
     # print('COCO categories: \n{}\n'.format(' '.join(nms)))
 
     # nms = set([cat['supercategory'] for cat in cats])

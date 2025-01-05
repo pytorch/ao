@@ -26,4 +26,5 @@ repos:
         alias: ruff-isolated
         args:
           - --isolated
-          - select F821,F823,W191
+          - --select
+          - F821,F823,W191

@@ -29,8 +29,8 @@ class ImageEncoder(nn.Module):
     def forward(self, sample: torch.Tensor):
         # Forward through backbone
         with torch.autograd.profiler.record_function("self.neck(self.trunk(sample))"):
-            from torchao._models.sam2.map_tensor import MapTensor
-            from torchao._models.sam2.map_tensor import to_map_tensor
+            from torchao._models.sam2.map_tensor import MapTensor, to_map_tensor
+
             if isinstance(sample, MapTensor):
                 features, pos = self.neck(self.trunk(sample.elems.flatten(0, 1)))
                 features = [to_map_tensor(t.unsqueeze(1)) for t in features]
@@ -108,7 +108,6 @@ class FpnNeck(nn.Module):
         self.fpn_top_down_levels = list(fpn_top_down_levels)
 
     def forward(self, xs: List[torch.Tensor]):
-
         out = [None] * len(self.convs)
         pos = [None] * len(self.convs)
         assert len(xs) == len(self.convs)

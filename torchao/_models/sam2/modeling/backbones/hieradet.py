@@ -18,8 +18,7 @@ from torchao._models.sam2.modeling.backbones.utils import (
     window_partition,
     window_unpartition,
 )
-
-from torchao._models.sam2.modeling.sam2_utils import DropPath, MLP
+from torchao._models.sam2.modeling.sam2_utils import MLP, DropPath
 
 
 def do_pool(x: torch.Tensor, pool: nn.Module, norm: nn.Module = None) -> torch.Tensor:
@@ -74,7 +73,7 @@ class MultiScaleAttention(nn.Module):
             k_chunks = k.chunk(num_chunks)
             v_chunks = v.chunk(num_chunks)
             x_chunks = []
-            for (qi, ki, vi) in zip(q_chunks, k_chunks, v_chunks):
+            for qi, ki, vi in zip(q_chunks, k_chunks, v_chunks):
                 xi = F.scaled_dot_product_attention(
                     qi.transpose(1, 2),
                     ki.transpose(1, 2),

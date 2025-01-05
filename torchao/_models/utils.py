@@ -1,10 +1,12 @@
-import json
-import torch
-import platform
-import os
 import datetime
 import hashlib
+import json
+import os
+import platform
 import time
+
+import torch
+
 
 def get_arch_name() -> str:
     if torch.cuda.is_available():
@@ -36,7 +38,7 @@ def write_json_result_ossci(output_json_path, headers, row):
         "model": {
             "name": mapping_headers["name"],
             "type": "model",
-            "origins": ["pytorch"],
+            "origins": ["torchao/_models"],
         },
         "metric": {
             "name": mapping_headers["metric"],
@@ -85,7 +87,7 @@ def write_json_result_local(output_json_path, headers, row):
         "model": {
             "name": mapping_headers["name"],
             "type": "model",
-            "origins": ["pytorch"],
+            "origins": ["torchao/_models"],
         },
         "metric": {
             "name": mapping_headers["metric"],

@@ -7,15 +7,13 @@
 from typing import Optional
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 from torchao._models.sam2.modeling.sam.transformer import RoPEAttention
-
 from torchao._models.sam2.modeling.sam2_utils import get_activation_fn, get_clones
 
 
 class MemoryAttentionLayer(nn.Module):
-
     def __init__(
         self,
         activation: str,
@@ -88,7 +86,6 @@ class MemoryAttentionLayer(nn.Module):
         query_pos: Optional[Tensor] = None,
         num_k_exclude_rope: int = 0,
     ) -> torch.Tensor:
-
         # Self-Attn, Cross-Attn
         tgt = self._forward_sa(tgt, query_pos)
         tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)

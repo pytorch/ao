@@ -77,7 +77,6 @@ def build_sam2(
     apply_postprocessing=True,
     **kwargs,
 ):
-
     if apply_postprocessing:
         hydra_overrides_extra = hydra_overrides_extra.copy()
         hydra_overrides_extra += [

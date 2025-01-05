@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+
 class TokenizerInterface:
     def __init__(self, model_path):
         self.model_path = model_path
@@ -18,6 +19,7 @@ class TokenizerInterface:
 
     def eos_id(self):
         raise NotImplementedError("This method should be overridden by subclasses.")
+
 
 class SentencePieceWrapper(TokenizerInterface):
     def __init__(self, model_path):
@@ -39,6 +41,7 @@ class SentencePieceWrapper(TokenizerInterface):
 
     def eos_id(self):
         return self.processor.eos_id()
+
 
 class TiktokenWrapper(TokenizerInterface):
     """
@@ -100,6 +103,7 @@ class TiktokenWrapper(TokenizerInterface):
 
     def eos_id(self):
         return self._eos_id
+
 
 def get_tokenizer(tokenizer_model_path, model_name):
     """

@@ -803,8 +803,33 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _int8_symm_per_token_reduced_range_quant_noop_decode(
+    x: torch.Tensor,
+) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    if x.shape[1] == 1:
+        return x
+    else:
+        return to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            eps=eps,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
+        )
+
+
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC
+    layout=PlainLayout(),
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_only_decode=False,
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -831,11 +856,14 @@ def int8_dynamic_activation_int8_weight(
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
 
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if weight_only_decode:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
         else:
-            input_quant_func = _int8_asymm_per_token_quant
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(
