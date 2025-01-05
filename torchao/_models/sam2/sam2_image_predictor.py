@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -13,9 +12,8 @@ import torch
 from PIL.Image import Image
 
 from torchao._models.sam2.modeling.sam2_base import SAM2Base
-
-from torchao._models.sam2.utils.transforms import SAM2Transforms
 from torchao._models.sam2.utils.misc import get_image_size
+from torchao._models.sam2.utils.transforms import SAM2Transforms
 
 
 class SAM2ImagePredictor(torch.nn.Module):

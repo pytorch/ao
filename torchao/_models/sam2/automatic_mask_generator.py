@@ -14,6 +14,9 @@ from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
 from torchao._models.sam2.modeling.sam2_base import SAM2Base
 from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 from torchao._models.sam2.utils.amg import (
+    MaskData,
+    _mask_to_rle_pytorch_2_0,
+    _mask_to_rle_pytorch_2_1,
     area_from_rle,
     batch_iterator,
     batched_mask_to_box,
@@ -22,12 +25,8 @@ from torchao._models.sam2.utils.amg import (
     calculate_stability_score,
     coco_encode_rle,
     generate_crop_boxes,
-    is_box_near_crop_edge,
     is_box_near_crop_edge_torch,
     mask_to_rle_pytorch,
-    _mask_to_rle_pytorch_2_0,
-    _mask_to_rle_pytorch_2_1,
-    MaskData,
     remove_small_regions,
     rle_to_mask,
     uncrop_boxes_xyxy,
@@ -35,8 +34,8 @@ from torchao._models.sam2.utils.amg import (
     uncrop_points,
 )
 from torchao._models.sam2.utils.misc import (
-    get_image_size,
     crop_image,
+    get_image_size,
 )
 
 

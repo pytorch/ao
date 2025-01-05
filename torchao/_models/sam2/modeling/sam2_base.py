@@ -7,13 +7,16 @@
 import torch
 import torch.distributed
 import torch.nn.functional as F
-
 from torch.nn.init import trunc_normal_
 
 from torchao._models.sam2.modeling.sam.mask_decoder import MaskDecoder
 from torchao._models.sam2.modeling.sam.prompt_encoder import PromptEncoder
 from torchao._models.sam2.modeling.sam.transformer import TwoWayTransformer
-from torchao._models.sam2.modeling.sam2_utils import get_1d_sine_pe, MLP, select_closest_cond_frames
+from torchao._models.sam2.modeling.sam2_utils import (
+    MLP,
+    get_1d_sine_pe,
+    select_closest_cond_frames,
+)
 
 # a large negative value as a placeholder score for missing objects
 NO_OBJ_SCORE = -1024.0

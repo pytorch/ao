@@ -7,12 +7,12 @@
 import os
 import warnings
 from threading import Thread
+from typing import Tuple, Union
 
 import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
-from typing import Union, Tuple
 
 
 def get_sdpa_settings():
