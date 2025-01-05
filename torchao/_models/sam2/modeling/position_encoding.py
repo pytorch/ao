@@ -8,7 +8,6 @@ import math
 from typing import Any, Optional, Tuple
 
 import numpy as np
-
 import torch
 from torch import nn
 
@@ -171,9 +170,15 @@ def init_t_xy(end_x: int, end_y: int, device=None):
     return t_x, t_y
 
 
-def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 10000.0, device=None):
-    freqs_x = 1.0 / (theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim))
-    freqs_y = 1.0 / (theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim))
+def compute_axial_cis(
+    dim: int, end_x: int, end_y: int, theta: float = 10000.0, device=None
+):
+    freqs_x = 1.0 / (
+        theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
+    )
+    freqs_y = 1.0 / (
+        theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
+    )
 
     t_x, t_y = init_t_xy(end_x, end_y, device=device)
     freqs_x = torch.outer(t_x, freqs_x)

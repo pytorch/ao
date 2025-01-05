@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchao._models.sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d
+from torchao._models.sam2.modeling.sam2_utils import DropPath, LayerNorm2d, get_clones
 
 
 class MaskDownSampler(nn.Module):
