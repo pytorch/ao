@@ -360,12 +360,15 @@ def get_image_size(image: Union[np.ndarray, torch.Tensor]):
         w, h = image.size
         return (h, w)
     else:
-        raise NotImplementedError("Only support np.ndarray, torch.Tensor"
-                                  f"or PIL Image, but got {type(image)}")
+        raise NotImplementedError(
+            "Only support np.ndarray, torch.Tensor"
+            f"or PIL Image, but got {type(image)}"
+        )
 
 
-def crop_image(image: Union[np.ndarray, torch.Tensor],
-               crop_box: Tuple[int, int, int, int]):
+def crop_image(
+    image: Union[np.ndarray, torch.Tensor], crop_box: Tuple[int, int, int, int]
+):
     x0, y0, x1, y1 = crop_box
     if isinstance(image, np.ndarray):
         # HxWxC
@@ -374,5 +377,7 @@ def crop_image(image: Union[np.ndarray, torch.Tensor],
         # CxHxW
         return image[:, y0:y1, x0:x1]
     else:
-        raise ValueError("Expected image to be of type np.ndarray or "
-                         f"torch.Tensor, but got {type(image)}")
+        raise ValueError(
+            "Expected image to be of type np.ndarray or "
+            f"torch.Tensor, but got {type(image)}"
+        )
