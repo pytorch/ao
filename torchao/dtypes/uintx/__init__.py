@@ -1,6 +1,9 @@
 from .block_sparse_layout import (
     BlockSparseLayout,
 )
+from .cutlass_int4_packed_layout import (
+    CutlassInt4PackedLayout,
+)
 from .int4_cpu_layout import (
     Int4CPULayout,
 )
@@ -32,4 +35,5 @@ __all__ = [
     "MarlinQQQLayout",
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
+    "CutlassInt4PackedLayout",
 ]
