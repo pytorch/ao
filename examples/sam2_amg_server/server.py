@@ -211,11 +211,17 @@ def image_tensors_to_masks(example_images, mask_generator):
     return mask_generator.generate_batch(example_images)
 
 
-def file_bytes_to_image_tensor(file_bytes):
+def file_bytes_to_image_tensor(file_bytes, output_format="numpy"):
     image_array = np.asarray(file_bytes, dtype=np.uint8)
     example_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
     example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-    return example_image
+    if output_format == "numpy":
+        return example_image
+    if output_format not in ["torch"]:
+        raise ValueError("Expected output_format to be numpy or torch,"
+                         f" but got {output_format}")
+    from torchvision.transforms import ToTensor
+    return ToTensor()(example_image)
 
 
 def masks_to_rle_dict(masks):
@@ -445,7 +451,9 @@ def main(checkpoint_path,
         set_autoquant(mask_generator)
 
     with open('dog.jpg', 'rb') as f:
-        image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
+        output_format = "numpy" if baseline else "torch"
+        image_tensor = file_bytes_to_image_tensor(bytearray(f.read()),
+                                                  output_format=output_format)
 
     # from torchvision import io as tio
     # img_bytes_tensor = tio.read_file('dog.jpg')
