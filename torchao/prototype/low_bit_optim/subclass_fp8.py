@@ -14,7 +14,9 @@ _c10d_functional = torch.ops._c10d_functional
 DTYPE = torch.float8_e4m3fn
 
 
-def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
+def quantize_fp8(
+    input: Tensor, block_size: int, dynamic_range_expansion: bool, ifprint=False
+):
     shape = input.shape
     input = input.view(-1, block_size)
     k = None
@@ -28,30 +30,31 @@ def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
         # with the FP8 representation range, reducing the quantization error.
 
         k = torch.ones(input.shape[0], device=input.device)
-        expand_min = torch.tensor(16.0, device=input.device)
+        expand_min = torch.tensor(16.0, device=input.device).view(-1, 1)
         Rdtype = torch.tensor(
             torch.finfo(DTYPE).max * torch.finfo(DTYPE).max / 2, device=input.device
-        )
+        ).view(-1, 1)
 
         MaxValue = (input.abs().amax(-1).clip(1e-20)).view(-1, 1)
         MinValue = (input.abs().amin(-1).clip(1e-20)).view(-1, 1)
+        SqrtMinMax = torch.sqrt(MaxValue * MinValue)  # geomatric mean of max and min
 
-        SqrtMinMax = torch.sqrt(MaxValue * MinValue).view(
-            -1
-        )  # geomatric mean of max and min
         Rx = MaxValue / MinValue  # range of input max and min
 
         k = (
-            torch.floor(torch.log2(Rdtype) / torch.log2(Rx) * expand_min) / expand_min
+            torch.floor((torch.log2(Rdtype) / torch.log2(Rx)) * expand_min) / expand_min
         ).view(-1)  # calculating optimal value k dynamically
-        scale = (MaxValue / SqrtMinMax.view(-1, 1)) ** k.view(-1, 1)
-        input = input.sign() * ((input.abs() / SqrtMinMax.view(-1, 1)) ** k.view(-1, 1))
 
-    scale = (scale / torch.finfo(DTYPE).max).view(-1)
+        scale = (MaxValue / SqrtMinMax) ** k.view(-1, 1)
+        input = input.sign() * (input.abs().div(SqrtMinMax) ** k.view(-1, 1))
+        k = k.view(-1)
+        SqrtMinMax = SqrtMinMax.view(-1)
+
+    scale = scale / torch.finfo(DTYPE).max
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
 
-    return codes.view(shape), scale, k, SqrtMinMax
+    return codes.view(shape), scale.view(-1), k, SqrtMinMax
 
 
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
@@ -107,7 +110,7 @@ class OptimStateFp8(TorchAOBaseTensor):
         return cls(
             *[
                 tensor_data_dict[name]
-                for name in (cls.tensor_attrs)
+                for name in cls.tensor_attrs
                 + (["k", "sqrt_minmax_exp"] if "k" in tensor_data_dict else [])
             ],
             *tensor_attributes,
@@ -120,7 +123,7 @@ class OptimStateFp8(TorchAOBaseTensor):
         if self.k is not None:
             float_data = (
                 float_data.sign()
-                * float_data.abs() ** (1 / self.k.view(-1, 1))
+                * (float_data.abs() ** (1 / self.k.view(-1, 1)))
                 * self.sqrt_minmax_exp.view(-1, 1)
             )
 
