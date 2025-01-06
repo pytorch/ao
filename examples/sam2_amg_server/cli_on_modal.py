@@ -23,8 +23,9 @@ image = (
     .apt_install("git")
     .apt_install("libopencv-dev")
     .apt_install("python3-opencv")
-    .run_commands(["git clone https://github.com/pytorch/ao.git /tmp/ao_src"])
-    .run_commands(["cd /tmp/ao_src; python setup.py develop"])
+    .run_commands(["git clone https://github.com/pytorch/ao.git /tmp/ao_src_0"])
+    .run_commands(["cd /tmp/ao_src_0; git checkout 1be4307db06d2d7e716d599c1091a388220a61e4"])
+    .run_commands(["cd /tmp/ao_src_0; python setup.py develop"])
     .pip_install(
         "gitpython",
     )
@@ -39,6 +40,7 @@ app = modal.App("torchao-sam-2-cli", image=image)
 
 checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
+exported_models = modal.Volume.from_name("torchao-sam-2-exported-models", create_if_missing=True)
 
 
 @app.cls(
@@ -48,13 +50,14 @@ data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
     volumes={
         TARGET + "checkpoints": checkpoints,
         TARGET + "data": data,
+        TARGET + "exported_models": exported_models,
     },
 )
 class Model:
     model_type: str = modal.parameter(default="large")
     points_per_batch: int = modal.parameter(default=1024)
-    fast: int = modal.parameter(default=0)
-    furious: int = modal.parameter(default=0)
+    # fast: int = modal.parameter(default=0)
+    # furious: int = modal.parameter(default=0)
 
     def calculate_file_hash(self, file_path, hash_algorithm='sha256'):
         import hashlib
@@ -70,6 +73,24 @@ class Model:
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
+    def download_and_verify_file(self,
+                                 url,
+                                 filename,
+                                 hash_value,
+                                 hash_algorithm='sha256'):
+        if Path(filename).exists():
+            h = self.calculate_file_hash(filename, hash_algorithm)
+            if hash_value == h:
+                return
+        # Here either the file doesn't exist or the file
+        # has the wrong hash, so we try to download it again.
+        self.download_file(url, filename)
+        h = self.calculate_file_hash(filename, hash_algorithm)
+        if h != hash_value:
+            raise ValueError(f"Url {url} doesn't contain file with "
+                             f"{hash_algorithm} hash of value "
+                             f"{hash_value}")
+
     @modal.build()
     @modal.enter()
     def build(self):
@@ -77,28 +98,28 @@ class Model:
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-        download_url_branch = "climodal2"
+        download_url_branch = "main"
         download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
-        download_url += "examples/sam2_amg_server/"
+        download_url = download_url + "examples/sam2_amg_server"
 
-        h = self.calculate_file_hash(TARGET + "data/cli.py")
-        print("cli.py hash: ", h)
-        if h != "b38d60cb6fad555ad3c33081672ae981a5e4e744199355dfd24d395d20dfefda":
-            self.download_file(download_url + "cli.py", TARGET + "data/cli.py")
+        file_hashes = {
+            'cli.py': "8bce88807fe360babd7694f7ee009d7ea6cdc150a4553c41409589ec557b4c4b",
+            'server.py': "2d79458fabab391ef45cdc3ee9a1b62fea9e7e3b16e0782f522064d6c3c81a17",
+            'compile_export_utils.py': "552c422a5c267e57d9800e5080f2067f25b4e6a3b871b2063a2840033f4988d0",
+        }
 
-        h = self.calculate_file_hash(TARGET + "data/server.py")
-        print("server.py hash: ", h)
-        if h != "af33fdb9bcfe668b7764cb9c86f5fa9a799c999306e7c7e5b28c988b2616a0ae":
-            self.download_file(download_url + "server.py", TARGET + "data/server.py")
+        for f in file_hashes:
+            self.download_and_verify_file(f"{download_url}/{f}",
+                                          TARGET + f"data/{f}",
+                                          file_hashes[f])
 
         os.chdir(Path(TARGET + "data"))
         import sys
         sys.path.append(".")
 
         from server import model_type_to_paths
-        from server import set_fast
-        from server import set_furious
-
+        from compile_export_utils import set_fast
+        from compile_export_utils import set_furious
 
         device = "cuda"
         checkpoint_path = Path(TARGET) / Path("checkpoints")
@@ -106,10 +127,13 @@ class Model:
         sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
         mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle")
         self.mask_generator = mask_generator
-        if self.fast:
-            set_fast(mask_generator)
-        if self.furious:
-            set_furious(mask_generator)
+        from compile_export_utils import load_exported_model
+        load_exported_model(mask_generator,
+                            Path(TARGET) / Path("exported_models"),
+                            "amg",  # task_type
+                            furious=True,
+                            batch_size=1,
+                            points_per_batch=1024)
 
     @modal.method()
     def inference_rle(self, input_bytes) -> dict:
@@ -148,7 +172,7 @@ class Model:
         return buf.getvalue()
 
 
-def main(input_path, output_path, fast=False, furious=False, model_type="large", output_rle=False):
+def main(input_path, output_path, output_rle=False):
     input_bytes = bytearray(open(input_path, 'rb').read())
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
