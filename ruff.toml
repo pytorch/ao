@@ -21,6 +21,7 @@ include = [
     "test/sparsity/**/*.py",
     "test/prototype/*/**.py",
     "test/dora/**/*.py",
+    "test/galore/**/*.py",
 ]
 
 lint.select = ["F", "I"]
