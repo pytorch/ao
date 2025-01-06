@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import torch
 import torch.nn.functional as F
 
@@ -9,6 +10,7 @@ from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer, MultiTenso
 from torchao.quantization.utils import _lm_eval_available
 
 if _lm_eval_available:
+    hqq_core = pytest.importorskip("hqq.core", reason="requires hqq")
     import lm_eval
 
     try:  # lm_eval version 0.4
