@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import fire
 
+from fastapi import File, UploadFile
 import modal
 
 TARGET = "/root/"
@@ -41,6 +42,7 @@ app = modal.App("torchao-sam-2-cli", image=image)
 checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 exported_models = modal.Volume.from_name("torchao-sam-2-exported-models", create_if_missing=True)
+traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
 
 
 @app.cls(
@@ -51,6 +53,7 @@ exported_models = modal.Volume.from_name("torchao-sam-2-exported-models", create
         TARGET + "checkpoints": checkpoints,
         TARGET + "data": data,
         TARGET + "exported_models": exported_models,
+        TARGET + "traces": traces,
     },
 )
 class Model:
@@ -126,14 +129,61 @@ class Model:
         sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, self.model_type)
         sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
         mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle")
-        self.mask_generator = mask_generator
         from compile_export_utils import load_exported_model
-        load_exported_model(mask_generator,
-                            Path(TARGET) / Path("exported_models"),
-                            "amg",  # task_type
-                            furious=True,
-                            batch_size=1,
-                            points_per_batch=1024)
+        mask_generator = load_exported_model(mask_generator,
+                                             Path(TARGET) / Path("exported_models"),
+                                             "amg",  # task_type
+                                             furious=True,
+                                             batch_size=1,
+                                             points_per_batch=1024)
+        self.mask_generator = mask_generator
+        import os
+        import torch
+        import numpy as np
+        import sys
+        os.chdir(Path(TARGET + "data"))
+        sys.path.append(".")
+        from torchvision import io as tio
+        from torchvision.transforms.v2 import functional as tio_F
+        from server import masks_to_rle_dict
+        from server import profiler_runner
+
+        self.np = np
+        self.tio = tio
+        self.tio_F = tio_F
+        self.torch = torch
+        self.masks_to_rle_dict = masks_to_rle_dict
+        self.profiler_runner = profiler_runner
+
+    # @app.post("/upload_rle")
+    # @modal.method()
+    @modal.web_endpoint(docs=True, method="POST")
+    async def upload_rle(self, image: UploadFile):
+        from torch.autograd.profiler import record_function
+
+        def upload_rle_inner(img_bytes):
+            with record_function("asarray"):
+                image_array = self.np.asarray(img_bytes, dtype=self.np.uint8)
+            with record_function("from_numpy"):
+                img_bytes_tensor = self.torch.from_numpy(image_array)
+
+            with record_function("decode_jpeg"):
+                image_tensor = self.tio.decode_jpeg(img_bytes_tensor,
+                                                    device='cuda',
+                                                    mode=self.tio.ImageReadMode.RGB)
+            with record_function("to_dtype"):
+                image_tensor = self.tio_F.to_dtype(image_tensor,
+                                                   self.torch.float32,
+                                                   scale=True)
+
+            with record_function("generate"):
+                masks = self.mask_generator.generate(image_tensor)
+            with record_function("masks_to_rle_dict"):
+                result = self.masks_to_rle_dict(masks)
+            return result
+
+        # return self.profiler_runner(TARGET + "traces/asdf.json.gz", upload_rle_inner, bytearray(await image.read()))
+        return upload_rle_inner(bytearray(await image.read()))
 
     @modal.method()
     def inference_rle(self, input_bytes) -> dict:
