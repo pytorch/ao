@@ -59,7 +59,7 @@ def get_extensions():
 
     if not torch.cuda.is_available():
         print("PyTorch GPU support is not available. Skipping compilation of CUDA extensions")
-    if CUDA_HOME is None or not IS_ROCM and torch.cuda.is_available():
+    if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
         print("CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions")
         print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
 
