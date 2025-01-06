@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 import json
 import fire
 
@@ -48,6 +49,8 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
 @app.cls(
     gpu="H100",
     container_idle_timeout=20 * 60,
+    concurrency_limit=1,
+    allow_concurrent_inputs=1,
     timeout=20 * 60,
     volumes={
         TARGET + "checkpoints": checkpoints,
@@ -121,7 +124,6 @@ class Model:
         sys.path.append(".")
 
         from server import model_type_to_paths
-        from compile_export_utils import set_fast
         from compile_export_utils import set_furious
 
         device = "cuda"
@@ -182,7 +184,7 @@ class Model:
                 result = self.masks_to_rle_dict(masks)
             return result
 
-        # return self.profiler_runner(TARGET + "traces/asdf.json.gz", upload_rle_inner, bytearray(await image.read()))
+        # return self.profiler_runner(TARGET + "traces/trace.json.gz", upload_rle_inner, bytearray(await image.read()))
         return upload_rle_inner(bytearray(await image.read()))
 
     @modal.method()
@@ -222,8 +224,13 @@ class Model:
         return buf.getvalue()
 
 
-def main(input_path, output_path, output_rle=False):
-    input_bytes = bytearray(open(input_path, 'rb').read())
+def main(input_paths, output_paths, output_rle=False):
+    input_paths = open(input_paths).read().split("\n")
+    output_paths = open(output_paths).read().split("\n")
+    for input_path, output_path in zip(input_paths, output_paths):
+        assert Path(input_path).exists()
+        assert Path(output_path).exists()
+
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
@@ -231,14 +238,21 @@ def main(input_path, output_path, output_rle=False):
         print("modal deploy cli_on_modal.py")
         return
 
-    if output_rle:
-        output_dict = model.inference_rle.remote(input_bytes)
-        with open(output_path, "w") as file:
-            file.write(json.dumps(output_dict, indent=4))
-    else:
-        output_bytes = model.inference.remote(input_bytes)
-        with open(output_path, "wb") as file:
-            file.write(output_bytes)
+    for input_path, output_path in zip(input_paths, output_paths):
+        start = time.perf_counter()
+        input_bytes = bytearray(open(input_path, 'rb').read())
+
+        if output_rle:
+            output_dict = model.inference_rle.remote(input_bytes)
+            with open(output_path, "w") as file:
+                # file.write(json.dumps(output_dict, indent=4))
+                file.write(str(output_dict))
+        else:
+            output_bytes = model.inference.remote(input_bytes)
+            with open(output_path, "wb") as file:
+                file.write(output_bytes)
+        end = time.perf_counter()
+        print(end - start)
 
 
 if __name__ == "__main__":
