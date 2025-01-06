@@ -23,7 +23,7 @@ include = [
     "test/dora/**/*.py",
     "test/galore/**/*.py",
     "test/hqq/**/*.py",
-
+    "test/integration/**/*.py",
 ]
 
 lint.select = ["F", "I"]
