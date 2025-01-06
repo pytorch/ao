@@ -9,3 +9,7 @@ while IFS= read -r filepath; do
   echo "${filepath}" >> cmds_input_paths
   echo "${outputdir}"/"${dirname}"/"${filename}.json" >> cmds_output_paths
 done < ~/data/sav_val_image_paths_shuf_1000
+
+# time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_amg --output-rle False --meta-paths ~/blogs/cmds_meta_paths
+# time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_sps --output-rle False --meta-paths ~/blogs/cmds_meta_paths
+# time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_mps --output-rle False --meta-paths ~/blogs/cmds_meta_paths

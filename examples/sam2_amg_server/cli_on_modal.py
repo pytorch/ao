@@ -150,6 +150,9 @@ class Model:
         from server import masks_to_rle_dict
         from server import profiler_runner
         from server import file_bytes_to_image_tensor
+        from server import show_anns
+        from torchao._models.sam2.utils.amg import rle_to_mask
+        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
 
         self.np = np
         self.tio = tio
@@ -158,6 +161,9 @@ class Model:
         self.masks_to_rle_dict = masks_to_rle_dict
         self.profiler_runner = profiler_runner
         self.file_bytes_to_image_tensor = file_bytes_to_image_tensor
+        self.show_anns = show_anns
+        self.rle_to_mask = rle_to_mask
+        self.mask_to_rle_pytorch_2 = mask_to_rle_pytorch_2
 
     def gen_masks_ao(self,
                      task_type,
@@ -237,7 +243,6 @@ class Model:
     @modal.method()
     def inference_amg_rle(self, input_bytes) -> dict:
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        # masks = self.mask_generator.generate(image_tensor)
         masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
         return self.masks_to_rle_dict(masks)
 
@@ -252,8 +257,7 @@ class Model:
                                   self.mask_generator,
                                   center_points=prompts,
                                   center_points_label=prompts_label)
-        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
-        masks = mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
+        masks = self.mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
         masks = [{'segmentation': masks}]
         return self.masks_to_rle_dict(masks)
 
@@ -268,34 +272,80 @@ class Model:
                                   self.mask_generator,
                                   center_points=prompts,
                                   center_points_label=prompts_label)
-        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
-        masks = mask_to_rle_pytorch_2(masks)
+        masks = self.mask_to_rle_pytorch_2(masks)
         masks = [{'segmentation': mask} for mask in masks]
         return self.masks_to_rle_dict(masks)
 
-    @modal.method()
-    def inference(self, input_bytes, output_format='png'):
-        import os
-        os.chdir(Path(TARGET + "data"))
-        import sys
-        sys.path.append(".")
-        from server import file_bytes_to_image_tensor
-        from server import show_anns
-        image_tensor = file_bytes_to_image_tensor(input_bytes)
-        masks = self.mask_generator.generate(image_tensor)
-
+    def plot_image_tensor(self,
+                          image_tensor,
+                          masks,
+                          output_format,
+                          prompts=None):
         import matplotlib.pyplot as plt
         from io import BytesIO
-        from torchao._models.sam2.utils.amg import rle_to_mask
-        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        plt.figure(figsize=(image_tensor.shape[1]/100.,
+                            image_tensor.shape[0]/100.),
+                   dpi=100)
         plt.imshow(image_tensor)
-        show_anns(masks, rle_to_mask)
+        self.show_anns(masks, self.rle_to_mask, sort_by_area=False, seed=42)
         plt.axis('off')
         plt.tight_layout()
+        if prompts is not None:
+            ax = plt.gca()
+            marker_size = 375
+            ax.scatter(prompts[:, 0],
+                       prompts[:, 1],
+                       color='green',
+                       marker='*',
+                       s=marker_size,
+                       edgecolor='white',
+                       linewidth=1.25)
         buf = BytesIO()
         plt.savefig(buf, format=output_format)
         buf.seek(0)
         return buf.getvalue()
+
+    @modal.method()
+    def inference_amg(self, input_bytes, output_format='png'):
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        return self.plot_image_tensor(image_tensor, masks, output_format)
+
+    @modal.method()
+    def inference_sps(self, input_bytes, prompts, output_format='png'):
+        import numpy as np
+        prompts = np.array(prompts)
+        prompts_label = np.array([1] * len(prompts))
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("sps",
+                                  image_tensor,
+                                  self.mask_generator,
+                                  center_points=prompts,
+                                  center_points_label=prompts_label)
+        masks = self.mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
+        masks = [{'segmentation': masks}]
+        return self.plot_image_tensor(image_tensor,
+                                      masks,
+                                      output_format,
+                                      prompts=prompts)
+
+    @modal.method()
+    def inference_mps(self, input_bytes, prompts, output_format='png'):
+        import numpy as np
+        prompts = np.array(prompts)
+        prompts_label = np.array([1] * len(prompts))
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("mps",
+                                  image_tensor,
+                                  self.mask_generator,
+                                  center_points=prompts,
+                                  center_points_label=prompts_label)
+        masks = self.mask_to_rle_pytorch_2(masks)
+        masks = [{'segmentation': mask} for mask in masks]
+        return self.plot_image_tensor(image_tensor,
+                                      masks,
+                                      output_format,
+                                      prompts=prompts)
 
 
 def get_center_points(task_type, meta_path):
@@ -312,15 +362,18 @@ def get_center_points(task_type, meta_path):
 
 def main(task_type,
          input_paths,
-         output_paths,
+         output_directory,
          output_rle=False,
          meta_paths=None):
     assert task_type in ["amg", "sps", "mps"]
     input_paths = open(input_paths).read().split("\n")
-    output_paths = open(output_paths).read().split("\n")
-    for input_path, output_path in zip(input_paths, output_paths):
+    for input_path in input_paths:
         assert Path(input_path).exists()
-        assert Path(output_path).parent.exists()
+
+    output_directory = Path(output_directory)
+    if not (output_directory.exists() and output_directory.is_dir()):
+        raise ValueError(f"Expected output_directory {output_directory} "
+                         "to be a directory and exist")
 
     if meta_paths is not None:
         meta_mapping = {}
@@ -340,7 +393,7 @@ def main(task_type,
         return
 
     print("idx,time(s)")
-    for idx, (input_path, output_path) in enumerate(zip(input_paths, output_paths)):
+    for idx, (input_path) in enumerate(input_paths):
         key = Path(input_path).name.split(".jpg")[0]
         key = f"{Path(input_path).parent.name}/{key}"
         if meta_paths is not None:
@@ -351,6 +404,8 @@ def main(task_type,
         input_bytes = bytearray(open(input_path, 'rb').read())
 
         if output_rle:
+            output_path = output_directory / Path(key)
+            output_path = f"{output_path}_masks.json"
             if task_type == "amg":
                 output_dict = model.inference_amg_rle.remote(input_bytes)
             if task_type == "sps":
@@ -359,11 +414,20 @@ def main(task_type,
             if task_type == "mps":
                 output_dict = model.inference_mps_rle.remote(input_bytes,
                                                              center_points)
-            with open(output_path, "w") as file:
+            with open(output_path, 'w') as file:
                 file.write(json.dumps(output_dict, indent=4))
         else:
-            assert task_type in ["amg"]
-            output_bytes = model.inference.remote(input_bytes)
+            output_path = output_directory / Path(key)
+            output_path.parent.mkdir(parents=False, exist_ok=True)
+            output_path = f"{output_path}_annotated.png"
+            if task_type == "amg":
+                output_bytes = model.inference_amg.remote(input_bytes)
+            if task_type == "sps":
+                output_bytes = model.inference_sps.remote(input_bytes,
+                                                          center_points)
+            if task_type == "mps":
+                output_bytes = model.inference_mps.remote(input_bytes,
+                                                          center_points)
             with open(output_path, "wb") as file:
                 file.write(output_bytes)
         end = time.perf_counter()
