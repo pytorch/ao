@@ -355,25 +355,9 @@ def batched_zip(input_paths,
         yield batch
 
 
-# TODO: Generate baseline data
-# Do this based on a file with ~1000 paths
 # AMG: Automatic mask generation
-# for each image: prompt, RLE Masks, annotated image with mask overlay
 # SPS: Single point segmentation
-# for each image: take largest AMG mask, find center point for prompt, RLE Mask, annotated image with prompt and mask overlay
 # MPS: Multi point segmentation
-# for each image: take AMG mask, find all center points for prompte, RLE Masks, annotated image with prompts from AMG and mask overlay
-
-# If done right this could also build the basis for the benchmark script
-# The first step is running AMG and then the subsequent steps are based on prompts taken from the AMG output
-# The modified variants compare RLE data using a separate script.
-# - We only need to run baseline, AO, AO + Fast, AO + Fast + Furious
-
-# Create separate script to
-# - produce prompts from AMG masks
-# - calculate mIoU from output masks
-# - annotate images with rle json
-
 
 def main_docstring():
     return f"""
@@ -388,10 +372,6 @@ def main_docstring():
 TASK_TYPES = ["amg", "sps", "mps"]
 
 
-# TODO: Add task type argument next to model_type
-# Task types: amg, mps, sps (largest)
-# mps and sps require _meta.json files
-# sps picks largest area for prediction
 def main(
     checkpoint_path,
     model_type,

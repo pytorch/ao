@@ -3,7 +3,6 @@ import time
 import json
 import fire
 
-from fastapi import File, UploadFile
 import modal
 
 TARGET = "/root/"
@@ -150,6 +149,7 @@ class Model:
         from torchvision.transforms.v2 import functional as tio_F
         from server import masks_to_rle_dict
         from server import profiler_runner
+        from server import file_bytes_to_image_tensor
 
         self.np = np
         self.tio = tio
@@ -157,11 +157,57 @@ class Model:
         self.torch = torch
         self.masks_to_rle_dict = masks_to_rle_dict
         self.profiler_runner = profiler_runner
+        self.file_bytes_to_image_tensor = file_bytes_to_image_tensor
+
+    def gen_masks_ao(self,
+                     task_type,
+                     image_tensor,
+                     mask_generator,
+                     center_points=None,
+                     center_points_label=None):
+        import torch
+        if task_type == "amg":
+            masks = mask_generator.generate(image_tensor)
+        elif task_type == "sps":
+            mask_generator.predictor.set_image(image_tensor)
+            masks, scores, _ = mask_generator.predictor.predict(
+                point_coords=center_points,
+                point_labels=center_points_label,
+                multimask_output=True,
+                return_logits=False,
+                return_type="torch",
+            )
+            masks = masks.index_select(0, torch.argmax(scores))[0]
+        elif task_type == "mps":
+            # NOTE: There are multiple opportunities for batching here
+            # Batching of images
+            # Batching of prompts
+            # First we do batching of prompts
+            # Use MapTensor to create pseudobatches of points and labels
+            mask_generator.predictor.set_image(image_tensor)
+            center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
+            center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
+            from torchao._models.sam2.map_tensor import to_map_tensor
+            center_points_torch = to_map_tensor(center_points_torch)
+            center_points_label_torch = to_map_tensor(center_points_label_torch)
+            masks, scores, _ = mask_generator.predictor.predict(
+                point_coords=center_points_torch,
+                point_labels=center_points_label_torch,
+                multimask_output=True,
+                return_logits=False,
+                return_type="torch",
+            )
+            # Unwrapping MapTensor
+            masks = masks.elems
+            scores = scores.elems
+            # TODO: This isn't exactly efficient
+            masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
+        return masks
 
     # @app.post("/upload_rle")
     # @modal.method()
     @modal.web_endpoint(docs=True, method="POST")
-    async def upload_rle(self, image: UploadFile):
+    async def upload_rle(self, image):
         from torch.autograd.profiler import record_function
 
         def upload_rle_inner(img_bytes):
@@ -189,16 +235,43 @@ class Model:
         return upload_rle_inner(bytearray(await image.read()))
 
     @modal.method()
-    def inference_rle(self, input_bytes) -> dict:
-        import os
-        os.chdir(Path(TARGET + "data"))
-        import sys
-        sys.path.append(".")
-        from server import file_bytes_to_image_tensor
-        from server import masks_to_rle_dict
-        image_tensor = file_bytes_to_image_tensor(input_bytes)
-        masks = self.mask_generator.generate(image_tensor)
-        return masks_to_rle_dict(masks)
+    def inference_amg_rle(self, input_bytes) -> dict:
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        # masks = self.mask_generator.generate(image_tensor)
+        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        return self.masks_to_rle_dict(masks)
+
+    @modal.method()
+    def inference_sps_rle(self, input_bytes, prompts) -> dict:
+        import numpy as np
+        prompts = np.array(prompts)
+        prompts_label = np.array([1] * len(prompts))
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("sps",
+                                  image_tensor,
+                                  self.mask_generator,
+                                  center_points=prompts,
+                                  center_points_label=prompts_label)
+        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        masks = mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
+        masks = [{'segmentation': masks}]
+        return self.masks_to_rle_dict(masks)
+
+    @modal.method()
+    def inference_mps_rle(self, input_bytes, prompts) -> dict:
+        import numpy as np
+        prompts = np.array(prompts)
+        prompts_label = np.array([1] * len(prompts))
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("mps",
+                                  image_tensor,
+                                  self.mask_generator,
+                                  center_points=prompts,
+                                  center_points_label=prompts_label)
+        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        masks = mask_to_rle_pytorch_2(masks)
+        masks = [{'segmentation': mask} for mask in masks]
+        return self.masks_to_rle_dict(masks)
 
     @modal.method()
     def inference(self, input_bytes, output_format='png'):
@@ -225,12 +298,38 @@ class Model:
         return buf.getvalue()
 
 
-def main(input_paths, output_paths, output_rle=False):
+def get_center_points(task_type, meta_path):
+    assert task_type in ["sps", "mps"]
+    with open(meta_path, 'r') as file:
+        amg_masks = list(json.load(file).values())
+        amg_masks = sorted(amg_masks, key=(lambda x: x['area']), reverse=True)
+        # center points for biggest area first.
+        center_points = [mask['center_point'] for mask in amg_masks]
+        if task_type == "sps":
+            center_points = center_points[:1]
+        return center_points
+
+
+def main(task_type,
+         input_paths,
+         output_paths,
+         output_rle=False,
+         meta_paths=None):
+    assert task_type in ["amg", "sps", "mps"]
     input_paths = open(input_paths).read().split("\n")
     output_paths = open(output_paths).read().split("\n")
     for input_path, output_path in zip(input_paths, output_paths):
         assert Path(input_path).exists()
         assert Path(output_path).parent.exists()
+
+    if meta_paths is not None:
+        meta_mapping = {}
+        meta_paths = open(meta_paths).read().split("\n")
+        for meta_path in meta_paths:
+            assert Path(meta_path).exists()
+            key = Path(meta_path).name.split("_meta.json")[0]
+            key = f"{Path(meta_path).parent.name}/{key}"
+            meta_mapping[key] = meta_path
 
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
@@ -242,14 +341,28 @@ def main(input_paths, output_paths, output_rle=False):
 
     print("idx,time(s)")
     for idx, (input_path, output_path) in enumerate(zip(input_paths, output_paths)):
+        key = Path(input_path).name.split(".jpg")[0]
+        key = f"{Path(input_path).parent.name}/{key}"
+        if meta_paths is not None:
+            meta_path = meta_mapping[key]
+            center_points = get_center_points(task_type, meta_path)
+
         start = time.perf_counter()
         input_bytes = bytearray(open(input_path, 'rb').read())
 
         if output_rle:
-            output_dict = model.inference_rle.remote(input_bytes)
+            if task_type == "amg":
+                output_dict = model.inference_amg_rle.remote(input_bytes)
+            if task_type == "sps":
+                output_dict = model.inference_sps_rle.remote(input_bytes,
+                                                             center_points)
+            if task_type == "mps":
+                output_dict = model.inference_mps_rle.remote(input_bytes,
+                                                             center_points)
             with open(output_path, "w") as file:
                 file.write(json.dumps(output_dict, indent=4))
         else:
+            assert task_type in ["amg"]
             output_bytes = model.inference.remote(input_bytes)
             with open(output_path, "wb") as file:
                 file.write(output_bytes)
