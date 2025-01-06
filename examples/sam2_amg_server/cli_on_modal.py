@@ -107,6 +107,7 @@ class Model:
             'cli.py': "8bce88807fe360babd7694f7ee009d7ea6cdc150a4553c41409589ec557b4c4b",
             'server.py': "2d79458fabab391ef45cdc3ee9a1b62fea9e7e3b16e0782f522064d6c3c81a17",
             'compile_export_utils.py': "552c422a5c267e57d9800e5080f2067f25b4e6a3b871b2063a2840033f4988d0",
+            'annotate_with_rle.py': "87ecb734c4b2bcdd469e0e373f73727316e844e98f263c6a713c1ce4d6e1f0f6",
         }
 
         for f in file_hashes:
@@ -134,6 +135,9 @@ class Model:
         from compile_export_utils import load_exported_model
         mask_generator = load_exported_model(mask_generator,
                                              Path(TARGET) / Path("exported_models"),
+                                             # Currently task_type has no effect,
+                                             # because we can only export the image
+                                             # encoder, but this might change soon.
                                              "amg",  # task_type
                                              furious=True,
                                              batch_size=1,
@@ -153,6 +157,7 @@ class Model:
         from server import show_anns
         from torchao._models.sam2.utils.amg import rle_to_mask
         from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        from torchao._models.sam2.utils.amg import area_from_rle
 
         self.np = np
         self.tio = tio
@@ -162,8 +167,12 @@ class Model:
         self.profiler_runner = profiler_runner
         self.file_bytes_to_image_tensor = file_bytes_to_image_tensor
         self.show_anns = show_anns
-        self.rle_to_mask = rle_to_mask
         self.mask_to_rle_pytorch_2 = mask_to_rle_pytorch_2
+        self.area_from_rle = area_from_rle
+        self.rle_to_mask = rle_to_mask
+
+        from annotate_with_rle import _get_center_point
+        self._get_center_point = _get_center_point
 
     def gen_masks_ao(self,
                      task_type,
@@ -245,6 +254,18 @@ class Model:
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
         masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
         return self.masks_to_rle_dict(masks)
+
+    @modal.method()
+    def inference_amg_meta(self, input_bytes) -> dict:
+        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        rle_dict = self.masks_to_rle_dict(masks)
+        masks = {}
+        for key in rle_dict:
+            masks[key] = {'segmentation': rle_dict[key],
+                          'area': self.area_from_rle(rle_dict[key]),
+                          'center_point': self._get_center_point(self.rle_to_mask(rle_dict[key]))}
+        return masks
 
     @modal.method()
     def inference_sps_rle(self, input_bytes, prompts) -> dict:
@@ -349,7 +370,6 @@ class Model:
 
 
 def get_center_points(task_type, meta_path):
-    assert task_type in ["sps", "mps"]
     with open(meta_path, 'r') as file:
         amg_masks = list(json.load(file).values())
         amg_masks = sorted(amg_masks, key=(lambda x: x['area']), reverse=True)
@@ -364,8 +384,11 @@ def main(task_type,
          input_paths,
          output_directory,
          output_rle=False,
+         output_meta=False,
          meta_paths=None):
     assert task_type in ["amg", "sps", "mps"]
+    if task_type in ["sps", "mps"]:
+        assert meta_paths is not None
     input_paths = open(input_paths).read().split("\n")
     for input_path in input_paths:
         assert Path(input_path).exists()
@@ -403,7 +426,14 @@ def main(task_type,
         start = time.perf_counter()
         input_bytes = bytearray(open(input_path, 'rb').read())
 
-        if output_rle:
+        if output_meta:
+            assert task_type == "amg"
+            output_path = output_directory / Path(key)
+            output_path = f"{output_path}_meta.json"
+            output_dict = model.inference_amg_meta.remote(input_bytes)
+            with open(output_path, 'w') as file:
+                file.write(json.dumps(output_dict, indent=4))
+        elif output_rle:
             output_path = output_directory / Path(key)
             output_path = f"{output_path}_masks.json"
             if task_type == "amg":
