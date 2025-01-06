@@ -60,10 +60,6 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
     },
 )
 class Model:
-    model_type: str = modal.parameter(default="large")
-    points_per_batch: int = modal.parameter(default=1024)
-    # fast: int = modal.parameter(default=0)
-    # furious: int = modal.parameter(default=0)
 
     def calculate_file_hash(self, file_path, hash_algorithm='sha256'):
         import hashlib
@@ -128,9 +124,11 @@ class Model:
 
         device = "cuda"
         checkpoint_path = Path(TARGET) / Path("checkpoints")
-        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, self.model_type)
+        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, "large")
         sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-        mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle")
+        mask_generator = SAM2AutomaticMaskGenerator(sam2,
+                                                    points_per_batch=1024,
+                                                    output_mode="uncompressed_rle")
         from compile_export_utils import load_exported_model
         mask_generator = load_exported_model(mask_generator,
                                              Path(TARGET) / Path("exported_models"),
