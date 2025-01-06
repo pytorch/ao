@@ -284,6 +284,7 @@ def run(
     use_compile="False",
     use_compile_decoder=False,
     compress=None,
+    min_sqnr=None,
     num_workers=0,
     use_rel_pos=True,
     pad_input_image_batch=True,
@@ -457,6 +458,7 @@ def run(
                 example_input=example_input,
                 manual=True,
                 qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+                min_sqnr=min_sqnr,
             )
         elif "autoquant-float8" == compress:
             autoquant(
@@ -464,6 +466,7 @@ def run(
                 example_input=example_input,
                 manual=True,
                 qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST,
+                min_sqnr=min_sqnr,
             )
         elif "autoquant-sparse" == compress:
             autoquant(
@@ -471,6 +474,7 @@ def run(
                 example_input=example_input,
                 manual=True,
                 qtensor_class_list=torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
+                min_sqnr=min_sqnr,
             )
         elif "autoquant-all" == compress:
             autoquant(
@@ -478,10 +482,14 @@ def run(
                 example_input=example_input,
                 manual=True,
                 qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
+                min_sqnr=min_sqnr,
             )
         else:
             autoquant(
-                predictor.model.image_encoder, example_input=example_input, manual=True
+                predictor.model.image_encoder,
+                example_input=example_input,
+                manual=True,
+                min_sqnr=min_sqnr,
             )
         predictor.model.image_encoder(example_input)
         predictor.model.image_encoder.finalize_autoquant()
