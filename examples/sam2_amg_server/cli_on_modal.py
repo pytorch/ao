@@ -120,12 +120,15 @@ class Model:
         sys.path.append(".")
 
         from server import model_type_to_paths
-        from compile_export_utils import set_furious
 
         device = "cuda"
         checkpoint_path = Path(TARGET) / Path("checkpoints")
-        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, "large")
-        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
+        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path,
+                                                         "large")
+        sam2 = build_sam2(model_cfg,
+                          sam2_checkpoint,
+                          device=device,
+                          apply_postprocessing=False)
         mask_generator = SAM2AutomaticMaskGenerator(sam2,
                                                     points_per_batch=1024,
                                                     output_mode="uncompressed_rle")
@@ -227,30 +230,31 @@ def main(input_paths, output_paths, output_rle=False):
     output_paths = open(output_paths).read().split("\n")
     for input_path, output_path in zip(input_paths, output_paths):
         assert Path(input_path).exists()
-        assert Path(output_path).exists()
+        assert Path(output_path).parent.exists()
 
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
-        print("Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing")
+        print("Can't find running app. To deploy run the following command.")
+        print("Note that this costs money! See https://modal.com/pricing")
         print("modal deploy cli_on_modal.py")
         return
 
-    for input_path, output_path in zip(input_paths, output_paths):
+    print("idx,time(s)")
+    for idx, (input_path, output_path) in enumerate(zip(input_paths, output_paths)):
         start = time.perf_counter()
         input_bytes = bytearray(open(input_path, 'rb').read())
 
         if output_rle:
             output_dict = model.inference_rle.remote(input_bytes)
             with open(output_path, "w") as file:
-                # file.write(json.dumps(output_dict, indent=4))
-                file.write(str(output_dict))
+                file.write(json.dumps(output_dict, indent=4))
         else:
             output_bytes = model.inference.remote(input_bytes)
             with open(output_path, "wb") as file:
                 file.write(output_bytes)
         end = time.perf_counter()
-        print(end - start)
+        print(f"{idx},{end - start}")
 
 
 if __name__ == "__main__":
