@@ -66,40 +66,47 @@ def get_extensions():
     use_cuda = torch.cuda.is_available() and (CUDA_HOME is not None or ROCM_HOME is not None)
     extension = CUDAExtension if use_cuda else CppExtension
 
+    extra_link_args = []
+    extra_compile_args = {
+        "nvcc": [
+            "-O3" if not debug_mode else "-O0",
+            "-t=0",
+        ]
+    }
+
     if not IS_WINDOWS:
-        extra_link_args = []
-        extra_compile_args = {
-            "cxx": [
-                "-O3" if not debug_mode else "-O0",
-                "-fdiagnostics-color=always",
-            ],
-        }
-        if use_cuda and not IS_ROCM:
-            extra_compile_args["nvcc"] = ["-O3" if not debug_mode else "-O0", "-t=0",]
+        extra_compile_args["cxx"] = [
+            "-O3" if not debug_mode else "-O0",
+            "-fdiagnostics-color=always",
+        ]
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             if "nvcc" in extra_compile_args:
                 extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
-
     else:
-        extra_link_args = []
-        extra_compile_args = {
-            "cxx": [
-                "/O2" if not debug_mode else "/Od",
-                "/permissive-"
-            ],
-            "nvcc": [
-                "-O3" if not debug_mode else "-O0",
-                "-t=0",
-            ]
-        }
+        extra_compile_args["cxx"] = [
+            "/O2" if not debug_mode else "/Od",
+            "/permissive-"
+        ]
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
+
+    use_cutlass = False
+    if use_cuda and not IS_WINDOWS:
+        use_cutlass = True
+        this_dir = os.path.abspath(os.path.curdir)
+        cutlass_dir = os.path.join(this_dir, "third_party", "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend([
+            "-DTORCHAO_USE_CUTLASS",
+            "-I" + cutlass_include_dir,
+        ])
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
@@ -125,12 +132,14 @@ def get_extensions():
         extension(
             "torchao._C",
             sources,
+            py_limited_api=True,
             extra_compile_args=extra_compile_args,
             extra_link_args=extra_link_args,
         )
     ]
 
     return ext_modules
+
 
 setup(
     name="torchao",
@@ -145,6 +154,9 @@ setup(
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/pytorch-labs/ao",
+    url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": BuildExtension},
+    options={"bdist_wheel": {
+        "py_limited_api": "cp39"
+    }},
 )

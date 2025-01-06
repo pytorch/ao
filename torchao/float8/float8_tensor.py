@@ -7,11 +7,9 @@ import enum
 from typing import Dict, NamedTuple, Optional
 
 import torch
-import torch.distributed._functional_collectives as funcol
 from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
-    e4m3_dtype,
     to_fp8_saturated,
 )
 
@@ -121,21 +119,6 @@ def choose_scaled_mm_config(
         raise AssertionError(f"unexpected a_role {a_role} and b_role {b_role}")
 
 
-def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
-    """
-    Check if the tensor is already casted to fp8
-    """
-    if isinstance(tensor, Float8Tensor):
-        return True
-    elif isinstance(tensor, DTensor):
-        # TODO: shall we stick to public API and directly use tensor.to_local() here?
-        return tensor_already_casted_to_fp8(tensor._local_tensor)
-    elif isinstance(tensor, funcol.AsyncCollectiveTensor):
-        return tensor_already_casted_to_fp8(tensor.elem)
-
-    return False
-
-
 @torch._dynamo.allow_in_graph
 class _ToFloat8ConstrFunc(torch.autograd.Function):
     """
@@ -149,7 +132,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         ctx,
         tensor: torch.Tensor,
         scale: torch.Tensor,
-        float8_dtype=e4m3_dtype,
+        float8_dtype: torch.dtype,
         linear_mm_config: Optional[LinearMMConfig] = None,
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
         axiswise_dim: Optional[int] = None,
@@ -229,7 +212,7 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 def hp_tensor_and_scale_to_float8(
     hp_tensor: torch.Tensor,
     s: torch.Tensor,
-    float8_dtype=e4m3_dtype,
+    float8_dtype: torch.dtype,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     axiswise_dim: Optional[int] = None,

@@ -8,8 +8,13 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
-from torchao.float8.config import Float8TypeConfig, ScalingGranularity
+from torchao.float8.config import (
+    Float8LinearConfig,
+    ScalingGranularity,
+    ScalingType,
+)
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -27,21 +32,12 @@ FP8_TYPES = {
 }
 
 
-# User defined type for using the individual F8 type based on config
-type_config = Float8TypeConfig()
-e4m3_dtype = type_config.e4m3_dtype
-e5m2_dtype = type_config.e5m2_dtype
-
-
 @torch.no_grad()
-def amax_to_scale(
-    amax: torch.Tensor, float8_dtype: torch.dtype, orig_dtype: torch.dtype
-):
+def amax_to_scale(amax: torch.Tensor, float8_dtype: torch.dtype):
     """Converts the amax value of a tensor to the fp8 scale.
     Args:
         amax: The amax value of the tensor.
         float8_dtype: The float8 dtype.
-        orig_dtype: The original dtype of the tensor.
     """
     # torch.compile and eager show different numerics for 1.0 / float32,
     # upcast to float64 to ensure same numeric between compile and eager
@@ -51,11 +47,6 @@ def amax_to_scale(
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
 
-    # Ensure that the scale is representable in float16,
-    # this helps when amax is small. We are assuming that we don't need
-    # to care about this for float32/bfloat16.
-    if orig_dtype is torch.float16:
-        res = torch.clamp(res, max=torch.finfo(torch.float16).max)
     return res.to(torch.float32)
 
 
@@ -63,19 +54,17 @@ def amax_to_scale(
 def amax_history_to_scale(
     amax_history: torch.Tensor,
     float8_dtype: torch.Tensor,
-    orig_dtype: torch.dtype,
     history_to_scale_fn_type: Literal["max"],
 ):
     """Takes in a history of amax values and returns a scale tensor.
     Args:
         amax_history: A tensor containing the history of amax values.
         float8_dtype: The float8 dtype.
-        orig_dtype: The original dtype of the tensor.
         history_to_scale_fn_type: The type of function to use to convert the history to a scale.
     """
     if history_to_scale_fn_type == "max":
         amax = torch.max(amax_history)
-        return amax_to_scale(amax, float8_dtype, orig_dtype)
+        return amax_to_scale(amax, float8_dtype)
     raise NotImplementedError()
 
 
@@ -83,19 +72,17 @@ def amax_history_to_scale(
 def amax_history_to_scale_stack(
     amax_history: torch.Tensor,
     float8_dtype: torch.dtype,
-    orig_dtype: torch.dtype,
     history_to_scale_fn_type: Literal["max"],
 ) -> torch.Tensor:
     """Takes in a stack of amax_history tensors and returns a scale tensor.
     Args:
         amax_history: A 2D tensor containing a stack of amax histories.
         float8_dtype: The float8 dtype.
-        orig_dtype: The original dtype of the tensor.
         history_to_scale_fn_type: The type of function to use to convert the history to a scale.
     """
     if history_to_scale_fn_type == "max":
         amax_stack = torch.max(amax_history, dim=1).values
-        return amax_to_scale(amax_stack, float8_dtype, orig_dtype)
+        return amax_to_scale(amax_stack, float8_dtype)
     raise NotImplementedError(
         f"Invalid history_to_scale_fn_type, only 'max' is supported. Got: {history_to_scale_fn_type}"
     )
@@ -121,7 +108,11 @@ def tensor_to_amax(
     # happen elsewhere.
     if reduce_amax and dist.is_initialized():
         pg = device_mesh.get_group() if device_mesh is not None else None
-        dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
+        # dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
+        group = list(range(dist.get_world_size())) if pg is None else pg
+        amax = all_reduce(amax, "MAX", group)
+        if isinstance(amax, AsyncCollectiveTensor):
+            amax = amax.wait()
 
     return amax
 
@@ -142,7 +133,7 @@ def tensor_to_scale(
         scaling_granularity,
         axiswise_dim,
     )
-    return amax_to_scale(amax, float8_dtype, x.dtype)
+    return amax_to_scale(amax, float8_dtype)
 
 
 def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):
@@ -180,7 +171,7 @@ def compute_error(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 def fp8_tensor_statistics(
-    tensor: torch.Tensor, float8_dtype=e4m3_dtype
+    tensor: torch.Tensor, float8_dtype: torch.dtype
 ) -> Tuple[int, ...]:
     """Calculate FP8 tensor stats
 
@@ -264,3 +255,14 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+def config_has_stateful_scaling(config: Float8LinearConfig) -> bool:
+    """
+    Returns True if `config` has any delayed or static scaling, and False otherwise.
+    """
+    return (
+        config.cast_config_input.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+        or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
+    )

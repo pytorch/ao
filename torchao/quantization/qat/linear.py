@@ -9,6 +9,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.dtypes.utils import is_device
 from torchao.quantization.GPTQ import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
@@ -23,6 +24,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 from .api import FakeQuantizeConfig
 from .fake_quantizer import FakeQuantizer
@@ -102,6 +104,28 @@ class FakeQuantizedLinear(torch.nn.Linear):
         else:
             w = self.weight
         return F.linear(x, w)
+
+    @classmethod
+    def from_linear(
+        cls,
+        mod: torch.nn.Linear,
+        activation_config: Optional[FakeQuantizeConfig] = None,
+        weight_config: Optional[FakeQuantizeConfig] = None,
+    ):
+        new_linear = FakeQuantizedLinear(
+            mod.in_features,
+            mod.out_features,
+            mod.bias,
+            activation_config=activation_config,
+            weight_config=weight_config,
+            device=mod.weight.device,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if mod.weight.device != torch.device("meta"):
+            new_linear.weight = mod.weight
+        return new_linear
 
 
 class _LegacyQATQuantizer(TwoStepQuantizer):
@@ -363,6 +387,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     inner_k_tiles=inner_k_tiles,
                     precision=child.weight.dtype,
                     scales_precision=config.scale_precision,
+                    device=next(child.parameters()).device,
                 )
                 setattr(module, name, quantized_linear)
 
@@ -373,10 +398,19 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                    q_weight.to(child.weight.device),
-                    child.inner_k_tiles,
-                )
+                if (
+                    is_device(q_weight.device.type, "cpu")
+                    and TORCH_VERSION_AT_LEAST_2_6
+                ):
+                    q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
+                        q_weight.to(child.weight.device),
+                        child.inner_k_tiles,
+                    )
+                else:
+                    q_weight = torch.ops.aten._convert_weight_to_int4pack(
+                        q_weight.to(child.weight.device),
+                        child.inner_k_tiles,
+                    )
                 quantized_linear.weight = q_weight
                 quantized_linear.scales_and_zeros = scales_and_zeros
             else:

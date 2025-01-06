@@ -12,9 +12,12 @@ from typing import Tuple, Type
 
 import torch
 import torch.nn.functional as F
-from torch import nn, Tensor
+from torch import Tensor, nn
 
-from torchao._models.sam2.modeling.position_encoding import apply_rotary_enc, compute_axial_cis
+from torchao._models.sam2.modeling.position_encoding import (
+    apply_rotary_enc,
+    compute_axial_cis,
+)
 from torchao._models.sam2.modeling.sam2_utils import MLP
 from torchao._models.sam2.utils.misc import get_sdpa_settings
 
@@ -280,7 +283,9 @@ class Attention(nn.Module):
         #     ALLOW_ALL_KERNELS = True
         #     out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
         # TODO: This scale should not be needed. But without it compile causes a NaN.
-        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
+        out = F.scaled_dot_product_attention(
+            q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
+        )
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)
@@ -325,9 +330,12 @@ class RoPEAttention(Attention):
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])
-        self.freqs_cis = self.freqs_cis.to(q.device)
+        # NOTE: Disabling this.
+        # self.freqs_cis = self.freqs_cis.to(q.device)
         if self.freqs_cis.shape[0] != q.shape[-2]:
-            self.freqs_cis = self.compute_cis(end_x=w, end_y=h).to(q.device)
+            self.freqs_cis = self.compute_cis(
+                end_x=w, end_y=h, device=q.device
+            )  # .to(q.device)
         if q.shape[-2] != k.shape[-2]:
             assert self.rope_k_repeat
 
@@ -355,7 +363,9 @@ class RoPEAttention(Attention):
         #     global ALLOW_ALL_KERNELS
         #     ALLOW_ALL_KERNELS = True
         # TODO: This scale should not be needed. But without it compile causes a NaN.
-        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1))))
+        out = F.scaled_dot_product_attention(
+            q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
+        )
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)

@@ -13,7 +13,12 @@ from torchao.dtypes.affine_quantized_tensor import (
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, fill_defaults, find_multiple
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+    fill_defaults,
+    find_multiple,
+)
 
 aten = torch.ops.aten
 
@@ -71,9 +76,14 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
-    y = torch.ops.aten._weight_int4pack_mm(
-        act_mat.contiguous(), packed_weight, groupsize, scale_and_zero
-    )
+    if is_device(input_tensor.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+        y = torch.ops.aten._weight_int4pack_mm_for_cpu(
+            act_mat.contiguous(), packed_weight, groupsize, scale_and_zero
+        )
+    else:
+        y = torch.ops.aten._weight_int4pack_mm(
+            act_mat.contiguous(), packed_weight, groupsize, scale_and_zero
+        )
 
     # remove out_feature padding
     orig_out_features = weight_tensor.shape[-2]

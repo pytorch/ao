@@ -15,8 +15,6 @@ import os
 
 import pytest
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -33,9 +31,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from tqdm import tqdm
 
 from torchao.float8 import Float8LinearConfig
-from torchao.float8.config import CastConfig, ScalingType
+from torchao.float8.config import CastConfig, ScalingType, e4m3_dtype
 from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_scaling_utils import NoopFwToFloat8E5M2BwDynamic
+from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -47,8 +45,9 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
     PrepareFloat8ModuleInput,
 )
-from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
+from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
+from torchao.testing.float8.dtensor_utils import ToyModel
 
 
 def setup_distributed():
@@ -57,28 +56,6 @@ def setup_distributed():
     # seed must be the same in all processes
     torch.manual_seed(1)
     return device_mesh
-
-
-class FeedForward(nn.Module):
-    """MLP based model"""
-
-    def __init__(self):
-        super(FeedForward, self).__init__()
-        self.w1 = nn.Linear(16, 32, bias=False)
-        self.w2 = nn.Linear(16, 32, bias=False)
-        self.out_proj = nn.Linear(32, 16, bias=False)
-
-    def forward(self, x):
-        return self.out_proj(F.silu(self.w1(x)) * self.w2(x))
-
-
-class ToyModel(nn.Module):
-    def __init__(self):
-        super(ToyModel, self).__init__()
-        self.ffn = FeedForward()
-
-    def forward(self, x):
-        return self.ffn(x)
 
 
 def _test_scaled_mm(mesh: DeviceMesh, size=16):
@@ -196,7 +173,7 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     )
 
     out = torch.nn.functional.linear(dist_x_fp8, dist_weight_fp8)
-    out = NoopFwToFloat8E5M2BwDynamic.apply(out, LinearMMConfig())
+    out = NoopFwToFloat8BwDynamic.apply(out, LinearMMConfig(), fp8_dtype)
     assert isinstance(out, DTensor), f"Expected DTensor, got {type(out)}"
     loss = torch.sum(torch.abs(out - dist_target))
     loss.backward()

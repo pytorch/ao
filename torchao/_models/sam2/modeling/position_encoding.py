@@ -8,7 +8,6 @@ import math
 from typing import Any, Optional, Tuple
 
 import numpy as np
-
 import torch
 from torch import nn
 
@@ -164,18 +163,24 @@ class PositionEmbeddingRandom(nn.Module):
 # 3. https://github.com/lucidrains/rotary-embedding-torch
 
 
-def init_t_xy(end_x: int, end_y: int):
-    t = torch.arange(end_x * end_y, dtype=torch.float32)
+def init_t_xy(end_x: int, end_y: int, device=None):
+    t = torch.arange(end_x * end_y, dtype=torch.float32, device=device)
     t_x = (t % end_x).float()
     t_y = torch.div(t, end_x, rounding_mode="floor").float()
     return t_x, t_y
 
 
-def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 10000.0):
-    freqs_x = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
-    freqs_y = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
+def compute_axial_cis(
+    dim: int, end_x: int, end_y: int, theta: float = 10000.0, device=None
+):
+    freqs_x = 1.0 / (
+        theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
+    )
+    freqs_y = 1.0 / (
+        theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
+    )
 
-    t_x, t_y = init_t_xy(end_x, end_y)
+    t_x, t_y = init_t_xy(end_x, end_y, device=device)
     freqs_x = torch.outer(t_x, freqs_x)
     freqs_y = torch.outer(t_y, freqs_y)
     freqs_cis_x = torch.polar(torch.ones_like(freqs_x), freqs_x)

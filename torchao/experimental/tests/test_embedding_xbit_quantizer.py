@@ -7,8 +7,8 @@
 import copy
 
 import glob
-import subprocess
 import os
+import subprocess
 
 import sys
 import tempfile
@@ -18,9 +18,10 @@ import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from torchao.experimental.quant_api import (
-    IntxWeightEmbeddingQuantizer,
     _IntxWeightQuantizedEmbeddingFallback,
+    IntxWeightEmbeddingQuantizer,
 )
+
 
 def cmake_build_torchao_ops(temp_build_dir):
     from distutils.sysconfig import get_python_lib
@@ -62,10 +63,12 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         group_size = 128
         embedding_dim = 4096
         num_embeddings = 131
-        model = torch.nn.Sequential(*[torch.nn.Embedding(num_embeddings, embedding_dim)])
+        model = torch.nn.Sequential(
+            *[torch.nn.Embedding(num_embeddings, embedding_dim)]
+        )
         indices = torch.randint(0, num_embeddings, (7,), dtype=torch.int32)
 
-        for nbit in [1, 2, 3, 4, 5, 6, 7]:
+        for nbit in [1, 2, 3, 4, 5, 6, 7, 8]:
             print(f"Testing nbit={nbit}")
             quantized_model = copy.deepcopy(model)
             quantizer = IntxWeightEmbeddingQuantizer(
@@ -88,9 +91,10 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         group_size = 128
         embedding_dim = 4096
         num_embeddings = 131
-        model = torch.nn.Sequential(*[torch.nn.Embedding(num_embeddings, embedding_dim)])
+        model = torch.nn.Sequential(
+            *[torch.nn.Embedding(num_embeddings, embedding_dim)]
+        )
         indices = torch.randint(0, num_embeddings, (42,), dtype=torch.int32)
-
 
         print("Quantizing model")
         quantizer = IntxWeightEmbeddingQuantizer(
@@ -102,7 +106,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model = quantizer.quantize(model)
 
         print("Exporting quantized model")
-        exported = torch.export.export(quantized_model, (indices,))
+        exported = torch.export.export(quantized_model, (indices,), strict=True)
 
         print("Compiling quantized model")
         quantized_model_compiled = torch.compile(quantized_model)
@@ -120,6 +124,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             print("Running quantized model in AOTI")
             fn = torch._export.aot_load(f"{tmpdirname}/model.so", "cpu")
             fn(indices)
+
 
 if __name__ == "__main__":
     unittest.main()

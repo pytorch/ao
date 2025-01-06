@@ -1,7 +1,6 @@
 import copy
-
-import pytest
 import unittest
+
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -9,20 +8,26 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+
 from torchao.dtypes.floatx import (
     FloatxTensorCoreLayout,
-    to_scaled_tc_floatx,
     from_scaled_tc_floatx,
+    to_scaled_tc_floatx,
 )
-from torchao.dtypes.floatx.floatx_tensor_core_layout import _pack_tc_floatx, _pack_tc_fp6, FloatxTensorCoreAQTTensorImpl
-from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32
+from torchao.dtypes.floatx.floatx_tensor_core_layout import (
+    FloatxTensorCoreAQTTensorImpl,
+    _pack_tc_floatx,
+    _pack_tc_fp6,
+)
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_floatx_unpacked,
+    _floatx_unpacked_to_f32,
+)
 from torchao.quantization import (
-    quantize_,
     fpx_weight_only,
+    quantize_,
 )
-
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
-
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
@@ -52,7 +57,9 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         x = torch.randn(256, 64, device=device) * 100
 
         # quantize and dequantize so that the values are exactly representable in Floatx
-        x = _floatx_unpacked_to_f32(_f32_to_floatx_unpacked(x, ebits, mbits), ebits, mbits)
+        x = _floatx_unpacked_to_f32(
+            _f32_to_floatx_unpacked(x, ebits, mbits), ebits, mbits
+        )
 
         tc_floatx, scale = to_scaled_tc_floatx(x, ebits, mbits)
         actual = from_scaled_tc_floatx(tc_floatx, ebits, mbits, scale=scale)
@@ -63,11 +70,15 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     def test_from_scaled_tc_floatx_compile(self, ebits, mbits, device):
         M, N = 256, 64
         nbits = 1 + ebits + mbits
-        x = torch.randint(256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device)
+        x = torch.randint(
+            256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device
+        )
         scale = torch.randn(M, device=device)
 
         expected = from_scaled_tc_floatx(x, ebits, mbits, scale)
-        actual = torch.compile(from_scaled_tc_floatx, fullgraph=True)(x, ebits, mbits, scale)
+        actual = torch.compile(from_scaled_tc_floatx, fullgraph=True)(
+            x, ebits, mbits, scale
+        )
         torch.testing.assert_close(actual, expected)
 
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
@@ -82,13 +93,18 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
         _layout = FloatxTensorCoreLayout(ebits, mbits)
-        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, _layout).cuda()
+        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
+            x, scale, None, _layout
+        ).cuda()
         assert floatx_tensor_impl.device.type == "cuda"
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
 
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_5,
+        reason="quantization only works with torch.compile for 2.5+",
+    )
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])

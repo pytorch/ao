@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 // clang-format off
-#include <torch/extension.h>
+#include <torch/library.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <torchao/experimental/kernels/mps/src/lowbit.h>
 // clang-format on
@@ -45,6 +45,8 @@ void check_linear_mps_args(
 
   TORCH_CHECK(K % 8 == 0, __func__, ": expect K to be multiple of 8, got ", K);
 
+  TORCH_CHECK(N % 4 == 0, __func__, ": expect N to be multiple of 4, got ", N);
+
   TORCH_CHECK(
       group_size == 32 || group_size == 64 || group_size == 128 ||
           group_size == 256,
@@ -70,12 +72,13 @@ void check_linear_mps_args(
 }
 
 template <int nbit>
-Tensor linear_mps_kernel(
+Tensor linear_mps_kernel_out(
     const Tensor& A,
     const Tensor& B,
     int64_t group_size,
     const Tensor& S,
-    const Tensor& Z) {
+    const Tensor& Z,
+    Tensor& C) {
   TORCH_CHECK(
       A.is_mps(), __func__, ": A is on ", A.device(), " but expected on mps");
   TORCH_CHECK(
@@ -84,14 +87,14 @@ Tensor linear_mps_kernel(
       S.is_mps(), __func__, ": S is on ", S.device(), " but expected on mps");
   TORCH_CHECK(
       Z.is_mps(), __func__, ": Z is on ", Z.device(), " but expected on mps");
+  TORCH_CHECK(
+      C.is_mps(), __func__, ": Z is on ", Z.device(), " but expected on mps");
 
   check_linear_mps_args<nbit>(A, B, group_size, S, Z);
 
   auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
-
-  auto C = at::empty({M, N}, A.options());
 
   LowBitQuantWeights<nbit>::linear(
       getMTLBufferStorage(A),
@@ -106,6 +109,19 @@ Tensor linear_mps_kernel(
       scalarToMetalTypeString(A));
 
   return C;
+}
+
+template <int nbit>
+Tensor linear_mps_kernel(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t group_size,
+    const Tensor& S,
+    const Tensor& Z) {
+  auto M = A.size(0);
+  auto N = B.size(0);
+  auto C = at::empty({M, N}, A.options());
+  return linear_mps_kernel_out<nbit>(A, B, group_size, S, Z, C);
 }
 
 template <int nbit>
@@ -147,9 +163,6 @@ Tensor pack_weights_cpu_kernel(const Tensor& W) {
   return B;
 }
 
-// Registers _C as a Python extension module.
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
-
 TORCH_LIBRARY(torchao, m) {
   m.def("_pack_weight_1bit(Tensor W) -> Tensor");
   m.def("_pack_weight_2bit(Tensor W) -> Tensor");
@@ -172,6 +185,20 @@ TORCH_LIBRARY(torchao, m) {
       "_linear_fp_act_6bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
       "_linear_fp_act_7bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
+  m.def(
+      "_linear_fp_act_1bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_2bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_3bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_4bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_5bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_6bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_7bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
@@ -192,6 +219,13 @@ TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel<5>);
   m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel<6>);
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel<7>);
+  m.impl("_linear_fp_act_1bit_weight.out", &linear_mps_kernel_out<1>);
+  m.impl("_linear_fp_act_2bit_weight.out", &linear_mps_kernel_out<2>);
+  m.impl("_linear_fp_act_3bit_weight.out", &linear_mps_kernel_out<3>);
+  m.impl("_linear_fp_act_4bit_weight.out", &linear_mps_kernel_out<4>);
+  m.impl("_linear_fp_act_5bit_weight.out", &linear_mps_kernel_out<5>);
+  m.impl("_linear_fp_act_6bit_weight.out", &linear_mps_kernel_out<6>);
+  m.impl("_linear_fp_act_7bit_weight.out", &linear_mps_kernel_out<7>);
 }
 
 TORCH_LIBRARY_IMPL(torchao, Meta, m) {

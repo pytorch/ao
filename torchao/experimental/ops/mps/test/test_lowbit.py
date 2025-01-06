@@ -4,44 +4,58 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+import sys
 import torch
-import torchao_mps_ops
 import unittest
 
+from parameterized import parameterized
 
-def parameterized(test_cases):
-    def decorator(func):
-        def wrapper(self):
-            for case in test_cases:
-                with self.subTest(case=case):
-                    func(self, *case)
+libname = "libtorchao_ops_mps_aten.dylib"
+libpath = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
+)
 
-        return wrapper
-
-    return decorator
+try:
+    for nbit in range(1, 8):
+        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+except AttributeError:
+    try:
+        torch.ops.load_library(libpath)
+    except:
+        raise RuntimeError(f"Failed to load library {libpath}")
+    else:
+        try:
+            for nbit in range(1, 8):
+                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        except AttributeError as e:
+            raise e
 
 
 class TestLowBitQuantWeightsLinear(unittest.TestCase):
-    cases = [
+    CASES = [
         (nbit, *param)
         for nbit in range(1, 8)
         for param in [
-            (1, 8, 1, 32),
-            (1, 32, 1, 32),
-            (1, 32, 1, 64),
-            (1, 56, 1, 64),
-            (1, 64, 1, 64),
-            (1, 72, 1, 64),
-            (1, 1000, 1, 64),
-            (3, 64, 5, 64),
-            (7, 64, 23, 64),
-            (17, 120, 23, 128),
-            (17, 128, 23, 128),
-            (41, 144, 23, 128),
-            (41, 128, 23, 128),
-            (81, 8, 1, 256),
-            (19, 256, 17, 256),
-            (1, 1000, 81, 256),
+            (1, 8, 4, 32),
+            (1, 32, 4, 32),
+            (1, 32, 4, 64),
+            (1, 56, 4, 64),
+            (1, 64, 4, 64),
+            (1, 72, 4, 64),
+            (1, 1000, 4, 64),
+            (3, 64, 8, 64),
+            (7, 64, 20, 64),
+            (17, 120, 20, 128),
+            (17, 128, 20, 128),
+            (41, 144, 20, 128),
+            (41, 128, 20, 128),
+            (81, 8, 4, 256),
+            (19, 256, 28, 256),
+            (1, 1000, 28, 256),
+            (19, 8, 36, 256),
         ]
     ]
 
@@ -73,7 +87,7 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         W = scales * W + zeros
         return torch.mm(A, W.t())
 
-    @parameterized(cases)
+    @parameterized.expand(CASES)
     def test_linear(self, nbit, M=1, K=32, N=32, group_size=32):
         print(f"nbit: {nbit}, M: {M}, K: {K}, N: {N}, group_size: {group_size}")
         A, W, S, Z = self._init_tensors(group_size, M, K, N, nbit=nbit)

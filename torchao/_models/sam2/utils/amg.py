@@ -6,12 +6,12 @@
 
 import math
 from copy import deepcopy
+from dataclasses import dataclass
 from itertools import product
 from typing import Any, Dict, Generator, ItemsView, List, Tuple
 
 import numpy as np
 import torch
-from dataclasses import dataclass, astuple
 
 
 @dataclass
@@ -95,11 +95,12 @@ class MaskData:
             elif isinstance(v, RLEData):
                 new_alt_lens_nt = nt_index_select_dim_0(v.alt_lens_nt, keep)
                 self._stats[k] = RLEData(
-                        alt_lens_nt=new_alt_lens_nt,
-                        counts_init=v.counts_init[keep],
-                        b=new_alt_lens_nt.size(0),
-                        h=v.h,
-                        w=v.w)
+                    alt_lens_nt=new_alt_lens_nt,
+                    counts_init=v.counts_init[keep],
+                    b=new_alt_lens_nt.size(0),
+                    h=v.h,
+                    w=v.w,
+                )
             else:
                 raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
 
@@ -117,11 +118,14 @@ class MaskData:
                 assert self._stats[k].h == v.h
                 assert self._stats[k].w == v.w
                 self._stats[k] = RLEData(
-                        alt_lens_nt=nt_cat_dim_0([self._stats[k].alt_lens_nt, v.alt_lens_nt]),
-                        counts_init=torch.cat([self._stats[k].counts_init, v.counts_init]),
-                        b=self._stats[k].b + v.b,
-                        h=v.h,
-                        w=v.w)
+                    alt_lens_nt=nt_cat_dim_0(
+                        [self._stats[k].alt_lens_nt, v.alt_lens_nt]
+                    ),
+                    counts_init=torch.cat([self._stats[k].counts_init, v.counts_init]),
+                    b=self._stats[k].b + v.b,
+                    h=v.h,
+                    w=v.w,
+                )
             else:
                 raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
 
@@ -151,7 +155,9 @@ def is_box_near_crop_edge(
 ) -> torch.Tensor:
     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
     orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=boxes.device)
-    return is_box_near_crop_edge_torch(boxes, crop_box, crop_box_torch, orig_box_torch, atol)
+    return is_box_near_crop_edge_torch(
+        boxes, crop_box, crop_box_torch, orig_box_torch, atol
+    )
 
 
 def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
@@ -215,7 +221,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# @torch.compile(fullgraph=True, dynamic=True)
 def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
     """
     Encodes masks to an uncompressed RLE, in the format expected by
@@ -225,60 +231,73 @@ def _mask_to_rle_pytorch_2_0_0(tensor: torch.Tensor) -> (torch.Tensor, torch.Ten
     b, h, w = tensor.shape
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: change indices"):
-        # Compute change indices
-        diff = tensor[:, 1:] ^ tensor[:, :-1]
-        # a = torch.tensor([[True]])
-        a = torch.ones((1, 1), dtype=bool, device=diff.device)
-        # if diff.is_cuda:
-        #     a = a.pin_memory().cuda()
-        #     # a = a.to(diff.device)
-        a = a.expand_as(diff.narrow(1, 0, 1))
-        diff = torch.cat([a, diff, a], dim=1)
+    # Compute change indices
+    diff = tensor[:, 1:] ^ tensor[:, :-1]
+    # a = torch.tensor([[True]])
+    a = torch.ones((1, 1), dtype=bool, device=diff.device)
+    # if diff.is_cuda:
+    #     a = a.pin_memory().cuda()
+    #     # a = a.to(diff.device)
+    a = a.expand_as(diff.narrow(1, 0, 1))
+    diff = torch.cat([a, diff, a], dim=1)
     return diff
 
 
-@torch.compile(fullgraph=True, dynamic=True)
-def _mask_to_rle_pytorch_2_0_1(tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+# @torch.compile(fullgraph=True, dynamic=True)
+def _mask_to_rle_pytorch_2_0_1(
+    tensor: torch.Tensor, diff: torch.Tensor, change_indices: torch.Tensor
+) -> (torch.Tensor, torch.Tensor):
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
-        alt_lens = diff.sum(dim=1)
+    alt_lens = diff.sum(dim=1)
 
-        all_cur_idx = change_indices[:, 1]
+    all_cur_idx = change_indices[:, 1]
+    if all_cur_idx.numel() == 0:
+        all_cur_idx_0 = all_cur_idx
+        all_cur_idx_1 = all_cur_idx
+    else:
         all_cur_idx_0 = all_cur_idx.narrow(0, 1, all_cur_idx.size(0) - 1)
         all_cur_idx_1 = all_cur_idx.narrow(0, 0, 1)
-        all_btw_idx = torch.cat([all_cur_idx_0, all_cur_idx_1])
-        all_btw_idx = all_btw_idx - all_cur_idx
+    all_btw_idx = torch.cat([all_cur_idx_0, all_cur_idx_1])
+    all_btw_idx = all_btw_idx - all_cur_idx
 
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
-        alt_lens_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
-        # Encode run length
-        counts_init = (tensor[:, 0] == 0)
+    alt_lens_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
+    # Encode run length
+    counts_init = tensor[:, 0] == 0
     return alt_lens_nt, counts_init
 
 
 def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
     b, h, w = tensor.shape
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"):
+    with torch.autograd.profiler.record_function(
+        "mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_0"
+    ):
         diff = _mask_to_rle_pytorch_2_0_0(tensor)
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: nonzero"):
-        if diff.numel() > 2147483646:
-            num_chunks = (diff.numel() + 2147483646) // 2147483646
-            change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
-        else:
-            change_indices = diff.nonzero()
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"):
-        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(tensor, diff, change_indices)
-    return RLEData(alt_lens_nt=alt_lens_nt,
-                   counts_init=counts_init,
-                   b=b,
-                   h=h,
-                   w=w)
+        # NOTE: While we could operate on less chunks, a set number of chunks prevents recompilations
+        # if diff.numel() > 2147483646:
+        #     num_chunks = (diff.numel() + 2147483646) // 2147483646
+        #     change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
+        # else:
+        #     change_indices = diff.nonzero()
+        num_chunks = 8
+        assert num_chunks >= (
+            (diff.numel() + 2147483646) // 2147483646
+        ), "Needed more chunks than expected."
+        change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
+    with torch.autograd.profiler.record_function(
+        "mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"
+    ):
+        alt_lens_nt, counts_init = _mask_to_rle_pytorch_2_0_1(
+            tensor, diff, change_indices
+        )
+    return RLEData(alt_lens_nt=alt_lens_nt, counts_init=counts_init, b=b, h=h, w=w)
 
 
 def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
-    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
+    with torch.autograd.profiler.record_function(
+        "mask_to_rle_pytorch_2: Encode run length"
+    ):
         out = []
         alt_lens = rle_data.alt_lens_nt.offsets().diff()
         all_btw_idx = rle_data.alt_lens_nt.values()
@@ -287,7 +306,7 @@ def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
         counts_init = rle_data.counts_init.tolist()
         offset = 0
         for i, ci in zip(range(rle_data.b), counts_init):
-            btw_idxs = all_btw_idx[offset:offset + alt_lens[i]][:-1]
+            btw_idxs = all_btw_idx[offset : offset + alt_lens[i]][:-1]
             offset += alt_lens[i]
             counts = [] if ci else [0]
             counts.extend(btw_idxs)
@@ -305,7 +324,8 @@ def area_from_rle(rle: Dict[str, Any]) -> int:
     return sum(rle["counts"][1::2])
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# TODO: Turn this on if you can mitigate recompiles!
+# @torch.compile(fullgraph=True, dynamic=True)
 def calculate_stability_score(
     masks: torch.Tensor, mask_threshold: float, threshold_offset: float
 ) -> torch.Tensor:
@@ -455,7 +475,8 @@ def coco_encode_rle(uncompressed_rle: Dict[str, Any]) -> Dict[str, Any]:
     return rle
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# TODO: Turn this on if you can mitigate recompiles!
+# @torch.compile(fullgraph=True, dynamic=True)
 def batched_mask_to_box(masks: torch.Tensor) -> torch.Tensor:
     """
     Calculates boxes in XYXY format around masks. Return [0,0,0,0] for

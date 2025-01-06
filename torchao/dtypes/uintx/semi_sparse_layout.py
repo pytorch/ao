@@ -41,13 +41,18 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(
     w_vals_int8 = weight_tensor.tensor_impl.int_data
     w_scales = weight_tensor.tensor_impl.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    # must pad
+    row, col = tmp.shape
+    from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
+
+    tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
         w_vals_int8,
-        tmp.t(),
+        tmp_padded.t(),
         alpha=w_scales.to(torch.float32),
         out_dtype=torch.bfloat16,
-    ).t()
+    ).t()[:row, :]
     y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
         *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
     )

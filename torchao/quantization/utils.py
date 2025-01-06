@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
+from torchao.dtypes.utils import is_device
 from torchao.kernel import (
     int_scaled_matmul,
 )
@@ -19,7 +20,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
 
 __all__ = [
     "compute_error",
@@ -372,11 +373,7 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
 
 
 def groupwise_affine_quantize_tensor_from_qparams(
-    w,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
+    w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
 ):
     assert groupsize > 1
     # needed for GPTQ single column quantize
@@ -399,16 +396,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
         output_dtype,
         quant_min,
         quant_max,
-        zero_point_domain=ZeroPointDomain.FLOAT,
+        zero_point_domain=zero_point_domain,
     )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
-        int_data_device_type = int_data.device.type
-        # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
-        if int_data_device_type == "mps":
-            int_data = int_data.cpu()
-        int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if int_data_device_type == "mps":
-            int_data = int_data.to(device="mps")
+        if not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
+            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
 
 
@@ -418,12 +410,15 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT,
 ):
     assert groupsize > 1
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
-    if TORCH_VERSION_AT_LEAST_2_5 and (
-        w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1
+    if (
+        TORCH_VERSION_AT_LEAST_2_5
+        and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
+        and not (is_device(w_int4x8.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -454,7 +449,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
         input_dtype,
         quant_min,
         quant_max,
-        zero_point_domain=ZeroPointDomain.FLOAT,
+        zero_point_domain=zero_point_domain,
         output_dtype=scales.dtype,
     )
 

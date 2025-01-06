@@ -25,12 +25,12 @@ jobs:
         include:
           - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: '--pre torch==2.6.0.dev20241101 --index-url https://download.pytorch.org/whl/nightly/cu121'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
+            gpu-arch-version: "12.4"
           - name: CPU Nightly
             runs-on: linux.4xlarge
-            torch-spec: '--pre torch==2.6.0.dev20241101 --index-url https://download.pytorch.org/whl/nightly/cpu'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
 
@@ -40,6 +40,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
@@ -70,6 +71,7 @@ jobs:
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
+
           - name: CPU 2.3
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu'
@@ -92,6 +94,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv

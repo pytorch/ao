@@ -27,7 +27,9 @@ import torch.nn.utils.parametrize as parametrize
 import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
+    CutlassInt4PackedLayout,
     Float8Layout,
+    Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
@@ -39,6 +41,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
 )
+from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -51,6 +54,9 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_MI300,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
 from .autoquant import AutoQuantizableLinearWeight, autoquant
@@ -67,6 +73,9 @@ from .granularity import (
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
+)
+from .qat import (
+    intx_quantization_aware_training,
 )
 from .quant_primitives import (
     MappingType,
@@ -97,14 +106,29 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "intx_quantization_aware_training",
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
+    "gemlite_uintx_weight_only",
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
+
+# update according to the support matrix
+LAYOUT_TO_ZERO_POINT_DOMAIN = {
+    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
+    MarlinSparseLayout: [ZeroPointDomain.INT],
+    Int4CPULayout: [ZeroPointDomain.FLOAT],
+}
+
+LAYOUT_TO_PRESERVE_ZEROS = {
+    TensorCoreTiledLayout: False,
+    MarlinSparseLayout: True,
+    Int4CPULayout: False,
+}
 
 
 ######
@@ -219,6 +243,12 @@ def _replace_with_custom_fn_if_matches_filter(
     Returns:
         None
     """
+    if isinstance(model, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
@@ -570,7 +600,12 @@ def apply_int8_dynamic_activation_int4_weight_quant(
     if act_mapping_type == MappingType.ASYMMETRIC:
         input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        input_quant_func = _int8_symm_per_token_quant
+        if isinstance(layout, MarlinQQQLayout):
+            input_quant_func = _int8_symm_per_token_quant
+        elif isinstance(layout, CutlassInt4PackedLayout):
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+        else:
+            input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
@@ -606,7 +641,7 @@ def int8_dynamic_activation_int4_weight(
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `PlainLayout()` and `MarlinQQQLayout()` for now
+        `layout`: layout type for quantized weight tensor, only supports `MarlinQQQLayout()` and `CutlassInt4PackedLayout()` for now
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
     """
@@ -619,15 +654,49 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
+def gemlite_uintx_weight_only(
+    group_size: Optional[int] = 64,
+    bit_width: int = 4,
+    packing_bitwidth: int = 32,
+    contiguous: Optional[bool] = None,
+):
+    """
+    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
+    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
+
+    Args:
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained
+        `bit_width`: bit width of the quantized weight.
+        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
+        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+    """
+
+    from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
+    use_hqq = True if bit_width == 4 else False
+    apply_fn = lambda weight: to_affine_quantized_intx(
+        weight,
+        **get_gemlite_aqt_kwargs(
+            weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+        ),
+    )
+    return _get_linear_subclass_inserter(apply_fn)
+
+
 def int4_weight_only(
-    group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False
+    group_size=128,
+    layout=TensorCoreTiledLayout(inner_k_tiles=8),
+    use_hqq=False,
+    zero_point_domain=None,
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
-        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`
+        and `torch.ops.aten._weight_int4pack_mm_for_cpu`), the main difference
         of quantization algorithm compared to the more traditional type of integer quantization is the following:
         1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
         2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
@@ -639,6 +708,7 @@ def int4_weight_only(
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
+        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
     def apply_int4_weight_only_quant(weight):
@@ -654,17 +724,29 @@ def int4_weight_only(
         quant_min = 0
         quant_max = 15
         eps = 1e-6
-        preserve_zero = False
+        preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+
+        nonlocal zero_point_domain
+        assert (
+            type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+        ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+        if zero_point_domain is None:
+            # the first value is the default one
+            zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
+        else:
+            assert (
+                zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+            ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
-            preserve_zero = True
-            zero_point_domain = ZeroPointDomain.INT
+            assert (
+                group_size == 128 or group_size == weight.shape[-1]
+            ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
         return to_affine_quantized_intx(
             weight,
@@ -727,8 +809,54 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _int8_symm_per_token_reduced_range_quant_noop_decode(
+    x: torch.Tensor,
+) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    if x.shape[1] == 1:
+        return x
+    else:
+        return to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            eps=eps,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
+        )
+
+
+def _int8_symm_per_token_reduced_range_quant_cutlass(
+    x: torch.Tensor,
+) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    return to_affine_quantized_intx(
+        x,
+        mapping_type,
+        _get_per_token_block_size(x),
+        target_dtype,
+        eps=eps,
+        zero_point_domain=ZeroPointDomain.NONE,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        scale_dtype=torch.float16 if x.dtype == torch.float16 else None,
+    )
+
+
 def int8_dynamic_activation_int8_weight(
-    layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC
+    layout=PlainLayout(),
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_only_decode=False,
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -755,11 +883,14 @@ def int8_dynamic_activation_int8_weight(
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
 
-        # input settings
-        if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if weight_only_decode:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
         else:
-            input_quant_func = _int8_asymm_per_token_quant
+            # input settings
+            if act_mapping_type == MappingType.SYMMETRIC:
+                input_quant_func = _int8_symm_per_token_reduced_range_quant
+            else:
+                input_quant_func = _int8_asymm_per_token_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(
@@ -827,10 +958,11 @@ def _normalize_granularity(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ],
 ) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    processed_granularity = None
     if granularity is None:
-        return (PerTensor(), PerTensor())
+        processed_granularity = (PerTensor(), PerTensor())
     elif isinstance(granularity, (PerTensor, PerRow)):
-        return (granularity, granularity)
+        processed_granularity = (granularity, granularity)
     elif isinstance(granularity, tuple) and len(granularity) == 2:
         if not (
             isinstance(granularity[0], (PerTensor, PerRow))
@@ -843,11 +975,25 @@ def _normalize_granularity(
             raise ValueError(
                 f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
             )
-        return granularity
+        processed_granularity = granularity
     else:
         raise ValueError(
             f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
         )
+    # Validate granularity with supported Hardware
+    for _granularity in processed_granularity:
+        if isinstance(_granularity, PerTensor):
+            assert (
+                is_sm_at_least_89() or is_MI300()
+            ), "PerTensor quantization only works for CUDA>=8.9 and MI300+"
+        elif isinstance(_granularity, PerRow):
+            assert (
+                is_sm_at_least_90() or is_MI300()
+            ), "PerRow quantization only works for CUDA>=9.0 and MI300+"
+        else:
+            raise ValueError(f"Invalid granularity type: {_granularity}")
+
+    return processed_granularity
 
 
 def _input_activation_quant_func_fp8(
@@ -939,6 +1085,9 @@ def float8_dynamic_activation_float8_weight(
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -993,6 +1142,9 @@ def float8_static_activation_float8_weight(
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
     """
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -1139,6 +1291,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
         [
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
+            _int8_symm_per_token_reduced_range_quant_cutlass,
             _input_activation_quant_func_fp8,
         ]
     )
