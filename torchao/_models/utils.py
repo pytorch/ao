@@ -38,7 +38,7 @@ def write_json_result_ossci(output_json_path, headers, row):
         "model": {
             "name": mapping_headers["name"],
             "type": "model",
-            "origins": ["torchao/_models"],
+            "origins": ["torchao"],
         },
         "metric": {
             "name": mapping_headers["metric"],
@@ -87,7 +87,7 @@ def write_json_result_local(output_json_path, headers, row):
         "model": {
             "name": mapping_headers["name"],
             "type": "model",
-            "origins": ["torchao/_models"],
+            "origins": ["torchao"],
         },
         "metric": {
             "name": mapping_headers["metric"],
