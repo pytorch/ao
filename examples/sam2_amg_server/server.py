@@ -557,8 +557,9 @@ def main(checkpoint_path,
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
         
-        # Use context manager to handle figure lifecycle and ensure cleanup
-        with plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100) as fig:
+        # Create figure and ensure it's closed after use
+        fig = plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        try:
             # Display the original image
             plt.imshow(image_tensor)
             # Overlay annotations (masks) on the image
@@ -575,11 +576,11 @@ def main(checkpoint_path,
             # Reset buffer position to start
             buf.seek(0)
             
-            # Explicitly close the figure to prevent memory leaks
+            return StreamingResponse(buf, media_type="image/png")
+        finally:
+            # Ensure figure is closed even if an error occurs
             plt.close(fig)
-            
-        # Return the image as a streaming response
-            return StreamingResponse(buf, media_type="image/png")       
+
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
 
