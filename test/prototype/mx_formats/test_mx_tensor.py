@@ -5,8 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import pytest
-
 import torch
+
 from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
@@ -14,18 +14,14 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E3M2,
     SUPPORTED_ELEM_DTYPES,
 )
-
 from torchao.prototype.mx_formats.custom_cast import pack_uint4
-
 from torchao.prototype.mx_formats.mx_tensor import (
     E8M0_EXPONENT_NAN_VAL,
     MXTensor,
     to_dtype,
 )
-
 from torchao.quantization.utils import compute_error
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
-
 
 torch.manual_seed(2)
 
@@ -118,17 +114,11 @@ def test_exponent_nan_out(elem_dtype):
         [E8M0_EXPONENT_NAN_VAL, 23, 42], dtype=torch.uint8, device="cuda"
     )
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=elem_dtype, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=elem_dtype, device="cuda")  # noqa: E501
     elif elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2):
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda")  # noqa: E501
     elif elem_dtype == DTYPE_FP4:
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda")  # noqa: E501
         data_bits = pack_uint4(data_bits)
     else:
         raise AssertionError("unsupported")
