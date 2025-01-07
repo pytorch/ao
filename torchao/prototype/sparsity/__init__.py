@@ -18,3 +18,16 @@ from torchao.prototype.sparsity.sparsifier.utils import (
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
+
+__all__ = [
+    "BaseScheduler",
+    "CubicSL",
+    "LambdaSL",
+    "BaseSparsifier",
+    "NearlyDiagonalSparsifier",
+    "FakeSparsity",
+    "fqn_to_module",
+    "get_arg_info_from_tensor_fqn",
+    "module_to_fqn",
+    "WeightNormSparsifier",
+]

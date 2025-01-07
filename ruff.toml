@@ -9,7 +9,6 @@ include = [
 
 exclude = [
     "torchao/experimental/**/*.py",
-    "torchao/prototype/**/*.py",
 ]
 
 lint.select = ["F", "I"]

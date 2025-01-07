@@ -7,6 +7,7 @@
 """
 Triton kernels for scaling high precision tensors to float8.
 """
+
 from enum import Enum
 
 import torch
@@ -529,8 +530,6 @@ def hp_to_fp8_col_major_t(
     assert hp_tensor.is_contiguous(), "input tensor must be contiguous"
 
     num_elements = hp_tensor.numel()
-    input_num_rows, input_num_cols = hp_tensor.shape
-    output_num_rows, output_num_cols = input_num_cols, input_num_rows
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
     tl_output_dtype = FP8_DTYPE_MAP[fp8_dtype]
 
@@ -579,7 +578,6 @@ def _hp_tensor_to_scale(
     fp8_dtype_max: float,
     algo: KernelAlgorithm,
 ) -> torch.Tensor:
-
     num_elements = hp_tensor.numel()
     scale_out = torch.empty((), dtype=torch.float32, device=hp_tensor.device)
     grid = lambda meta: (triton.cdiv(num_elements, meta["BLOCK_SIZE"]),)
