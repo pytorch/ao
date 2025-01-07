@@ -1,14 +1,11 @@
 import itertools
 
+import pytest
 import torch
 
-import torchao
 from torchao.ops import s8s4_linear_cutlass
 from torchao.quantization.utils import group_quantize_tensor_symmetric
 from torchao.utils import compute_max_diff
-
-import pytest
-
 
 S8S4_LINEAR_CUTLASS_DTYPE = [torch.float16, torch.bfloat16]
 S8S4_LINEAR_CUTLASS_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
@@ -73,7 +70,7 @@ def test_s8s4_linear_cutlass(dtype, batch_size, size_mnk, use_bias):
     fn_inputs = (input_s8, input_scales, weight_s4, weight_scales, bias)
     try:
         output = s8s4_linear_cutlass(*fn_inputs)
-    except NotImplementedError as e:
+    except NotImplementedError:
         pytest.xfail("s8s4_linear_cutlass() op not implemented")
 
     max_diff = compute_max_diff(output, output_ref)
