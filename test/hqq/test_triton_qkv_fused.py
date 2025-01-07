@@ -13,7 +13,6 @@ BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
 import itertools
 
 import torch
-from hqq.core.quantize import BaseQuantizeConfig, HQQLinear, Quantizer
 
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
