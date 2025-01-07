@@ -93,6 +93,18 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    use_cutlass = False
+    if use_cuda and not IS_WINDOWS:
+        use_cutlass = True
+        this_dir = os.path.abspath(os.path.curdir)
+        cutlass_dir = os.path.join(this_dir, "third_party", "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend([
+            "-DTORCHAO_USE_CUTLASS",
+            "-I" + cutlass_include_dir,
+        ])
+
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
