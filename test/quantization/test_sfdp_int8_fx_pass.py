@@ -160,7 +160,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     def _test_sdpa_rewriter_int8_1_to_4(self):
         # pattern is different for bs=1
         for dtype, has_mask, bs in itertools.product(
-            [torch.float32], [True, False], [56, 1]
+            [torch.float32, torch.bfloat16], [True, False], [56, 1]
         ):
             mod = SelfAttnLikeModule(
                 input_dim=64 * 16,
