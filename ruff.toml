@@ -20,6 +20,7 @@ include = [
     "test/dtypes/**/*.py",
     "test/sparsity/**/*.py",
     "test/prototype/**/*.py",
+    "test/dora/**/*.py",
 ]
 
 lint.select = ["F", "I"]
