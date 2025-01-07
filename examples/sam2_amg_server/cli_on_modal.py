@@ -426,16 +426,14 @@ def main(task_type,
         start = time.perf_counter()
         input_bytes = bytearray(open(input_path, 'rb').read())
 
+        output_path = output_directory / Path(key)
+        output_path.parent.mkdir(parents=False, exist_ok=True)
         if output_meta:
             assert task_type == "amg"
-            output_path = output_directory / Path(key)
-            output_path = f"{output_path}_meta.json"
             output_dict = model.inference_amg_meta.remote(input_bytes)
-            with open(output_path, 'w') as file:
+            with open(f"{output_path}_meta.json", 'w') as file:
                 file.write(json.dumps(output_dict, indent=4))
         elif output_rle:
-            output_path = output_directory / Path(key)
-            output_path = f"{output_path}_masks.json"
             if task_type == "amg":
                 output_dict = model.inference_amg_rle.remote(input_bytes)
             if task_type == "sps":
@@ -444,12 +442,9 @@ def main(task_type,
             if task_type == "mps":
                 output_dict = model.inference_mps_rle.remote(input_bytes,
                                                              center_points)
-            with open(output_path, 'w') as file:
+            with open(f"{output_path}_masks.json", 'w') as file:
                 file.write(json.dumps(output_dict, indent=4))
         else:
-            output_path = output_directory / Path(key)
-            output_path.parent.mkdir(parents=False, exist_ok=True)
-            output_path = f"{output_path}_annotated.png"
             if task_type == "amg":
                 output_bytes = model.inference_amg.remote(input_bytes)
             if task_type == "sps":
@@ -458,7 +453,7 @@ def main(task_type,
             if task_type == "mps":
                 output_bytes = model.inference_mps.remote(input_bytes,
                                                           center_points)
-            with open(output_path, "wb") as file:
+            with open(f"{output_path}_annotated.png", "wb") as file:
                 file.write(output_bytes)
         end = time.perf_counter()
         print(f"{idx},{end - start}")
