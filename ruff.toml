@@ -19,7 +19,7 @@ include = [
     "test/quantization/**/*.py",
     "test/dtypes/**/*.py",
     "test/sparsity/**/*.py",
-    "test/prototype/low_bit_optim/**.py",
+    "test/prototype/**/*.py",
 ]
 
 lint.select = ["F", "I"]
