@@ -22,6 +22,10 @@ lib.define(
 lib.define(
     "s8s4_linear_cutlass(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
+lib.define("int4_mm_cutlass(Tensor A, Tensor B) -> Tensor")
+lib.define(
+    "scaled_int4_mm_cutlass(Tensor A, Tensor B, Tensor row_scale, Tensor col_scale) -> Tensor"
+)
 
 
 def register_custom_op(name):
@@ -615,3 +619,52 @@ def _(
         dtype=input_scale.dtype,
         device=input.device,
     )
+
+
+def int4_mm_cutlass(A: Tensor, B: Tensor) -> Tensor:
+    """
+    CUTLASS-based W4A4 matmul.
+    Args:
+        A: first INT4 tensor, packed in INT8 dtype, row-major layout.
+        B: second INT4 tensor, packed in INT8 dtype, column-major layout.
+    Returns:
+        output: result tensor, in row-major layout.
+    """
+    assert A.dtype == B.dtype == torch.int8
+    assert A.ndim == B.ndim == 2
+    assert A.shape[1] == B.shape[0]
+    assert A.is_contiguous() and B.T.is_contiguous()
+    return torch.ops.torchao.int4_mm_cutlass.default(A, B)
+
+
+@register_custom_op("torchao::int4_mm_cutlass")
+def _(A: Tensor, B: Tensor) -> Tensor:
+    return A.new_empty(A.shape[0], B.shape[1], dtype=torch.int32)
+
+
+def scaled_int4_mm_cutlass(
+    A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor
+) -> Tensor:
+    """
+    CUTLASS-based W4A4 scaled-matmul.
+    Args:
+        A: first INT4 tensor, packed in INT8 dtype, row-major layout.
+        B: second INT4 tensor, packed in INT8 dtype, column-major layout.
+        row_scale: scaling for each output row.
+        col_scale: scaling for each output column.
+    Returns:
+        output: result tensor, in row-major layout.
+    """
+    assert A.dtype == B.dtype == torch.int8
+    assert A.ndim == B.ndim == 2
+    assert A.shape[1] == B.shape[0]
+    assert A.is_contiguous() and B.T.is_contiguous()
+    assert row_scale.ndim == col_scale.ndim == 1
+    assert row_scale.dtype == col_scale.dtype
+    assert row_scale.dtype in (torch.float16, torch.bfloat16)
+    return torch.ops.torchao.scaled_int4_mm_cutlass.default(A, B, row_scale, col_scale)
+
+
+@register_custom_op("torchao::scaled_int4_mm_cutlass")
+def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+    return row_scale.new_empty(A.shape[0], B.shape[1])
