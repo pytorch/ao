@@ -536,5 +536,63 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
     )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "M,N,K",
+    [(1, 256, 512), (18, 512, 256), (17, 256, 512)]
+)
+def test_int4_mm_cutlass(M, N, K):
+    A = torch.randint(-128, 127, size=(M, K // 2), dtype=torch.int8, device="cuda")
+    B = torch.randint(-128, 127, size=(N, K // 2), dtype=torch.int8, device="cuda")
+    actual = torchao.ops.int4_mm_cutlass(A, B.T)
+
+    # NOTE: A >> 4 will perform sign-bit extension
+    unpacked_A = torch.stack([A >> 4, A << 4 >> 4], dim=1).reshape(M, K)
+    unpacked_B = torch.stack([B >> 4, B << 4 >> 4], dim=1).reshape(N, K)
+    expected = (unpacked_A.float() @ unpacked_B.float().T).to(torch.int32)
+
+    torch.testing.assert_close(actual, expected)
+
+    # Performs opcheck
+    test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
+    opcheck(
+        torch.ops.torchao.int4_mm_cutlass,
+        (A, B),
+        test_utils=test_utils,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "M,N,K",
+    [(1, 256, 512), (18, 512, 256), (17, 256, 512)]
+)
+@pytest.mark.parametrize("dtype", [torch.half, torch.bfloat16])
+def test_scaled_int4_mm_cutlass(M, N, K, dtype):
+    A = torch.randint(-128, 127, size=(M, K // 2), dtype=torch.int8, device="cuda")
+    B = torch.randint(-128, 127, size=(N, K // 2), dtype=torch.int8, device="cuda")
+    row_scale = torch.randn(M, dtype=dtype, device="cuda")
+    col_scale = torch.randn(N, dtype=dtype, device="cuda")
+    actual = torchao.ops.scaled_int4_mm_cutlass(A, B.T, row_scale, col_scale)
+
+    # NOTE: A >> 4 will perform sign-bit extension
+    unpacked_A = torch.stack([A >> 4, A << 4 >> 4], dim=1).reshape(M, K)
+    unpacked_B = torch.stack([B >> 4, B << 4 >> 4], dim=1).reshape(N, K)
+
+    expected = unpacked_A.float() @ unpacked_B.float().T
+    expected = expected * row_scale.view(-1, 1) * col_scale.view(1, -1)
+    expected = expected.to(dtype)
+
+    torch.testing.assert_close(actual, expected)
+
+    # Performs opcheck
+    test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
+    opcheck(
+        torch.ops.torchao.scaled_int4_mm_cutlass,
+        (A, B, row_scale, col_scale),
+        test_utils=test_utils,
+    )
+
+
 if __name__ == "__main__":
     run_tests()
