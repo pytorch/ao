@@ -1,0 +1,1487 @@
+num-images,total_time,first,p99,baseline,max,export-model,second,furious,environ,experiment_name,run_script_time,percentage,load-exported-model,fail_count,bytes,batch-size,median,p95,points-per-batch,p999,allow-recompiles,meta-folder,mean,bytes_MiB,total_ms_per_img,likely_failed_stderr,argmax,fifth,fourth,batch_size,fast,miou,task,total_img_s,gpu-preproc,third
+,917.2159876823425s,1782ms,2102ms,None,2338ms,,998ms,,None,baseline_amg,921.3355312347412,4.0,,,4561654784.0,,857ms,1324ms,64,2264ms,,,911ms,4350.0,917.2159876823425ms,,222,745ms,890ms,1.0,,,amg,1.0902557450255956img/s,,955ms
+,717.2118701934814s,1299ms,872ms,,1299ms,,707ms,,None,amg_ao,721.2540476322174,4.0,,0.0,4205527040.0,,696ms,807ms,64,947ms,,,711ms,4010.0,717.2118701934814ms,,0,707ms,673ms,1.0,,1.0,amg,1.3942881337563908img/s,,692ms
+,599.7890470027924s,679ms,859ms,,1152ms,,558ms,,None,amg_ao_ppb_1024_basic,603.5462827682495,35.0,,0.0,35796202496.0,16,589ms,625ms,1024,1123ms,,,599ms,34137.0,599.7890470027924ms,,62,565ms,563ms,16.0,,0.9999994533658028,amg,1.6672528533108482img/s,,576ms
+,1354.2820310592651s,58417ms,22668ms,,58417ms,,489ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_inductor_cache_dir'},amg_ao_ppb_1024_fast_cold,1365.3139834403992,30.0,,,31122891776.0,16,409ms,510ms,1024,54842ms,,,1344ms,29681.0,1354.2820310592651ms,,0,419ms,444ms,16.0,None,,amg,0.7383986326820271img/s,,526ms
+,435.77815437316895s,1393ms,1029ms,,1393ms,,452ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_inductor_cache_dir'},amg_ao_ppb_1024_fast,440.8565764427185,30.0,,190.0,31122891776.0,16,406ms,485ms,1024,1357ms,,,433ms,29681.0,435.77815437316895ms,,0,389ms,402ms,16.0,None,0.9937833500129205,amg,2.2947455946671256img/s,,400ms
+0,271.24085116386414s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_inductor_cache_dir'},amg_ao_ppb_1024_save_export,279.97766041755676,6.0,,,6226092032.0,16,,,1024,,,,,5937.0,,,,,,16.0,,,amg,0.0img/s,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_inductor_cache_dir'},amg_ao_ppb_1024_load_export_cold,8.789609670639038,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,amg,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_inductor_cache_dir'},amg_ao_ppb_1024_load_export,8.774774312973022,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,amg,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_inductor_cache_dir'},amg_ao_ppb_1024_load_export_gpu_preproc,18.50045108795166,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"[E104 14:54:29.202022629 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 1024.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 524.44 MiB is free. Including non-PyTorch memory, this process has 94.47 GiB memory in use. Of the allocated memory 90.75 GiB is allocated by PyTorch, and 2.17 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7fc69035b672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7fc690415492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7fc690415a37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7fc6904160af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7fc67b99c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7fc67b998d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7fc6332c935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7fc6332c94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7fc6334df26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7fc6358c1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7fc6358c1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7fc67c8abc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7fc67cc465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7fc67c8f9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7fc67f4a91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x267bb (0x7fc19324465b in /tmp/vck0ng/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7fc193287b96 in /tmp/vck0ng/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7fc1932625ea in /tmp/vck0ng/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7fc67f498a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7fc67f4857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7fc68f054302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7fc68ec134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7fc690c295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7fc690c29680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(4, int_array_155, int_array_156, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf937_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.cpp, line 13009
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,,,amg,,None,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_cold,8.481787204742432,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,amg,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir'},amg_ao_ppb_1024_fast_export,7.962841987609863,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,amg,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_gpu_preproc,288.44673252105713,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast,,,16,,,1024,,,,,,,"W0104 14:54:55.410000 1111794 site-packages/torch/_logging/_internal.py:1084] [0/0] Profiler function <class 'torch.autograd.profiler.record_function'> will be ignored
+/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/compile_fx.py:222: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+E0104 14:57:58.616000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/5n/c5n6wxcxheto6xsbkyyzx36es62e2saeoccgcxpwfseg6swcq2fz.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:57:58.622000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/bc/cbc2hivix7alppvqinzztqcl6edmxvowz5sod2szr32pudjv64am.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:57:58.624000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/cu/ccusib34vshxepqsfqdcelmbizidy5mvxuxh5ghpnva5t2up7su7.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+W0104 14:58:02.413000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:03.167000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:04.568000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(4194304x256, 256x128)
+  mm 8.7354 ms 100.0% 
+  triton_mm_146 13.3706 ms 65.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_139 17.0872 ms 51.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_141 17.6846 ms 49.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_143 18.0372 ms 48.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_145 19.1841 ms 45.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_136 28.5263 ms 30.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_140 28.5832 ms 30.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_144 28.5934 ms 30.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_135 29.9881 ms 29.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 5.9361 seconds and 0.0180 seconds precompiling for 20 choices
+E0104 14:58:06.538000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/cw/ccw6pz4aijtwgdedq6l7j4had5ore6x7egaqlkzxv2ugsbyc3sqi.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:06.539000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/v7/cv7woyphceiqsqk7c7onaudus54zlemeawt62nhrbexteuzhjlh5.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:58:06.539000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/sw/cswgmslo55uea6eufm6a76avc4qapxgfgwpl3s3ijii364bxy6h3.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+W0104 14:58:07.799000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:08.210000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:08.894000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(8192x256, 256x2048)
+  mm 0.2846 ms 100.0% 
+  triton_mm_184 0.4445 ms 64.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_177 0.5668 ms 50.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_179 0.5790 ms 49.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_181 0.5898 ms 48.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_183 0.6049 ms 47.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_174 0.9261 ms 30.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_182 0.9285 ms 30.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_178 0.9286 ms 30.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_173 0.9717 ms 29.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.3538 seconds and 0.0037 seconds precompiling for 20 choices
+E0104 14:58:10.342000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/jo/cjogysg7lbrepnxf6r7ffgz3q5iarauxkrm33wp5gn7clexy4dpo.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:10.342000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/dm/cdmyckthmkixiajq4hxg3c4seaoazgykqjwq3ftynxaptibyg4oo.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:58:10.342000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/53/c53spuo54z7mdfsudvpjqwcduxsbkb37r7ubqzt743dbxdi4de5c.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+W0104 14:58:11.387000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:11.755000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:12.364000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0186 ms 100.0% 
+  triton_mm_626 0.0359 ms 51.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_627 0.0361 ms 51.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_625 0.0365 ms 50.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_628 0.0408 ms 45.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_624 0.0432 ms 43.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_630 0.0444 ms 41.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_629 0.0515 ms 36.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_633 0.0570 ms 32.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_637 0.0571 ms 32.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.0204 seconds and 0.0037 seconds precompiling for 20 choices
+E0104 14:58:13.807000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/ih/cih35wbbqrkiyhuxjlh3owjpjvnmp735m27vd2vwlmdezocnqn2q.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:13.808000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/qt/cqt766llbrwdexyxkiroerpvy2b2b4mgyzue5f7zmbwwu3x7mmqs.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:13.808000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/f7/cf75jozwl7nn67ehxwmmeenh5u7umupwlelzapncwviez4qr6mlu.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:14.841000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:15.202000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:15.806000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0180 ms 100.0% 
+  triton_mm_646 0.0357 ms 50.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_645 0.0360 ms 49.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_644 0.0370 ms 48.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_647 0.0408 ms 44.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_643 0.0425 ms 42.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_649 0.0439 ms 40.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_648 0.0522 ms 34.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_652 0.0569 ms 31.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_656 0.0570 ms 31.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.9964 seconds and 0.0040 seconds precompiling for 20 choices
+E0104 14:58:15.815000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/i6/ci66qhz5enzrxrlurufkbijxlnkjz2u7v6lovxjx3kkbdsofmt5d.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:15.815000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/hz/chzgjs7hgtopbh7xuhr5foks2n25oxcot5hnoaz65p2zziotxkep.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:15.816000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/7g/c7gqmvecorqqcx4dxzxqluvxfhmq5pqow7t7j5uia6abaprrmfpa.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:16.861000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:17.223000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:17.833000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0185 ms 100.0% 
+  triton_mm_682 0.0360 ms 51.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_681 0.0364 ms 50.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_680 0.0365 ms 50.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_683 0.0408 ms 45.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_679 0.0431 ms 43.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_685 0.0444 ms 41.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_684 0.0515 ms 36.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_688 0.0565 ms 32.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_692 0.0571 ms 32.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.0163 seconds and 0.0033 seconds precompiling for 20 choices
+E0104 14:58:17.848000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/dg/cdgtty6kidbvnd74qon7l7i6ms2q5f2uiuw77zbzfmuhbgijisua.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:58:17.848000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/ph/cphzz2pkgyung6vhahq7bdzxxzjqxralc4pki2z5ouwbjfj4duxy.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:17.848000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/kn/cknp35orzshsk2hivcipupdde4vq6zk4k6g77yybyyfujtvcbe4t.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+W0104 14:58:18.895000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:19.255000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:19.866000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0186 ms 100.0% 
+  triton_mm_736 0.0360 ms 51.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_737 0.0360 ms 51.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_735 0.0365 ms 50.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_738 0.0404 ms 46.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_734 0.0432 ms 42.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_740 0.0444 ms 41.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_739 0.0509 ms 36.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_743 0.0565 ms 32.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_747 0.0571 ms 32.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.0160 seconds and 0.0036 seconds precompiling for 20 choices
+E0104 14:58:19.881000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/hs/chs6e5c7mi7prfjyaskh4mkd4qaalz2adatga3n7hw7xc66gesjk.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:19.882000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/7q/c7qcspbtd4cqkloxemzi3spxrjh5bo4tbotev3mxajv4vdzxpf4o.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:19.882000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/tz/ctzuknpta3plum4rj6fggl5a7hd6gwu3tkbnrgg2yeusklxlct6w.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:20.929000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:21.292000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:21.909000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0180 ms 100.0% 
+  triton_mm_792 0.0361 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_791 0.0363 ms 49.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_790 0.0370 ms 48.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_793 0.0403 ms 44.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_789 0.0427 ms 42.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_795 0.0440 ms 41.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_794 0.0509 ms 35.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_798 0.0565 ms 31.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_802 0.0571 ms 31.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.0251 seconds and 0.0047 seconds precompiling for 20 choices
+E0104 14:58:21.925000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/2c/c2ce3ld2pvvr3oa3sqpthgz453puodsy6jsvuz43fq3rxzqazqkn.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:21.925000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/m5/cm52hqovtgggkrc7l62qd5hfntrc2xko4mrl6dollg2hjwwn63zf.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:21.925000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/6v/c6v7sl2kvrbpfb5ievhdmcattucnwfjsiq3xkyjqebylzwp5vlsz.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:22.960000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:23.317000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:23.931000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(1024x256, 256x256)
+  mm 0.0185 ms 100.0% 
+  triton_mm_847 0.0361 ms 51.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_846 0.0363 ms 51.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_845 0.0368 ms 50.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_848 0.0403 ms 46.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_844 0.0431 ms 43.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_850 0.0440 ms 42.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_849 0.0524 ms 35.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_853 0.0570 ms 32.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_857 0.0575 ms 32.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.0045 seconds and 0.0040 seconds precompiling for 20 choices
+AUTOTUNE mm(1024x256, 256x4)
+  triton_mm_883 0.0162 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=2
+  triton_mm_884 0.0162 ms 99.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=2
+  mm 0.0166 ms 97.5% 
+  triton_mm_885 0.0232 ms 69.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_889 0.0233 ms 69.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_890 0.0235 ms 68.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_891 0.0236 ms 68.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4
+  triton_mm_886 0.0251 ms 64.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_892 0.0251 ms 64.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4
+  triton_mm_882 0.0262 ms 61.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+SingleProcess AUTOTUNE benchmarking takes 1.9100 seconds and 0.0029 seconds precompiling for 17 choices
+AUTOTUNE mm(2048x2, 2x128)
+  triton_mm_0 0.0067 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_1 0.0067 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_3 0.0068 ms 97.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_4 0.0072 ms 92.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_2 0.0073 ms 91.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_5 0.0073 ms 91.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_7 0.0077 ms 86.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_6 0.0078 ms 85.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=3, num_warps=8
+  mm 0.0079 ms 84.2% 
+  triton_mm_8 0.0083 ms 80.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.3704 seconds and 0.0024 seconds precompiling for 17 choices
+E0104 14:58:30.506000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/cz/cczuf4mbz67rz32kb4erom4hh3extdrznp22adm5ibnzg5hixbva.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:30.506000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/ol/col55uhulv2tpdd6tvz5fsjd5fvzf7f4lcof3yxiinqohgrv6xzn.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:58:30.507000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/fm/cfmrvf73u347gr6p27yythhloowf3ttokszs3xcu3zcairvh4kqj.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+W0104 14:58:31.755000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:32.124000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:32.745000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE addmm(8192x256, 8192x256, 256x256)
+  bias_addmm 0.0492 ms 100.0% 
+  addmm 0.0681 ms 72.3% 
+  triton_mm_27 0.0801 ms 61.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_29 0.0805 ms 61.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_25 0.0822 ms 59.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_31 0.0850 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_32 0.1013 ms 48.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_26 0.1234 ms 39.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_30 0.1236 ms 39.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_22 0.1239 ms 39.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.2383 seconds and 0.0036 seconds precompiling for 21 choices
+E0104 14:58:32.764000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/cg/ccgnyrvmdvzpy5m2bqv73uvp5ryhk7oo4tgqvsuydslhfdgfc5vp.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+E0104 14:58:32.764000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/s7/cs7q4sfniajsppacggmbmeragnz5ndbgb3e2krsa7ob3xunpght5.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:32.765000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/hu/chuc2m3mj52bu2oebtpfdbhfxycfpgcd2r44s3bf7isc3ub63sqm.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+W0104 14:58:33.985000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:34.346000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:34.965000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE addmm(8192x128, 8192x256, 256x128)
+  bias_addmm 0.0313 ms 100.0% 
+  addmm 0.0400 ms 78.1% 
+  triton_mm_101 0.0577 ms 54.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_105 0.0588 ms 53.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_103 0.0625 ms 50.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_106 0.0676 ms 46.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_102 0.0683 ms 45.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_98 0.0705 ms 44.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_97 0.0780 ms 40.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_107 0.0854 ms 36.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 2.1995 seconds and 0.0039 seconds precompiling for 21 choices
+E0104 14:58:34.979000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/f5/cf54lpxyskhyrlnsvgwdvrzswqz4avvyso3u2cqlseqwgbpj7pgv.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:37.259000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(8192x128, 128x256)
+  mm 0.0332 ms 100.0% 
+  triton_mm_162 0.0454 ms 73.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_160 0.0457 ms 72.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_158 0.0467 ms 71.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_164 0.0485 ms 68.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_165 0.0556 ms 59.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_161 0.0625 ms 53.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4
+  triton_mm_155 0.0664 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_159 0.0667 ms 49.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_163 0.0667 ms 49.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 2.2801 seconds and 0.0032 seconds precompiling for 20 choices
+E0104 14:58:37.270000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/on/conqpjsap2lmt25m4ryj4u2jokwdkj3n76k7lydyysr25djpcl7t.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:37.270000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/3k/c3khytafoigi6kim6pdzoqzpcgfmxla5mcqjpdagr76qbydjpbfz.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:37.270000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/zj/czj3ivlbzlexehyunwsgcvxdcfeh2qkgsyg5qnqj4z4x2ntfkkpb.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:38.545000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:38.959000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:39.649000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(8192x2048, 2048x256)
+  mm 0.2634 ms 100.0% 
+  triton_mm_198 0.5623 ms 46.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_200 0.5694 ms 46.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_196 0.5824 ms 45.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_202 0.6028 ms 43.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_203 0.7275 ms 36.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_197 0.9114 ms 28.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_201 0.9114 ms 28.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_193 0.9240 ms 28.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_192 0.9827 ms 26.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.3769 seconds and 0.0043 seconds precompiling for 20 choices
+E0104 14:58:39.681000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/ky/ckyhimz75w66p4dzshouxrmg7ie7bwfkrfrlyvxunuc74wqp7mc7.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:39.681000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/5p/c5p2njycheuu4ibz72tea7bdprmaf3mtvcfsqtmlyvva2lze3dam.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:39.682000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/2g/c2g2wdyljca252vedjlxej2buodylp2xrviy5gx7tydocsv7dgta.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:40.825000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:41.198000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:41.816000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(8192x256, 256x256)
+  mm 0.0553 ms 100.0% 
+  triton_mm_350 0.0801 ms 69.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_352 0.0803 ms 68.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_348 0.0818 ms 67.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_354 0.0851 ms 65.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_355 0.1004 ms 55.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_349 0.1229 ms 45.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_353 0.1230 ms 45.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_345 0.1234 ms 44.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_344 0.1305 ms 42.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.1333 seconds and 0.0039 seconds precompiling for 20 choices
+E0104 14:58:41.828000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/sn/csnohx66tfenmoj7n2bmwgbic34up2jtkkpubt6ri3ulzzs65i4x.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:48.250000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE mm(4194304x128, 128x256)
+  mm 9.4713 ms 100.0% 
+  triton_mm_279 13.9709 ms 67.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_272 17.6967 ms 53.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_274 18.6221 ms 50.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_276 18.8196 ms 50.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_278 19.6385 ms 48.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_275 22.5283 ms 42.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4
+  triton_mm_269 29.1230 ms 32.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_277 29.2766 ms 32.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_273 29.3001 ms 32.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 6.4215 seconds and 0.0028 seconds precompiling for 20 choices
+E0104 14:58:48.257000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/fd/cfd3rt23zlyxc467xbmaht27lcdmcc2vxl6dlsywghfy2ejsmk3x.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
+E0104 14:58:48.257000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/qx/cqx2lsb6v7ma4wbfimbwrutnrvryslllktgmccnif7o66vbm2rm7.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4)
+E0104 14:58:48.257000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/b4/cb4hhjhqp7d2eztocjovp5g3buk57sbfeqe4qtjbrgciwcmav7ml.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
+W0104 14:58:52.143000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:52.895000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+W0104 14:58:54.313000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
+AUTOTUNE addmm(4194304x128, 4194304x256, 256x128)
+  bias_addmm 8.5930 ms 100.0% 
+  addmm 11.2420 ms 76.4% 
+  triton_mm_393 13.5410 ms 63.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_386 17.1705 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_388 17.8044 ms 48.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_390 18.0595 ms 47.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_392 19.2562 ms 44.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=8
+  triton_mm_383 28.6208 ms 30.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  triton_mm_387 28.6660 ms 30.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_391 28.6740 ms 30.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 6.0558 seconds and 0.0034 seconds precompiling for 21 choices
+AUTOTUNE addmm(1024x32, 1024x256, 256x32)
+  bias_addmm 0.0174 ms 100.0% 
+  triton_mm_664 0.0227 ms 76.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
+  triton_mm_663 0.0227 ms 76.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
+  addmm 0.0228 ms 76.3% 
+  triton_mm_662 0.0333 ms 52.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
+  triton_mm_665 0.0354 ms 49.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
+  triton_mm_669 0.0354 ms 49.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=8
+  triton_mm_671 0.0358 ms 48.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
+  triton_mm_670 0.0371 ms 46.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+  triton_mm_672 0.0392 ms 44.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 2.1816 seconds and 0.0026 seconds precompiling for 19 choices
+[E104 14:59:32.987771209 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 144.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 108.44 MiB is free. Including non-PyTorch memory, this process has 94.88 GiB memory in use. Of the allocated memory 92.74 GiB is allocated by PyTorch, with 34.49 GiB allocated in private pools (e.g., CUDA Graphs), and 567.62 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7f08976d3672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7f089778d492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7f089778da37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7f089778e0af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7f088319c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7f0883198d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7f083aac935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7f083aac94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7f083acdf26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7f083d0c1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7f083d0c1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7f08840abc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7f08844465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7f08840f9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7f0886ca91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x15221 (0x7f03852330c1 in /tmp/DeJqir/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7f0385287b96 in /tmp/DeJqir/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7f03852625ea in /tmp/DeJqir/data/aotinductor/model/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7f0886c98a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7f0886c857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7f0896854302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7f08964134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7f08982295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7f0898229680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(6, int_array_121, int_array_122, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf480_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/cu3uh4pvyhucvxmgw7amcoyph3pxw7frg2m6hn3tgiqhxpc4ffh6.cpp, line 10078
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 125, in gen_masks_ao_batch
+    return mask_generator.generate_batch(image_tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+    data = self._generate_masks_batch(images)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+    all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+    self.predictor.set_image_batch(all_cropped_im)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,None,,amg,,None,
+,1050.4225537776947s,54720ms,20976ms,,54720ms,,191ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_furious_cold,1061.0016918182373,29.0,,309.0,29885315072.0,16,168ms,234ms,1024,51346ms,,,1039ms,28500.0,1050.4225537776947ms,,0,137ms,131ms,16.0,None,0.9768687785534369,amg,0.9519978378259709img/s,,147ms
+,188.05122303962708s,1174ms,628ms,,1174ms,,267ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_furious,193.3895013332367,29.0,,309.0,29885315072.0,16,159ms,271ms,1024,1120ms,,,183ms,28500.0,188.05122303962708ms,,0,175ms,149ms,16.0,None,0.9768687785534369,amg,5.317700059782515img/s,,162ms
+0,378.8961989879608s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_furious_inductor_cache_dir'},amg_ao_ppb_1024_save_export_furious,386.4734992980957,3.0,,,3272316416.0,16,,,1024,,,,,3120.0,,,,,,16.0,,,amg,0.0img/s,,
+,362.0392813682556s,396ms,503ms,,611ms,,306ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_load_export_furious_cold,365.8281319141388,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,201.0,43174652928.0,16,343ms,426ms,1024,601ms,,,358ms,41174.0,362.0392813682556ms,,62,308ms,306ms,16.0,,0.988486804898003,amg,2.762131214659079img/s,,322ms
+,340.55265855789185s,398ms,493ms,,608ms,,309ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_load_export_furious,344.7214288711548,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,201.0,43174652928.0,16,330ms,379ms,1024,596ms,,,337ms,41174.0,340.55265855789185ms,,62,311ms,332ms,16.0,,0.988486804898003,amg,2.9364034456069477img/s,,317ms
+,322.46685338020325s,414ms,482ms,,593ms,,291ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_load_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_load_export_furious_gpu_preproc,326.6056706905365,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,775.0,43683464192.0,16,313ms,334ms,1024,582ms,,,319ms,41659.0,322.46685338020325ms,,62,298ms,294ms,16.0,,0.8474392867088318,amg,3.1010939249032026img/s,None,304ms
+,425.20826292037964s,16657ms,6510ms,,16657ms,,125ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_furious_cold,431.63083481788635,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,320.0,43174653952.0,16,151ms,184ms,1024,15643ms,,,418ms,41174.0,425.20826292037964ms,,0,145ms,133ms,16.0,None,0.9776437171680086,amg,2.3517887284971466img/s,,141ms
+,168.456396818161s,516ms,359ms,,516ms,,133ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_furious,173.48480486869812,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,320.0,43174653952.0,16,155ms,217ms,1024,500ms,,,163ms,41174.0,168.456396818161ms,,0,134ms,144ms,16.0,None,0.9776437171680086,amg,5.936254240789933img/s,,152ms
+,288.0932836532593s,7661ms,3085ms,,7661ms,,145ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_furious_recompiles,292.85079765319824,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,323.0,43174653952.0,16,147ms,252ms,1024,7203ms,None,,282ms,41174.0,288.0932836532593ms,,0,139ms,198ms,16.0,None,0.9777304468954331,amg,3.471097928140425img/s,,143ms
+,149.35214638710022s,482ms,334ms,,482ms,,116ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_furious_gpu_preproc,154.08151412010193,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,766.0,43684651520.0,16,138ms,161ms,1024,467ms,,,145ms,41660.0,149.35214638710022ms,,0,122ms,119ms,16.0,None,0.8366914577463753,amg,6.695585059809837img/s,None,128ms
+,154.55591297149658s,529ms,964ms,,1675ms,,105ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_furious_inductor_cache_dir'},amg_ao_ppb_1024_fast_export_furious_gpu_preproc_recompiles,159.92992520332336,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/amg_ao_fast_furious,767.0,43685494784.0,16,118ms,133ms,1024,1604ms,None,,150ms,41661.0,154.55591297149658ms,,49,109ms,107ms,16.0,None,0.8366198419501342,amg,6.470150386186916img/s,None,111ms
+,125.12135195732117s,435ms,227ms,None,435ms,,136ms,,None,baseline_sps,128.7318172454834,1.0,,,1402492416.0,,110ms,175ms,1,323ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,120ms,1337.0,125.12135195732115ms,,0,106ms,110ms,1.0,,,sps,7.99224100728307img/s,,138ms
+,159.62276673316956s,519ms,224ms,,519ms,,151ms,,None,sps_ao,163.29384660720825,1.0,,0.0,1404942848.0,,135ms,220ms,1,233ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,152ms,1339.0,159.62276673316956ms,,0,202ms,124ms,1.0,,1.0,sps,6.264770499008024img/s,,201ms
+,116.02680897712708s,196ms,205ms,,208ms,,92ms,,None,sps_ao_ppb_1_basic,120.02618885040283,8.0,,0.0,8464047616.0,16,96ms,196ms,1,208ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,111ms,8071.0,116.02680897712708ms,,43,92ms,143ms,16.0,,1.0,sps,8.618697771798024img/s,,199ms
+,877.8415274620056s,46767ms,17909ms,,46767ms,,208ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_inductor_cache_dir'},sps_ao_ppb_1_fast_cold,885.9228961467743,7.0,,,7234536960.0,16,111ms,210ms,1,43881ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,868ms,6899.0,877.8415274620056ms,,0,167ms,163ms,16.0,None,,sps,1.1391577736031422img/s,,205ms
+,117.80888175964355s,1147ms,563ms,,1147ms,,145ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_inductor_cache_dir'},sps_ao_ppb_1_fast,122.44172072410583,7.0,,0.0,7233867264.0,16,88ms,144ms,1,1088ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,113ms,6898.0,117.80888175964355ms,,0,205ms,116ms,16.0,None,0.9998688755631446,sps,8.48832435265979img/s,,88ms
+0,268.7810788154602s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_inductor_cache_dir'},sps_ao_ppb_1_save_export,277.71595072746277,6.0,,,6226092032.0,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,5937.0,,,,,,16.0,,,sps,0.0img/s,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_inductor_cache_dir'},sps_ao_ppb_1_load_export_cold,9.42168402671814,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,sps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_inductor_cache_dir'},sps_ao_ppb_1_load_export,8.38084626197815,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,sps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_inductor_cache_dir'},sps_ao_ppb_1_load_export_gpu_preproc,14.24289870262146,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"[E104 16:57:13.821579159 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 576.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 382.44 MiB is free. Including non-PyTorch memory, this process has 94.61 GiB memory in use. Of the allocated memory 91.36 GiB is allocated by PyTorch, and 1.70 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7f5109b81672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7f5109f61492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7f5109f61a37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7f5109f620af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7f50f559c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7f50f5598d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7f50acec935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7f50acec94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7f50ad0df26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7f50af4c1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7f50af4c1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7f50f64abc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7f50f68465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7f50f64f9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7f50f90a91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x265db (0x7f4bf924447b in /tmp/42H3OP/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7f4bf9287b96 in /tmp/42H3OP/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7f4bf92625ea in /tmp/42H3OP/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7f50f9098a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7f50f90857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7f5108c54302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7f51088134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7f510a8295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7f510a829680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(4, int_array_77, int_array_76, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf935_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.cpp, line 12989
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,,,sps,,None,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_inductor_cache_dir'},sps_ao_ppb_1_fast_export_cold,8.93021845817566,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,sps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_inductor_cache_dir'},sps_ao_ppb_1_fast_export,8.916202306747437,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,sps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_inductor_cache_dir'},sps_ao_ppb_1_fast_export_gpu_preproc,14.746387958526611,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast,,,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"[E104 16:57:46.207296841 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 576.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 382.44 MiB is free. Including non-PyTorch memory, this process has 94.61 GiB memory in use. Of the allocated memory 91.36 GiB is allocated by PyTorch, and 1.70 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7fccf9cc2672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7fccf9d7c492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7fccf9d7ca37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7fccf9d7d0af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7fcce579c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7fcce5798d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7fcc9d0c935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7fcc9d0c94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7fcc9d2df26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7fcc9f6c1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7fcc9f6c1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7fcce66abc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7fcce6a465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7fcce66f9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7fcce92a91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x265db (0x7fc7ed24447b in /tmp/zVFMHs/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7fc7ed287b96 in /tmp/zVFMHs/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7fc7ed2625ea in /tmp/zVFMHs/data/aotinductor/model/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7fcce9298a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7fcce92857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7fccf8e54302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7fccf8a134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7fccfa8295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7fccfa829680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(4, int_array_77, int_array_76, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf935_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/cjfurekk3we4si6rfc4o2xrz2esa3oulxipjyee2u5ib5mkupvgx.cpp, line 12989
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 127, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,None,,sps,,None,
+,676.2433207035065s,40301ms,15391ms,,40301ms,,123ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_furious_cold,686.1999428272247,3.0,,0.0,3725303808.0,16,25ms,39ms,1,37810ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,667ms,3552.0,676.2433207035065ms,,0,21ms,19ms,16.0,None,0.999667152941227,sps,1.4787576740272783img/s,,25ms
+,56.04647922515869s,1038ms,446ms,,1038ms,,48ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_furious,61.82413983345032,3.0,,0.0,3678763520.0,16,29ms,73ms,1,979ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,51ms,3508.0,56.04647922515869ms,,0,20ms,22ms,16.0,None,0.999667152941227,sps,17.842333966824988img/s,,83ms
+0,368.51427388191223s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_furious_inductor_cache_dir'},sps_ao_ppb_1_save_export_furious,379.14291191101074,3.0,,,3272316416.0,16,,,1,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,3120.0,,,,,,16.0,,,sps,0.0img/s,,
+,73.87627840042114s,94ms,190ms,,260ms,,57ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_furious_inductor_cache_dir'},sps_ao_ppb_1_load_export_furious_cold,78.57923865318298,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43404282880.0,16,52ms,144ms,1,253ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,68ms,41393.0,73.87627840042114ms,,62,61ms,51ms,16.0,,0.9998057578802109,sps,13.536144776809701img/s,,53ms
+,51.248069286346436s,94ms,182ms,,235ms,,150ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_furious_inductor_cache_dir'},sps_ao_ppb_1_load_export_furious,55.267892837524414,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43404282880.0,16,33ms,113ms,1,229ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,46ms,41393.0,51.248069286346436ms,,62,26ms,88ms,16.0,,0.9998057578802109,sps,19.512930222064405img/s,,147ms
+,20.898913383483887s,110ms,59ms,,110ms,,14ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_load_export_furious_inductor_cache_dir'},sps_ao_ppb_1_load_export_furious_gpu_preproc,25.730708122253418,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43895400960.0,16,14ms,15ms,1,105ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,16ms,41861.0,20.898913383483887ms,,0,14ms,14ms,16.0,,0.9861011119822797,sps,47.84937769971743img/s,None,14ms
+,40.41393327713013s,70ms,104ms,,148ms,,25ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_export_furious_cold,44.30260992050171,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43404282880.0,16,31ms,67ms,1,143ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,36ms,41393.0,40.41393327713013ms,,38,23ms,24ms,16.0,None,0.9998057578802109,sps,24.743941480348084img/s,,24ms
+,37.85703182220459s,73ms,85ms,,85ms,,23ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_export_furious,42.50362706184387,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43404282880.0,16,27ms,73ms,1,85ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,33ms,41393.0,37.85703182220459ms,,11,22ms,28ms,16.0,None,0.9998057578802109,sps,26.4151718152785img/s,,25ms
+,48.392465591430664s,975ms,424ms,,975ms,,24ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_export_furious_recompiles,53.96070885658264,42.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43404282880.0,16,26ms,43ms,1,920ms,None,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,44ms,41393.0,48.392465591430664ms,,0,27ms,27ms,16.0,None,0.21554771350810506,sps,20.664373839573074img/s,,86ms
+,20.2758846282959s,103ms,56ms,,103ms,,14ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_export_furious_gpu_preproc,24.72737216949463,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43896284160.0,16,14ms,14ms,1,99ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,16ms,41862.0,20.2758846282959ms,,0,14ms,14ms,16.0,None,0.9861011119822797,sps,49.3196730171001img/s,None,14ms
+,21.420757055282593s,229ms,104ms,,229ms,,14ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/sps_fast_export_furious_inductor_cache_dir'},sps_ao_ppb_1_fast_export_furious_gpu_preproc_recompiles,25.821946144104004,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/sps_ao_fast_furious,0.0,43894694400.0,16,14ms,14ms,1,217ms,None,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,18ms,41861.0,21.420757055282593ms,,0,14ms,14ms,16.0,None,0.231082263974753,sps,46.683690843381704img/s,None,14ms
+,303.6069405078888s,529ms,1028ms,None,1716ms,,764ms,,None,baseline_mps,307.2035038471222,1.0,,,1402492416.0,,239ms,677ms,,1649ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,297ms,1337.0,303.6069405078888ms,,911,524ms,199ms,1.0,,,mps,3.293732344613566img/s,,633ms
+,134.71947479248047s,501ms,231ms,,501ms,,226ms,,None,mps_ao,138.83815622329712,8.0,,0.0,8411699712.0,,118ms,204ms,,270ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,128ms,8022.0,134.71947479248047ms,,0,126ms,104ms,1.0,,0.999999164044857,mps,7.422831788354153img/s,,117ms
+,134.7918221950531s,178ms,254ms,,300ms,,109ms,,None,mps_ao_ppb_None_basic,138.53370714187622,9.0,,0.0,9252478464.0,16,117ms,196ms,,295ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,130ms,8823.0,134.7918221950531ms,,62,101ms,100ms,16.0,,0.999999164044857,mps,7.4188476994763874img/s,,142ms
+,891.2185575962067s,41757ms,17794ms,,41757ms,,203ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_inductor_cache_dir'},mps_ao_ppb_None_fast_cold,904.0428965091705,9.0,,,9250581504.0,16,128ms,241ms,,39361ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,879ms,8822.0,891.2185575962067ms,,0,104ms,115ms,16.0,None,,mps,1.122059220464617img/s,,1834ms
+,146.06043028831482s,1613ms,1082ms,,1613ms,,132ms,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_inductor_cache_dir'},mps_ao_ppb_None_fast,153.35333013534546,9.0,,0.0,9251391488.0,16,97ms,175ms,,1560ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,140ms,8822.0,146.06043028831482ms,,0,95ms,92ms,16.0,None,0.9983835771083832,mps,6.8464812682398515img/s,,757ms
+0,280.82308316230774s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_inductor_cache_dir'},mps_ao_ppb_None_save_export,290.70870423316956,6.0,,,6226092032.0,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,5937.0,,,,,,16.0,,,mps,0.0img/s,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_inductor_cache_dir'},mps_ao_ppb_None_load_export_cold,9.696334838867188,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,mps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_inductor_cache_dir'},mps_ao_ppb_None_load_export,8.49372673034668,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,,,mps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_inductor_cache_dir'},mps_ao_ppb_None_load_export_gpu_preproc,11.858826875686646,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"[E104 18:13:45.690486409 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 576.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 564.44 MiB is free. Including non-PyTorch memory, this process has 94.43 GiB memory in use. Of the allocated memory 91.68 GiB is allocated by PyTorch, and 1.19 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7fef58181672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7fef58548492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7fef58548a37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7fef585490af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7fef43b9c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7fef43b98d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7feefb4c935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7feefb4c94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7feefb6df26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7feefdac1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7feefdac1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7fef44aabc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7fef44e465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7fef44af9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7fef476a91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x265db (0x7fea5b24447b in /tmp/RWO61b/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7fea5b287b96 in /tmp/RWO61b/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7fea5b2625ea in /tmp/RWO61b/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7fef47698a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7fef476857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7fef57254302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7fef56e134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7fef58e295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7fef58e29680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(4, int_array_77, int_array_76, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf935_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.cpp, line 12989
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,,,mps,,None,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_inductor_cache_dir'},mps_ao_ppb_None_fast_export_cold,9.270773887634277,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,mps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_inductor_cache_dir'},mps_ao_ppb_None_fast_export,9.212530374526978,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+    backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/conv.py"", line 549, in _conv_forward
+    return F.conv2d(
+           ^^^^^^^^^
+RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
+",,,,,None,,mps,,,
+,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_inductor_cache_dir'},mps_ao_ppb_None_fast_export_gpu_preproc,82.75403904914856,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"W0104 18:14:14.202000 2235960 site-packages/torch/_logging/_internal.py:1084] [0/0] Profiler function <class 'torch.autograd.profiler.record_function'> will be ignored
+/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/compile_fx.py:222: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles] Recompiling function _predict_masks in /home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py:432
+V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles]     triggered by the following guard failure(s):
+V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles]     - 0/0: Ne(L['self']._modules['model']._modules['sam_mask_decoder']._modules['transformer']._modules['final_attn_token_to_image'].num_heads*((128//L['self']._modules['model']._modules['sam_mask_decoder']._modules['transformer']._modules['final_attn_token_to_image'].num_heads)), 8*L['point_coords'].elems.size()[0])  # (_inductor/pattern_matcher.py:1288 in <genexpr>)
+[E104 18:15:24.766972949 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 576.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 498.44 MiB is free. Including non-PyTorch memory, this process has 94.49 GiB memory in use. Of the allocated memory 91.63 GiB is allocated by PyTorch, and 1.31 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Exception raised from malloc at /pytorch/c10/cuda/CUDACachingAllocator.cpp:1338 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x92 (0x7f01f64d3672 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x3b492 (0x7f01f658d492 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x3ba37 (0x7f01f658da37 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #3: <unknown function> + 0x3c0af (0x7f01f658e0af in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #4: <unknown function> + 0x159c23a (0x7f01e1f9c23a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: at::detail::empty_strided_generic(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) + 0x3d3 (0x7f01e1f98d63 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>) + 0x8d (0x7f01998c935d in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #7: at::detail::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x6f (0x7f01998c94ef in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: at::native::empty_strided_cuda(c10::ArrayRef<long>, c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x3a (0x7f0199adf26a in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: <unknown function> + 0x34c1db8 (0x7f019bec1db8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x34c1ea0 (0x7f019bec1ea0 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #11: at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0xf8 (0x7f01e2eabc38 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x28465d8 (0x7f01e32465d8 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: at::_ops::empty_strided::call(c10::ArrayRef<c10::SymInt>, c10::ArrayRef<c10::SymInt>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>) + 0x1a6 (0x7f01e2ef9166 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: aoti_torch_empty_strided + 0x206 (0x7f01e5aa91e6 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: torch::aot_inductor::AOTInductorModel::run_impl(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0x265db (0x7efce524447b in /tmp/pzCVdG/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #16: torch::aot_inductor::AOTInductorModelContainer::run(AtenTensorOpaque**, AtenTensorOpaque**, CUstream_st*, AOTIProxyExecutorOpaque*) + 0xd6 (0x7efce5287b96 in /tmp/pzCVdG/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #17: AOTInductorModelContainerRun + 0x6a (0x7efce52625ea in /tmp/pzCVdG/data/aotinductor/model/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.so)
+frame #18: torch::inductor::AOTIModelContainerRunner::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&, AOTInductorStreamOpaque*) + 0x101 (0x7f01e5a98a21 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #19: torch::inductor::AOTIModelPackageLoader::run(std::vector<at::Tensor, std::allocator<at::Tensor> > const&) + 0xf (0x7f01e5a857cf in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #20: <unknown function> + 0x854302 (0x7f01f5654302 in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #21: <unknown function> + 0x4134ad (0x7f01f52134ad in /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #22: python() [0x549d54]
+<omitting python frames>
+frame #27: python() [0x62f066]
+frame #30: python() [0x575717]
+frame #32: python() [0x575717]
+frame #36: python() [0x62f066]
+frame #40: python() [0x60a0b7]
+frame #41: python() [0x6056d7]
+frame #42: python() [0x61d602]
+frame #47: <unknown function> + 0x295d0 (0x7f01f70295d0 in /lib64/libc.so.6)
+frame #48: __libc_start_main + 0x80 (0x7f01f7029680 in /lib64/libc.so.6)
+frame #49: python() [0x5cc3e9]
+
+Error: aoti_torch_empty_strided(4, int_array_77, int_array_76, cached_torch_dtype_float32, cached_torch_device_type_cuda, this->device_idx_, &buf935_handle) API call failed at /home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_inductor_cache_dir/cvy6ch6siwk7fekfgwbdirz7rdu4mwtmvd36d45zgw3rqipysnfr/ceifi2zdpxm33f545yccbnmjzvbdtui47gg6hg35nzpcehxbhza7.cpp, line 12989
+Traceback (most recent call last):
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 606, in <module>
+    fire.Fire(main)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/fire/core.py"", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 564, in main
+    masks_batch = gen_masks(task_type,
+                  ^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 238, in gen_masks
+    return gen_masks_ao_batch(task_type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/generate_data.py"", line 140, in gen_masks_ao_batch
+    mask_generator.predictor.set_image_batch(image_tensors)
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+    backbone_out = self.model.forward_image(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+    backbone_out = self.image_encoder(img_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1751, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/dev/ao/examples/sam2_amg_server/compile_export_utils.py"", line 202, in forward
+    return self.aoti_compiled_model(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/package/package.py"", line 237, in __call__
+    flat_outputs = self.loader.run(flat_inputs)  # type: ignore[attr-defined]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.size(), output_handles.data(), output_handles.size(), cuda_stream_handle, proxy_executor_handle_) API call failed at /pytorch/torch/csrc/inductor/aoti_runner/model_container_runner.cpp, line 107
+",,,,,None,,mps,,None,
+,736.9131393432617s,39523ms,16628ms,,39523ms,,118ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_furious_cold,748.285783290863,5.0,,0.0,5569780736.0,16,29ms,112ms,,37234ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,726ms,5311.0,736.9131393432617ms,,0,27ms,23ms,16.0,None,0.9966531362533569,mps,1.3570120365762535img/s,,1680ms
+,84.07207441329956s,1578ms,1012ms,,1578ms,,67ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_furious,91.17372393608093,5.0,,0.0,5565531136.0,16,32ms,102ms,,1522ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,78ms,5307.0,84.07207441329956ms,,0,26ms,23ms,16.0,None,0.9966531362533569,mps,11.89455603395707img/s,,665ms
+0,391.31568026542664s,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_furious_inductor_cache_dir'},mps_ao_ppb_None_save_export_furious,401.06731963157654,3.0,,,3272316416.0,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,3120.0,,,,,,16.0,,,mps,0.0img/s,,
+,54.67817950248718s,104ms,104ms,,105ms,,49ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_furious_inductor_cache_dir'},mps_ao_ppb_None_load_export_furious_cold,59.34982371330261,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44082109952.0,16,42ms,88ms,,104ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,48ms,42039.0,54.67817950248718ms,,20,36ms,34ms,16.0,,0.9959665525555611,mps,18.288831286976414img/s,,40ms
+,47.552045822143555s,83ms,72ms,,83ms,,42ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_furious_inductor_cache_dir'},mps_ao_ppb_None_load_export_furious,51.722723960876465,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44082109952.0,16,39ms,57ms,,82ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,42ms,42039.0,47.552045822143555ms,,0,37ms,33ms,16.0,,0.9959665525555611,mps,21.029589425873453img/s,,41ms
+,34.891114234924316s,115ms,77ms,,115ms,,31ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_load_export_furious_inductor_cache_dir'},mps_ao_ppb_None_load_export_furious_gpu_preproc,38.84621000289917,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44540436480.0,16,27ms,29ms,,111ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,29ms,42477.0,34.891114234924316ms,,0,27ms,27ms,16.0,,0.9236604007167043,mps,28.6605923005763img/s,None,27ms
+,172.2840976715088s,2758ms,2566ms,,2758ms,,30ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_export_furious_cold,179.20039200782776,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44082902016.0,16,52ms,152ms,,2739ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,166ms,42040.0,172.2840976715088ms,,0,100ms,95ms,16.0,None,0.9955097639858723,mps,5.804366238761532img/s,,1628ms
+,76.03316760063171s,979ms,888ms,,979ms,,39ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_export_furious,82.21432852745056,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44082902016.0,16,35ms,84ms,,970ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,69ms,42040.0,76.03316760063171ms,,0,28ms,25ms,16.0,None,0.9955097639858723,mps,13.152154928656314img/s,,832ms
+,74.46836519241333s,1269ms,922ms,,1269ms,,27ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_export_furious_recompiles,80.14869952201843,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44082902016.0,16,28ms,63ms,,1234ms,None,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,68ms,42040.0,74.46836519241333ms,,0,28ms,24ms,16.0,None,0.9950004631876945,mps,13.428520921819267img/s,,474ms
+,44.338725090026855s,660ms,569ms,,660ms,,17ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_export_furious_gpu_preproc,50.329920291900635,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44537497600.0,16,16ms,29ms,,651ms,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,38ms,42474.0,44.338725090026855ms,,0,16ms,15ms,16.0,None,0.9236733652735128,mps,22.55364803497543img/s,None,513ms
+,45.5165593624115s,726ms,575ms,,726ms,,17ms,None,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_furious_inductor_cache_dir'},mps_ao_ppb_None_fast_export_furious_gpu_preproc_recompiles,51.31688833236694,43.0,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast_furious,0.0,44537497600.0,16,16ms,47ms,,711ms,None,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,39ms,42474.0,45.5165593624115ms,,0,15ms,15ms,16.0,None,0.922674099185504,mps,21.970026162078945img/s,None,483ms

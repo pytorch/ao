@@ -226,8 +226,8 @@ def load_exported_model(mask_generator,
         set_furious(mask_generator)
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     t0 = time.time()
-    path = Path(model_directory) / Path(f"sam2_image_encoder.pt2")
-    assert path.exists(), f"Expected {path} to exist."
+    path = Path(model_directory) / Path("sam2_image_encoder.pt2")
+    assert path.exists(), f"Expected {path} to exist"
     print(f"Start load from {path}")
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
@@ -240,7 +240,7 @@ def load_exported_model(mask_generator,
         return mask_generator
 
     path = Path(model_directory) / Path(f"sam2_image_predict_masks.pt2")
-    assert path.exists(), f"Expected {path} to exist."
+    assert path.exists(), f"Expected {path} to exist"
     print(f"Start load from {path}")
     pkg = torch._inductor.aoti_load_package(str(path))
     if task_type == "amg":
@@ -250,7 +250,7 @@ def load_exported_model(mask_generator,
     if task_type == "mps":
         assert points_per_batch is None
     pkg_m = SAM2ImagePredictor_predict_masks(None,
-                                             batch_size=1,
+                                             batch_size=batch_size,
                                              points_per_batch=points_per_batch,
                                              aoti_compiled_model=pkg,
                                              furious=furious)

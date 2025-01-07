@@ -2,7 +2,6 @@ import logging
 import unittest
 
 import torch
-
 from torch.testing._internal.common_quantization import (
     ConvBnReLUModel,
     ConvModel,
@@ -13,6 +12,7 @@ from torch.testing._internal.common_quantization import (
     TwoLayerLinearModel,
 )
 from torch.testing._internal.common_utils import TestCase
+
 from torchao.prototype.sparsity.sparsifier.utils import (
     fqn_to_module,
     get_arg_info_from_tensor_fqn,
