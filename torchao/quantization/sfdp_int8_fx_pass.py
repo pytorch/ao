@@ -134,16 +134,19 @@ def _sfdp_pattern_int8_2(
     # int8-mix-reduce QUANTIZED SDPA with mask
     q = query.permute([0, 2, 1, 3])
     q = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        q, float(q_scale), int(q_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        q, float(q_scale), int(q_zp), 0, 255,
+        # torch.uint8).to(torch.bfloat16)
+        torch.uint8, out_dtype=torch.bfloat16).to(torch.bfloat16)
     k = key.permute([0, 2, 1, 3]).transpose(-2, -1)
     k = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        k, float(k_scale), int(k_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        k, float(k_scale), int(k_zp), 0, 255,
+        # torch.uint8).to(torch.bfloat16)
+        torch.uint8, out_dtype=torch.bfloat16).to(torch.bfloat16)
     v = value.permute([0, 2, 1, 3])
     v = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        v, float(v_scale), int(v_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        v, float(v_scale), int(v_zp), 0, 255,
+        # torch.uint8).to(torch.bfloat16)
+        torch.uint8, out_dtype=torch.bfloat16).to(torch.bfloat16)
     a = torch.nn.functional.dropout(
         (torch.matmul(q, k).div(inv_scale) + attn_mask).softmax(dim=-1),
         dropout,
@@ -152,8 +155,9 @@ def _sfdp_pattern_int8_2(
         a, float(a_scale), int(a_zp), 0, 255, torch.uint8
     )
     a = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        qa, float(a_scale), int(a_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        qa, float(a_scale), int(a_zp), 0, 255,
+        torch.uint8).to(torch.bfloat16)
+        # torch.uint8, out_dtype=torch.bfloat16)
     o = a.matmul(v)
     o = o.permute(0, 2, 1, 3).contiguous()
     return torch.ops.quantized_decomposed.quantize_per_tensor.default(
@@ -310,16 +314,16 @@ def _sfdp_pattern_int8_4(
     # int8-mix-reduce QUANTIZED SDPA without mask
     q = query.permute([0, 2, 1, 3])
     q = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        q, float(q_scale), int(q_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        q, float(q_scale), int(q_zp), 0, 255,
+        torch.uint8, out_dtype=torch.bfloat16)
     k = key.permute([0, 2, 1, 3]).transpose(-2, -1)
     k = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        k, float(k_scale), int(k_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        k, float(k_scale), int(k_zp), 0, 255,
+        torch.uint8, out_dtype=torch.bfloat16)
     v = value.permute([0, 2, 1, 3])
     v = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        v, float(v_scale), int(v_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        v, float(v_scale), int(v_zp), 0, 255,
+        torch.uint8, out_dtype=torch.bfloat16)
     a = torch.nn.functional.dropout(
         torch.matmul(q, k).div(inv_scale).softmax(dim=-1),
         dropout,
@@ -328,8 +332,8 @@ def _sfdp_pattern_int8_4(
         a, float(a_scale), int(a_zp), 0, 255, torch.uint8
     )
     a = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-        qa, float(a_scale), int(a_zp), 0, 255, torch.uint8
-    ).to(torch.float16)
+        qa, float(a_scale), int(a_zp), 0, 255,
+        torch.uint8, out_dtype=torch.bfloat16)
     o = a.matmul(v)
     o = o.permute(0, 2, 1, 3).contiguous()
     return torch.ops.quantized_decomposed.quantize_per_tensor.default(
@@ -450,11 +454,11 @@ def _gen_sfdp_patterns_int8():
         torch.empty, (1, 4, 8, 16), device=device, requires_grad=True
     )
     m_bs1_inp = functools.partial(torch.empty, (1, 1, 1, 4), device=device)
-    for dtype in [torch.float, torch.half]:
+    for dtype in [torch.float, torch.bfloat16]:
         g_u8 = functools.partial(g_inp, dtype=torch.uint8, requires_grad=False)
         g_u8_bs1 = functools.partial(g_bs1_inp, dtype=torch.uint8, requires_grad=False)
-        m = functools.partial(m_inp, dtype=dtype)
-        m_bs1 = functools.partial(m_bs1_inp, dtype=dtype)
+        m = functools.partial(m_inp, dtype=torch.float)
+        m_bs1 = functools.partial(m_bs1_inp, dtype=torch.float)
         c = functools.partial(c_inp, dtype=dtype)
         zp = functools.partial(zp_inp, dtype=torch.int)
         scale = functools.partial(scale_inp, dtype=torch.float)
