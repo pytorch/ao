@@ -35,6 +35,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv

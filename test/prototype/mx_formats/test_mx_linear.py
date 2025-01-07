@@ -7,21 +7,18 @@
 import copy
 
 import pytest
-
 import torch
 import torch.nn as nn
-from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 
+from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
-
 from torchao.quantization.utils import compute_error
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
-
 
 torch.manual_seed(2)
 
@@ -201,8 +198,6 @@ def test_filter_fn():
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    swap_linear_with_mx_inference_linear(
-        m2, torch.float8_e4m3fn, 32, filter_fn
-    )  # noqa: E501
+    swap_linear_with_mx_inference_linear(m2, torch.float8_e4m3fn, 32, filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
