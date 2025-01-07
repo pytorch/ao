@@ -24,6 +24,7 @@ include = [
     "test/galore/**/*.py",
     "test/hqq/**/*.py",
     "test/integration/**/*.py",
+    "test/kernel/**/*.py",
 ]
 
 lint.select = ["F", "I"]
