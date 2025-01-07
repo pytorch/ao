@@ -34,6 +34,7 @@ if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
 use_cpp = os.getenv('USE_CPP')
+use_cpp_avx512 = os.getenv('USE_AVX512', 1)
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
@@ -77,6 +78,14 @@ def get_extensions():
             "-O3" if not debug_mode else "-O0",
             "-fdiagnostics-color=always",
         ]
+
+        if use_cpp_avx512:
+            extra_compile_args["cxx"].extend([
+                "-DCPU_CAPABILITY_AVX512",
+                "-march=native",
+                "-mfma",
+                "-fopenmp",
+            ])
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")

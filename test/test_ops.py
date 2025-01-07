@@ -19,6 +19,7 @@ from torchao.quantization.marlin_qqq import (
 )
 from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 import pytest
+import math
 
 if is_fbcode():
     pytest.skip("Skipping the test in fbcode since we don't have TARGET file for kernels")
@@ -38,6 +39,120 @@ from torchao.quantization.utils import (
 
 
 class TestOps(TestCase):
+    def _scaled_dot_product_int8_op_ref(
+            self,
+            q,
+            k,
+            v,
+            attn_mask=None,
+            dropout_p=0,
+            is_causal=False,
+            q_zp=0,
+            q_scale=1.0,
+            k_zp=0,
+            k_scale=1.0,
+            v_zp=0,
+            v_scale=1.0,
+            a_zp=0,
+            a_scale=1.0,
+            o_zp=0,
+            o_scale=1.0):
+        q = (q.to(torch.float) - q_zp) * q_scale
+        k = (k.to(torch.float) - k_zp) * k_scale
+        v = (v.to(torch.float) - v_zp) * v_scale
+        scale_factor = 1 / math.sqrt(q.size(-1))
+        attn = q @ k.transpose(-2, -1)
+        attn = attn * scale_factor
+        if attn_mask is not None:
+            attn = attn + attn_mask.to(torch.float)
+        attn_max = attn.max(dim=-1, keepdim=True).values
+        attn = attn - attn_max
+        attn = torch.exp(attn)
+        attn_sum = torch.sum(attn, dim=-1, keepdim=True)
+        attn  = attn / attn_sum
+        attn = torch.clamp(torch.round(attn / a_scale) + a_zp, min=0, max=255)
+        attn = (attn - a_zp) * a_scale
+        out = attn @ v
+        out = torch.clamp(torch.round(out / o_scale) + o_zp, min=0, max=255)
+        return out.to(torch.uint8)
+
+    SDPA_INT8_BATCH_SIZE = [56, 120]
+    SDPA_INT8_NUM_HEADS = [2, 16]
+    SDPA_INT8_Q_SEQ_LEN = [18, 89]
+    SDPA_INT8_KV_SEQ_LEN = [100, 253]
+    SDPA_INT8_HEAD_DIM = [32, 64]
+    SDPA_INT8_MASK_DTYPE = [None, torch.float32, torch.bfloat16]
+
+    @parametrize("batch_size", SDPA_INT8_BATCH_SIZE)
+    @parametrize("n_head", SDPA_INT8_NUM_HEADS)
+    @parametrize("q_seq_len", SDPA_INT8_Q_SEQ_LEN)
+    @parametrize("kv_seq_len", SDPA_INT8_KV_SEQ_LEN)
+    @parametrize("head_dim", SDPA_INT8_HEAD_DIM)
+    @parametrize("mask_dtype", SDPA_INT8_MASK_DTYPE)
+    def test_scaled_dot_product_int8_op(self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype):
+        torch.manual_seed(1234)
+        device = "cpu"
+        q_zp = int(127)
+        q_scale = float(1.7907238006591797)
+        k_zp = int(125)
+        k_scale = float(1.8039721250534058)
+        v_zp = int(127)
+        v_scale = float(1.839004635810852)
+        a_zp = int(120)
+        a_scale = float(0.003919653594493866)
+        o_zp = int(128)
+        o_scale = float(1.8191684484481812)
+        q_shape = [batch_size, q_seq_len, n_head, head_dim]
+        kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
+        mask_shape = [batch_size, 1, 1, kv_seq_len]
+        q = torch.randn(q_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        k = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        v = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        q = q.to(torch.uint8)
+        k = k.to(torch.uint8)
+        v = v.to(torch.uint8)
+        attn_mask = torch.randn(mask_shape, dtype=mask_dtype, device=device) if mask_dtype is not None else None
+        q2, k2, v2, attn_mask_2 = q.clone(), k.clone(), v.clone(), attn_mask.clone() if mask_dtype is not None else None
+        
+        math_ref = self._scaled_dot_product_int8_op_ref(
+            q2,
+            k2,
+            v2,
+            attn_mask=attn_mask,
+            dropout_p=0.0,
+            is_causal=False,
+            q_zp=q_zp,
+            q_scale=q_scale,
+            k_zp=k_zp,
+            k_scale=k_scale,
+            v_zp=v_zp,
+            v_scale=v_scale,
+            a_zp=a_zp,
+            a_scale=a_scale,
+            o_zp=o_zp,
+            o_scale=o_scale
+        )        
+        actual = torch.ops.torchao.scaled_dot_product_int8(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask_2,
+            dropout_p=0.0,
+            is_causal=False,
+            q_zp=q_zp,
+            q_scale=q_scale,
+            k_zp=k_zp,
+            k_scale=k_scale,
+            v_zp=v_zp,
+            v_scale=v_scale,
+            a_zp=a_zp,
+            a_scale=a_scale,
+            o_zp=o_zp,
+            o_scale=o_scale
+        )
+
+        self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)
+
     def _create_floatx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device, dtype):
         # Randomly initialize each byte
         nbits = 1 + ebits + mbits
