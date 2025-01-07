@@ -4,6 +4,7 @@ import fire
 import json
 import pandas as pd
 import time
+import itertools
 from pathlib import Path
 from compare_rle_lists import compare as compare_folders
 
@@ -43,16 +44,17 @@ def run_script_with_args(positional_args, keyword_args, dry=False, environ=None)
         return result.stdout, result.stderr
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e}")
-        import pdb
-        pdb.set_trace()
-        return None, None
+        return None, e.stderr
 
 
 def main(image_paths,
          output_base_path,
          dry=False,
          overwrite=False,
-         resume=False):
+         resume=False,
+         batch_size=1):
+    assert batch_size > 0
+    print("batch_size: ", batch_size)
     output_base_path = Path(output_base_path)
     print("output_base_path: ", output_base_path)
     result_csv_path = output_base_path / "result.csv"
@@ -100,8 +102,12 @@ def main(image_paths,
         if dry:
             return {}
 
-        all_stats = json.loads(stdout.split("\n")[-2])
-        if baseline_folder is not None:
+        if stdout is None:
+            all_stats = {}
+            all_stats["likely_failed_stderr"] = str(stderr)
+        else:
+            all_stats = json.loads(stdout.split("\n")[-2])
+        if baseline_folder is not None and (stdout is not None):
             miou_count, miou_sum, fail_count = compare_folders(str(output_path),
                                                                str(baseline_folder),
                                                                strict=True,
@@ -116,6 +122,7 @@ def main(image_paths,
         if not overwrite and all_stats_file.exists():
             raise ValueError(f"{all_stats_file} already exists. Use --overwrite to overwrite.")
         with open(all_stats_file, 'w') as file:
+            print("\n".join(f"{k}: {all_stats[k]}" for k in sorted(all_stats.keys())))
             file.write(json.dumps(all_stats, indent=4))
 
         # TODO:: Save this and use overwrite to check for it before writing
@@ -138,8 +145,6 @@ def main(image_paths,
                                               {},
                                               dry=dry)
 
-    # TODO: Something about sps + torch.compile is messed up
-
     for ttype in ["amg", "sps", "mps"]:
         meta_kwarg = {} if ttype == "amg" else {"meta-folder": output_base_path / "amg_baseline_annotations"}
         # Generate baseline data
@@ -156,11 +161,19 @@ def main(image_paths,
         ppb = {'amg': 1024, 'sps': 1, 'mps': None}[ttype]
         ppb_kwarg = {} if ppb is None else {"points-per-batch": ppb}
 
+        batch_size_kwarg = {'batch-size': batch_size}
+
         def rwc_curry(output_path: Path, kwargs, environ):
-            return run_with_compare(ttype, f"{ttype}_ao_ppb_{ppb}_" + output_path, kwargs | ppb_kwarg | meta_kwarg, environ=environ)
+            return run_with_compare(ttype,
+                                    f"{ttype}_ao_ppb_{ppb}_" + output_path,
+                                    kwargs | ppb_kwarg | meta_kwarg | batch_size_kwarg,
+                                    environ=environ)
 
         def r_curry(output_path: Path, kwargs, environ):
-            return run(ttype, f"{ttype}_ao_ppb_{ppb}_" + output_path, kwargs | ppb_kwarg | meta_kwarg, environ=environ)
+            return run(ttype,
+                       f"{ttype}_ao_ppb_{ppb}_" + output_path,
+                       kwargs | ppb_kwarg | meta_kwarg | batch_size_kwarg,
+                       environ=environ)
 
         rwc_curry("basic", {}, None)
 
