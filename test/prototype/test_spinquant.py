@@ -1,5 +1,6 @@
 import pytest
 import torch
+
 from torchao._models.llama.model import Transformer
 from torchao.prototype.spinquant import apply_spinquant
 
@@ -22,7 +23,9 @@ def test_spinquant_no_quantization(device):
     input_ids = torch.randint(0, 1024, (batch_size, seq_len)).to(device)
     input_pos = None if is_training else torch.arange(seq_len).to(device)
     with torch.device(device):
-        model.setup_caches(max_batch_size=batch_size, max_seq_length=seq_len, training=is_training)
+        model.setup_caches(
+            max_batch_size=batch_size, max_seq_length=seq_len, training=is_training
+        )
 
     with torch.no_grad():
         out = model(input_ids, input_pos)
