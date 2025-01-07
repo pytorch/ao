@@ -16,13 +16,13 @@ set -ex
 # time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_sps --output-rle False --meta-paths ~/blogs/cmds_meta_paths
 # time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_mps --output-rle False --meta-paths ~/blogs/cmds_meta_paths
 
-# amg
-modal deploy cli_on_modal.py
-time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_amg --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/amg_latencies
-
-# # sps
+# # amg
 # modal deploy cli_on_modal.py
-# time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_sps --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/sps_latencies
+# time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_amg --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/amg_latencies
+
+# sps
+modal deploy cli_on_modal.py
+time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_sps --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/sps_latencies
 
 # # mps
 # modal deploy cli_on_modal.py

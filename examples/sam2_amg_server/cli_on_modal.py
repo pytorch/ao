@@ -7,6 +7,7 @@ import modal
 
 TARGET = "/root/"
 DOWNLOAD_URL_BASE = "https://raw.githubusercontent.com/pytorch/ao/refs/heads"
+SAM2_GIT_SHA = "c2ec8e14a185632b0a5d8b161928ceb50197eddc"
 
 image = (
     modal.Image.debian_slim(python_version="3.12.7")
@@ -14,12 +15,12 @@ image = (
     .pip_install(
         "torch",
         pre=True,
-        index_url="https://download.pytorch.org/whl/nightly/cu124",  # tested with torch-2.6.0.dev20241120
+        index_url="https://download.pytorch.org/whl/nightly/cu124",
     )
     .pip_install(
         "torchvision",
         pre=True,
-        index_url="https://download.pytorch.org/whl/nightly/cu124",  # tested with torch-2.6.0.dev20241120
+        index_url="https://download.pytorch.org/whl/nightly/cu124",
     )
     .apt_install("git")
     .apt_install("libopencv-dev")
@@ -34,6 +35,9 @@ image = (
     .run_commands([f"wget https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/requirements.txt"])
     .pip_install_from_requirements(
         'requirements.txt',
+    )
+    .pip_install(
+        f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
     )
 )
 
@@ -96,8 +100,10 @@ class Model:
     @modal.enter()
     def build(self):
         import os
-        from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        # from torchao._models.sam2.build_sam import build_sam2
+        # from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from sam2.build_sam import build_sam2
+        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
         download_url_branch = "main"
         download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
@@ -132,16 +138,16 @@ class Model:
         mask_generator = SAM2AutomaticMaskGenerator(sam2,
                                                     points_per_batch=1024,
                                                     output_mode="uncompressed_rle")
-        from compile_export_utils import load_exported_model
-        mask_generator = load_exported_model(mask_generator,
-                                             Path(TARGET) / Path("exported_models"),
-                                             # Currently task_type has no effect,
-                                             # because we can only export the image
-                                             # encoder, but this might change soon.
-                                             "amg",  # task_type
-                                             furious=True,
-                                             batch_size=1,
-                                             points_per_batch=1024)
+        # from compile_export_utils import load_exported_model
+        # mask_generator = load_exported_model(mask_generator,
+        #                                      Path(TARGET) / Path("exported_models"),
+        #                                      # Currently task_type has no effect,
+        #                                      # because we can only export the image
+        #                                      # encoder, but this might change soon.
+        #                                      "amg",  # task_type
+        #                                      furious=True,
+        #                                      batch_size=1,
+        #                                      points_per_batch=1024)
         self.mask_generator = mask_generator
         import os
         import torch
@@ -155,9 +161,12 @@ class Model:
         from server import profiler_runner
         from server import file_bytes_to_image_tensor
         from server import show_anns
-        from torchao._models.sam2.utils.amg import rle_to_mask
-        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        # from torchao._models.sam2.utils.amg import rle_to_mask
+        # from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
         from torchao._models.sam2.utils.amg import area_from_rle
+
+        from sam2.utils.amg import rle_to_mask
+        from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
 
         self.np = np
         self.tio = tio
