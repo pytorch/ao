@@ -270,7 +270,6 @@ class TestBaseStructuredSparsifier(TestCase):
 
     def _test_step_linear_on_device(self, model, device):
         model = model.to(device)
-        x = torch.ones(7, 7, device=device)
         pruner = SimplePruner(None)
         pruner.prepare(model, None)
         pruner.enable_mask_update = True

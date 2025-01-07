@@ -95,7 +95,7 @@ class TestAutoRound(TestCase):
             torch.randn(32, 64).to(device),
         )
         m = M().eval().to(device)
-        before_quant = m(*example_inputs)
+        m(*example_inputs)
         prepare_model_for_applying_auto_round_(
             m,
             is_target_module=_is_two_linear,

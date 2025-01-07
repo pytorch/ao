@@ -69,7 +69,7 @@ class TestFP8Gemm(TestCase):
 
         a = torch.randn((m, k), dtype=torch.float16, device="cuda")
         b = torch.randn((k, n), dtype=torch.float16, device="cuda")
-        compiled_function = torch.compile(gemm_split_k, fullgraph=True)(a, b)
+        torch.compile(gemm_split_k, fullgraph=True)(a, b)
 
 
 if __name__ == "__main__":
