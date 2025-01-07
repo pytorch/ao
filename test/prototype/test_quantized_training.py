@@ -14,8 +14,16 @@ from torch import nn
 from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
-from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
-from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
+from torch.testing._internal.distributed._tensor.common_dtensor import (
+    ModelArgs,
+    Transformer,
+)
 
 from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import (
@@ -70,7 +78,11 @@ class TestQuantizedTraining(TestCase):
 
         linear_fp32 = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
         linear_int8 = copy.deepcopy(linear_fp32)
-        quantize_(linear_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(
+            linear_int8,
+            int8_weight_only_quantized_training(),
+            set_inductor_config=False,
+        )
         linear_fp32.weight.data = linear_int8.weight.data.dequantize()
 
         input = torch.randn(leading_dims + (embed_dim,), device=device)
@@ -93,7 +105,11 @@ class TestQuantizedTraining(TestCase):
         embed_dim = 128
 
         linear_eager = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
-        quantize_(linear_eager, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(
+            linear_eager,
+            int8_weight_only_quantized_training(),
+            set_inductor_config=False,
+        )
         linear_compiled = copy.deepcopy(linear_eager)
         linear_compiled.compile()
 
@@ -101,13 +117,19 @@ class TestQuantizedTraining(TestCase):
         grad = torch.randn(leading_dims + (embed_dim,), device=device)
 
         input_eager, out_eager = self._forward_and_backward(linear_eager, input, grad)
-        input_compiled, out_compiled = self._forward_and_backward(linear_compiled, input, grad)
+        input_compiled, out_compiled = self._forward_and_backward(
+            linear_compiled, input, grad
+        )
 
         torch.testing.assert_close(out_eager, out_compiled)
         torch.testing.assert_close(input_eager.grad, input_compiled.grad)
-        torch.testing.assert_close(linear_eager.weight.grad, linear_compiled.weight.grad)
+        torch.testing.assert_close(
+            linear_eager.weight.grad, linear_compiled.weight.grad
+        )
         if bias:
-            torch.testing.assert_close(linear_eager.bias.grad, linear_compiled.bias.grad)
+            torch.testing.assert_close(
+                linear_eager.bias.grad, linear_compiled.bias.grad
+            )
 
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
@@ -123,7 +145,9 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim * 2, n_classes),
         ).to(device)
         model_int8 = copy.deepcopy(model_fp32)
-        quantize_(model_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(
+            model_int8, int8_weight_only_quantized_training(), set_inductor_config=False
+        )
 
         if compile:
             model_fp32.compile()
@@ -179,8 +203,12 @@ class TestQuantizedTraining(TestCase):
         inputs = torch.randn(bsize, embed_dim, device=device)
         grad_outputs = torch.randn(bsize, embed_dim, device=device)
 
-        inputs_ref, outputs_ref = self._forward_and_backward(linear, inputs, grad_outputs)
-        inputs_int8mp, outputs_int8mp = self._forward_and_backward(linear_int8mp, inputs, grad_outputs)
+        inputs_ref, outputs_ref = self._forward_and_backward(
+            linear, inputs, grad_outputs
+        )
+        inputs_int8mp, outputs_int8mp = self._forward_and_backward(
+            linear_int8mp, inputs, grad_outputs
+        )
 
         def snr(ref, actual):
             error = actual - ref
@@ -190,7 +218,7 @@ class TestQuantizedTraining(TestCase):
         assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
         assert snr(linear.weight.grad, linear_int8mp.weight.grad) > 20
 
-    @pytest.mark.skip('Flaky on CI')
+    @pytest.mark.skip("Flaky on CI")
     @parametrize("compile", [False, True])
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_bitnet_training(self, compile):
@@ -199,7 +227,9 @@ class TestQuantizedTraining(TestCase):
         # Figure 3
         class BitLinear(nn.Linear):
             def activation_quant(self, x):
-                scale = 127.0 / x.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+                scale = 127.0 / x.abs().max(dim=-1, keepdim=True).values.clamp_(
+                    min=1e-5
+                )
                 return (x * scale).round().clamp_(-128, 127) / scale
 
             def weight_quant(self, x):
@@ -323,8 +353,12 @@ class TestFSDP2(FSDPTest):
         fully_shard(fsdp_model, mp_policy=mp_policy)
 
         # start testing
-        base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2, foreach=False, fused=False)
-        fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
+        base_optim = torch.optim.Adam(
+            base_model.parameters(), lr=1e-2, foreach=False, fused=False
+        )
+        fsdp_optim = torch.optim.Adam(
+            fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False
+        )
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
@@ -345,11 +379,19 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, (quantize_fn.__name__, mp_policy, iter_idx, rel_error)
+            assert rel_error < tolerance, (
+                quantize_fn.__name__,
+                mp_policy,
+                iter_idx,
+                rel_error,
+            )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_precompute_bitnet_scale(self):
-        from torchao.prototype.quantized_training.bitnet import get_bitnet_scale, precompute_bitnet_scale_for_fsdp
+        from torchao.prototype.quantized_training.bitnet import (
+            get_bitnet_scale,
+            precompute_bitnet_scale_for_fsdp,
+        )
 
         model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
         model_fsdp = copy.deepcopy(model)
@@ -359,10 +401,12 @@ class TestFSDP2(FSDPTest):
         precompute_bitnet_scale_for_fsdp(model_fsdp)
 
         torch.testing.assert_close(
-            get_bitnet_scale(model[0].weight), model_fsdp[0].weight._local_tensor._precomputed_scale
+            get_bitnet_scale(model[0].weight),
+            model_fsdp[0].weight._local_tensor._precomputed_scale,
         )
         torch.testing.assert_close(
-            get_bitnet_scale(model[2].weight), model_fsdp[2].weight._local_tensor._precomputed_scale
+            get_bitnet_scale(model[2].weight),
+            model_fsdp[2].weight._local_tensor._precomputed_scale,
         )
 
 
