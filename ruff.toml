@@ -19,7 +19,7 @@ include = [
     "test/quantization/**/*.py",
     "test/dtypes/**/*.py",
     "test/sparsity/**/*.py",
-    "test/prototype/*/**.py",
+    "test/prototype/**/*.py",
     "test/dora/**/*.py",
     "test/galore/**/*.py",
 ]
