@@ -31,6 +31,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
       script: |
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

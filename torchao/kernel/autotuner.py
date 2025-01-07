@@ -1,7 +1,6 @@
 import logging
 import os
 import pathlib
-import pickle
 
 import torch
 import triton
@@ -173,7 +172,7 @@ def do_bench(fn, args, config, best_time=None):
     # Run it once and skip if it crashes or is 100x slower
     try:
         time = do_bench_basic(wrapped_fn, 1)
-    except RuntimeError as e:
+    except RuntimeError:
         time = None
     except triton.runtime.OutOfResources:
         time = None
