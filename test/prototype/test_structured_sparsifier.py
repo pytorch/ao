@@ -19,12 +19,12 @@ from torch.testing._internal.common_pruning import (
     LinearBias,
     LSTMLayerNormLinearModel,
     LSTMLinearModel,
-    rows_are_subset,
     SimpleConv2d,
     SimpleLinear,
+    rows_are_subset,
 )
+from torch.testing._internal.common_utils import TestCase, skipIfTorchDynamo
 
-from torch.testing._internal.common_utils import skipIfTorchDynamo, TestCase
 from torchao.prototype.sparsity.pruner import (
     BaseStructuredSparsifier,
     FakeStructuredSparsity,
@@ -32,7 +32,6 @@ from torchao.prototype.sparsity.pruner import (
     LSTMSaliencyPruner,
     SaliencyPruner,
 )
-
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
