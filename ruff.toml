@@ -3,19 +3,13 @@
 # To add a new path: Simply add it to the 'include' list.
 # Example: To lint all files in every subfolder of 'test', add "test/**/*"
 include = [
-    "torchao/float8/**/*.py",
-    "torchao/quantization/**/*.py",
-    "torchao/dtypes/**/*.py",
-    "torchao/sparsity/**/*.py",
-    "torchao/profiler/**/*.py",
-    "torchao/testing/**/*.py",
-    "torchao/_models/**/*.py",
-    "torchao/kernel/**/*.py",
-    "torchao/prototype/low_bit_optim/**.py",
-    "torchao/utils.py",
-    "torchao/ops.py",
-    "torchao/_executorch_ops.py",
+    "torchao/**/*.py",
     "test/**/*.py",
+]
+
+exclude = [
+    "torchao/experimental/**/*.py",
+    "torchao/prototype/**/*.py",
 ]
 
 lint.select = ["F", "I"]
