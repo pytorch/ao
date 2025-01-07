@@ -551,35 +551,24 @@ def main(checkpoint_path,
 
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
-        # Convert uploaded file to image tensor
         image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
         response_future = asyncio.Future()
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
         
-        # Create figure and ensure it's closed after use
+        # Create figure and ensure it's closed after generating response
         fig = plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
-        try:
-            # Display the original image
-            plt.imshow(image_tensor)
-            # Overlay annotations (masks) on the image
-            show_anns(masks, rle_to_mask)
-            # Remove axis for cleaner visualization
-            plt.axis('off')
-            # Adjust layout to remove padding
-            plt.tight_layout()
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
+        plt.axis('off')
+        plt.tight_layout()
             
-            # Create a buffer to store the image
-            buf = BytesIO()
-            # Save the figure to buffer in PNG format
-            plt.savefig(buf, format='png')
-            # Reset buffer position to start
-            buf.seek(0)
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        plt.close(fig)  # Close figure after we're done with it
             
-            return StreamingResponse(buf, media_type="image/png")
-        finally:
-            # Ensure figure is closed even if an error occurs
-            plt.close(fig)
+        return StreamingResponse(buf, media_type="image/png")
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
