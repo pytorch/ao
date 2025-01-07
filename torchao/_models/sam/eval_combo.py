@@ -638,20 +638,39 @@ def run(
         f.write(vals + "\n")
 
     if output_json_path:
-        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+        headers = [
+            "name",
+            "dtype",
+            "min_sqnr",
+            "device",
+            "arch",
+            "metric",
+            "actual",
+            "target",
+        ]
         name = sam_model_type
         arch = get_arch_name()
         dtype = compress or "noquant"
         memory_result = [
             name,
             dtype,
+            min_sqnr,
             device,
             arch,
             "memory(MiB)",
             max_memory_allocated_bytes,
             None,
         ]
-        performance_result = [name, dtype, device, arch, "img_s(avg)", img_s, None]
+        performance_result = [
+            name,
+            dtype,
+            min_sqnr,
+            device,
+            arch,
+            "img_s(avg)",
+            img_s,
+            None,
+        ]
         write_json_result = (
             write_json_result_local if output_json_local else write_json_result_ossci
         )
