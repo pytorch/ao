@@ -5,11 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-
 import glob
 import os
 import subprocess
-
 import sys
 import tempfile
 import unittest
@@ -23,7 +21,6 @@ from torchao.experimental.quant_api import (
     int8_dynamic_activation_intx_weight,
 )
 from torchao.quantization.quant_api import quantize_
-
 from torchao.utils import unwrap_tensor_subclass
 
 
@@ -161,7 +158,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         unwrap_tensor_subclass(model)
 
         print("Exporting quantized model")
-        exported = torch.export.export(model, (activations,), strict=True)
+        torch.export.export(model, (activations,), strict=True)
 
         print("Compiling quantized model")
         compiled = torch.compile(unwrapped_model)

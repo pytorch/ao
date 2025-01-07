@@ -1,17 +1,4 @@
-# Currently, we ignore all files in the project by default.
-# We plan to add files in chunks using the 'include' list below.
-# To add a new path: Simply add it to the 'include' list.
-# Example: To lint all files in every subfolder of 'test', add "test/**/*"
-include = [
-    "torchao/**/*.py",
-    "test/**/*.py",
-    "benchmarks/**/*.py",
-    "tutorials/**/*.py",
-]
-
-exclude = [
-    "torchao/experimental/**/*.py",
-]
-
+# NOTE: The AO repo is completely linted.
+# Add linting rules here
 lint.select = ["F", "I"]
 lint.ignore = ["E731"]

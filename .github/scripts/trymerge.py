@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import (
     Any,
     Callable,
-    cast,
     Dict,
     Iterable,
     List,
@@ -31,11 +30,13 @@ from typing import (
     Optional,
     Pattern,
     Tuple,
+    cast,
 )
 from warnings import warn
 
 import yaml
 from github_utils import (
+    GitHubComment,
     gh_fetch_json_list,
     gh_fetch_merge_base,
     gh_fetch_url,
@@ -43,24 +44,20 @@ from github_utils import (
     gh_post_commit_comment,
     gh_post_pr_comment,
     gh_update_pr_state,
-    GitHubComment,
 )
-
 from gitutils import (
+    GitRepo,
     are_ghstack_branches_in_sync,
     get_git_remote_name,
     get_git_repo_dir,
-    GitRepo,
     patterns_to_regex,
     retries_decorator,
 )
 from label_utils import (
     gh_add_labels,
     gh_remove_label,
-    has_required_labels,
-    LABEL_ERR_MSG,
 )
-from trymerge_explainer import get_revert_message, TryMergeExplainer
+from trymerge_explainer import TryMergeExplainer, get_revert_message
 
 # labels
 MERGE_IN_PROGRESS_LABEL = "merging"
@@ -1477,7 +1474,7 @@ def checks_to_str(checks: List[Tuple[str, Optional[str]]]) -> str:
 
 
 def checks_to_markdown_bullets(
-    checks: List[Tuple[str, Optional[str], Optional[int]]]
+    checks: List[Tuple[str, Optional[str], Optional[int]]],
 ) -> List[str]:
     return [
         f"- [{c[0]}]({c[1]})" if c[1] is not None else f"- {c[0]}" for c in checks[:5]
@@ -1716,7 +1713,7 @@ def get_classifications(
         try:
             print(f"From Dr.CI checkrun summary: {drci_summary}")
             drci_classifications = json.loads(str(drci_summary))
-        except json.JSONDecodeError as error:
+        except json.JSONDecodeError:
             warn("Invalid Dr.CI checkrun summary")
             drci_classifications = {}
 
@@ -1887,7 +1884,6 @@ def do_revert_prs(
     dry_run: bool = False,
 ) -> None:
     # Prepare and push revert commits
-    commit_shas: List[str] = []
     for commit_sha, pr in shas_and_prs:
         revert_msg = f"\nReverted {pr.get_pr_url()} on behalf of {prefix_with_github_url(author_login)}"
         revert_msg += extra_msg

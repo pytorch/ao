@@ -5,10 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-import sys
-import torch
 import unittest
 
+import torch
 from parameterized import parameterized
 
 libname = "libtorchao_ops_mps_aten.dylib"

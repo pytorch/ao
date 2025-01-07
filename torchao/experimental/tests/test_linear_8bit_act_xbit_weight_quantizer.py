@@ -5,11 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-
 import glob
 import os
 import subprocess
-
 import sys
 import tempfile
 import unittest
@@ -18,8 +16,8 @@ import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from torchao.experimental.quant_api import (
-    _Int8DynActIntxWeightQuantizedLinearFallback,
     Int8DynActIntxWeightLinearQuantizer,
+    _Int8DynActIntxWeightQuantizedLinearFallback,
 )
 
 
@@ -129,7 +127,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         quantized_model = quantizer.quantize(model)
 
         print("Exporting quantized model")
-        exported = torch.export.export(quantized_model, (activations,), strict=True)
+        torch.export.export(quantized_model, (activations,), strict=True)
 
         print("Compiling quantized model")
         quantized_model_compiled = torch.compile(quantized_model)

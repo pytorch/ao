@@ -4,26 +4,25 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from enum import auto, Enum
-
 import logging
-from typing import List, Optional, Tuple
+from enum import Enum, auto
+from typing import Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl
-from torchao.dtypes.affine_quantized_tensor_ops import register_aqt_quantized_linear_dispatch
-from torchao.dtypes.utils import Layout
+from torchao.dtypes.affine_quantized_tensor_ops import (
+    register_aqt_quantized_linear_dispatch,
+)
+from torchao.dtypes.utils import AQTTensorImpl, Layout
+from torchao.quantization.quant_api import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
-
-from torchao.quantization.quant_api import to_affine_quantized_intx
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -37,10 +36,11 @@ logger.addHandler(handler)
 
 
 class Target(Enum):
-    """Enum that indicates the backend target
-    """
+    """Enum that indicates the backend target"""
+
     NATIVE = auto()
     FALLBACK = auto()
+
 
 def target_from_str(target: str) -> Target:
     if target.lower() == "native":
@@ -150,10 +150,14 @@ class Linear8BitActXBitWeightAQTTensorImpl(AQTTensorImpl):
     def get_layout(self) -> Layout:
         return self._layout
 
-    def get_plain(self) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def get_plain(
+        self,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         if self.get_layout().target == Target.FALLBACK:
             return self.packed_weight, self.scale, self.zero_point
-        raise NotImplementedError("get_plain is not supported for Linear8BitActXBitWeightAQTTensorImpl when target is not fallback")
+        raise NotImplementedError(
+            "get_plain is not supported for Linear8BitActXBitWeightAQTTensorImpl when target is not fallback"
+        )
 
     @classmethod
     def from_plain(
@@ -251,11 +255,6 @@ def _linear_int8_dynamic_activation_intx_weight_fallback_impl(
         assert input_tensor.dim() == 2
         assert weight_tensor.dim() == 2
 
-        weight_qvals = weight_tensor.tensor_impl.packed_weight.to(torch.int32)
-        weight_scales = weight_tensor.tensor_impl.scale
-        weight_zeros = weight_tensor.tensor_impl.zero_point
-        group_size = weight_tensor.tensor_impl.get_layout().group_size
-        has_weight_zeros = weight_zeros is not None
         m, k = input_tensor.shape
         n, k_ = weight_tensor.shape
         assert k_ == k
@@ -322,7 +321,7 @@ def _linear_int8_dynamic_activation_intx_weight_native_impl(
             torch.empty(0, k, dtype=torch.int8),
         )
 
-        has_weight_zeros = (weight_tensor.zero_point_domain != ZeroPointDomain.NONE)
+        has_weight_zeros = weight_tensor.zero_point_domain != ZeroPointDomain.NONE
 
         assert len(weight_tensor.block_size) == 2
         assert weight_tensor.block_size[0] == 1
