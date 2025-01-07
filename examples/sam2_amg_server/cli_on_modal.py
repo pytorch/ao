@@ -114,6 +114,7 @@ class Model:
             'server.py': "2d79458fabab391ef45cdc3ee9a1b62fea9e7e3b16e0782f522064d6c3c81a17",
             'compile_export_utils.py': "552c422a5c267e57d9800e5080f2067f25b4e6a3b871b2063a2840033f4988d0",
             'annotate_with_rle.py': "87ecb734c4b2bcdd469e0e373f73727316e844e98f263c6a713c1ce4d6e1f0f6",
+            'generate_data.py': "5ff754a0845ba0d706226013be2ebf46268a6d46c7bc825ff7dbab0de048a0a7",
         }
 
         for f in file_hashes:
@@ -183,50 +184,8 @@ class Model:
         from annotate_with_rle import _get_center_point
         self._get_center_point = _get_center_point
 
-    def gen_masks_ao(self,
-                     task_type,
-                     image_tensor,
-                     mask_generator,
-                     center_points=None,
-                     center_points_label=None):
-        import torch
-        if task_type == "amg":
-            masks = mask_generator.generate(image_tensor)
-        elif task_type == "sps":
-            mask_generator.predictor.set_image(image_tensor)
-            masks, scores, _ = mask_generator.predictor.predict(
-                point_coords=center_points,
-                point_labels=center_points_label,
-                multimask_output=True,
-                return_logits=False,
-                return_type="torch",
-            )
-            masks = masks.index_select(0, torch.argmax(scores))[0]
-        elif task_type == "mps":
-            # NOTE: There are multiple opportunities for batching here
-            # Batching of images
-            # Batching of prompts
-            # First we do batching of prompts
-            # Use MapTensor to create pseudobatches of points and labels
-            mask_generator.predictor.set_image(image_tensor)
-            center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
-            center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
-            from torchao._models.sam2.map_tensor import to_map_tensor
-            center_points_torch = to_map_tensor(center_points_torch)
-            center_points_label_torch = to_map_tensor(center_points_label_torch)
-            masks, scores, _ = mask_generator.predictor.predict(
-                point_coords=center_points_torch,
-                point_labels=center_points_label_torch,
-                multimask_output=True,
-                return_logits=False,
-                return_type="torch",
-            )
-            # Unwrapping MapTensor
-            masks = masks.elems
-            scores = scores.elems
-            # TODO: This isn't exactly efficient
-            masks = torch.stack([mask[i] for (mask, i) in zip(masks.unbind(), torch.argmax(scores, dim=1).tolist())])
-        return masks
+        from generate_data import gen_masks_baseline as gen_masks
+        self.gen_masks = gen_masks
 
     # @app.post("/upload_rle")
     # @modal.method()
@@ -261,13 +220,13 @@ class Model:
     @modal.method()
     def inference_amg_rle(self, input_bytes) -> dict:
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         return self.masks_to_rle_dict(masks)
 
     @modal.method()
     def inference_amg_meta(self, input_bytes) -> dict:
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         rle_dict = self.masks_to_rle_dict(masks)
         masks = {}
         for key in rle_dict:
@@ -282,11 +241,11 @@ class Model:
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("sps",
-                                  image_tensor,
-                                  self.mask_generator,
-                                  center_points=prompts,
-                                  center_points_label=prompts_label)
+        masks = self.gen_masks("sps",
+                               image_tensor,
+                               self.mask_generator,
+                               center_points=prompts,
+                               center_points_label=prompts_label)
         masks = self.mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
         masks = [{'segmentation': masks}]
         return self.masks_to_rle_dict(masks)
@@ -297,11 +256,11 @@ class Model:
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("mps",
-                                  image_tensor,
-                                  self.mask_generator,
-                                  center_points=prompts,
-                                  center_points_label=prompts_label)
+        masks = self.gen_masks("mps",
+                               image_tensor,
+                               self.mask_generator,
+                               center_points=prompts,
+                               center_points_label=prompts_label)
         masks = self.mask_to_rle_pytorch_2(masks)
         masks = [{'segmentation': mask} for mask in masks]
         return self.masks_to_rle_dict(masks)
@@ -338,7 +297,7 @@ class Model:
     @modal.method()
     def inference_amg(self, input_bytes, output_format='png'):
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("amg", image_tensor, self.mask_generator)
+        masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         return self.plot_image_tensor(image_tensor, masks, output_format)
 
     @modal.method()
@@ -347,11 +306,11 @@ class Model:
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("sps",
-                                  image_tensor,
-                                  self.mask_generator,
-                                  center_points=prompts,
-                                  center_points_label=prompts_label)
+        masks = self.gen_masks("sps",
+                               image_tensor,
+                               self.mask_generator,
+                               center_points=prompts,
+                               center_points_label=prompts_label)
         masks = self.mask_to_rle_pytorch_2(masks.unsqueeze(0))[0]
         masks = [{'segmentation': masks}]
         return self.plot_image_tensor(image_tensor,
@@ -365,11 +324,11 @@ class Model:
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
         image_tensor = self.file_bytes_to_image_tensor(input_bytes)
-        masks = self.gen_masks_ao("mps",
-                                  image_tensor,
-                                  self.mask_generator,
-                                  center_points=prompts,
-                                  center_points_label=prompts_label)
+        masks = self.gen_masks("mps",
+                               image_tensor,
+                               self.mask_generator,
+                               center_points=prompts,
+                               center_points_label=prompts_label)
         masks = self.mask_to_rle_pytorch_2(masks)
         masks = [{'segmentation': mask} for mask in masks]
         return self.plot_image_tensor(image_tensor,
