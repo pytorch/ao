@@ -11,7 +11,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed._composable.fsdp import fully_shard
 
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
@@ -67,9 +67,9 @@ def test_model_weights_and_gradients(model1, model2):
     convert_to_float8_training(model2)
     convert_to_float8_nocompile_training(model1)
 
-    # distributed training with FSDP
-    model1 = FSDP(model1)
-    model2 = FSDP(model2)
+    # distributed training with FSDP2
+    fully_shard(model1)
+    fully_shard(model2)
 
     input_tensor = torch.randn(
         16, 2048, requires_grad=True, dtype=torch.bfloat16, device=device
@@ -88,10 +88,10 @@ def test_model_weights_and_gradients(model1, model2):
     loss1.backward()
     loss2.backward()
 
-    dist.destroy_process_group()
-
     # compare the outputs, weight gradients, and input gradients
     assert torch.allclose(output1, output2, atol=0, rtol=0)
     assert torch.allclose(input_copy1.grad, input_copy2.grad, atol=0, rtol=0)
     for param1, param2 in zip(model1.parameters(), model2.parameters()):
-        assert torch.allclose(param1.grad, param2.grad, atol=0, rtol=0)
+        assert torch.equal(param1.grad, param2.grad)
+
+    dist.destroy_process_group()

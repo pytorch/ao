@@ -25,8 +25,8 @@ def test_matmul_with_args_in_hp(input_shape: tuple[int, int]):
     input_bf16 = torch.randn(
         input_shape, dtype=torch.bfloat16, device=device, requires_grad=True
     )
-    x_input_bf16 = input_bf16.clone().detach().to(device).requires_grad_(True)
-    y_input_bf16 = input_bf16.clone().detach().to(device).requires_grad_(True)
+    prod_input_bf16 = input_bf16.clone().detach().to(device).requires_grad_(True)
+    prototype_input_bf16 = input_bf16.clone().detach().to(device).requires_grad_(True)
 
     # high precision weights
     # nn.Linear stores weights in transposed form
@@ -36,8 +36,8 @@ def test_matmul_with_args_in_hp(input_shape: tuple[int, int]):
         device=device,
         requires_grad=True,
     )
-    x_weight_bf16 = weight_bf16.clone().detach().to(device).requires_grad_(True)
-    y_weight_bf16 = weight_bf16.clone().detach().to(device).requires_grad_(True)
+    prod_weight_bf16 = weight_bf16.clone().detach().to(device).requires_grad_(True)
+    prototype_weight_bf16 = weight_bf16.clone().detach().to(device).requires_grad_(True)
 
     # default configs
     config = Float8LinearConfig()
@@ -68,23 +68,30 @@ def test_matmul_with_args_in_hp(input_shape: tuple[int, int]):
 
     # prod forward. expects transposed weight.
     out_prod = manual_float8_matmul_with_args_in_hp.apply(
-        x_input_bf16, x_weight_bf16.t(), linear_mm_config, config
+        prod_input_bf16, prod_weight_bf16.t(), linear_mm_config, config
     )
 
     # prototype forward. expects non-transposed weight
     out_prototype = matmul_with_args_in_hp.apply(
-        y_input_bf16,
-        y_weight_bf16,
+        prototype_input_bf16,
+        prototype_weight_bf16,
         config,
         linear_mm_config,
         KernelAlgorithm.ATOMIC_MAX,
     )
 
-    # compare
+    # compare model outputs
     assert torch.allclose(out_prod, out_prototype, atol=0, rtol=0)
 
     out_prod.sum().backward()
     out_prototype.sum().backward()
 
-    assert torch.allclose(x_input_bf16.grad, y_input_bf16.grad, atol=0, rtol=0)
-    assert torch.allclose(x_weight_bf16.grad, y_weight_bf16.grad, atol=0, rtol=0)
+    # compare input gradients
+    assert torch.allclose(
+        prod_input_bf16.grad, prototype_input_bf16.grad, atol=0, rtol=0
+    )
+
+    # compare weight gradients
+    assert torch.allclose(
+        prod_weight_bf16.grad, prototype_weight_bf16.grad, atol=0, rtol=0
+    )
