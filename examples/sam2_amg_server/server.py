@@ -674,7 +674,10 @@ def main(
         masks = await response_future
 
         # Create figure and ensure it's closed after generating response
-        fig = plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        fig = plt.figure(
+            figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
+            dpi=100,
+        )
         plt.imshow(image_tensor)
         show_anns(masks, rle_to_mask)
         plt.axis("off")
