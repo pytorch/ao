@@ -50,11 +50,12 @@ Steps
 Example code (the output below is generated automatically):
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 36-40
+.. GENERATED FROM PYTHON SOURCE LINES 36-41
 
 .. code-block:: Python
 
     import torch
+
     x = torch.rand(5, 3)
     print(x)
 
@@ -66,16 +67,16 @@ Example code (the output below is generated automatically):
 
  .. code-block:: none
 
-    tensor([[0.1824, 0.4721, 0.4055],
-            [0.2689, 0.6446, 0.3851],
-            [0.5415, 0.4019, 0.0195],
-            [0.7876, 0.9488, 0.6092],
-            [0.3435, 0.3860, 0.3086]])
+    tensor([[0.5677, 0.0460, 0.6116],
+            [0.9484, 0.7448, 0.0237],
+            [0.7651, 0.3274, 0.7964],
+            [0.3924, 0.6764, 0.6124],
+            [0.6978, 0.7268, 0.3034]])
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 41-47
+.. GENERATED FROM PYTHON SOURCE LINES 42-48
 
 (Optional) Additional Exercises
 -------------------------------
@@ -84,7 +85,7 @@ Add additional practice exercises for users to test their knowledge.
 Example: `NLP from Scratch <https://pytorch.org/tutorials/intermediate/char_rnn_generation_tutorial.html#exercises>`__.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 49-59
+.. GENERATED FROM PYTHON SOURCE LINES 50-60
 
 Conclusion
 ----------
