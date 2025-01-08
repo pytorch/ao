@@ -157,8 +157,6 @@ def make_data(M, N, rank, dtype):
 
 
 if __name__ == "__main__":
-    from triton.testing import do_bench
-
     M = N = 4096
     rank = 128
     dtype = torch.float32

@@ -3,15 +3,9 @@ from enum import Enum, StrEnum, unique
 import torch
 import triton
 import triton.language as tl
+from triton.runtime import Config
 
 # Re-exports
-from torchao.prototype.common.triton.matmul import (
-    early_config_prune,
-    estimate_matmul_time,
-    get_configs_io_bound,
-    get_higher_dtype,
-)
-from triton.runtime import Config
 
 
 @unique

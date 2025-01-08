@@ -101,7 +101,8 @@ class MultiTensor(torch.Tensor):
                 min(
                     [True]
                     + [  # handle situation where tuples have size 0
-                        tup[0] == x for x in tup  # check all elements match
+                        tup[0] == x
+                        for x in tup  # check all elements match
                     ]
                 )
                 for tup in flat_tups
