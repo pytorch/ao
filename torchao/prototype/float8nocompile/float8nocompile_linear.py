@@ -95,7 +95,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
     def from_float(
         cls,
         mod,
-        config: Float8LinearConfig,
+        config: Float8LinearConfig,  # only default config is supported, non-defaults silently ignored
         kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
         use_activation_checkpointing: bool = False,
     ):
@@ -104,7 +104,8 @@ class Float8LinearNoCompile(torch.nn.Linear):
 
         Args:
             mod (torch.nn.Linear): nn.Linear to convert
-            config (Optional[Float8LinearConfig]): configuration for conversion to float8
+            config (Optional[Float8LinearConfig]): configuration for conversion to float8 (note: only
+                default config is supported, non-defaults silently ignored)
         """
         with torch.device("meta"):
             new_mod = cls(
