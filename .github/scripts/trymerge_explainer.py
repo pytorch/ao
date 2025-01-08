@@ -2,7 +2,6 @@ import os
 import re
 from typing import List, Optional, Pattern, Tuple
 
-
 BOT_COMMANDS_WIKI = "https://github.com/pytorch/pytorch/wiki/Bot-commands"
 
 CIFLOW_LABEL = re.compile(r"^ciflow/.+")
