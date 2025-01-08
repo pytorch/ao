@@ -36,9 +36,9 @@ image = (
     .pip_install_from_requirements(
         'requirements.txt',
     )
-    .pip_install(
-        f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
-    )
+    # .pip_install(
+    #     f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
+    # )
 )
 
 app = modal.App("torchao-sam-2-cli", image=image)
@@ -100,10 +100,11 @@ class Model:
     @modal.enter()
     def build(self):
         import os
-        # from torchao._models.sam2.build_sam import build_sam2
-        # from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-        from sam2.build_sam import build_sam2
-        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        # Baseline
+        # from sam2.build_sam import build_sam2
+        # from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
         download_url_branch = "main"
         download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
@@ -162,12 +163,13 @@ class Model:
         from server import profiler_runner
         from server import file_bytes_to_image_tensor
         from server import show_anns
-        # from torchao._models.sam2.utils.amg import rle_to_mask
-        # from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        from torchao._models.sam2.utils.amg import rle_to_mask
+        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
         from torchao._models.sam2.utils.amg import area_from_rle
 
-        from sam2.utils.amg import rle_to_mask
-        from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
+        # Baselien
+        # from sam2.utils.amg import rle_to_mask
+        # from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
 
         self.np = np
         self.tio = tio
@@ -184,35 +186,19 @@ class Model:
         from annotate_with_rle import _get_center_point
         self._get_center_point = _get_center_point
 
-        from generate_data import gen_masks_baseline as gen_masks
+        from generate_data import gen_masks_ao as gen_masks
+        # Baseline
+        # from generate_data import gen_masks_baseline as gen_masks
         self.gen_masks = gen_masks
 
-    # @app.post("/upload_rle")
-    # @modal.method()
     @modal.web_endpoint(docs=True, method="POST")
     async def upload_rle(self, image):
         from torch.autograd.profiler import record_function
 
-        def upload_rle_inner(img_bytes):
-            with record_function("asarray"):
-                image_array = self.np.asarray(img_bytes, dtype=self.np.uint8)
-            with record_function("from_numpy"):
-                img_bytes_tensor = self.torch.from_numpy(image_array)
-
-            with record_function("decode_jpeg"):
-                image_tensor = self.tio.decode_jpeg(img_bytes_tensor,
-                                                    device='cuda',
-                                                    mode=self.tio.ImageReadMode.RGB)
-            with record_function("to_dtype"):
-                image_tensor = self.tio_F.to_dtype(image_tensor,
-                                                   self.torch.float32,
-                                                   scale=True)
-
-            with record_function("generate"):
-                masks = self.mask_generator.generate(image_tensor)
-            with record_function("masks_to_rle_dict"):
-                result = self.masks_to_rle_dict(masks)
-            return result
+        def upload_rle_inner(input_bytes):
+            image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+            masks = self.mask_generator.generate(image_tensor)
+            return self.masks_to_rle_dict(masks)
 
         # return self.profiler_runner(TARGET + "traces/trace.json.gz", upload_rle_inner, bytearray(await image.read()))
         return upload_rle_inner(bytearray(await image.read()))
