@@ -1,15 +1,16 @@
 import pytest
 import torch
+
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import is_row_major
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    KernelAlgorithm,
     hp_to_fp8_col_major,
     hp_to_fp8_col_major_t,
     hp_to_fp8_row_and_col_major,
     hp_to_fp8_row_major,
     hp_to_fp8_row_major_t,
-    KernelAlgorithm,
 )
 
 
