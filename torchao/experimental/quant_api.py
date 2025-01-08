@@ -25,7 +25,9 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def _quantize(vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True):
+def _quantize(
+    vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True
+):
     assert nbit >= 1 and nbit <= 8
     if signed:
         qmin = -(1 << (nbit - 1))
@@ -119,7 +121,9 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         lead_shape = x.shape[0:-2]
         m, k = x.shape[-2], x.shape[-1]
         n = self._n.shape[1]
-        res = self._linear_op(x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k)
+        res = self._linear_op(
+            x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k
+        )
         res = res.reshape(*lead_shape, m, n)
         return res
 
@@ -147,7 +151,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
     def _forward_2d(self, x):
         assert x.dim() == 2
 
-        n, k = self._n, self._k
+        _, k = self._n, self._k
         m, k_ = x.shape
         assert k_ == k
 
@@ -351,7 +355,12 @@ class _IntxWeightQuantizedEmbedding(nn.Module):
     def forward(self, x):
         shape = x.shape
         return self._embedding_op(
-            self.packed_weight_qvals, self.num_embeddings, self.embedding_dim, self.weight_scales, self.weight_zeros, x.reshape(-1)
+            self.packed_weight_qvals,
+            self.num_embeddings,
+            self.embedding_dim,
+            self.weight_scales,
+            self.weight_zeros,
+            x.reshape(-1),
         ).reshape(*shape, -1)
 
 
@@ -382,7 +391,7 @@ class _IntxWeightQuantizedEmbeddingFallback(nn.Module):
                 dequantize_per_channel_group(
                     w_int8=self.weight_qvals[i, :].reshape(1, -1),
                     scales=self.weight_scales[i, :].reshape(1, -1),
-                    zero_points=self.weight_zeros[i,:].reshape(1, -1),
+                    zero_points=self.weight_zeros[i, :].reshape(1, -1),
                     quant_min=None,  # TODO: why is this an arg for this function
                     quant_max=None,  # TODO: why is this an arg for this function
                     dtype=None,  # TODO: why is this an arg for this function
@@ -411,7 +420,9 @@ def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
                     getattr(torch.ops.torchao, f"_embedding_{nbit}bit"),
                 )
                 setattr(module, name, qembedding)
-                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+                getattr(module, name).quantize_and_pack_weights(
+                    child.weight, group_size
+                )
             except Exception as e:
                 logger.warning(
                     f"_IntxWeightQuantizedEmbedding raised an exception during quantize_and_pack_weights: {e}\n"
@@ -419,7 +430,9 @@ def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
                 )
                 qembedding = _IntxWeightQuantizedEmbeddingFallback(nbit)
                 setattr(module, name, qembedding)
-                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+                getattr(module, name).quantize_and_pack_weights(
+                    child.weight, group_size
+                )
 
 
 class IntxWeightEmbeddingQuantizer:
@@ -475,12 +488,14 @@ def int8_dynamic_activation_intx_weight(
     has_weight_zeros: bool = False,
     target: str = "native",
 ):
-    from torchao.experimental._linear_8bit_act_xbit_weight_layout import Linear8BitActXBitWeightLayout
+    from torchao.experimental._linear_8bit_act_xbit_weight_layout import (
+        Linear8BitActXBitWeightLayout,
+    )
     from torchao.quantization.quant_api import (
-        _get_linear_subclass_inserter,
         MappingType,
-        to_affine_quantized_intx,
         ZeroPointDomain,
+        _get_linear_subclass_inserter,
+        to_affine_quantized_intx,
     )
 
     def apply(weight):
@@ -498,10 +513,12 @@ def int8_dynamic_activation_intx_weight(
         quant_max = (1 << (nbit - 1)) - 1
         zero_point_dtype = torch.int8
         preserve_zero = has_weight_zeros
-        zero_point_domain = ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        zero_point_domain = (
+            ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        )
         # Note: this works differently than other quantizers because the dynamic
-        # activation quantization is fused with the kernel/op (and static activation quantization 
-        # is not supported).  
+        # activation quantization is fused with the kernel/op (and static activation quantization
+        # is not supported).
         return to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -549,15 +566,24 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         assert x.dim() >= 2
         if x.dim() == 2:
             return self._linear_op(
-                x, self.packed_weights, self.group_size, self.weight_scales, self.weight_zeros
+                x,
+                self.packed_weights,
+                self.group_size,
+                self.weight_scales,
+                self.weight_zeros,
             )
 
         lead_shape = x.shape[0:-1]
         k = x.shape[-1]
         n = self.weight_scales.shape[1]
         return self._linear_op(
-            x.reshape(-1, k), self.packed_weights, self.group_size, self.weight_scales, self.weight_zeros
+            x.reshape(-1, k),
+            self.packed_weights,
+            self.group_size,
+            self.weight_scales,
+            self.weight_zeros,
         ).reshape(*lead_shape, n)
+
 
 # TODO(mcandales): Consolidate with _replace_linear_with_quantized_linear
 def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
@@ -579,9 +605,7 @@ def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
                 ),
             )
             setattr(module, name, qlinear)
-            qlinear.quantize_and_pack_weights(
-                child.weight, nbit, group_size
-            )
+            qlinear.quantize_and_pack_weights(child.weight, nbit, group_size)
 
 
 class UIntxWeightOnlyLinearQuantizer:

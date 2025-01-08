@@ -44,7 +44,11 @@ configs = [
 ]
 
 configs = [
-    triton.Config(dict(BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, BLOCK_K=BLOCK_K), num_stages=num_stages, num_warps=num_warps)
+    triton.Config(
+        dict(BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, BLOCK_K=BLOCK_K),
+        num_stages=num_stages,
+        num_warps=num_warps,
+    )
     for BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps in configs
 ]
 
@@ -125,10 +129,14 @@ def _scaled_int8_mm_kernel(
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("scaled_int8_mm(Tensor A, Tensor B, Tensor A_scale, Tensor B_scale) -> Tensor")
+lib.define(
+    "scaled_int8_mm(Tensor A, Tensor B, Tensor A_scale, Tensor B_scale) -> Tensor"
+)
 
 
-def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+def scaled_int8_mm(
+    A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor
+) -> Tensor:
     """Compute `(A @ B) * row_scale * col_scale`, where `A` and `B` are INT8 to utilize
     INT8 tensor cores. `col_scale` can be a scalar.
     """
@@ -152,7 +160,10 @@ def scaled_int8_mm_cuda(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tens
     M, K = A.shape
     _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
-    grid = lambda meta: (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
+    grid = lambda meta: (
+        triton.cdiv(meta["M"], meta["BLOCK_M"])
+        * triton.cdiv(meta["N"], meta["BLOCK_N"]),
+    )
     _scaled_int8_mm_kernel[grid](
         A,
         B,

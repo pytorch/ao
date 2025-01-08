@@ -1,5 +1,4 @@
 import argparse
-import logging
 from typing import Optional
 
 import torch
@@ -67,7 +66,7 @@ def quantize_model_with_autoround_(
     multi_t_input_ids = MultiTensor(input_ids_lst)
 
     # The optimization is applied during the forward pass
-    out = model(multi_t_input_ids)
+    model(multi_t_input_ids)
 
     # Step 3. Apply the quantization
     quantize_(model, apply_auto_round(), is_target_module, device=device)

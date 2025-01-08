@@ -3,8 +3,6 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import os
-import platform
 import sys
 import time
 from datetime import datetime
@@ -16,15 +14,16 @@ import torch._dynamo.config
 import torch._inductor.config
 
 import torchao
-from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import get_model_size_in_bytes, TORCH_VERSION_AT_LEAST_2_5
 from torchao._models.utils import (
     get_arch_name,
-    write_json_result_ossci,
     write_json_result_local,
+    write_json_result_ossci,
 )
+from torchao.quantization.quant_primitives import MappingType
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+torch.backends.cuda.enable_cudnn_sdp(True)
 
 
 class HostEvent:
@@ -73,7 +72,7 @@ default_device = (
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import prepare_inputs_for_model, Transformer
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 
 
@@ -256,6 +255,7 @@ B_INST, E_INST = "[INST]", "[/INST]"
 def main(
     prefill_size: Optional[int] = None,
     prompt: str = "Hello, my name is",
+    demo_summarize_prompt: Optional[str] = None,
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
@@ -266,6 +266,7 @@ def main(
         "checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"
     ),
     quantization: Optional[str] = None,
+    min_sqnr: Optional[float] = None,
     sparsity: Optional[str] = None,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
@@ -285,7 +286,11 @@ def main(
 
     if prefill_size is not None and prefill_size > 0:
         # create prompt of prefill size
-        prompt = "prompt " * (int(prefill_size) - 3)
+        if demo_summarize_prompt is None:
+            prompt = "prompt " * (int(prefill_size) - 2)
+        else:
+            with open(demo_summarize_prompt, "r") as f:
+                prompt = f.read()
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -306,6 +311,12 @@ def main(
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
 
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
+
+    if demo_summarize_prompt is not None:
+        end_tag = encode_tokens(tokenizer, "\n <END_TEXT>", bos=False, device=device)
+        encoded = encoded[: prefill_size - end_tag.size(0)]
+        encoded = torch.cat((encoded, end_tag), dim=0)
+
     prompt_length = encoded.size(0)
 
     torch.manual_seed(1234)
@@ -327,15 +338,14 @@ def main(
             float8_dynamic_activation_float8_weight,
             float8_weight_only,
             fpx_weight_only,
+            gemlite_uintx_weight_only,
             int4_weight_only,
             int8_dynamic_activation_int4_weight,
             int8_dynamic_activation_int8_weight,
             int8_weight_only,
             quantize_,
             uintx_weight_only,
-            gemlite_uintx_weight_only,
         )
-
         from torchao.quantization.granularity import PerRow, PerTensor
         from torchao.utils import unwrap_tensor_subclass
 
@@ -344,26 +354,37 @@ def main(
 
             apply_spinquant(model)
         if quantization.startswith("gemlite"):
-            import os, pwd
-            import gemlite
-            from gemlite.core import GemLiteLinearTriton, set_autotune
+            import os
+            import pwd
+
+            from gemlite.core import GemLiteLinearTriton
+
             _quant_args = quantization.split("-")
             bit_width = int(_quant_args[-2])
-            group_size = None if _quant_args[-1] == 'None' else int(_quant_args[-1])
+            group_size = None if _quant_args[-1] == "None" else int(_quant_args[-1])
             try:
                 packing_bitwidth = int(_quant_args[-3])
             except:
                 # if only 2 inputs found, use default value
                 packing_bitwidth = 32
 
-            quantize_(model, gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth))
+            quantize_(
+                model,
+                gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth),
+            )
 
             # try to load gemlite kernel config
             try:
-                GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
-                print(f"loaded gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+                GemLiteLinearTriton.load_config(
+                    f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+                )
+                print(
+                    f"loaded gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+                )
             except:
-                print(f"unable to load gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+                print(
+                    f"unable to load gemlite kernel cache /tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+                )
 
             print("running gemlite warmup")
             generate(
@@ -375,7 +396,9 @@ def main(
                 temperature=temperature,
                 top_k=top_k,
             )
-            GemLiteLinearTriton.cache_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+            GemLiteLinearTriton.cache_config(
+                f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+            )
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -390,6 +413,10 @@ def main(
                 quantize_(
                     model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only
                 )
+            elif "int8dq_prefill_wo_decode" in quantization:
+                quantize_(
+                    model, int8_dynamic_activation_int8_weight(weight_only_decode=True)
+                )
             else:
                 quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
@@ -398,13 +425,28 @@ def main(
             else:
                 use_hqq = False
             group_size = int(quantization.split("-")[1])
-            assert group_size in [
-                32,
-                64,
-                128,
-                256,
-            ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
+            assert (
+                group_size
+                in [
+                    32,
+                    64,
+                    128,
+                    256,
+                ]
+            ), f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
+        elif "int8adq-int4w-symm" in quantization:
+            from torchao.dtypes import CutlassInt4PackedLayout
+
+            quantize_(
+                model,
+                int8_dynamic_activation_int4_weight(
+                    group_size=None,
+                    mapping_type=MappingType.SYMMETRIC,
+                    act_mapping_type=MappingType.SYMMETRIC,
+                    layout=CutlassInt4PackedLayout(),
+                ),
+            )
         if "marlin" in quantization:
             if "qqq" in quantization:
                 from torchao.dtypes import MarlinQQQLayout
@@ -442,8 +484,8 @@ def main(
                 print("Awq requires torch2.3+")
                 exit()
             from torchao.prototype.awq import (
-                awq_uintx,
                 AWQObservedLinear,
+                awq_uintx,
                 insert_awq_observer_,
             )
 
@@ -548,7 +590,6 @@ def main(
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
-            calibration_limit = 1
             inputs = (
                 InputRecorder(
                     tokenizer,
@@ -603,9 +644,7 @@ def main(
                 )
                 if torchao.utils.is_sm_89():
                     # this is fp8 related subclasses, should rename
-                    all_qtensor_classes += (
-                        torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST
-                    )
+                    all_qtensor_classes += torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST
                 model = autoquant_v2(
                     model,
                     manual=True,
@@ -640,7 +679,6 @@ def main(
             from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
-            calibration_limit = 1
             inputs = (
                 InputRecorder(
                     tokenizer,
@@ -669,6 +707,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-float8" == quantization:
                 model = autoquant(
@@ -676,6 +715,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-fp" == quantization:
                 model = autoquant(
@@ -683,29 +723,42 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-sparse" == quantization:
                 model = autoquant(
                     model,
                     manual=True,
-                    qtensor_class_list = torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
+                    qtensor_class_list=torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-gemlite-int4" == quantization:
-                import os, pwd
+                import os
+                import pwd
+
                 from gemlite.core import GemLiteLinearTriton
-                GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+
+                GemLiteLinearTriton.load_config(
+                    f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+                )
                 model = autoquant(
                     model,
                     manual=True,
                     qtensor_class_list=torchao.quantization.GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-all" == quantization:
                 try:
-                    import os, pwd
+                    import os
+                    import pwd
+
                     from gemlite.core import GemLiteLinearTriton
-                    GemLiteLinearTriton.load_config(f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json")
+
+                    GemLiteLinearTriton.load_config(
+                        f"/tmp/{pwd.getpwuid(os.getuid()).pw_gecos}_gemlite.json"
+                    )
                 except:
                     pass
 
@@ -714,9 +767,12 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             else:
-                model = autoquant(model, manual=True, example_input=inputs)
+                model = autoquant(
+                    model, manual=True, example_input=inputs, min_sqnr=min_sqnr
+                )
 
             generate(
                 model,
@@ -732,8 +788,11 @@ def main(
             model.finalize_autoquant()
         elif "codebook" in quantization:
             from torchao.prototype.quantization.codebook import codebook_weight_only
+
             model.to(device)
-            quantize_(model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64))
+            quantize_(
+                model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64)
+            )
 
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
@@ -809,22 +868,33 @@ def main(
                 nonlocal done_generating
                 if done_generating:
                     return
-                buffer.append(tokenizer.decode([period_id] + x.tolist())[1:])
+                buffer.append(tokenizer.decode([period_id] + x.squeeze(0).tolist())[1:])
                 if x.item() == tokenizer.eos_id():
                     done_generating = True
                 if len(buffer) == 4 or done_generating:
                     print("".join(buffer), end="", flush=True)
                     buffer.clear()
-                # print(, end='', flush=True)
+                # print(, end="", flush=True)
 
+        elif demo_summarize_prompt is not None and i >= 0:
+            buffer = []
+            period_id = tokenizer.encode(".")[0]
+
+            def callback(x):
+                buffer.append(tokenizer.decode([period_id] + x.squeeze(0).tolist())[1:])
+                if len(buffer) == 4:
+                    print("".join(buffer), end="", flush=True)
+                    buffer.clear()
         else:
             callback = lambda x: x
         t0 = time.perf_counter()
-        prefill_start_event, prefill_end_event = device_timer(device), device_timer(
-            device
+        prefill_start_event, prefill_end_event = (
+            device_timer(device),
+            device_timer(device),
         )
-        decode_start_event, decode_end_event = device_timer(device), device_timer(
-            device
+        decode_start_event, decode_end_event = (
+            device_timer(device),
+            device_timer(device),
         )
         import contextlib
 
@@ -851,7 +921,7 @@ def main(
                 decode_start_event=decode_start_event,
                 decode_end_event=decode_end_event,
             )
-        if i == -1:
+        if i < 0:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
@@ -859,7 +929,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and prefill_size is None:
+        if not interactive and demo_summarize_prompt is None:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (
@@ -869,7 +939,7 @@ def main(
             )
             print(tokenizer.decode(tokens))
         else:
-            print()
+            print("\n")
         tokens_generated = y.size(-1) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics["tokens_per_sec"].append(tokens_sec)
@@ -913,7 +983,7 @@ def main(
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() / 1e9
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
-    print(f"Average decode tokens/sec: {decode_tokens_sec:.04f} s")
+    print(f"Average decode tokens/sec: {decode_tokpersec:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
     if device == "cuda":
         mem = torch.cuda.max_memory_reserved() / 1e9
@@ -954,13 +1024,33 @@ def main(
         f.close()
 
     if output_json_path:
-        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+        headers = [
+            "name",
+            "dtype",
+            "min_sqnr",
+            "device",
+            "arch",
+            "metric",
+            "actual",
+            "target",
+        ]
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
-        performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
-        write_json_result = write_json_result_local if output_json_local else write_json_result_ossci
+        memory_result = [name, dtype, min_sqnr, device, arch, "mem/s", bandwidth, None]
+        performance_result = [
+            name,
+            dtype,
+            min_sqnr,
+            device,
+            arch,
+            "tok/s",
+            tokpersec,
+            None,
+        ]
+        write_json_result = (
+            write_json_result_local if output_json_local else write_json_result_ossci
+        )
         write_json_result(output_json_path, headers, memory_result)
         write_json_result(output_json_path, headers, performance_result)
 
@@ -974,6 +1064,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--prompt", type=str, default="Hello, my name is", help="Input prompt."
+    )
+    parser.add_argument(
+        "--demo_summarize_prompt", type=str, help="Read prompt from text file"
     )
     parser.add_argument(
         "--interactive",
@@ -1004,7 +1097,15 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, int8adq-int4w-symm"
+        ),
+    )
+    parser.add_argument(
+        "--min_sqnr",
+        type=float,
+        default=None,
+        help=(
+            "min sqnr for quantizing v.s. not quantizing a layer, used in autoquant options",
         ),
     )
     parser.add_argument(
@@ -1073,6 +1174,7 @@ if __name__ == "__main__":
     main(
         args.prefill_size,
         args.prompt,
+        args.demo_summarize_prompt,
         args.interactive,
         args.num_samples,
         args.max_new_tokens,
@@ -1081,6 +1183,7 @@ if __name__ == "__main__":
         args.temperature,
         args.checkpoint_path,
         args.quantization,
+        args.min_sqnr,
         args.sparsity,
         args.kv_cache_quantization,
         args.cache_size,
