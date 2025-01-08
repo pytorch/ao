@@ -1,7 +1,7 @@
 import torch
-
 from triton import Config, autotune, cdiv, heuristics, jit
 from triton import language as tl
+
 from .matmul_perf_model import early_config_prune, estimate_matmul_time
 
 _ordered_datatypes = [torch.int8, torch.float16, torch.bfloat16, torch.float32]

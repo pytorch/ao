@@ -1,19 +1,20 @@
 from typing import Optional
+
 import torch
 import torch.nn.functional as F
+
+from torchao.quantization.observer import AffineQuantizedMinMaxObserver, PerAxis
 from torchao.quantization.quant_primitives import (
     MappingType,
-)
-from torchao.quantization.observer import (
-    AffineQuantizedMinMaxObserver, PerAxis
 )
 
 
 class SmoothQuantObserver(torch.nn.Module):
-    def __init__(self,
+    def __init__(
+        self,
         weight: torch.Tensor,
         alpha: Optional[float] = 0.5,
-        quant_mode: str = "static", # or dynamic
+        quant_mode: str = "static",  # or dynamic
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         eps: Optional[float] = None,
@@ -87,7 +88,9 @@ class SmoothQuantObserver(torch.nn.Module):
         if self.alpha is None:
             # fall back to conventional quantization if alpha is None
             smoothing_factor = torch.ones_like(
-                x_abs_max_per_ic, dtype=x_abs_max_per_ic.dtype, device=x_abs_max_per_ic.device
+                x_abs_max_per_ic,
+                dtype=x_abs_max_per_ic.dtype,
+                device=x_abs_max_per_ic.device,
             )
         else:
             smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
@@ -104,8 +107,12 @@ class SmoothQuantObserver(torch.nn.Module):
             )
             min_val_per_tensor = torch.min(act_min_per_ic_new)
             max_val_per_tensor = torch.max(act_max_per_ic_new)
-            min_val_neg = torch.min(min_val_per_tensor, torch.zeros_like(min_val_per_tensor))
-            max_val_pos = torch.max(max_val_per_tensor, torch.zeros_like(max_val_per_tensor))
+            min_val_neg = torch.min(
+                min_val_per_tensor, torch.zeros_like(min_val_per_tensor)
+            )
+            max_val_pos = torch.max(
+                max_val_per_tensor, torch.zeros_like(max_val_per_tensor)
+            )
             max_val_pos = torch.max(-min_val_neg, max_val_pos)
             act_scale = max_val_pos / (float(self.quant_max - self.quant_min) / 2)
             act_scales = act_scale.to(self.device)
@@ -118,13 +125,14 @@ class SmoothQuantObserver(torch.nn.Module):
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
     def __init__(
-            self,
-            in_features: int,
-            out_features: int,
-            bias: bool,
-            obs: SmoothQuantObserver,
-            device=None,
-            dtype=None):
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool,
+        obs: SmoothQuantObserver,
+        device=None,
+        dtype=None,
+    ):
         super().__init__(in_features, out_features, bias, device, dtype)
         assert isinstance(obs, SmoothQuantObserver)
         self.obs = obs
