@@ -80,7 +80,12 @@ class Float8LinearNoCompile(torch.nn.Linear):
         return output
 
     @classmethod
-    def from_float(cls, mod, config: Float8LinearConfig, kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX):
+    def from_float(
+        cls,
+        mod,
+        config: Float8LinearConfig,
+        kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    ):
         """
         Create an nn.Linear with fp8 compute from a regular nn.Linear
 

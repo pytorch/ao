@@ -36,9 +36,7 @@ def model2():
     return TestModel()
 
 
-@pytest.mark.parametrize(
-    "input_shape", [(16,32), (1,16,32), (2,16,32)]
-)
+@pytest.mark.parametrize("input_shape", [(16, 32), (1, 16, 32), (2, 16, 32)])
 def test_model_weights_and_gradients(model1, model2, input_shape: tuple[int, int]):
     assert torch.cuda.is_available()
     device = torch.device("cuda")
