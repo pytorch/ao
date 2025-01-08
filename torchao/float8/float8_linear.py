@@ -15,7 +15,6 @@ import torch.utils.checkpoint as checkpoint
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
-    NoopFwToFloat8BwDynamic,
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
@@ -104,9 +103,11 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight.scaling_type is ScalingType.DISABLED:
             weight_maybe_fp8_t = weight_hp_t
         else:
-
             # non-axiswise
-            if config.cast_config_weight.scaling_granularity is ScalingGranularity.TENSORWISE:
+            if (
+                config.cast_config_weight.scaling_granularity
+                is ScalingGranularity.TENSORWISE
+            ):
                 # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
                 # weight_scale should be saved.
                 weight_scale = _get_weight_scale(
