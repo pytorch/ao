@@ -36,7 +36,10 @@ def model2():
     return TestModel()
 
 
-def test_model_weights_and_gradients(model1, model2):
+@pytest.mark.parametrize(
+    "input_shape", [(16,32), (1,16,32), (2,16,32)]
+)
+def test_model_weights_and_gradients(model1, model2, input_shape: tuple[int, int]):
     assert torch.cuda.is_available()
     device = torch.device("cuda")
 
@@ -48,7 +51,7 @@ def test_model_weights_and_gradients(model1, model2):
     convert_to_float8_nocompile_training(model1)
 
     input_tensor = torch.randn(
-        16, 32, requires_grad=True, dtype=torch.bfloat16, device=device
+        *input_shape, requires_grad=True, dtype=torch.bfloat16, device=device
     )
     input_copy1 = input_tensor.clone().detach().requires_grad_(True)
     input_copy2 = input_tensor.clone().detach().requires_grad_(True)

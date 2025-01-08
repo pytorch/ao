@@ -23,6 +23,7 @@ log.addHandler(logging.NullHandler())
 def convert_to_float8_nocompile_training(
     module: nn.Module,
     *,
+    config: Float8LinearConfig = None,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
     kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
 ) -> nn.Module:
@@ -39,7 +40,10 @@ def convert_to_float8_nocompile_training(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from_float = lambda m: Float8LinearNoCompile.from_float(m, kernel_algo=kernel_algo)
+    if config is None:
+        config = Float8LinearConfig()
+
+    from_float = lambda m: Float8LinearNoCompile.from_float(m, config=config, kernel_algo=kernel_algo)
     return swap_linear_layers(
         module,
         from_float,
