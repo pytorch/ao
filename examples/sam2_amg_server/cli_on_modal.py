@@ -1,7 +1,7 @@
-from pathlib import Path
 import json
-import fire
+from pathlib import Path
 
+import fire
 import modal
 
 TARGET = "/root/"
@@ -29,15 +29,21 @@ image = (
         "gitpython",
     )
     .apt_install("wget")
-    .run_commands([f"wget https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/requirements.txt"])
+    .run_commands(
+        [
+            "wget https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/requirements.txt"
+        ]
+    )
     .pip_install_from_requirements(
-        'requirements.txt',
+        "requirements.txt",
     )
 )
 
 app = modal.App("torchao-sam-2-cli", image=image)
 
-checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
+checkpoints = modal.Volume.from_name(
+    "torchao-sam-2-cli-checkpoints", create_if_missing=True
+)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 
 
@@ -56,17 +62,19 @@ class Model:
     fast: int = modal.parameter(default=0)
     furious: int = modal.parameter(default=0)
 
-    def calculate_file_hash(self, file_path, hash_algorithm='sha256'):
+    def calculate_file_hash(self, file_path, hash_algorithm="sha256"):
         import hashlib
+
         """Calculate the hash of a file."""
         hash_func = hashlib.new(hash_algorithm)
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_func.update(chunk)
         return hash_func.hexdigest()
 
     def download_file(self, url, filename):
         import subprocess
+
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
@@ -74,8 +82,11 @@ class Model:
     @modal.enter()
     def build(self):
         import os
+
+        from torchao._models.sam2.automatic_mask_generator import (
+            SAM2AutomaticMaskGenerator,
+        )
         from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
         download_url_branch = "climodal2"
         download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
@@ -93,18 +104,22 @@ class Model:
 
         os.chdir(Path(TARGET + "data"))
         import sys
+
         sys.path.append(".")
 
-        from server import model_type_to_paths
-        from server import set_fast
-        from server import set_furious
-
+        from server import model_type_to_paths, set_fast, set_furious
 
         device = "cuda"
         checkpoint_path = Path(TARGET) / Path("checkpoints")
-        sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, self.model_type)
-        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-        mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle")
+        sam2_checkpoint, model_cfg = model_type_to_paths(
+            checkpoint_path, self.model_type
+        )
+        sam2 = build_sam2(
+            model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False
+        )
+        mask_generator = SAM2AutomaticMaskGenerator(
+            sam2, points_per_batch=self.points_per_batch, output_mode="uncompressed_rle"
+        )
         self.mask_generator = mask_generator
         if self.fast:
             set_fast(mask_generator)
@@ -114,33 +129,43 @@ class Model:
     @modal.method()
     def inference_rle(self, input_bytes) -> dict:
         import os
+
         os.chdir(Path(TARGET + "data"))
         import sys
+
         sys.path.append(".")
-        from server import file_bytes_to_image_tensor
-        from server import masks_to_rle_dict
+        from server import file_bytes_to_image_tensor, masks_to_rle_dict
+
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         masks = self.mask_generator.generate(image_tensor)
         return masks_to_rle_dict(masks)
 
     @modal.method()
-    def inference(self, input_bytes, output_format='png'):
+    def inference(self, input_bytes, output_format="png"):
         import os
+
         os.chdir(Path(TARGET + "data"))
         import sys
+
         sys.path.append(".")
-        from server import file_bytes_to_image_tensor
-        from server import show_anns
+        from server import file_bytes_to_image_tensor, show_anns
+
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         masks = self.mask_generator.generate(image_tensor)
 
-        import matplotlib.pyplot as plt
         from io import BytesIO
+
+        import matplotlib.pyplot as plt
+
         from torchao._models.sam2.utils.amg import rle_to_mask
-        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+
+        plt.figure(
+            figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
+            dpi=100,
+        )
         plt.imshow(image_tensor)
         show_anns(masks, rle_to_mask)
-        plt.axis('off')
+        plt.axis("off")
         plt.tight_layout()
         buf = BytesIO()
         plt.savefig(buf, format=output_format)
@@ -148,12 +173,21 @@ class Model:
         return buf.getvalue()
 
 
-def main(input_path, output_path, fast=False, furious=False, model_type="large", output_rle=False):
-    input_bytes = bytearray(open(input_path, 'rb').read())
+def main(
+    input_path,
+    output_path,
+    fast=False,
+    furious=False,
+    model_type="large",
+    output_rle=False,
+):
+    input_bytes = bytearray(open(input_path, "rb").read())
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
-        print("Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing")
+        print(
+            "Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing"
+        )
         print("modal deploy cli_on_modal.py")
         return
 
