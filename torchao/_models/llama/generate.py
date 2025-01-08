@@ -266,6 +266,7 @@ def main(
         "checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"
     ),
     quantization: Optional[str] = None,
+    min_sqnr: Optional[float] = None,
     sparsity: Optional[str] = None,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
@@ -706,6 +707,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-float8" == quantization:
                 model = autoquant(
@@ -713,6 +715,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-fp" == quantization:
                 model = autoquant(
@@ -720,6 +723,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-sparse" == quantization:
                 model = autoquant(
@@ -727,6 +731,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-gemlite-int4" == quantization:
                 import os
@@ -742,6 +747,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-all" == quantization:
                 try:
@@ -761,9 +767,12 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             else:
-                model = autoquant(model, manual=True, example_input=inputs)
+                model = autoquant(
+                    model, manual=True, example_input=inputs, min_sqnr=min_sqnr
+                )
 
             generate(
                 model,
@@ -1015,12 +1024,30 @@ def main(
         f.close()
 
     if output_json_path:
-        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+        headers = [
+            "name",
+            "dtype",
+            "min_sqnr",
+            "device",
+            "arch",
+            "metric",
+            "actual",
+            "target",
+        ]
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
-        performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
+        memory_result = [name, dtype, min_sqnr, device, arch, "mem/s", bandwidth, None]
+        performance_result = [
+            name,
+            dtype,
+            min_sqnr,
+            device,
+            arch,
+            "tok/s",
+            tokpersec,
+            None,
+        ]
         write_json_result = (
             write_json_result_local if output_json_local else write_json_result_ossci
         )
@@ -1071,6 +1098,14 @@ if __name__ == "__main__":
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
             + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, int8adq-int4w-symm"
+        ),
+    )
+    parser.add_argument(
+        "--min_sqnr",
+        type=float,
+        default=None,
+        help=(
+            "min sqnr for quantizing v.s. not quantizing a layer, used in autoquant options",
         ),
     )
     parser.add_argument(
@@ -1148,6 +1183,7 @@ if __name__ == "__main__":
         args.temperature,
         args.checkpoint_path,
         args.quantization,
+        args.min_sqnr,
         args.sparsity,
         args.kv_cache_quantization,
         args.cache_size,

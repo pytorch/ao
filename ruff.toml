@@ -5,6 +5,7 @@
 include = [
     "torchao/**/*.py",
     "test/**/*.py",
+    "benchmarks/**/*.py",
 ]
 
 exclude = [
