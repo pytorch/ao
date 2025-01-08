@@ -7,14 +7,12 @@
 import copy
 import itertools
 import os
-import sys
 import unittest
-from typing import Optional
 
 import torch
-
 from parameterized import parameterized
-from torchao.experimental.quant_api import _quantize, UIntxWeightOnlyLinearQuantizer
+
+from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer, _quantize
 
 libname = "libtorchao_ops_mps_aten.dylib"
 libpath = os.path.abspath(

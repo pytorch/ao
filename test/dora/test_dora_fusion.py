@@ -48,13 +48,7 @@ def _arg_to_id(arg):
 
 
 def check(expected, actual, dtype):
-    if dtype == torch.float32:
-        atol = 1e-4
-    elif dtype == torch.float16:
-        atol = 1e-3
-    elif dtype == torch.bfloat16:
-        atol = 1e-2
-    else:
+    if dtype not in [torch.float32, torch.float16, torch.bfloat16]:
         raise ValueError(f"Unsupported dtype: {dtype}")
     diff = (expected - actual).abs().max()
     print(f"diff: {diff}")

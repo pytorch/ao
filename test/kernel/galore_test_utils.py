@@ -52,7 +52,6 @@ def _ref_op(
     step_size=STEP_SIZE,
     **kwargs,
 ):
-
     # Step 1: Down proj grad
     M, N = grad.shape
     if M >= N:

@@ -32,8 +32,9 @@ Template Tutorial
 # -----
 #
 # Example code (the output below is generated automatically):
-# 
+#
 import torch
+
 x = torch.rand(5, 3)
 print(x)
 
@@ -48,7 +49,7 @@ print(x)
 ######################################################################
 # Conclusion
 # ----------
-# 
+#
 # Summarize the steps and concepts covered. Highlight key takeaways.
 #
 # Further Reading
