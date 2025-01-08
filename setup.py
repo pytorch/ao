@@ -45,8 +45,8 @@ version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv("USE_CPP")
-use_cpp_avx512 = os.getenv('USE_AVX512', 1)
+use_cpp = os.getenv('USE_CPP')
+use_cpp_avx512 = os.getenv('USE_AVX512', '1') == '1'
 
 import platform
 

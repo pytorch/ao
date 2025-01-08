@@ -43,6 +43,7 @@ inline double calculate_scale(
   return scale == 0.0 ? 1.0 / std::sqrt(query.size(-1)) : scale;
 }
 
+#ifdef CPU_CAPABILITY_AVX512
 // out = val * a + b
 // is_b_stride_zero: If the stride of b is 0 (mask broadcasting case),
 //                take b as a scalar pointer.
@@ -2184,7 +2185,7 @@ sdpa_int8_kernel_small_impl(
       AT_PRIVATE_CASE_TYPE_USING_HINT(                     \
           at::ScalarType::Half, mask_t, __VA_ARGS__))
 
-void sdpa_int8_kernel(
+void sdpa_int8_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
     const at::Tensor& key,
@@ -2335,6 +2336,50 @@ void sdpa_int8_kernel(
     }
   }
 }
+#endif // CPU_CAPABILITY_AVX512
+
+at::Tensor sdpa_int8_math_kernel(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    double dropout_p,
+    bool is_causal,
+    at::Tensor& attn_mask,
+    double scale,
+    int32_t q_zp,
+    float q_scale,
+    int32_t k_zp,
+    float k_scale,
+    int32_t v_zp,
+    float v_scale,
+    int32_t a_zp,
+    float a_scale,
+    int32_t o_zp,
+    float o_scale) {
+  // dequant q/k/v
+  auto q = (query.to(at::kFloat) - q_zp) * q_scale;
+  auto k = (key.to(at::kFloat) - k_zp) * k_scale;
+  auto v = (value.to(at::kFloat) - v_zp) * v_scale;
+  const auto scaling_factor = calculate_scale(q, scale);
+  auto attn = at::matmul(q, k.transpose(-2, -1)) * scaling_factor;
+  if (attn_mask.defined() && attn_mask.numel()) {
+    attn = attn.add(attn_mask.to(at::kFloat));
+  }
+  attn = at::softmax(attn, -1);
+  // quant attn
+  attn = at::clamp_max(
+      at::clamp_min(at::round(attn / a_scale) + a_zp, 0), 255
+  );
+  // dequant attn
+  attn = (attn - a_zp) * a_scale;
+  auto output = at::matmul(attn, v);
+  // quant output
+  output = at::clamp_max(
+      at::clamp_min(at::round(output / o_scale) + o_zp, 0), 255
+  ).to(at::kByte);
+  return output;
+}
+
 
 at::Tensor _scaled_dot_product_int8_cpu(
     const at::Tensor& query,
@@ -2377,16 +2422,35 @@ at::Tensor _scaled_dot_product_int8_cpu(
           (attn_mask.dim() == 2 || attn_mask.dim() == 4),
     "_scaled_dot_product_int8_cpu: Attention mask dim in {2, 4}");
 
-  at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
-  sdpa_int8_kernel(output, query, key, value,
-      dropout_p, is_causal, attn_mask, scale,
-      q_zp, q_scale,
-      k_zp, k_scale,
-      v_zp, v_scale,
-      a_zp, a_scale,
-      o_zp, o_scale);
+  if (!at::native::cpublas::could_pack(dtype)) {
+      return sdpa_int8_math_kernel(query, key, value,
+          dropout_p, is_causal, attn_mask, scale,
+          q_zp, q_scale,
+          k_zp, k_scale,
+          v_zp, v_scale,
+          a_zp, a_scale,
+          o_zp, o_scale);
+  }
 
-  return output.transpose(1, 2);
+  #ifdef CPU_CAPABILITY_AVX512
+    at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
+    sdpa_int8_fused_kernel(output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_zp, q_scale,
+        k_zp, k_scale,
+        v_zp, v_scale,
+        a_zp, a_scale,
+        o_zp, o_scale);
+    return output.transpose(1, 2);
+  #else
+    return sdpa_int8_math_kernel(query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_zp, q_scale,
+        k_zp, k_scale,
+        v_zp, v_scale,
+        a_zp, a_scale,
+        o_zp, o_scale);
+  #endif // CPU_CAPABILITY_AVX512
 }
 
 
