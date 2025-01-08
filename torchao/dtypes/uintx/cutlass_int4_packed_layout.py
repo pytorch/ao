@@ -154,3 +154,39 @@ def _linear_int8_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias)
     out = s8s4_linear_cutlass(input, input_scale, weight, weight_scale, bias)
 
     return out
+
+
+def _linear_int4_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias):
+    return (
+        isinstance(input_tensor, AffineQuantizedTensor)
+        and _aqt_is_int4(input_tensor)
+        and input_tensor.dtype in (torch.float16, torch.bfloat16)
+        and len(input_tensor.shape) >= 2
+        and input_tensor.tensor_impl.scale.dtype == input_tensor.dtype
+        and len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape) - 1
+        and isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_int4(weight_tensor)
+        and weight_tensor.dtype == input_tensor.dtype
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.tensor_impl.scale.dtype == weight_tensor.dtype
+        and len(weight_tensor.tensor_impl.scale.shape) == 1
+    )
+
+
+def _linear_int4_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias):
+    from torchao.ops import scaled_int4_mm_cutlass
+
+    weight = weight_tensor.tensor_impl.int_data
+    weight_scale = weight_tensor.tensor_impl.scale
+    input = input_tensor.tensor_impl.int_data
+    input_scale = input_tensor.tensor_impl.scale
+
+    batch_dims = input_tensor.shape[:-2]
+    input = input.view(-1, input.shape[-1])
+    input_scale = input_scale.view(-1)
+    out = scaled_int4_mm_cutlass(input, weight.T, input_scale, weight_scale)
+    if bias is not None:
+        out = out + bias
+    out = out.view(*batch_dims, out.shape[-1])
+
+    return out
