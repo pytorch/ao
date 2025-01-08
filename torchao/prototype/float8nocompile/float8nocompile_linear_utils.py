@@ -26,6 +26,7 @@ def convert_to_float8_nocompile_training(
     config: Float8LinearConfig = None,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
     kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    use_activation_checkpointing: bool = False,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Linear` in `module` with `Float8LinearNoCompile`.
@@ -43,7 +44,12 @@ def convert_to_float8_nocompile_training(
     if config is None:
         config = Float8LinearConfig()
 
-    from_float = lambda m: Float8LinearNoCompile.from_float(m, config=config, kernel_algo=kernel_algo)
+    from_float = lambda m: Float8LinearNoCompile.from_float(
+        m, 
+        config=config, 
+        kernel_algo=kernel_algo, 
+        use_activation_checkpointing=use_activation_checkpointing,
+    )
     return swap_linear_layers(
         module,
         from_float,
