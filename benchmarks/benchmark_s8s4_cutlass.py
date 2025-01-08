@@ -1,13 +1,12 @@
-import torch
 import pandas as pd
-from torchao.utils import benchmark_torch_function_in_microseconds
-from torchao.ops import s8s4_linear_cutlass
+import torch
 from tqdm import tqdm
+
+from torchao.ops import s8s4_linear_cutlass
+from torchao.utils import benchmark_torch_function_in_microseconds
 
 
 def get_problem(m, n, k):
-    groupsize = k
-
     dev = torch.device("cuda")
     A_ref = torch.randn((m, k), dtype=torch.half, device=dev)
     B_ref = torch.randn((k, n), dtype=torch.half, device=dev)

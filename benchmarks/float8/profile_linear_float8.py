@@ -5,35 +5,41 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import io
 import functools
+import io
 import os
+import pathlib
 import random
 from contextlib import nullcontext, redirect_stdout
 from dataclasses import dataclass, field
-import pathlib
 from typing import Callable, Optional
 
 import fire
 import pandas as pd
 
 # disable inductor FX cache, so we can can always study the inductor output logs
-os.environ['TORCHINDUCTOR_FORCE_DISABLE_CACHES'] = '1'
+os.environ["TORCHINDUCTOR_FORCE_DISABLE_CACHES"] = "1"
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.profiler import ProfilerActivity, profile, record_function
 from torch.utils.checkpoint import (
-    checkpoint, 
-    create_selective_checkpoint_contexts, 
     CheckpointPolicy,
+    checkpoint,
+    create_selective_checkpoint_contexts,
 )
+from utils import (
+    kernel_name_to_category,
+    parse_bw_and_kernel_name,
+    profiler_output_to_filtered_time_by_kernel_name,
+    profiler_output_to_gpu_time_for_key,
+    update_triton_kernels_in_prof_chome_trace_with_torch_logs,
+)
+
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
-    ScalingType,
-    ScalingGranularity,
     Float8LinearRecipeName,
+    ScalingType,
     recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
@@ -42,20 +48,11 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
-from torch.profiler import profile, ProfilerActivity, record_function
-from utils import (
-    kernel_name_to_category,
-    parse_bw_and_kernel_name,
-    profiler_output_to_gpu_time_for_key,
-    profiler_output_to_filtered_time_by_kernel_name,
-    update_triton_kernels_in_prof_chome_trace_with_torch_logs,
-)
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
 # display 3 trailing decimal points for floats
 pd.set_option("display.float_format", "{:.3f}".format)
-
 
 
 class LNLinear(torch.nn.Module):
@@ -184,10 +181,10 @@ class ProfileConfig:
 
 
 def profile_function(
-    config: ProfileConfig, 
-    func: Callable, 
+    config: ProfileConfig,
+    func: Callable,
     add_inductor_metadata_to_trace: bool,
-    *args, 
+    *args,
     **kwargs,
 ) -> torch.profiler.profile:
     """Profile a torch function and save the result to a file"""
@@ -197,8 +194,10 @@ def profile_function(
 
     if add_inductor_metadata_to_trace:
         # ensure we aren't interfering with other torch_log settings
-        if os.environ.get('TORCH_LOGS', '') != '':
-            raise AssertionError('using TORCH_LOGS together with add_inductor_metadata_to_trace is not supported yet')
+        if os.environ.get("TORCH_LOGS", "") != "":
+            raise AssertionError(
+                "using TORCH_LOGS together with add_inductor_metadata_to_trace is not supported yet"
+            )
 
         # save torch.compile logs to a file specific to this benchmark run
         # TODO(future): can we hack torch.compile to print to file only and not stdout?
@@ -209,7 +208,6 @@ def profile_function(
         if os.path.isfile(config.logs_file_path):
             pathlib.Path.unlink(config.logs_file_path)
         torch._logging._init_logs(log_file_name=config.logs_file_path)
-            
 
     activities = [ProfilerActivity.CPU]
     if config.cuda:
@@ -267,11 +265,13 @@ ops_to_save = [
     torch.ops.aten.max.default,
 ]
 
+
 def policy_fn(ctx, op, *args, **kwargs):
     if op in ops_to_save:
         return CheckpointPolicy.MUST_SAVE
     else:
         return CheckpointPolicy.PREFER_RECOMPUTE
+
 
 context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
 
@@ -289,7 +289,12 @@ def main(
     enable_sync_amax_history: bool = True,
     enable_activation_checkpointing: bool = False,
 ):
-    assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
+    assert model_type in (
+        "linear",
+        "ln_linear",
+        "norm_ffn_norm",
+        "norm_ffn_norm_small",
+    ), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
 
     scaling_type_input = ScalingType(scaling_type_input)
@@ -317,7 +322,9 @@ def main(
     print(f"Compile is set to       | {compile}")
     print(f"model_type is set to    | {model_type}")
     print(f"scaling_repr is set to  | {scaling_repr}")
-    print(f"enable_activation_checkpointing is set to {enable_activation_checkpointing}")
+    print(
+        f"enable_activation_checkpointing is set to {enable_activation_checkpointing}"
+    )
 
     device = "cuda"
     ref_dtype = torch.bfloat16
@@ -406,7 +413,7 @@ def main(
     # to populate triton kernel bandwidth further down in the script
     if os.environ.get("TORCHINDUCTOR_PROFILE", "") == "":
         context = nullcontext()
-        f = None 
+        f = None
     else:
         f = io.StringIO()
         context = redirect_stdout(f)
@@ -425,16 +432,31 @@ def main(
                 ref_logs_suffix = f"_{model_type}_ref_compile_{compile}.txt"
                 trace_ref_path = profile_path_prefix + ref_trace_suffix
                 log_ref_path = profile_path_prefix + ref_logs_suffix
-                trace_ref_modified_path = trace_ref_path.replace(".json", "_modified.json")
-                profile_config = ProfileConfig(
-                    trace_ref_path, log_ref_path, trace_ref_modified_path, ref_trace_suffix, iters=profile_iters, warmup_iters=2, sync=True
+                trace_ref_modified_path = trace_ref_path.replace(
+                    ".json", "_modified.json"
                 )
-                p = profile_function(profile_config, ref_forw_backward, add_inductor_metadata_to_trace, input_tensor)
+                profile_config = ProfileConfig(
+                    trace_ref_path,
+                    log_ref_path,
+                    trace_ref_modified_path,
+                    ref_trace_suffix,
+                    iters=profile_iters,
+                    warmup_iters=2,
+                    sync=True,
+                )
+                p = profile_function(
+                    profile_config,
+                    ref_forw_backward,
+                    add_inductor_metadata_to_trace,
+                    input_tensor,
+                )
                 print(f"saved profiling trace to {trace_ref_path}")
                 if add_inductor_metadata_to_trace:
                     print(f"saved torch logs to {log_ref_path}")
                     print(f"saved modified trace to {trace_ref_modified_path}")
-                ref_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
+                ref_times = profiler_output_to_filtered_time_by_kernel_name(
+                    p, profile_iters, num_leaf_tensors
+                )
                 total_time_ms = sum(v for v in ref_times.values()) / 1e3 / profile_iters
                 for k, v in ref_times.items():
                     v_ms = v / 1e3 / profile_iters
@@ -460,7 +482,9 @@ def main(
                 )
                 trace_float8_path = profile_path_prefix + float8_trace_suffix
                 log_float8_path = profile_path_prefix + float8_log_suffix
-                trace_float8_modified_path = trace_float8_path.replace(".json", "_modified.json")
+                trace_float8_modified_path = trace_float8_path.replace(
+                    ".json", "_modified.json"
+                )
                 profile_config = ProfileConfig(
                     trace_float8_path,
                     log_float8_path,
@@ -471,14 +495,21 @@ def main(
                     sync=True,
                 )
                 p = profile_function(
-                    profile_config, float8_forw_backward_wrapper, add_inductor_metadata_to_trace, input_tensor 
+                    profile_config,
+                    float8_forw_backward_wrapper,
+                    add_inductor_metadata_to_trace,
+                    input_tensor,
                 )
                 print(f"saved profiling trace to {trace_float8_path}")
                 if add_inductor_metadata_to_trace:
                     print(f"saved torch logs to {log_float8_path}")
                     print(f"saved modified trace to {trace_float8_modified_path}")
-                float8_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
-                total_time_ms = sum(v for v in float8_times.values()) / 1e3 / profile_iters
+                float8_times = profiler_output_to_filtered_time_by_kernel_name(
+                    p, profile_iters, num_leaf_tensors
+                )
+                total_time_ms = (
+                    sum(v for v in float8_times.values()) / 1e3 / profile_iters
+                )
                 for k, v in float8_times.items():
                     v_ms = v / 1e3 / profile_iters
                     data.append(

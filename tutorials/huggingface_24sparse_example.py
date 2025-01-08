@@ -5,16 +5,18 @@
 # https://huggingface.co/nm-testing/SparseLlama-3-8B-pruned_50.2of4-FP8
 
 import os
-import torch
-from torchao.sparsity import sparsify_, semi_sparse_weight
 
+import torch
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false" # silence warnings when compiling
+from torchao.sparsity import semi_sparse_weight, sparsify_
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # silence warnings when compiling
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
-torch.set_float32_matmul_precision('high')
+torch.set_float32_matmul_precision("high")
+
 
 def timed(fn):
     start = torch.cuda.Event(enable_timing=True)
@@ -32,27 +34,32 @@ def benchmark(fn, WARMUP=5, N=25):
         # warmup steps
         for _ in range(WARMUP):
             timed(fn)
-    
+
         # benchmark
         for _ in tqdm(range(N)):
             with torch.no_grad():
-                _ , time_sec =  timed(fn)
+                _, time_sec = timed(fn)
                 time_per_batch.append(time_sec)
-            
+
     # each time we generate 128 tokens - 7 for the prompt = 121 tokens at a time.
     total_time = sum(time_per_batch)
     tokens_per_second = 121 * N / total_time
     print(f"Total time: {total_time:.3f}s | Tokens/second: {tokens_per_second:.3f}")
 
+
 # define model and tokenizer
-model = AutoModelForCausalLM.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16).cuda()
+model = AutoModelForCausalLM.from_pretrained(
+    "nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16
+).cuda()
 tokenizer = AutoTokenizer.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4")
 
+
 # Even though we need to pad the matmul shapes from (1, hidden) @ (hidden, output)
-# to (8, hidden) @ (hidden, output) we are still able to achieve speedups on 
+# to (8, hidden) @ (hidden, output) we are still able to achieve speedups on
 # the mlp.up and mlp.gate linear layers of the FFN.
 def is_mlp_up_or_mlp_gate(mod, name):
-    return isinstance(mod, torch.nn.Linear) and ('mlp.gate' in name or 'mlp.up' in name)
+    return isinstance(mod, torch.nn.Linear) and ("mlp.gate" in name or "mlp.up" in name)
+
 
 # apply sparsity
 sparsify_(model, semi_sparse_weight(), filter_fn=is_mlp_up_or_mlp_gate)
@@ -74,7 +81,7 @@ response = tokenizer.batch_decode(outputs)[0]
 print(response)
 
 # `torch.compile(model, ...)` is not recommended as you compile callbacks
-# and full generate. We recommend compiling only the forward for now. 
+# and full generate. We recommend compiling only the forward for now.
 # "reduce-overhead" will use cudagraphs.
 torch._inductor.config.triton.cudagraph_dynamic_shape_warn_limit = None
 
@@ -90,7 +97,9 @@ print(response)
 ## Run torch.compile baseline
 
 del model
-model = AutoModelForCausalLM.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16).cuda()
+model = AutoModelForCausalLM.from_pretrained(
+    "nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16
+).cuda()
 
 model.generation_config.max_length = 128
 model.generation_config.pad_token_id = tokenizer.eos_token_id

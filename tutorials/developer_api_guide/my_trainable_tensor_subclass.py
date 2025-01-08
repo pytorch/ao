@@ -11,11 +11,11 @@ needed to ensure proper gradient updates during training:
 """
 
 import torch
-
-from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
-from torchao.dtypes.utils import Layout, PlainLayout
 from my_dtype_tensor_subclass import MyDTypeLayout, MyDTypeTensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
+
+from torchao.dtypes.utils import Layout, PlainLayout
+from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
 
 aten = torch.ops.aten
 
@@ -23,6 +23,7 @@ aten = torch.ops.aten
 ##############################
 # Tensor Subclass Definition #
 ##############################
+
 
 class MyTrainableDTypeTensor(MyDTypeTensor):
     """
@@ -60,6 +61,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         """
         return _ToMyTrainableDTypeTensor.apply(input_float, _layout)
 
+
 class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     """
     Differentiable constructor for `MyTrainableDTypeTensor`.
@@ -82,6 +84,7 @@ class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     def backward(ctx, gy):
         return gy, None
 
+
 to_my_trainable_dtype = MyTrainableDTypeTensor.from_float
 
 
@@ -90,6 +93,7 @@ to_my_trainable_dtype = MyTrainableDTypeTensor.from_float
 #####################################################
 
 implements = MyTrainableDTypeTensor.implements
+
 
 class _QuantizedLinearOp(torch.autograd.Function):
     """
@@ -118,6 +122,7 @@ class _QuantizedLinearOp(torch.autograd.Function):
         )
         return grad_input, grad_weight
 
+
 @implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     """
@@ -129,6 +134,7 @@ def _(func, types, args, kwargs):
         raise NotImplementedError("linear bias not yet supported")
     return _QuantizedLinearOp.apply(args[0], args[1])
 
+
 @implements(aten.add_.Tensor)
 def _(func, types, args, kwargs):
     """
@@ -139,7 +145,9 @@ def _(func, types, args, kwargs):
     assert isinstance(args[0], MyTrainableDTypeTensor)
     assert args[0].tensor_impl.int_data.dtype == torch.int8
     float0 = args[0].dequantize()
-    float1 = args[1].dequantize() if isinstance(args[1], MyTrainableDTypeTensor) else args[1]
+    float1 = (
+        args[1].dequantize() if isinstance(args[1], MyTrainableDTypeTensor) else args[1]
+    )
     new_value = torch.add(float0, float1, **kwargs)
     new_tensor_impl = MyTrainableDTypeTensor._quantize(
         new_value,
@@ -147,6 +155,7 @@ def _(func, types, args, kwargs):
     )
     args[0].tensor_impl = new_tensor_impl
     return return_and_correct_aliasing(func, args, kwargs, args[0])
+
 
 @implements(aten.add.Tensor)
 def _(func, types, args, kwargs):
@@ -162,6 +171,7 @@ def _(func, types, args, kwargs):
 # Test #
 ########
 
+
 class M(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -170,6 +180,7 @@ class M(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
 
+
 def main():
     m = M().cuda()
     NUM_TRAIN_STEPS = 10
@@ -177,7 +188,8 @@ def main():
 
     # Convert weights to quantized weights
     m.linear.weight = torch.nn.Parameter(
-        to_my_trainable_dtype(m.linear.weight), requires_grad=True,
+        to_my_trainable_dtype(m.linear.weight),
+        requires_grad=True,
     )
 
     # Dummy training loop
@@ -192,9 +204,13 @@ def main():
         if VERBOSE:
             weight = m.linear.weight.tensor_impl.int_data.flatten()[:3]
             weight_grad = m.linear.weight.grad.flatten()[:3]
-            print(" * step %s: weight grad = %s, weight value = %s" % (i, weight_grad, weight))
+            print(
+                " * step %s: weight grad = %s, weight value = %s"
+                % (i, weight_grad, weight)
+            )
         optimizer.step()
         optimizer.zero_grad()
+
 
 if __name__ == "__main__":
     main()
