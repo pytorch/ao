@@ -555,18 +555,20 @@ def main(checkpoint_path,
         response_future = asyncio.Future()
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
-
-        # Save an example
-        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
+        
+        # Create figure and ensure it's closed after generating response
+        fig = plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
         plt.imshow(image_tensor)
         show_anns(masks, rle_to_mask)
         plt.axis('off')
         plt.tight_layout()
+            
         buf = BytesIO()
         plt.savefig(buf, format='png')
         buf.seek(0)
+        plt.close(fig)  # Close figure after we're done with it
+            
         return StreamingResponse(buf, media_type="image/png")
-
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
     uvicorn.run(app, host=host, port=port)
