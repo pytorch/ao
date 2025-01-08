@@ -10,7 +10,7 @@ from torch.nn.utils import parametrize
 
 from torchao.prototype.sparsity import BaseSparsifier
 
-from .match_utils import apply_match, MatchAllNode
+from .match_utils import MatchAllNode, apply_match
 from .parametrization import BiasHook, FakeStructuredSparsity, module_contains_param
 from .prune_functions import (
     prune_conv2d,
@@ -92,10 +92,12 @@ def _get_supported_activation_modules():
     return SUPPORTED_ACTIVATION_MODULES
 
 
-def _get_default_structured_pruning_patterns() -> Dict[
-    Tuple[Union[Type[nn.Module], Callable, MatchAllNode, str], ...],
-    Callable[..., None],
-]:
+def _get_default_structured_pruning_patterns() -> (
+    Dict[
+        Tuple[Union[Type[nn.Module], Callable, MatchAllNode, str], ...],
+        Callable[..., None],
+    ]
+):
     """
     Returns the patterns for conv2d / linear conversion for each element in the activation functions/modules defined above.
     """
