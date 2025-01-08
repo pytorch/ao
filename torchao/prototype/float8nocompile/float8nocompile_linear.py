@@ -17,6 +17,7 @@ from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     ToFP8ColumnMajor,
     ToFP8ColumnMajorT,
     ToFP8RowAndColumnMajor,
+    ToFP8RowMajor,
     ToFP8RowMajorTAndNonT,
 )
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
@@ -39,7 +40,9 @@ class Float8LinearNoCompile(torch.nn.Linear):
         """
         self.config = kwargs.pop("config")
         self.kernel_algo = kwargs.pop("kernel_algo")
-        self.use_activation_checkpointing = kwargs.pop("use_activation_checkpointing", False)
+        self.use_activation_checkpointing = kwargs.pop(
+            "use_activation_checkpointing", False
+        )
         super().__init__(*args, **kwargs)
 
         self.linear_mm_config = LinearMMConfig(
@@ -69,7 +72,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.use_activation_checkpointing:
             output = checkpoint(
-                matmul_with_args_in_hp.apply, 
+                matmul_with_args_in_hp.apply,
                 input,
                 self.weight,
                 self.config,
@@ -90,9 +93,9 @@ class Float8LinearNoCompile(torch.nn.Linear):
 
     @classmethod
     def from_float(
-        cls, 
-        mod, 
-        config: Float8LinearConfig, 
+        cls,
+        mod,
+        config: Float8LinearConfig,
         kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
         use_activation_checkpointing: bool = False,
     ):
@@ -122,18 +125,22 @@ class Float8LinearNoCompile(torch.nn.Linear):
 class matmul_with_args_in_hp(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx, 
-        input_hp: torch.Tensor, 
-        weight_hp: torch.Tensor, 
-        config: Float8LinearConfig, 
-        linear_mm_config: LinearMMConfig, 
-        kernel_algo: KernelAlgorithm, 
+        ctx,
+        input_hp: torch.Tensor,
+        weight_hp: torch.Tensor,
+        config: Float8LinearConfig,
+        linear_mm_config: LinearMMConfig,
+        kernel_algo: KernelAlgorithm,
         use_activation_checkpointing: bool,
     ):
         if use_activation_checkpointing:
-            return matmul_with_args_in_hp._forward_with_ac(ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo)
+            return matmul_with_args_in_hp._forward_with_ac(
+                ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo
+            )
         else:
-            return matmul_with_args_in_hp._forward_no_ac(ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo)
+            return matmul_with_args_in_hp._forward_no_ac(
+                ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo
+            )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -144,12 +151,12 @@ class matmul_with_args_in_hp(torch.autograd.Function):
 
     @staticmethod
     def _forward_no_ac(
-        ctx, 
-        input_hp: torch.Tensor, 
-        weight_hp: torch.Tensor, 
-        config: Float8LinearConfig, 
-        linear_mm_config: LinearMMConfig, 
-        kernel_algo: KernelAlgorithm, 
+        ctx,
+        input_hp: torch.Tensor,
+        weight_hp: torch.Tensor,
+        config: Float8LinearConfig,
+        linear_mm_config: LinearMMConfig,
+        kernel_algo: KernelAlgorithm,
     ):
         # reshape to be 2D for triton kernels
         orig_input_shape = input_hp.shape
@@ -233,12 +240,12 @@ class matmul_with_args_in_hp(torch.autograd.Function):
 
     @staticmethod
     def _forward_with_ac(
-        ctx, 
-        input_hp: torch.Tensor, 
-        weight_hp: torch.Tensor, 
-        config: Float8LinearConfig, 
-        linear_mm_config: LinearMMConfig, 
-        kernel_algo: KernelAlgorithm, 
+        ctx,
+        input_hp: torch.Tensor,
+        weight_hp: torch.Tensor,
+        config: Float8LinearConfig,
+        linear_mm_config: LinearMMConfig,
+        kernel_algo: KernelAlgorithm,
     ):
         # reshape to be 2D for triton kernels
         orig_input_shape = input_hp.shape
@@ -271,7 +278,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
 
         # reshape back to expected dims
         output = output.reshape(*orig_input_shape[:-1], output.shape[-1])
-        return output 
+        return output
 
     @staticmethod
     def _backward_with_ac(ctx, grad_output):
