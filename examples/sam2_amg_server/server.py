@@ -324,6 +324,7 @@ def max_memory_allocated():
     mib = stats["bytes"] >> 20
     print(f"max_memory_allocated_bytes: {mib}MiB")
     print(f"max_memory_allocated_percentage: {stats['percentage']}%")
+    return mib, stats["percentage"]
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
@@ -385,16 +386,30 @@ def model_type_to_paths(checkpoint_path, model_type):
     return sam2_checkpoint, model_cfg
 
 
-def set_autoquant(mask_generator):
+def set_autoquant(mask_generator, autoquant_type, min_sqnr):
     import torchao
     from torchao import autoquant
 
     # NOTE: Not baseline feature
-    mask_generator.predictor.model.image_encoder = autoquant(
-        mask_generator.predictor.model.image_encoder,
-        qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
-        min_sqnr=40,
-    )
+    if autoquant_type == "autoquant":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder, min_sqnr=min_sqnr
+        )
+    elif autoquant_type == "autoquant-fp":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder,
+            qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
+            min_sqnr=min_sqnr,
+        )
+    elif autoquant_type == "autoquant-all":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder,
+            qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
+            min_sqnr=min_sqnr,
+        )
+    else:
+        raise ValueError(f"Unexpected autoquant type: {autoquant_type}")
+
     mask_generator.predictor._transforms_device = mask_generator.predictor.device
     torch.set_float32_matmul_precision("high")
     # NOTE: this fails when we run
@@ -409,7 +424,8 @@ def main(
     baseline=False,
     fast=False,
     furious=False,
-    use_autoquant=False,
+    autoquant_type=None,
+    min_sqnr=None,
     unittest=False,
     benchmark=False,
     profile=None,
@@ -491,9 +507,9 @@ def main(
         set_fast(mask_generator, load_fast)
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
-    if use_autoquant:
+    if autoquant_type is not None:
         assert not furious, "use autoquant can't be used together with furious"
-        set_autoquant(mask_generator)
+        set_autoquant(mask_generator, autoquant_type, min_sqnr)
 
     with open("dog.jpg", "rb") as f:
         output_format = "numpy" if baseline else "torch"
@@ -555,7 +571,7 @@ def main(
             headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
             name = "sam2-" + model_type
             arch = get_arch_name()
-            dtype = "autoquant" if use_autoquant else "noquant"
+            dtype = autoquant_type or "noquant"
             (
                 avg_time_per_run,
                 max_memory_allocated_bytes,
@@ -657,8 +673,8 @@ def main(
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
 
-        # Save an example
-        plt.figure(
+        # Create figure and ensure it's closed after generating response
+        fig = plt.figure(
             figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
             dpi=100,
         )
@@ -666,9 +682,12 @@ def main(
         show_anns(masks, rle_to_mask)
         plt.axis("off")
         plt.tight_layout()
+
         buf = BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
+        plt.close(fig)  # Close figure after we're done with it
+
         return StreamingResponse(buf, media_type="image/png")
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
