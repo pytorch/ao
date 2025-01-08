@@ -3,10 +3,10 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
 import glob
-from datetime import datetime
+import os
 import subprocess
+from datetime import datetime
 
 from setuptools import find_packages, setup
 
@@ -15,13 +15,19 @@ current_date = datetime.now().strftime("%Y%m%d")
 
 def get_git_commit_id():
     try:
-        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+        return (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+            .decode("ascii")
+            .strip()
+        )
     except Exception:
         return ""
+
 
 def read_requirements(file_path):
     with open(file_path, "r") as file:
         return file.read().splitlines()
+
 
 def read_version(file_path="version.txt"):
     with open(file_path, "r") as file:
@@ -33,33 +39,40 @@ version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv('USE_CPP')
+use_cpp = os.getenv("USE_CPP")
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
-version = f"{version_prefix}.dev{current_date}" if os.environ.get("TORCHAO_NIGHTLY") else version_prefix
+version = (
+    f"{version_prefix}.dev{current_date}"
+    if os.environ.get("TORCHAO_NIGHTLY")
+    else version_prefix
+)
 
 import torch
-
 from torch.utils.cpp_extension import (
+    CUDA_HOME,
+    IS_WINDOWS,
+    BuildExtension,
     CppExtension,
     CUDAExtension,
-    BuildExtension,
-    CUDA_HOME,
-    IS_WINDOWS
 )
 
 
 def get_extensions():
-    debug_mode = os.getenv('DEBUG', '0') == '1'
+    debug_mode = os.getenv("DEBUG", "0") == "1"
     if debug_mode:
         print("Compiling in debug mode")
 
     if not torch.cuda.is_available():
-        print("PyTorch GPU support is not available. Skipping compilation of CUDA extensions")
+        print(
+            "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
+        )
     if CUDA_HOME is None and torch.cuda.is_available():
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
-        print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
+        print(
+            "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
+        )
 
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
@@ -83,10 +96,7 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
-        extra_compile_args["cxx"] = [
-            "/O2" if not debug_mode else "/Od",
-            "/permissive-"
-        ]
+        extra_compile_args["cxx"] = ["/O2" if not debug_mode else "/Od", "/permissive-"]
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
@@ -100,17 +110,21 @@ def get_extensions():
         cutlass_dir = os.path.join(this_dir, "third_party", "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
     if use_cutlass:
-        extra_compile_args["nvcc"].extend([
-            "-DTORCHAO_USE_CUTLASS",
-            "-I" + cutlass_include_dir,
-        ])
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+            ]
+        )
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True))
+    cuda_sources = list(
+        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    )
 
     if use_cuda:
         sources += cuda_sources
@@ -133,7 +147,7 @@ def get_extensions():
 
 setup(
     name="torchao",
-    version=version+version_suffix,
+    version=version + version_suffix,
     packages=find_packages(),
     include_package_data=True,
     package_data={
@@ -146,7 +160,5 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": BuildExtension},
-    options={"bdist_wheel": {
-        "py_limited_api": "cp39"
-    }},
+    options={"bdist_wheel": {"py_limited_api": "cp39"}},
 )
