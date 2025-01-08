@@ -608,10 +608,7 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize(
-    "M,N,K",
-    [(1, 256, 512), (18, 512, 256), (17, 256, 512)]
-)
+@pytest.mark.parametrize("M,N,K", [(1, 256, 512), (18, 512, 256), (17, 256, 512)])
 def test_int4_mm_cutlass(M, N, K):
     A = torch.randint(-128, 127, size=(M, K // 2), dtype=torch.int8, device="cuda")
     B = torch.randint(-128, 127, size=(N, K // 2), dtype=torch.int8, device="cuda")
@@ -634,10 +631,7 @@ def test_int4_mm_cutlass(M, N, K):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize(
-    "M,N,K",
-    [(1, 256, 512), (18, 512, 256), (17, 256, 512)]
-)
+@pytest.mark.parametrize("M,N,K", [(1, 256, 512), (18, 512, 256), (17, 256, 512)])
 @pytest.mark.parametrize("dtype", [torch.half, torch.bfloat16])
 def test_scaled_int4_mm_cutlass(M, N, K, dtype):
     A = torch.randint(-128, 127, size=(M, K // 2), dtype=torch.int8, device="cuda")

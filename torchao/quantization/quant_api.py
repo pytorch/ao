@@ -654,6 +654,38 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
+def apply_int4_dynamic_activation_int4_weight_quant(
+    weight: torch.Tensor,
+    layout=CutlassInt4PackedLayout(),
+    mapping_type=MappingType.SYMMETRIC,
+    act_mapping_type=MappingType.SYMMETRIC,
+):
+    if not isinstance(layout, CutlassInt4PackedLayout):
+        raise NotImplementedError(
+            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
+        )
+    if mapping_type != MappingType.SYMMETRIC:
+        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
+    if act_mapping_type != MappingType.SYMMETRIC:
+        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
+
+    weight = to_affine_quantized_intx(
+        weight,
+        mapping_type=mapping_type,
+        block_size=(1, weight.shape[1]),
+        target_dtype=torch.int8,
+        quant_min=-8,
+        quant_max=7,
+        eps=torch.finfo(torch.float32).eps,
+        _layout=layout,
+    )
+    weight = to_linear_activation_quantized(
+        weight,
+        _int4_symm_per_token_quant_cutlass,
+    )
+    return weight
+
+
 def int4_dynamic_activation_int4_weight(
     layout=CutlassInt4PackedLayout(),
     mapping_type=MappingType.SYMMETRIC,
@@ -666,47 +698,11 @@ def int4_dynamic_activation_int4_weight(
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
     """
-
-    if not isinstance(layout, CutlassInt4PackedLayout):
-        raise NotImplementedError(
-            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
-        )
-    if mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
-    if act_mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
-
-    def _int4_symm_per_token_quant_cutlass(x):
-        return to_affine_quantized_intx(
-            x,
-            mapping_type=act_mapping_type,
-            block_size=_get_per_token_block_size(x),
-            target_dtype=torch.int8,
-            quant_min=-8,
-            quant_max=7,
-            eps=1e-5,
-            _layout=layout,
-        )
-
-    def apply_int4_dynamic_activation_int4_weight_quant(weight):
-        weight = to_affine_quantized_intx(
-            weight,
-            mapping_type=mapping_type,
-            block_size=(1, weight.shape[1]),
-            target_dtype=torch.int8,
-            quant_min=-8,
-            quant_max=7,
-            eps=torch.finfo(torch.float32).eps,
-            _layout=layout,
-        )
-        weight = to_linear_activation_quantized(
-            weight,
-            _int4_symm_per_token_quant_cutlass,
-        )
-        return weight
-
     return _get_linear_subclass_inserter(
-        apply_int4_dynamic_activation_int4_weight_quant
+        apply_int4_dynamic_activation_int4_weight_quant,
+        layout=layout,
+        mapping_type=mapping_type,
+        act_mapping_type=act_mapping_type,
     )
 
 
@@ -906,6 +902,19 @@ def _int8_symm_per_token_reduced_range_quant_cutlass(
         quant_min=quant_min,
         quant_max=quant_max,
         scale_dtype=torch.float16 if x.dtype == torch.float16 else None,
+    )
+
+
+def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
+    return to_affine_quantized_intx(
+        x,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        quant_min=-8,
+        quant_max=7,
+        eps=1e-5,
+        _layout=CutlassInt4PackedLayout(),
     )
 
 
@@ -1348,6 +1357,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
             _int8_symm_per_token_reduced_range_quant_cutlass,
+            _int4_symm_per_token_quant_cutlass,
             _input_activation_quant_func_fp8,
         ]
     )

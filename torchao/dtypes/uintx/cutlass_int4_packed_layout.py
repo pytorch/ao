@@ -181,7 +181,7 @@ def _linear_int4_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias)
     input = input_tensor.tensor_impl.int_data
     input_scale = input_tensor.tensor_impl.scale
 
-    batch_dims = input_tensor.shape[:-2]
+    batch_dims = input_tensor.shape[:-1]
     input = input.view(-1, input.shape[-1])
     input_scale = input_scale.view(-1)
     out = scaled_int4_mm_cutlass(input, weight.T, input_scale, weight_scale)
