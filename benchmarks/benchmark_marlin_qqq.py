@@ -1,9 +1,10 @@
-import torch
 import pandas as pd
-from torchao.utils import benchmark_torch_function_in_microseconds
+import torch
+from tqdm import tqdm
+
 from torchao.ops import marlin_qqq_gemm
 from torchao.quantization.marlin_qqq import marlin_qqq_workspace, pack_to_marlin_qqq
-from tqdm import tqdm
+from torchao.utils import benchmark_torch_function_in_microseconds
 
 
 def get_problem(m, n, k, groupsize=-1):
