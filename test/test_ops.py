@@ -641,8 +641,8 @@ def test_scaled_int4_mm_cutlass(M, N, K, dtype):
     actual = torchao.ops.scaled_int4_mm_cutlass(A, B.T, row_scale, col_scale)
 
     # NOTE: A >> 4 will perform sign-bit extension
-    unpacked_A = torch.stack([A >> 4, A << 4 >> 4], dim=1).reshape(M, K)
-    unpacked_B = torch.stack([B >> 4, B << 4 >> 4], dim=1).reshape(N, K)
+    unpacked_A = torch.stack([A >> 4, A << 4 >> 4], dim=2).reshape(M, K)
+    unpacked_B = torch.stack([B >> 4, B << 4 >> 4], dim=2).reshape(N, K)
 
     expected = unpacked_A.float() @ unpacked_B.float().T
     expected = expected * row_scale.view(-1, 1) * col_scale.view(1, -1)
