@@ -81,10 +81,10 @@ def test_matmul_with_args_in_hp(input_shape: tuple[int, int]):
     )
 
     # compare
-    assert torch.allclose(out_prod, out_prototype, atol=1e-3, rtol=1e-3)
+    assert torch.allclose(out_prod, out_prototype, atol=0, rtol=0)
 
     out_prod.sum().backward()
     out_prototype.sum().backward()
 
-    assert torch.allclose(x_input_bf16.grad, y_input_bf16.grad, atol=1e-3, rtol=1e-3)
-    assert torch.allclose(x_weight_bf16.grad, y_weight_bf16.grad, atol=1e-3, rtol=1e-3)
+    assert torch.allclose(x_input_bf16.grad, y_input_bf16.grad, atol=0, rtol=0)
+    assert torch.allclose(x_weight_bf16.grad, y_weight_bf16.grad, atol=0, rtol=0)
