@@ -7,23 +7,20 @@ it shows
     * how the tensor subclass composes with torch.compile to get speedup
 """
 
-
-import functools
-from collections import defaultdict
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
-
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.quantization.quant_primitives import (
-    choose_qparams_affine,
-    MappingType,
-    quantize_affine,
-    dequantize_affine,
-)
+
 from torchao.dtypes.utils import (
     Layout,
     PlainLayout,
+)
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+    dequantize_affine,
+    quantize_affine,
 )
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -32,6 +29,7 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
+
 ###############################
 # Base Tensor Impl Subclass #
 ###############################
@@ -39,6 +37,7 @@ class MyDTypeTensorImpl(torch.Tensor):
     """
     Base class for the tensor impl for `MyDTypeTensor`
     """
+
     # get the original unpacked Tensors
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.int_data, self.scale
@@ -65,9 +64,11 @@ class MyDTypeTensorImpl(torch.Tensor):
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
+
 ##############################
 # Tensor Subclass Definition #
 ##############################
+
 
 class MyDTypeTensor(TorchAOBaseTensor):
     """Inheriting from `TorchAOBaseTensor` gives us some helper functions, please see docs
@@ -90,9 +91,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
         kwargs = {}
         kwargs["device"] = tensor_impl.device
         kwargs["layout"] = (
-            kwargs.get("layout")
-            if kwargs.get("layout", False)
-            else tensor_impl.layout
+            kwargs.get("layout") if kwargs.get("layout", False) else tensor_impl.layout
         )
         kwargs["dtype"] = dtype
         kwargs["requires_grad"] = requires_grad
@@ -150,7 +149,9 @@ class MyDTypeTensor(TorchAOBaseTensor):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
         dtype = torch.int16
-        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
+        scale, zero_point = choose_qparams_affine(
+            input_float, mapping_type, block_size, dtype
+        )
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, _layout)
@@ -172,7 +173,9 @@ class MyDTypeTensor(TorchAOBaseTensor):
         block_size = (1, int_data.shape[-1])
         if hasattr(self.tensor_impl, "transposed") and self.tensor_impl.transposed:
             transposed = True
-        res = dequantize_affine(int_data, block_size, scale, None, int_data.dtype, output_dtype=output_dtype)
+        res = dequantize_affine(
+            int_data, block_size, scale, None, int_data.dtype, output_dtype=output_dtype
+        )
         if transposed:
             res = res.t()
         return res
@@ -205,12 +208,14 @@ class MyDTypeTensor(TorchAOBaseTensor):
     We have some helper functions that can dispatch to the functions registered with MyDTypeTensor.implements, but if the default implementation does not work for your use case, please feel free to customize it
     """
 
+
 ######################################################
 # Layout and TensorImpl Subclass Registration #
 ######################################################
 
 register_layout = MyDTypeTensor.register_layout
 get_tensor_impl_constructor = MyDTypeTensor.get_tensor_impl_constructor
+
 
 @register_layout(PlainLayout)
 class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
@@ -251,7 +256,10 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        transposed, _layout, = tensor_attributes
+        (
+            transposed,
+            _layout,
+        ) = tensor_attributes
         return cls(int_data, scale, transposed, _layout)
 
     @classmethod
@@ -292,23 +300,52 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         elif func is aten.split.Tensor:
             int_data_list = func(args[0].int_data, *args[1:], **kwargs)
             scale_list = func(args[0].scale, *args[1:], **kwargs)
-            out = [PlainMyDTypeTensorImpl(int_data, scale, args[0].transposed, args[0]._layout) for int_data, scale in zip(int_data_list, scale_list)]
+            out = [
+                PlainMyDTypeTensorImpl(
+                    int_data, scale, args[0].transposed, args[0]._layout
+                )
+                for int_data, scale in zip(int_data_list, scale_list)
+            ]
             return out
         elif func is aten.empty_like.default:
             int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
-            return PlainMyDTypeTensorImpl(int_data_empty_like, args[0].scale, args[0].transposed, args[0]._layout)
+            return PlainMyDTypeTensorImpl(
+                int_data_empty_like, args[0].scale, args[0].transposed, args[0]._layout
+            )
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
                 return return_and_correct_aliasing(
-                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                    func,
+                    args,
+                    kwargs,
+                    args[0]._apply_fn_to_data(
+                        lambda x: aten.slice.Tensor(x, dim, start, end, step)
+                    ),
                 )
             elif dim == 1:
-                return PlainMyDTypeTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self._layout)
+                return PlainMyDTypeTensorImpl(
+                    aten.slice.Tensor(self.int_data, dim, start, end, step),
+                    self.scale.view(-1),
+                    self.transposed,
+                    self._layout,
+                )
             else:
-                raise NotImplementedError(f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(
+                    f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                )
         elif func is aten.t.default:
-            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeTensorImpl(args[0].int_data, args[0].scale, not args[0].transposed, args[0]._layout))
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                PlainMyDTypeTensorImpl(
+                    args[0].int_data,
+                    args[0].scale,
+                    not args[0].transposed,
+                    args[0]._layout,
+                ),
+            )
 
         # Tensor parallel support END
 
@@ -316,11 +353,13 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
             f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
+
 #####################################################
 # torch functional and aten operator implementation #
 #####################################################
 
 implements = MyDTypeTensor.implements
+
 
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     if isinstance(input_tensor, MyDTypeTensor):
@@ -361,6 +400,7 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
+
 
 #####################
 # Factory functions #
@@ -413,7 +453,10 @@ def main():
 
     # NOTE: currently there is no speedup because we just dequantize the weight in the _quantized_linear op
     # we plan to add custom op example in the future and that will help us to get speedup
-    print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs))
+    print(
+        "after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs)
+    )
+
 
 if __name__ == "__main__":
     main()

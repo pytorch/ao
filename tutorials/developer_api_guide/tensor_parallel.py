@@ -1,20 +1,25 @@
 import os
+from typing import Sequence
+
 import torch
 import torch.distributed as dist
-from typing import Sequence
-from torch.distributed import DeviceMesh
-from torch.distributed.tensor import DTensor, Replicate, Shard, Placement
-from torch.utils._python_dispatch import return_and_correct_aliasing
 from my_dtype_tensor_subclass import MyDTypeTensor
+from torch.distributed import DeviceMesh
+from torch.distributed.tensor import DTensor, Placement, Replicate, Shard
+from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.utils import fill_defaults
+
 
 # a tensor subclass that supports tensor parallelism with DTensor
 class MyDTypeTensorTP(MyDTypeTensor):
     pass
 
+
 implements = MyDTypeTensorTP.implements
 
 aten = torch.ops.aten
+
 
 @implements([aten._to_copy.default, aten.clone.default])
 def _(func, types, args, kwargs):
@@ -22,16 +27,22 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
+
 @implements([aten.split.Tensor])
 def _(func, types, args, kwargs):
     tensor_impl_list = func(args[0].tensor_impl, *args[1:], **kwargs)
-    out = [MyDTypeTensorTP(tensor_impl, tensor_impl.shape) for tensor_impl in tensor_impl_list]
+    out = [
+        MyDTypeTensorTP(tensor_impl, tensor_impl.shape)
+        for tensor_impl in tensor_impl_list
+    ]
     return out
+
 
 @implements([aten.empty_like.default])
 def _(func, types, args, kwargs):
     empty_like_tensor_impl = func(args[0].tensor_impl, *args[1:], **kwargs)
     return MyDTypeTensorTP(empty_like_tensor_impl, empty_like_tensor_impl.shape)
+
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
@@ -41,7 +52,10 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
     shape = list(self.shape)
     shape[dim] = end - start
-    return self.__class__(aten.slice.Tensor(self.tensor_impl, dim, start, end, step), shape, self.dtype)
+    return self.__class__(
+        aten.slice.Tensor(self.tensor_impl, dim, start, end, step), shape, self.dtype
+    )
+
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
@@ -54,7 +68,10 @@ def _(func, types, args, kwargs):
     if len(shape) == 1 and shape[0] == -1:
         return x.__class__(x.tensor_impl, (x.numel(),), x.dtype)
 
-    raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+    raise ValueError(
+        f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"
+    )
+
 
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
@@ -62,6 +79,7 @@ def _(func, types, args, kwargs):
     shape = tensor.shape[::-1]
     new = tensor.__class__(tensor.tensor_impl.t(), shape, tensor.dtype)
     return return_and_correct_aliasing(func, args, kwargs, new)
+
 
 @implements(aten.addmm.default)
 def _(func, types, args, kwargs):
@@ -73,13 +91,10 @@ def _(func, types, args, kwargs):
     weight_tensor = weight_tensor.dequantize()
     return aten.addmm(input_tensor, weight_tensor, bias)
 
+
 @implements(aten.mm.default)
 def _(func, types, args, kwargs):
-    input_tensor, weight_tensor, bias = (
-        args[0],
-        args[1],
-        None
-    )
+    input_tensor, weight_tensor, _ = (args[0], args[1], None)
     weight_tensor = weight_tensor.dequantize()
     return aten.mm(input_tensor, weight_tensor)
 
@@ -92,7 +107,9 @@ class M(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
 
+
 to_my_dtype_tp = MyDTypeTensorTP.from_float
+
 
 def quantize(m: torch.nn.Module) -> torch.nn.Module:
     """
@@ -102,6 +119,7 @@ def quantize(m: torch.nn.Module) -> torch.nn.Module:
         to_my_dtype_tp(m.linear.weight), requires_grad=False
     )
     return m
+
 
 def shard(
     full_tensor: torch.Tensor,
@@ -125,9 +143,8 @@ def shard(
         for cur_shape, cur_offset in zip(shape, offset)
     ]
     local_tensor = full_tensor[slices]
-    return DTensor.from_local(
-        local_tensor, device_mesh, placements
-    )
+    return DTensor.from_local(local_tensor, device_mesh, placements)
+
 
 def colwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
     """
@@ -138,10 +155,9 @@ def colwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
     # Construct DTensor from local shard
     dtensor = shard(orig_weight, mesh, [Shard(0)])
     # Replace parameter in module
-    m.linear.weight = torch.nn.Parameter(
-        dtensor, requires_grad=False
-    )
+    m.linear.weight = torch.nn.Parameter(dtensor, requires_grad=False)
     return m
+
 
 def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
     """
@@ -152,10 +168,9 @@ def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
     # Construct DTensor from local shard
     dtensor = shard(orig_weight, mesh, [Shard(1)])
     # Replace parameter in module
-    m.linear.weight = torch.nn.Parameter(
-        dtensor, requires_grad=False
-    )
+    m.linear.weight = torch.nn.Parameter(dtensor, requires_grad=False)
     return m
+
 
 ########
 # Test #
@@ -173,12 +188,12 @@ def main():
     proj_up = M(1024, 2048).to(device)
     proj_dn = M(2048, 1024).to(device)
     example_input = 100 * torch.randn(128, 1024, device=device)
-    y = proj_dn(proj_up(example_input))
+    proj_dn(proj_up(example_input))
 
     # Quantize the model
     up_quant = quantize(proj_up)
     dn_quant = quantize(proj_dn)
-    y_q = dn_quant(up_quant(example_input))
+    dn_quant(up_quant(example_input))
     print("Quantization works!")
 
     # Create a device mesh
@@ -190,9 +205,7 @@ def main():
     dn_dist = rowwise_shard(dn_quant, mesh)
 
     # We need to turn inputs into DTensor form as well -- just a format change
-    input_dtensor = DTensor.from_local(
-        example_input, mesh, [Replicate()]
-    )
+    input_dtensor = DTensor.from_local(example_input, mesh, [Replicate()])
 
     y_d = dn_dist(up_dist(input_dtensor))
     print("Distributed result:", y_d)
@@ -206,6 +219,7 @@ def main():
     print("torch.compile works!")
 
     dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()
