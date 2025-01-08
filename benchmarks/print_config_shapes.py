@@ -1,5 +1,3 @@
-import torchao
-
 from torchao.kernel import autotuner
 
 configs = autotuner._load_best_configs()
