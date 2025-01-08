@@ -19,12 +19,26 @@ from torchao.dtypes import (
 )
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
-from torchao.quantization.linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
+from torchao.prototype.quantization.subgraph_utils.extract_subgraphs import (
+    debug_linears_for_float8,
+    prepare_target_folder,
+)
+from torchao.quantization import LinearActivationQuantizedTensor
+from torchao.quantization.autoquant import (
+    AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV1,
+)
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+)
+from torchao.quantization.subclass import (  # noqa
+    Int8DynamicallyQuantizedLinearWeight,
+    Int8WeightOnlyQuantizedLinearWeight,
+    QuantizedLinearWeightBase,
 )
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 from torchao.utils import (
@@ -34,24 +48,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
-
-from torchao.quantization.granularity import (
-    PerRow,
-    PerTensor,
-)
-from torchao.quantization.subclass import (  # noqa
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    QuantizedLinearWeightBase,
-)
-from torchao.prototype.quantization.subgraph_utils.extract_subgraphs import (
-    debug_linears_for_float8,
-    prepare_target_folder,
-)
-from torchao.quantization.subclass import QuantizedLinearWeightBase
-from torchao.quantization.autoquant import AutoQuantizableLinearWeight as AutoQuantizableLinearWeightV1
-from torchao.dtypes import AffineQuantizedTensor
-from torchao.quantization import LinearActivationQuantizedTensor
 
 logging.basicConfig(level=logging.ERROR)  # Set the root logger level to ERROR
 
@@ -68,6 +64,7 @@ __all__ = [
     "ALL_AUTOQUANT_CLASS_LIST",
     "_is_linear",
 ]
+
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
@@ -114,6 +111,7 @@ AUTOQUANT_CACHE = {}
 # to account for different batch sizes, it's a temporary solution for llama model
 # we'll need to think about how to support this more generally
 LLAMA = True
+
 
 def check_cache(gm, cls, shapes_and_dtype):
     for gm_, cls_, shapes_and_dtype_ in AUTOQUANT_CACHE.keys():
@@ -340,7 +338,13 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                         else time_for_best_shape
                     )
                     self.tune_autoquant2(
-                        fqn, m, self.batch_size, inputs, q_cls, shapes_and_dtype, time_for_best_shape
+                        fqn,
+                        m,
+                        self.batch_size,
+                        inputs,
+                        q_cls,
+                        shapes_and_dtype,
+                        time_for_best_shape,
                     )
                     ran_new_benchmarks = True
                     torch._dynamo.reset()
@@ -828,8 +832,8 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
 
 
 class Float32Tensor(TorchAOBaseTensor):
-    """ Tensor subclass tensor for fp32 dtype
-    """
+    """Tensor subclass tensor for fp32 dtype"""
+
     def __init__(self, weight):
         self.weight = weight.to(torch.float32)
 
@@ -852,6 +856,7 @@ class Float32Tensor(TorchAOBaseTensor):
     def from_float(cls, weight):
         return cls(weight)
 
+
 @Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
@@ -860,6 +865,7 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
     return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+
 
 @Float32Tensor.implements(aten.detach.default)
 def _(func, types, args, kwargs):
@@ -922,6 +928,7 @@ class AQFloat32LinearWeight(Float32Tensor, AQMixin):
     (also converts input activation and bias to float32, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQFloat32LinearWeight, cls).from_float(weight)
@@ -934,6 +941,7 @@ class AQBFloat16LinearWeight(BFloat16Tensor, AQMixin):
     (also converts input activation and bias to bfloat16, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQBFloat16LinearWeight, cls).from_float(weight)
@@ -946,6 +954,7 @@ class AQFloat16LinearWeight(Float16Tensor, AQMixin):
     (also converts input activation and bias to float16, and restores the original precision after
     linear)
     """
+
     @classmethod
     def from_float(cls, weight):
         return super(AQFloat16LinearWeight, cls).from_float(weight)
@@ -1090,9 +1099,18 @@ OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
 ]
 
-ALL_AUTOQUANT_CLASS_LIST = list(set(DEFAULT_AUTOQUANT_CLASS_LIST + DEFAULT_INT4_AUTOQUANT_CLASS_LIST + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST))
+ALL_AUTOQUANT_CLASS_LIST = list(
+    set(
+        DEFAULT_AUTOQUANT_CLASS_LIST
+        + DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+        + DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST
+    )
+)
 if is_sm_at_least_89():
-    ALL_AUTOQUANT_CLASS_LIST += [AQFloat8WeightOnlyQuantizedLinearWeight, AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight]
+    ALL_AUTOQUANT_CLASS_LIST += [
+        AQFloat8WeightOnlyQuantizedLinearWeight,
+        AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
+    ]
 
 if is_sm_at_least_90():
     ALL_AUTOQUANT_CLASS_LIST += [AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight]
