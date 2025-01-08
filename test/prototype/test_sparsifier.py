@@ -13,8 +13,8 @@ from torch.testing._internal.common_pruning import (
     MockSparseLinear,
     SimpleLinear,
 )
-
 from torch.testing._internal.common_utils import TestCase
+
 from torchao.prototype.sparsity import (
     BaseSparsifier,
     FakeSparsity,

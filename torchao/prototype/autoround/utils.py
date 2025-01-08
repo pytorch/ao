@@ -146,7 +146,7 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     logging.warning(f"Detected decoder class: {decoder_cls}")
     if decoder_cls is None:
         raise ValueError(
-            f"Cannot detect the decoder class from the model, please provide it manually."
+            "Cannot detect the decoder class from the model, please provide it manually."
         )
     return model, tokenizer, decoder_cls
 

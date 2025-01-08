@@ -10,7 +10,6 @@ import torch
 from torch import nn
 
 from torchao._models.sam2.modeling.position_encoding import PositionEmbeddingRandom
-
 from torchao._models.sam2.modeling.sam2_utils import LayerNorm2d
 
 
@@ -99,21 +98,31 @@ class PromptEncoder(nn.Module):
         # point_embedding[labels == 2] += self.point_embeddings[2].weight
         # point_embedding[labels == 3] += self.point_embeddings[3].weight
 
-        point_embedding = torch.where((labels == -1).unsqueeze(-1).expand_as(point_embedding),
-                                      torch.zeros_like(point_embedding) + self.not_a_point_embed.weight,
-                                      point_embedding)
-        point_embedding = torch.where((labels == 0).unsqueeze(-1).expand_as(point_embedding),
-                                      point_embedding + self.point_embeddings[0].weight,
-                                      point_embedding)
-        point_embedding = torch.where((labels == 1).unsqueeze(-1).expand_as(point_embedding),
-                                      point_embedding + self.point_embeddings[1].weight,
-                                      point_embedding)
-        point_embedding = torch.where((labels == 2).unsqueeze(-1).expand_as(point_embedding),
-                                      point_embedding + self.point_embeddings[2].weight,
-                                      point_embedding)
-        point_embedding = torch.where((labels == 3).unsqueeze(-1).expand_as(point_embedding),
-                                      point_embedding + self.point_embeddings[3].weight,
-                                      point_embedding)
+        point_embedding = torch.where(
+            (labels == -1).unsqueeze(-1).expand_as(point_embedding),
+            torch.zeros_like(point_embedding) + self.not_a_point_embed.weight,
+            point_embedding,
+        )
+        point_embedding = torch.where(
+            (labels == 0).unsqueeze(-1).expand_as(point_embedding),
+            point_embedding + self.point_embeddings[0].weight,
+            point_embedding,
+        )
+        point_embedding = torch.where(
+            (labels == 1).unsqueeze(-1).expand_as(point_embedding),
+            point_embedding + self.point_embeddings[1].weight,
+            point_embedding,
+        )
+        point_embedding = torch.where(
+            (labels == 2).unsqueeze(-1).expand_as(point_embedding),
+            point_embedding + self.point_embeddings[2].weight,
+            point_embedding,
+        )
+        point_embedding = torch.where(
+            (labels == 3).unsqueeze(-1).expand_as(point_embedding),
+            point_embedding + self.point_embeddings[3].weight,
+            point_embedding,
+        )
 
         return point_embedding
 

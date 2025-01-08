@@ -9,12 +9,15 @@ from tabulate import tabulate
 from torch import nn
 from torch._inductor.utils import do_bench_using_profiling
 from torch.nn import functional as F
+from tqdm import tqdm
 
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
     convert_to_float8_nocompile_training,
 )
-from tqdm import tqdm
+from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
+    KernelAlgorithm,
+)
 
 device = torch.device("cuda")
 
@@ -27,6 +30,7 @@ class ExperimentConfig:
     high_precision_dtype: torch.dtype
     layer_sizes: list[int]
     input_shape: tuple[int]
+    kernel_algo: KernelAlgorithm
 
 
 @dataclass(frozen=True)
@@ -57,18 +61,20 @@ class TestModel(nn.Module):
 
 
 def get_configs() -> List[ExperimentConfig]:
+    algos = [KernelAlgorithm.ATOMIC_MAX, KernelAlgorithm.REDUCTION]
     layer_sizes = [[4096, 4096]]
     input_shapes = [(2**4, 4096), (2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    high_precision_dtypes = [torch.float32, torch.bfloat16]
+    high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for layer_size, input_shape, high_precision_dtype in itertools.product(
-        layer_sizes, input_shapes, high_precision_dtypes
+    for algo, layer_size, input_shape, high_precision_dtype in itertools.product(
+        algos, layer_sizes, input_shapes, high_precision_dtypes
     ):
         configs.append(
             ExperimentConfig(
                 layer_sizes=layer_size,
                 input_shape=input_shape,
                 high_precision_dtype=high_precision_dtype,
+                kernel_algo=algo,
             )
         )
     return configs
@@ -91,7 +97,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # float8nocompile triton implementation
     float8nocompile_model = convert_to_float8_nocompile_training(
-        TestModel(config.layer_sizes).to(device)
+        TestModel(config.layer_sizes).to(device), kernel_algo=config.kernel_algo
     )
 
     # define test inputs
@@ -133,7 +139,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
 def print_results(experiments: List[Experiment]):
     headers = [
-        "input_size",
+        "input_shape",
+        "kernel_algo",
         "high_precision_dtype",
         "eager_time",
         "compiled_time",
@@ -141,10 +148,13 @@ def print_results(experiments: List[Experiment]):
     ]
     rows = []
     for experiment in experiments:
-        input_size = experiment.config.input_shape[0] * experiment.config.input_shape[1]
+        input_shape = (
+            f"({experiment.config.input_shape[0]}, {experiment.config.input_shape[1]})"
+        )
         rows.append(
             [
-                f"{input_size:.2e}",
+                input_shape,
+                str(experiment.config.kernel_algo),
                 experiment.config.high_precision_dtype,
                 experiment.result.eager_time,
                 experiment.result.compiled_time,

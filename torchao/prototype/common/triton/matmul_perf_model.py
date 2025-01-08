@@ -1,4 +1,3 @@
-	
 # Source: https://github.com/triton-lang/kernels/blob/main/kernels/matmul_perf_model.py
 
 # This file is taken from the upstream triton-lang/kernels repo.
@@ -40,10 +39,13 @@ def get_tensorcore_tflops(device, num_ctas, num_warps, dtype):
     total_warps = num_ctas * min(num_warps, 4)
     if hasattr(driver, "active"):
         num_subcores = (
-            driver.active.utils.get_device_properties(device)["multiprocessor_count"] * 4
+            driver.active.utils.get_device_properties(device)["multiprocessor_count"]
+            * 4
         )  # on recent GPUs
     else:
-        num_subcores = driver.utils.get_device_properties(device)["multiprocessor_count"] * 4  # on recent GPUs
+        num_subcores = (
+            driver.utils.get_device_properties(device)["multiprocessor_count"] * 4
+        )  # on recent GPUs
 
     tflops = (
         min(num_subcores, total_warps)
@@ -58,10 +60,13 @@ def get_simd_tflops(device, num_ctas, num_warps, dtype):
     total_warps = num_ctas * min(num_warps, 4)
     if hasattr(driver, "active"):
         num_subcores = (
-            driver.active.utils.get_device_properties(device)["multiprocessor_count"] * 4
+            driver.active.utils.get_device_properties(device)["multiprocessor_count"]
+            * 4
         )  # on recent GPUs
     else:
-        num_subcores = driver.utils.get_device_properties(device)["multiprocessor_count"] * 4  # on recent GPUs
+        num_subcores = (
+            driver.utils.get_device_properties(device)["multiprocessor_count"] * 4
+        )  # on recent GPUs
 
     tflops = (
         min(num_subcores, total_warps)
@@ -116,11 +121,12 @@ def estimate_matmul_time(
 
     # time to load data
     if hasattr(driver, "active"):
-        num_sm = driver.active.utils.get_device_properties(device)["multiprocessor_count"]
+        num_sm = driver.active.utils.get_device_properties(device)[
+            "multiprocessor_count"
+        ]
     else:
         num_sm = driver.utils.get_device_properties(device)["multiprocessor_count"]
 
-    
     active_cta_ratio = min(1, num_ctas / num_sm)
     active_cta_ratio_bw1 = min(
         1, num_ctas / 32
@@ -191,7 +197,6 @@ def early_config_prune(configs, named_args, **kwargs):
                 "max_shared_mem"
             ]
 
-        
         required_shared_memory = (BLOCK_M + BLOCK_N) * BLOCK_K * num_stages * dtsize
         if required_shared_memory <= max_shared_memory:
             pruned_configs.append(config)
