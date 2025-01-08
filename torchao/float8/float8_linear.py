@@ -36,7 +36,12 @@ def _get_weight_scale(
     if tensor_already_casted_to_fp8(weight):
         return None
     assert scaling_type_weight is ScalingType.DYNAMIC
-    return tensor_to_scale(weight, config.cast_config_weight.target_dtype)
+    # inductor kernels for tensorwise max are faster when `weight` is 
+    # contiguous.
+    # context: https://github.com/pytorch/pytorch/issues/144431
+    weight_t = weight.t()
+    assert weight_t.is_contiguous()
+    return tensor_to_scale(weight_t, config.cast_config_weight.target_dtype)
 
 
 def _cast_weight_to_float8(
