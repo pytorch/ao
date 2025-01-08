@@ -420,7 +420,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
 
         # TODO test if this is valid
         # in_features = weight.shape[1]
-        # # int8 dynamic quantization only has benefit when in_feature > 16
+        # int8 dynamic quantization only has benefit when in_feature > 16
         # if in_features <= 16:
         #     return weight
 
@@ -627,11 +627,14 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         if weight.shape[-1] % group_size != 0:
             return weight
 
-        # if isinstance(_layout, TensorCoreTiledLayout) and weight.dtype != torch.bfloat16:
-        #     return weight
+        if (
+            isinstance(_layout, TensorCoreTiledLayout)
+            and weight.dtype != torch.bfloat16
+        ):
+            return weight
 
-        # if isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
-        #     return weight
+        if isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
+            return weight
 
         use_hqq = True
         mapping_type = MappingType.ASYMMETRIC
@@ -1062,7 +1065,6 @@ if not is_sm_at_least_89():
 
 # deduplicate
 ALL_AUTOQUANT_CLASS_LIST = list(set(ALL_AUTOQUANT_CLASS_LIST))
-# print(ALL_AUTOQUANT_CLASS_LIST)
 
 
 def _change_linears_to_autoquantizable(model, **kwargs):
