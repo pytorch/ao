@@ -3,13 +3,22 @@ import logging
 import torch
 import triton
 import triton.language as tl
-from torchao.prototype.common.triton.matmul_perf_model import early_config_prune, estimate_matmul_time
+
+from torchao.prototype.common.triton.matmul_perf_model import (
+    early_config_prune,
+    estimate_matmul_time,
+)
 
 from .adam_step import BETA1, BETA2, EPS
 from .custom_autotune import Config, autotune
-from .matmul import TRITON_ACC_TYPES, get_higher_dtype, init_to_zero
+from .matmul import (
+    TRITON_ACC_TYPES,
+    get_higher_dtype,
+    get_mm_heuristics,
+    init_to_zero,
+    to_tl_type,
+)
 from .matmul import get_autotuner as default_mm_autotuner
-from .matmul import get_mm_heuristics, to_tl_type
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +281,6 @@ def fused_adam_mm_launcher(
     output_dtype=None,
     kernel=None,
 ):
-
     device = a.device
     # handle non-contiguous inputs if necessary
     # a = grad
