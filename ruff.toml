@@ -12,9 +12,5 @@ exclude = [
     "torchao/experimental/**/*.py",
 ]
 
-exclude = [
-    "torchao/experimental/**/*.py",
-]
-
 lint.select = ["F", "I"]
 lint.ignore = ["E731"]
