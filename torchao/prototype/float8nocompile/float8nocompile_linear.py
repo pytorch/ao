@@ -16,8 +16,7 @@ from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     ToFP8ColumnMajor,
     ToFP8ColumnMajorT,
     ToFP8RowAndColumnMajor,
-    ToFP8RowMajor,
-    ToFP8RowMajorT,
+    ToFP8RowMajorTAndNonT,
 )
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
@@ -138,12 +137,14 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         input_fp8_col_major, weight_hp = ctx.saved_tensors
 
         # cast grad output to float8_e5m2 for backward
-        grad_output_fp8_row_major = ToFP8RowMajor.apply(
-            grad_output,
-            ctx.config.cast_config_grad_output.target_dtype,
-            ctx.linear_mm_config,
-            GemmInputRole.GRAD_OUTPUT,
-            ctx.kernel_algo,
+        grad_output_fp8_row_major, grad_output_t_row_major = (
+            ToFP8RowMajorTAndNonT.apply(
+                grad_output,
+                ctx.config.cast_config_grad_output.target_dtype,
+                ctx.linear_mm_config,
+                GemmInputRole.GRAD_OUTPUT,
+                ctx.kernel_algo,
+            )
         )
 
         # grad_input = grad_output @ weight
@@ -159,12 +160,6 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         # grad_weight = grad_output_t @ input
         # apparently this variant is slightly faster than `grad_weight_t = input_t @ grad_output`
         # source: https://github.com/pytorch/ao/blob/fe5f11b2c58b452e01ba9ec7359629928b143619/torchao/float8/float8_linear.py#L84-L85
-        grad_output_t_row_major = ToFP8RowMajorT.apply(
-            grad_output,
-            ctx.config.cast_config_grad_output.target_dtype,
-            ctx.linear_mm_config,
-            GemmInputRole.GRAD_OUTPUT,
-            ctx.kernel_algo,
-        )
         grad_weight = torch.mm(grad_output_t_row_major, input_fp8_col_major)
+
         return grad_input, grad_weight, None, None, None
