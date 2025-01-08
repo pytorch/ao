@@ -8,23 +8,24 @@ import hashlib
 import math
 import os
 import time
-from collections import defaultdict, deque, OrderedDict
+from collections import OrderedDict, defaultdict, deque
 from typing import List, Optional, Tuple
 
 import torch
+from torchvision.transforms import autoaugment, transforms
+from torchvision.transforms import functional as F
+from torchvision.transforms.functional import InterpolationMode
+
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
 from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
 from torchao.prototype.sparsity.superblock.supermask import (
-    apply_supermask,
     SupermaskLinear,
+    apply_supermask,
 )
-
 from torchao.quantization import int8_dynamic_activation_int8_weight, quantize_
 from torchao.sparsity import semi_sparse_weight, sparsify_
-from torchvision.transforms import autoaugment, functional as F, transforms
-from torchvision.transforms.functional import InterpolationMode
 
 
 def get_args_parser(train=False, evaluate=False, benchmark=False):
@@ -1009,7 +1010,6 @@ class ClassificationPresetEval:
         std=(0.229, 0.224, 0.225),
         interpolation=InterpolationMode.BILINEAR,
     ):
-
         self.transforms = transforms.Compose(
             [
                 transforms.Resize(resize_size, interpolation=interpolation),
