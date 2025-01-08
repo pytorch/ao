@@ -36,7 +36,9 @@ def model2():
     return TestModel()
 
 
-@pytest.mark.parametrize("input_shape", [(16, 32), (1, 16, 32), (2, 16, 32)])
+@pytest.mark.parametrize(
+    "input_shape", [(16, 32), (1, 16, 32), (2, 16, 32), (128, 8192, 32)]
+)
 @pytest.mark.parametrize("use_activation_checkpointing", [True, False])
 def test_model_weights_and_gradients(
     model1, model2, input_shape: tuple[int, int], use_activation_checkpointing: bool
