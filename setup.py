@@ -52,8 +52,8 @@ version = (
 import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
-    ROCM_HOME,
     IS_WINDOWS,
+    ROCM_HOME,
     BuildExtension,
     CppExtension,
     CUDAExtension,
@@ -61,18 +61,27 @@ from torch.utils.cpp_extension import (
 
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
 
+
 def get_extensions():
     debug_mode = os.getenv("DEBUG", "0") == "1"
     if debug_mode:
         print("Compiling in debug mode")
 
     if not torch.cuda.is_available():
-        print("PyTorch GPU support is not available. Skipping compilation of CUDA extensions")
+        print(
+            "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
+        )
     if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
-        print("CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions")
-        print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
+        print(
+            "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
+        )
+        print(
+            "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
+        )
 
-    use_cuda = torch.cuda.is_available() and (CUDA_HOME is not None or ROCM_HOME is not None)
+    use_cuda = torch.cuda.is_available() and (
+        CUDA_HOME is not None or ROCM_HOME is not None
+    )
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
@@ -125,8 +134,12 @@ def get_extensions():
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
     )
 
-    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout", "sparse_marlin")
-    hip_sources = list(glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True))
+    extensions_hip_dir = os.path.join(
+        extensions_dir, "cuda", "tensor_core_tiled_layout", "sparse_marlin"
+    )
+    hip_sources = list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
 
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
