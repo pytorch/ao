@@ -15,7 +15,6 @@ import torch.utils.checkpoint as checkpoint
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
-    NoopFwToFloat8BwDynamic,
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
