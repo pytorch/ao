@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 import torch.nn as nn
 
+from torchao.float8.config import Float8LinearConfig
 from torchao.float8.float8_linear_utils import swap_linear_layers
 from torchao.prototype.float8nocompile.float8nocompile_linear import (
     Float8LinearNoCompile,
@@ -45,9 +46,9 @@ def convert_to_float8_nocompile_training(
         config = Float8LinearConfig()
 
     from_float = lambda m: Float8LinearNoCompile.from_float(
-        m, 
-        config=config, 
-        kernel_algo=kernel_algo, 
+        m,
+        config=config,
+        kernel_algo=kernel_algo,
         use_activation_checkpointing=use_activation_checkpointing,
     )
     return swap_linear_layers(
