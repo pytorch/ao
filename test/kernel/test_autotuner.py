@@ -10,16 +10,15 @@ import logging
 import os
 import unittest
 
-import pytest
 import torch
 from parameterized import parameterized
+
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(level=logging.INFO)
 
 
 class TestQuantFlow(unittest.TestCase):
-
     def setUp(self):
         os.environ["TORCHAO_AUTOTUNER_ENABLE"] = "1"
 

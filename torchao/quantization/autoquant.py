@@ -415,14 +415,14 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
 
     @classmethod
     def from_float(cls, weight):
+        if weight.dim() != 2:
+            return weight
+
         # TODO test if this is valid
         # in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         # if in_features <= 16:
-        # return weight
-
-        if weight.dim() != 2:
-            return weight
+        #     return weight
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized_intx
@@ -522,7 +522,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
 class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(
     AQInt8DynamicallyQuantizedLinearWeight
 ):
-    layout: Layout = SemiSparseLayout()
+    aq_layout: Layout = SemiSparseLayout()
 
     @classmethod
     def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
@@ -627,6 +627,15 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         if weight.shape[-1] % group_size != 0:
             return weight
 
+        if (
+            isinstance(_layout, TensorCoreTiledLayout)
+            and weight.dtype != torch.bfloat16
+        ):
+            return weight
+
+        if isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
+            return weight
+
         use_hqq = True
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -690,6 +699,9 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQM
 
     @classmethod
     def from_float(cls, weight):
+        if weight.dtype != torch.float16:
+            return weight
+
         from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
         bit_width = 4
@@ -1022,7 +1034,9 @@ OTHER_AUTOQUANT_CLASS_LIST = [
 
 DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = [
     AQDefaultLinearWeight,
+    # TODO: investigate why there are some problems when adding sparse kernels for sam2
     AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
+    # some errors when calling cusparse kernels when running on sam2
     AQInt8DynamicallyQuantizedSemiSparseLinearWeight,
 ]
 

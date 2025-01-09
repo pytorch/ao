@@ -27,34 +27,38 @@ This is used for modifying the behavior of the forward function of `module`, it 
 
 This can be used when we try to optimize (quantize) the layer, and then want the next layer to consume the output of the optimized layer directly.
 """
+
+from typing import Any, Dict, Tuple
+
 import torch
-import torch.nn as nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
-import gc
-from typing import Tuple, Dict, Any
-from torchao.quantization.utils import compute_error
+
 from torchao.dtypes import to_affine_quantized_intx_static
-from torchao.quantization import quantize_
-from torchao.quantization import to_linear_activation_quantized
-from torchao.quantization import LinearActivationQuantizedTensor
+from torchao.quantization import (
+    LinearActivationQuantizedTensor,
+    quantize_,
+    to_linear_activation_quantized,
+)
 from torchao.quantization.granularity import PerTensor
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
 )
+from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_primitives import (
     MappingType,
     fake_quantize_affine,
 )
+from torchao.quantization.utils import compute_error
 
 torch.manual_seed(0)
+
 
 class MultiTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, input, **kwargs):
         if isinstance(input, (list, tuple)):
             input = input[0]
-        kwargs["dtype"]=kwargs.get("dtype", input.dtype)
+        kwargs["dtype"] = kwargs.get("dtype", input.dtype)
         shape = kwargs.pop("shape", input.shape)
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
 
@@ -65,9 +69,7 @@ class MultiTensor(torch.Tensor):
         self.debug = True
 
     def __repr__(self):
-        return (
-            f"{self.__class__.__name__}(data={self.values})"
-        )
+        return f"{self.__class__.__name__}(data={self.values})"
 
     def __iter__(self):
         for v in self.values:
@@ -78,7 +80,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(input, torch.Tensor), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            assert isinstance(
+                input, torch.Tensor
+            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
             self.count += 1
             self.values.append(input)
         return self
@@ -86,7 +90,7 @@ class MultiTensor(torch.Tensor):
     def pad_to_length(self, length):
         if self.count > length:
             return self
-        self.add_tensors([self.values[-1]]*(length-self.count))
+        self.add_tensors([self.values[-1]] * (length - self.count))
         return self
 
     @classmethod
@@ -100,7 +104,11 @@ class MultiTensor(torch.Tensor):
             grouped = list(
                 zip(
                     *[
-                        x.pad_to_length(multi_tensor_size).values if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]
+                        x.pad_to_length(multi_tensor_size).values
+                        if isinstance(x, MultiTensor)
+                        else [x] * multi_tensor_size
+                        for x in flat
+                    ]
                 )
             )
             return grouped
@@ -112,14 +120,26 @@ class MultiTensor(torch.Tensor):
             flat_tups = list(zip(*grouped))
             # convert [(A,A,A), (b1,b2,b3), (c1,c2,c3)] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
             flattened = [
-                cls(tup).cpu() if isinstance(tup[0], torch.Tensor) else tup[0] for tup in flat_tups
+                cls(tup).cpu() if isinstance(tup[0], torch.Tensor) else tup[0]
+                for tup in flat_tups
             ]
             # need to check that getting rid of all but one from each nonTensor tuple is OK
-            non_tensors_equal=min([True]+[
-                min([True]+[ # handle situation where tuples have size 0
-                    tup[0]==x for x in tup # check all elements match
-                ]) for tup in flat_tups if not isinstance(tup[0], torch.Tensor) # look at tuples of nonTensors
-            ])
+            non_tensors_equal = min(
+                [True]
+                + [
+                    min(
+                        [True]
+                        + [  # handle situation where tuples have size 0
+                            tup[0] == x
+                            for x in tup  # check all elements match
+                        ]
+                    )
+                    for tup in flat_tups
+                    if not isinstance(
+                        tup[0], torch.Tensor
+                    )  # look at tuples of nonTensors
+                ]
+            )
             return flattened, non_tensors_equal
 
         kwargs = {} if kwargs is None else kwargs
@@ -142,8 +162,8 @@ class MultiTensor(torch.Tensor):
             flat_outputs, non_tensors_equal = grouped_to_flat(grouped_outputs)
             assert non_tensors_equal, (
                 f"ERR: found a function in model: {func} which "
-                +"caused an error in MultiInput, the function dispatch only works for functions"
-                +" with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
+                + "caused an error in MultiInput, the function dispatch only works for functions"
+                + " with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
             )
             return tree_unflatten(flat_outputs, out_spec)
 
@@ -160,6 +180,7 @@ class MultiTensor(torch.Tensor):
     ):
         return cls(tensor_data_dict["values"])
 
+
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -169,8 +190,10 @@ class M(torch.nn.Module):
         x = self.linear(x)
         return x
 
+
 def _is_linear(mod, fqn):
     return isinstance(mod, torch.nn.Linear)
+
 
 # Adapted from https://github.com/pytorch/ao/pull/581
 def prepare_model_for_optimization_(model):
@@ -185,7 +208,14 @@ def prepare_model_for_optimization_(model):
         # from previous layer
 
         # we can use the MultiTensor to calculate the quantization parameters for each input Tensor
-        act_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+        act_obs = AffineQuantizedMinMaxObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity_type=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
         for inp in args[0]:
             act_obs(inp)
 
@@ -198,7 +228,9 @@ def prepare_model_for_optimization_(model):
         # rerun the module with quantized and dequantized inputs
         new_input = []
         for inp in args[0]:
-            new_input.append(fake_quantize_affine(inp, inp.shape, input_scale, input_zp, torch.uint8))
+            new_input.append(
+                fake_quantize_affine(inp, inp.shape, input_scale, input_zp, torch.uint8)
+            )
 
         mt = MultiTensor(new_input)
 
@@ -220,6 +252,7 @@ def prepare_model_for_optimization_(model):
         model, _register_forward_pre_hook, _is_linear
     )
 
+
 # using a function to align with the API in quant_api
 def apply_activation_static_quant():
     def _apply_activation_static_quant(observed_linear):
@@ -228,9 +261,17 @@ def apply_activation_static_quant():
         # we can quantize the weight here as well
 
         # activation quantization
-        act_scale, act_zero_point = observed_linear.input_scale, observed_linear.input_zp
-        input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
-        observed_linear.weight = torch.nn.Parameter(to_linear_activation_quantized(observed_linear.weight, input_quant_func), requires_grad=False)
+        act_scale, act_zero_point = (
+            observed_linear.input_scale,
+            observed_linear.input_zp,
+        )
+        input_quant_func = lambda x: to_affine_quantized_intx_static(
+            x, act_scale, act_zero_point, x.shape, target_dtype
+        )
+        observed_linear.weight = torch.nn.Parameter(
+            to_linear_activation_quantized(observed_linear.weight, input_quant_func),
+            requires_grad=False,
+        )
 
         del observed_linear.input_scale
         del observed_linear.input_zp

@@ -71,6 +71,7 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
+
     if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
         print(
             "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
@@ -135,7 +136,7 @@ def get_extensions():
     )
 
     extensions_hip_dir = os.path.join(
-        extensions_dir, "cuda", "tensor_core_tiled_layout", "sparse_marlin"
+        extensions_dir, "cuda", "tensor_core_tiled_layout"
     )
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)

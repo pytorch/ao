@@ -41,5 +41,7 @@ for M, N, K in shapes:
     sample = [M, N, K, bf16_time / i8_time, bf16_time / i8_dequant_time]
     data.append(sample)
 
-df = pd.DataFrame(data, columns=["M", "N", "K", "CuBLAS INT8 speedup", "Triton INT8 dequant speedup"])
+df = pd.DataFrame(
+    data, columns=["M", "N", "K", "CuBLAS INT8 speedup", "Triton INT8 dequant speedup"]
+)
 print(df.to_markdown())
