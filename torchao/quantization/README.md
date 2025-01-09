@@ -298,7 +298,7 @@ for module, name in model.named_modules():
 
 #### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile`
 
-If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before export and `aot_compile`:
+If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before `torch.export.export` and `aot_compile`:
 ```
 from torchao.utils import unwrap_tensor_subclass
 m_unwrapped = unwrap_tensor_subclass(m)
