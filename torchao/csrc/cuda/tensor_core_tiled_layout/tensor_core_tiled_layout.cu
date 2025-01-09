@@ -83,15 +83,15 @@ inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
   // This is the BF16 {-136, -136} represented as an integer.
 #if defined(USE_ROCM)
 #if ROCM_VERSION >= 60200
-  auto BF16_BIAS = __bfloat162bfloat162(__hip_bfloat16(__hip_bfloat16_raw{0xC308}));
-  auto BF16_ONE = __bfloat162bfloat162(__hip_bfloat16(__hip_bfloat16_raw{0x3F80}));
+  auto BF16_SCALE_FACTOR = __bfloat162bfloat162(__hip_bfloat16(__hip_bfloat16_raw{0xC308}));
+  auto BF16_UNIT_VALUE = __bfloat162bfloat162(__hip_bfloat16(__hip_bfloat16_raw{0x3F80}));
 #else
-  auto BF16_BIAS = __bfloat162bfloat162(__hip_bfloat16{0xC308});
-  auto BF16_ONE = __bfloat162bfloat162(__hip_bfloat16{0x3F80});
+  auto BF16_SCALE_FACTOR = __bfloat162bfloat162(__hip_bfloat16{0xC308});
+  auto BF16_UNIT_VALUE = __bfloat162bfloat162(__hip_bfloat16{0x3F80});
 #endif
 #else
-  static constexpr uint32_t BF16_BIAS = 0xC308C308;
-  static constexpr uint32_t BF16_ONE = 0x3F803F80;
+  static constexpr uint32_t BF16_SCALE_FACTOR = 0xC308C308;
+  static constexpr uint32_t BF16_UNIT_VALUE = 0x3F803F80;
 #endif
 
 // Finally, we construct the output numbers.
@@ -100,11 +100,11 @@ inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
     // Since this section is for Ampere+, we use bf16 fma to do the bias
     // subtraction
 #if defined(USE_ROCM)
-    result.vals[ii] = __hfma2(result.vals[ii], BF16_ONE, BF16_BIAS);
+    result.vals[ii] = __hfma2(result.vals[ii], BF16_UNIT_VALUE, BF16_SCALE_FACTOR);
 #else
     asm("fma.rn.bf16x2 %0, %1, %2, %3;\n"
         : "=r"(h[ii])
-        : "r"(h[ii]), "r"(BF16_ONE), "r"(BF16_BIAS));
+        : "r"(h[ii]), "r"(BF16_UNIT_VALUE), "r"(BF16_SCALE_FACTOR));
 #endif
   }
 
@@ -369,3 +369,4 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
 }
 
 #endif
+git checkout main -- file.txt
