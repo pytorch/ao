@@ -375,8 +375,8 @@ def _to_fp8_row_major_t_and_non_t(
         block_col_offs[:, None] * row_major_t_out_stride_row
         + block_row_offs[None, :] * row_major_t_out_stride_col
     )
-    mask = (block_row_offs[:, None] < row_major_t_num_rows) & (
-        block_col_offs[None, :] < row_major_t_num_cols
+    mask = (block_col_offs[:, None] < row_major_t_num_rows) & (
+        block_row_offs[None, :] < row_major_t_num_cols
     )
     tl.store(row_major_t_out_ptr + row_major_t_offs, fp8_vals.trans(1, 0), mask=mask)
 
