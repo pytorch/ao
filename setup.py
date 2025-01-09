@@ -148,9 +148,11 @@ def get_extensions():
     if IS_ROCM and use_cuda:
         # Add ROCm GPU architecture check
         gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch != 'gfx942':
+        if gpu_arch != "gfx942":
             print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print("Currently only gfx942 is supported. Skipping compilation of ROCm extensions")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
             return None
         sources += hip_sources
 
