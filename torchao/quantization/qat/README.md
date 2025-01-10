@@ -29,34 +29,32 @@ Between these two steps, training can proceed exactly as before.
 ![qat](images/qat_diagram.png)
 
 
-## API
+## torchao APIs
 
 torchao currently supports two QAT APIs, one through the [`quantize_`](https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_)
 API (recommended) and one through the Quantizer classes (legacy). The `quantize_` API
 allows flexible configuration of quantization settings for both activations and weights,
 while the Quantizer classes each hardcode a specific quantization setting.
 
-Here's an example of running QAT using the following quantization setting on a single GPU:
-- int8 per-token dynamic asymmetric activation (for linears)
-- int4 per-group symmetric weight (for linears)
+For example, running QAT on a single GPU:
 
 ```python
 import torch
 from torchtune.models.llama3 import llama3
-from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
 # Set up smaller version of llama3 to fit in a single GPU
-model = llama3(
-    vocab_size=4096,
-    num_layers=16,
-    num_heads=16,
-    num_kv_heads=4,
-    embed_dim=2048,
-    max_seq_len=2048,
-).cuda()
+def get_model():
+    return llama3(
+        vocab_size=4096,
+        num_layers=16,
+        num_heads=16,
+        num_kv_heads=4,
+        embed_dim=2048,
+        max_seq_len=2048,
+    ).cuda()
 
 # Example training loop
-def train(m: torch.nn.Module):
+def train_loop(m: torch.nn.Module):
     optimizer = torch.optim.SGD(m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5)
     loss_fn = torch.nn.CrossEntropyLoss()
     for i in range(10):
@@ -69,7 +67,16 @@ def train(m: torch.nn.Module):
         optimizer.zero_grad()
 ```
 
-### quantize_
+### quantize_ API (recommended)
+
+The recommended way to run QAT in torchao is through the `quantize_` API:
+1. **Prepare:** specify how weights and/or activations are to be quantized through
+[`FakeQuantizeConfig`](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/api.py#L29) and passing these to [`intx_quantization_aware_training`](https://github.com/pytorch/ao/blob/cedadc741954f47a9e9efac2aa584701f125bc73/torchao/quantization/qat/api.py#L242)
+2. **Convert:** quantize the model using the standard post-training quantization (PTQ)
+functions such as [`int8_dynamic_activation_int4_weight`](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/quant_api.py#L606)
+
+For example:
+
 
 ```python
 from torchao.quantization import (
@@ -81,22 +88,25 @@ from torchao.quantization.qat import (
     from_intx_quantization_aware_training,
     intx_quantization_aware_training,
 )
+model = get_model()
 
 # prepare: insert fake quantization ops
-# Model consists of `FakeQuantizedLinear` afterwards
+# Swap `torch.nn.Linear` with `FakeQuantizedLinear`
 activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
 weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
-    my_model,
+    model,
     intx_quantization_aware_training(activation_config, weight_config),
 )
 
-# train (not shown)
+# train
+train_loop(model)
 
 # convert: transform fake quantization ops into actual quantized ops
-# Model consists of `torch.nn.Linear` with quantized activation and weight tensors afterwards
-quantize_(my_model, from_intx_quantization_aware_training())
-quantize_(my_model, int8_dynamic_activation_int4_weight(group_size=32))
+# Swap `FakeQuantizedLinear` back to `torch.nn.Linear` and insert
+# quantized activation and weight tensor subclasses
+quantize_(model, from_intx_quantization_aware_training())
+quantize_(model, int8_dynamic_activation_int4_weight(group_size=32))
 
 # inference or generate
 ```
@@ -113,31 +123,37 @@ quantize_(
 ```
 
 
-### Quantizer
+### Quantizer API (legacy)
 
+Alternatively, torchao provides a few hardcoded quantization settings through
+the following Quantizers:
+- [Int8DynActInt4QATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/linear.py#L126) (linear), targeting int8 per-token dynamic asymmetric activation + int4 per-group symmetric weight
+- [Int4WeightOnlyQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/linear.py#L308) (linear), targeting int4 per-group asymmetric weight using the efficient [int4 tinygemm kernel](https://github.com/pytorch/pytorch/blob/a672f6c84e318bbf455f13dfdd3fd7c68a388bf5/aten/src/ATen/native/cuda/int4mm.cu#L1097) after training)
+- [Int4WeightOnlyEmbeddingQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/embedding.py#L94) (embedding), targeting int4 per-group symmetric weight
+
+For example:
 ```python
 from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
-
 qat_quantizer = Int8DynActInt4WeightQATQuantizer(group_size=32)
+model = get_model()
 
 # prepare: insert fake quantization ops
-# Model consists of `Int8DynActInt4WeightQATLinear` afterwards
+# Swap `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear`
 model = qat_quantizer.prepare(model)
 
-# train (not shown)
+# train
+train_loop(model)
 
 # convert: transform fake quantization ops into actual quantized ops
-# Model consists of `Int8DynActInt4WeightLinear` afterwards
+# Swap `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`
 model = qat_quantizer.convert(model)
 
 # inference or generate
 ```
 
-torchao currently supports the following Quantizers:
-- Linear: [Int8DynActInt4QATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/linear.py#L126), targeting int8 per-token dynamic asymmetric activation + int4 per-group symmetric weight
-- Linear: [Int4WeightOnlyQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/linear.py#L308), targeting int4 per-group asymmetric weight using the efficient [int4 tinygemm kernel](https://github.com/pytorch/pytorch/blob/a672f6c84e318bbf455f13dfdd3fd7c68a388bf5/aten/src/ATen/native/cuda/int4mm.cu#L1097) after training)
-- Embedding: [Int4WeightOnlyEmbeddingQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/embedding.py#L94), targeting int4 per-group symmetric weight
-- [ComposableQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/api.py#L242), allow users to compose multiple Quantizers (one for each layer), for example:
+To use multiple Quantizers in the same model for different layer types,
+users can also leverage the [ComposableQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/api.py#L242)
+as follows:
 
 ```
 from torchao.quantization.qat import (
@@ -152,6 +168,9 @@ quantizer = ComposableQATQuantizer([
 ])
 
 # prepare + train + convert as before
+model = qat_quantizer.prepare(model)
+train_loop(model)
+model = qat_quantizer.convert(model)
 ```
 
 ## torchtune integration
