@@ -6,7 +6,6 @@ from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
-    run_tests,
 )
 from torch.testing._internal.optests import opcheck
 
@@ -615,4 +614,4 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
 
 
 if __name__ == "__main__":
-    run_tests()
+    pytest.main([__file__])
