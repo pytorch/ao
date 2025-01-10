@@ -7,6 +7,8 @@ import time
 import itertools
 from pathlib import Path
 from compare_rle_lists import compare as compare_folders
+import torch
+import torchvision
 
 
 def cond_mkdir(path, overwrite, resume, dry):
@@ -118,6 +120,8 @@ def main(image_paths,
         all_stats["task"] = task
         all_stats["experiment_name"] = output_path.name
         all_stats["environ"] = str(environ)
+        all_stats["torch_version"] = str(torch.__version__)
+        all_stats["torchvision_version"] = str(torchvision.__version__)
         all_stats = all_stats | {key: str(kwargs[key]) for key in kwargs}
         if not overwrite and all_stats_file.exists():
             raise ValueError(f"{all_stats_file} already exists. Use --overwrite to overwrite.")
