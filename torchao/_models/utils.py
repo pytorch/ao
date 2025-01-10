@@ -34,6 +34,8 @@ def write_json_result_ossci(output_json_path, headers, row):
             "extra_info": {
                 "device": mapping_headers["device"],
                 "arch": mapping_headers["arch"],
+                # True means compile is enabled, False means eager mode
+                "complie": mapping_headers["compile"],
             },
         },
         "model": {
@@ -84,6 +86,8 @@ def write_json_result_local(output_json_path, headers, row):
             "extra_info": {
                 "device": mapping_headers["device"],
                 "arch": mapping_headers["arch"],
+                # True means compile is enabled, False means eager mode
+                "complie": mapping_headers["compile"],
             },
         },
         "model": {
