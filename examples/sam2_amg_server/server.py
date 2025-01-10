@@ -508,7 +508,7 @@ def main(
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
     if autoquant_type is not None:
-        assert not furious, "use autoquant can't be used together with furious"
+        assert not furious, "autoquant can't be used together with furious"
         set_autoquant(mask_generator, autoquant_type, min_sqnr)
 
     with open("dog.jpg", "rb") as f:
@@ -568,7 +568,6 @@ def main(
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
         if output_json_path:
-            headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
             headers = [
                 "name",
                 "dtype",
