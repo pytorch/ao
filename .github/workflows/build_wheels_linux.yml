@@ -65,7 +65,7 @@ jobs:
         with:
           server_address: smtp.gmail.com
           server_port: 587
-          from_address: torchao.notify@gmail.com
+          from: torchao.notify@gmail.com
           to_address: cdhernandez@meta.com
           subject: Scheduled CI Failure for TorchAO
           body: "Workflow failed: Build Linux Wheels\ngetlink"
