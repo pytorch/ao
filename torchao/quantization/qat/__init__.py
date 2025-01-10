@@ -1,8 +1,8 @@
 from .api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
-    intx_quantization_aware_training,
     from_intx_quantization_aware_training,
+    intx_quantization_aware_training,
 )
 from .embedding import (
     Int4WeightOnlyEmbeddingQATQuantizer,
