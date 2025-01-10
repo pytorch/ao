@@ -6,6 +6,8 @@ from pathlib import Path
 
 import fire
 import pandas as pd
+import torch
+import torchvision
 from compare_rle_lists import compare as compare_folders
 
 
@@ -130,6 +132,8 @@ def main(
         all_stats["task"] = task
         all_stats["experiment_name"] = output_path.name
         all_stats["environ"] = str(environ)
+        all_stats["torch_version"] = str(torch.__version__)
+        all_stats["torchvision_version"] = str(torchvision.__version__)
         all_stats = all_stats | {key: str(kwargs[key]) for key in kwargs}
         if not overwrite and all_stats_file.exists():
             raise ValueError(
