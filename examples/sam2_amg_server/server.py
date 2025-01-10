@@ -569,7 +569,17 @@ def main(
 
         if output_json_path:
             headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
-            headers = ["name", "dtype", "min_sqnr", "compile", "device", "arch", "metric", "actual", "target"]
+            headers = [
+                "name",
+                "dtype",
+                "min_sqnr",
+                "compile",
+                "device",
+                "arch",
+                "metric",
+                "actual",
+                "target",
+            ]
             name = "sam2-" + model_type
             arch = get_arch_name()
             dtype = autoquant_type or "noquant"
