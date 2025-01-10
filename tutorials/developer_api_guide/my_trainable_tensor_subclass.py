@@ -11,7 +11,7 @@ needed to ensure proper gradient updates during training:
 """
 
 import torch
-from my_dtype_tensor_subclass import MyDTypeLayout, MyDTypeTensor
+from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.utils import Layout, PlainLayout
@@ -35,7 +35,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         cls,
         input_float: torch.Tensor,
         _layout: Layout,
-    ) -> MyDTypeLayout:
+    ) -> MyDTypeTensorImpl:
         """
         Convert from a floating point tensor (fp32/fp16/bf16) to the desired dtype.
         """
