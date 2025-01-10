@@ -91,7 +91,7 @@ from torchao.quantization.qat import (
 model = get_model()
 
 # prepare: insert fake quantization ops
-# Swap `torch.nn.Linear` with `FakeQuantizedLinear`
+# swaps `torch.nn.Linear` with `FakeQuantizedLinear`
 activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
 weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
@@ -103,7 +103,7 @@ quantize_(
 train_loop(model)
 
 # convert: transform fake quantization ops into actual quantized ops
-# Swap `FakeQuantizedLinear` back to `torch.nn.Linear` and insert
+# swap `FakeQuantizedLinear` back to `torch.nn.Linear` and inserts
 # quantized activation and weight tensor subclasses
 quantize_(model, from_intx_quantization_aware_training())
 quantize_(model, int8_dynamic_activation_int4_weight(group_size=32))
@@ -112,7 +112,7 @@ quantize_(model, int8_dynamic_activation_int4_weight(group_size=32))
 ```
 
 To fake quantize embedding in addition to linear, you can additionally call
-the following with a filter function during the prepare step.
+the following with a filter function during the prepare step:
 
 ```
 quantize_(
@@ -138,14 +138,14 @@ qat_quantizer = Int8DynActInt4WeightQATQuantizer(group_size=32)
 model = get_model()
 
 # prepare: insert fake quantization ops
-# Swap `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear`
+# swaps `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear`
 model = qat_quantizer.prepare(model)
 
 # train
 train_loop(model)
 
 # convert: transform fake quantization ops into actual quantized ops
-# Swap `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`
+# swaps `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`
 model = qat_quantizer.convert(model)
 
 # inference or generate
@@ -155,7 +155,7 @@ To use multiple Quantizers in the same model for different layer types,
 users can also leverage the [ComposableQATQuantizer](https://github.com/pytorch/ao/blob/v0.7.0/torchao/quantization/qat/api.py#L242)
 as follows:
 
-```
+```python
 from torchao.quantization.qat import (
     ComposableQATQuantizer,
     Int4WeightOnlyEmbeddingQATQuantizer,
@@ -175,16 +175,16 @@ model = qat_quantizer.convert(model)
 
 ## torchtune integration
 
-Users can also leverage our integration with [torchtune](https://github.com/pytorch/torchtune)
-and apply quantized-aware fine-tuning as follows:
+torchao QAT is integrated with [torchtune](https://github.com/pytorch/torchtune)
+to allow users to run quantized-aware fine-tuning as follows:
 
 ```
 tune run --nproc_per_node 8 qat_distributed --config llama3/8B_qat_full
 ```
 
-torchtune also supports a QAT + LoRA distributed training recipe that is 1.89x faster
-and uses 36.1% memory compared to vanilla QAT in our early experiments. You can read
-more about it [here](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700).
+torchtune also supports a [QAT + LoRA distributed training recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py)
+that is 1.89x faster and uses 36.1% memory compared to vanilla QAT in our early experiments.
+You can read more about it [here](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700):
 
 ```
 tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config llama3/8B_qat_lora
