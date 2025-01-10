@@ -1,45 +1,36 @@
-import itertools
-import requests
-import uvicorn
-import fire
-import tempfile
-import logging
-import sys
-import time
+import asyncio
 import json
+import logging
+import time
+from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
-from typing import List, Optional
 
+import cv2
+import fire
+import matplotlib.pyplot as plt
+import numpy as np
+import requests
 import torch
 import torch._dynamo.config
 import torch._inductor.config
-from fastapi.responses import Response
+import uvicorn
+from compile_export_utils import (
+    export_model,
+    load_exported_model,
+    set_fast,
+    set_furious,
+)
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from io import BytesIO
-import shutil
-from pydantic import BaseModel
-import cv2
+from fastapi.responses import StreamingResponse
+from torch._inductor import config as inductorconfig
 
-import matplotlib.pyplot as plt
-import numpy as np
-
-import asyncio
-from contextlib import asynccontextmanager
-import contextlib
 from torchao._models.utils import (
     get_arch_name,
-    write_json_result_ossci,
     write_json_result_local,
+    write_json_result_ossci,
 )
-
-from compile_export_utils import set_fast
-from compile_export_utils import set_furious
-from compile_export_utils import load_exported_model
-from compile_export_utils import export_model
-
-from torch._inductor import config as inductorconfig
 
 inductorconfig.triton.unique_kernel_names = True
 inductorconfig.coordinate_descent_tuning = True
@@ -236,7 +227,7 @@ def file_bytes_to_image_tensor(file_bytes, output_format="numpy"):
         return example_image
     if output_format not in ["torch"]:
         raise ValueError(
-            f"Expected output_format to be numpy or torch, but got {output_format}"
+            "Expected output_format to be numpy or torch," f" but got {output_format}"
         )
     from torchvision.transforms import ToTensor
 
@@ -333,6 +324,7 @@ def max_memory_allocated():
     mib = stats["bytes"] >> 20
     print(f"max_memory_allocated_bytes: {mib}MiB")
     print(f"max_memory_allocated_percentage: {stats['percentage']}%")
+    return mib, stats["percentage"]
 
 
 def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
@@ -394,16 +386,30 @@ def model_type_to_paths(checkpoint_path, model_type):
     return sam2_checkpoint, model_cfg
 
 
-def set_autoquant(mask_generator):
+def set_autoquant(mask_generator, autoquant_type, min_sqnr):
     import torchao
     from torchao import autoquant
 
     # NOTE: Not baseline feature
-    mask_generator.predictor.model.image_encoder = autoquant(
-        mask_generator.predictor.model.image_encoder,
-        qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
-        min_sqnr=40,
-    )
+    if autoquant_type == "autoquant":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder, min_sqnr=min_sqnr
+        )
+    elif autoquant_type == "autoquant-fp":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder,
+            qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
+            min_sqnr=min_sqnr,
+        )
+    elif autoquant_type == "autoquant-all":
+        mask_generator.predictor.model.image_encoder = autoquant(
+            mask_generator.predictor.model.image_encoder,
+            qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
+            min_sqnr=min_sqnr,
+        )
+    else:
+        raise ValueError(f"Unexpected autoquant type: {autoquant_type}")
+
     mask_generator.predictor._transforms_device = mask_generator.predictor.device
     torch.set_float32_matmul_precision("high")
     # NOTE: this fails when we run
@@ -418,7 +424,8 @@ def main(
     baseline=False,
     fast=False,
     furious=False,
-    use_autoquant=False,
+    autoquant_type=None,
+    min_sqnr=None,
     unittest=False,
     benchmark=False,
     profile=None,
@@ -447,16 +454,16 @@ def main(
     if baseline:
         assert batch_size == 1, "baseline only supports batch size 1."
         logging.info(
-            f"Importing sam2 from outside of torchao. If this errors, install https://github.com/facebookresearch/sam2"
+            "Importing sam2 from outside of torchao. If this errors, install https://github.com/facebookresearch/sam2"
         )
-        from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from sam2.build_sam import build_sam2
         from sam2.utils.amg import rle_to_mask
     else:
-        from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
+        from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.utils.amg import rle_to_mask
 
     device = "cuda"
@@ -481,12 +488,10 @@ def main(
         set_furious(mask_generator)
 
     if save_fast != "":
-        assert load_fast == "", (
-            "Can't save compiled models while loading them with --load-fast."
-        )
-        assert not baseline, (
-            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        )
+        assert (
+            load_fast == ""
+        ), "Can't save compiled models while loading them with --load-fast."
+        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         print(f"Saving compiled models under directory {save_fast}")
         export_model(
             mask_generator,
@@ -498,15 +503,13 @@ def main(
         )
 
     if fast:
-        assert not baseline, (
-            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        )
+        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         set_fast(mask_generator, load_fast)
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
-    if use_autoquant:
+    if autoquant_type is not None:
         assert not furious, "use autoquant can't be used together with furious"
-        set_autoquant(mask_generator)
+        set_autoquant(mask_generator, autoquant_type, min_sqnr)
 
     with open("dog.jpg", "rb") as f:
         output_format = "numpy" if baseline else "torch"
@@ -568,7 +571,7 @@ def main(
             headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
             name = "sam2-" + model_type
             arch = get_arch_name()
-            dtype = "autoquant" if use_autoquant else "noquant"
+            dtype = autoquant_type or "noquant"
             (
                 avg_time_per_run,
                 max_memory_allocated_bytes,
@@ -670,8 +673,8 @@ def main(
         await request_queue.put((image_tensor, response_future))
         masks = await response_future
 
-        # Save an example
-        plt.figure(
+        # Create figure and ensure it's closed after generating response
+        fig = plt.figure(
             figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
             dpi=100,
         )
@@ -679,9 +682,12 @@ def main(
         show_anns(masks, rle_to_mask)
         plt.axis("off")
         plt.tight_layout()
+
         buf = BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
+        plt.close(fig)  # Close figure after we're done with it
+
         return StreamingResponse(buf, media_type="image/png")
 
     # uvicorn.run(app, host=host, port=port, log_level="info")
