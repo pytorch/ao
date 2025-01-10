@@ -504,7 +504,7 @@ def main(
 
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
-        set_fast(mask_generator, load_fast)
+        set_fast(mask_generator, "amg", load_fast)
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
     if autoquant_type is not None:
