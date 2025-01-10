@@ -105,6 +105,20 @@ class FakeQuantizedLinear(torch.nn.Linear):
             w = self.weight
         return F.linear(x, w)
 
+    def to_linear(self) -> torch.nn.Linear:
+        new_linear = torch.nn.Linear(
+            self.in_features,
+            self.out_features,
+            self.bias,
+            device=self.weight.device
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if self.weight.device != torch.device("meta"):
+            new_linear.weight = self.weight
+        return new_linear
+
     @classmethod
     def from_linear(
         cls,

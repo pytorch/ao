@@ -82,6 +82,24 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             self.sparse,
         )
 
+    def to_embedding(self) -> torch.nn.Embedding:
+        new_embedding = torch.nn.Embedding(
+            self.num_embeddings,
+            self.embedding_dim,
+            self.padding_idx,
+            self.max_norm,
+            self.norm_type,
+            self.scale_grad_by_freq,
+            self.sparse,
+            device=self.weight.device,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if self.weight.device != torch.device("meta"):
+            new_embedding.weight = self.weight
+        return new_embedding
+
     @classmethod
     def from_embedding(
         cls,
