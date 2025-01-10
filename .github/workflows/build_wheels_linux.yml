@@ -65,9 +65,10 @@ jobs:
         with:
           server_address: smtp.gmail.com
           server_port: 587
-          from: torchao.notify@gmail.com
-          to_address: cdhernandez@meta.com
-          subject: Scheduled CI Failure for TorchAO
-          body: "Workflow failed: Build Linux Wheels\ngetlink"
           username: torchao.notify
           password: ${{ secrets.TORCHAO_NOTIFY_PASSWORD }}
+          from: torchao.notify@gmail.com
+          to: cdhernandez@meta.com
+          subject: Scheduled CI Failure for TorchAO
+          body: "Workflow failed: Build Linux Wheels\ngetlink"
+
