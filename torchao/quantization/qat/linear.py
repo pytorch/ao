@@ -107,10 +107,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
 
     def to_linear(self) -> torch.nn.Linear:
         new_linear = torch.nn.Linear(
-            self.in_features,
-            self.out_features,
-            self.bias,
-            device=self.weight.device
+            self.in_features, self.out_features, self.bias, device=self.weight.device
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to
