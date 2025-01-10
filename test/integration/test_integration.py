@@ -13,12 +13,11 @@ import unittest
 
 import torch
 import torch.nn as nn
-import torchao
 from parameterized import parameterized
 from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
-from torch.ao.quantization import MinMaxObserver, QConfigMapping
-from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
+
+import torchao
 from torchao.dtypes import Int4CPULayout, TensorCoreTiledLayout
 from torchao.dtypes.utils import is_device
 from torchao.quantization import safe_int_mm
@@ -33,8 +32,6 @@ from torchao.quantization.autoquant import (
     AutoQuantizableLinearWeight,
 )
 
-from torchao.quantization.dynamic_quant import DynamicallyPerAxisQuantizedLinear
-
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
@@ -48,16 +45,12 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
-    choose_qparams_affine,
     dequantize_affine,
-    MappingType,
-    quantize_affine,
 )
-
 from torchao.quantization.smoothquant import (
+    SmoothFakeDynamicallyQuantizedLinear,
     get_scale,
     smooth_fq_linear_to_inference,
-    SmoothFakeDynamicallyQuantizedLinear,
     swap_linear_with_smooth_fq_linear,
 )
 from torchao.quantization.subclass import (
@@ -66,30 +59,33 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import (
+    LoggingTensorMode,
     _apply_logging_hook,
     _fqn_to_op_to_shape_to_count,
     compute_error,
-    compute_error as SQNR,
     dequantize_per_channel,
-    dequantize_per_tensor,
     dynamically_quantize_per_channel,
-    LoggingTensorMode,
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,
 )
+from torchao.quantization.utils import (
+    compute_error as SQNR,
+)
 from torchao.utils import (
-    benchmark_model,
-    is_fbcode,
-    is_sm_at_least_90,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
+    benchmark_model,
+    is_fbcode,
+    is_sm_at_least_90,
     unwrap_tensor_subclass,
 )
 
 try:
-    import gemlite
+    import gemlite  # noqa: F401
+
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
@@ -191,7 +187,7 @@ def run_supported_device_dtype(test_method):
         device = args[2]
         dtype = kwargs["test_dtype"] if "test_dtype" in kwargs else args[3]
         if device == "cuda" and not torch.cuda.is_available():
-            raise unittest.SkipTest(f"Need CUDA available.")
+            raise unittest.SkipTest("Need CUDA available.")
         if (
             device == "cuda"
             and torch.cuda.is_available()
@@ -415,7 +411,6 @@ class SmoothquantUnitTest(unittest.TestCase):
             print("eager mode torch._int_mm known bad, test is inconclusive")
             return
 
-        sqnr_ref_eager = compute_error(y_ref, y_eager)
         sqnr_eager_opt_t = compute_error(y_eager, y_opt_t)
         sqnr_eager_opt = compute_error(y_eager, y_opt)
         # since torch.compile for a torch.half model can
@@ -455,11 +450,11 @@ class SmoothquantUnitTest(unittest.TestCase):
     def test_debug_x_absmax(self):
         m = nn.Sequential(nn.Linear(3, 4))
         x0 = torch.randn(4, 5, 3)
-        y0 = m(x0)
+        m(x0)
         swap_linear_with_smooth_fq_linear(m)
         # no calibration, straight to inference, should not crash
         smooth_fq_linear_to_inference(m, debug_skip_calibration=True)
-        y1 = m(x0)
+        m(x0)
 
 
 class PythonQuantUtilOpUnitTest(unittest.TestCase):
@@ -857,7 +852,7 @@ class TestSubclass(unittest.TestCase):
         tensor_data_dict = {name: getattr(aqw, name) for name in tensor_data_name_dict}
         outer_size = aqw.size()
         outer_stride = aqw.stride()
-        reconstructed = type(aqw).__tensor_unflatten__(
+        type(aqw).__tensor_unflatten__(
             tensor_data_dict, tensor_attributes, outer_size, outer_stride
         )
 
@@ -992,7 +987,7 @@ class TestSubclass(unittest.TestCase):
             and dtype in (torch.float16, torch.bfloat16)
             and device == "cpu"
         ):
-            self.skipTest(f"Regression fixed after torch 2.6")
+            self.skipTest("Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
@@ -1025,20 +1020,34 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "gemlite tests needs torch 2.5 or greater")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_5, "gemlite tests needs torch 2.5 or greater"
+    )
     @unittest.skipIf(not has_gemlite, "gemlite not available")
     def test_gemlite_layout(self, device, dtype):
-        if dtype!= torch.float16:
-            self.skipTest(f"gemlite only works for fp16 dtype")
+        if dtype != torch.float16:
+            self.skipTest("gemlite only works for fp16 dtype")
         from torchao.quantization import gemlite_uintx_weight_only
+
         if device == "cpu":
             self.skipTest(f"gemlite is for cuda, not {device}")
         for packing_bitwidth in [32, 8]:
-            for bit_width in [4,8]:
-                for group_size in [64, 32, None] if bit_width ==4 else [None]:
-                    api = lambda mod: quantize_(mod, gemlite_uintx_weight_only(group_size, bit_width, packing_bitwidth))
-                    for test_shape in [[1, 1024, 512],[16, 256, 1024], [128, 256, 1024]]:
-                        print(packing_bitwidth, bit_width, group_size, test_shape, dtype)
+            for bit_width in [4, 8]:
+                for group_size in [64, 32, None] if bit_width == 4 else [None]:
+                    api = lambda mod: quantize_(
+                        mod,
+                        gemlite_uintx_weight_only(
+                            group_size, bit_width, packing_bitwidth
+                        ),
+                    )
+                    for test_shape in [
+                        [1, 1024, 512],
+                        [16, 256, 1024],
+                        [128, 256, 1024],
+                    ]:
+                        print(
+                            packing_bitwidth, bit_width, group_size, test_shape, dtype
+                        )
                         self._test_lin_weight_subclass_api_impl(
                             api,
                             device,
@@ -1055,7 +1064,6 @@ class TestSubclass(unittest.TestCase):
             test_shape=[1, 1025, 513],
             test_dtype=dtype,
         )
-
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
@@ -1306,7 +1314,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
-            self.skipTest(f"indcutor failed for cpu right now")
+            self.skipTest("indcutor failed for cpu right now")
         self._test_handle_save_load_meta_impl(
             _int8da_int8w_api, device, test_dtype=dtype
         )
@@ -1320,7 +1328,7 @@ class TestSaveLoadMeta(unittest.TestCase):
             and dtype in (torch.float16, torch.bfloat16)
             and device == "cpu"
         ):
-            self.skipTest(f"Regression fixed after torch 2.6")
+            self.skipTest("Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
@@ -1357,7 +1365,7 @@ class TorchCompileUnitTest(unittest.TestCase):
         lin_smooth_opt = torch.compile(lin_smooth, fullgraph=True)
         # print(lin_smooth_opt)
 
-        y = lin_smooth_opt(x0)
+        lin_smooth_opt(x0)
         # print(y)
 
 
@@ -1433,7 +1441,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         model_copy = copy.deepcopy(model)
         swap_linear_with_smooth_fq_linear(model_copy, alpha=0.75)
         # calibrate
-        output_1_1 = model_copy(**encoded_input)
+        model_copy(**encoded_input)
         # inference
         smooth_fq_linear_to_inference(model_copy)
         output_1_2 = model_copy(**encoded_input)
@@ -1490,7 +1498,7 @@ class TestAutoQuant(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
             if m == 1:
                 self.skipTest(f"Shape {(m, k, n)} requires sm80+")
         torch._inductor.config.epilogue_fusion = False
@@ -1531,7 +1539,7 @@ class TestAutoQuant(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
         # This test fails on v0.4.0 and torch 2.4, so skipping for now.
@@ -1579,7 +1587,7 @@ class TestAutoQuant(unittest.TestCase):
 
         mod = MHAModel().to(device).to(dtype)
         input = torch.randn(1, 1, 4096).to(device).to(dtype)
-        out = mod(*input)
+        mod(*input)
 
         torchao.autoquant(mod, set_inductor_config=False)
         assert not isinstance(mod.mha.out_proj.weight, AutoQuantizableLinearWeight)
@@ -1597,7 +1605,7 @@ class TestAutoQuant(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
         m1, m2, k, n = 32, 32, 128, 128
         model = (
             torch.nn.Sequential(
@@ -1647,7 +1655,7 @@ class TestAutoQuant(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
         # This test fails on v0.4.0 and torch 2.4, so skipping for now.
@@ -1694,7 +1702,7 @@ class TestAutoQuant(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
 
         class DoubleAccess(torch.nn.Module):
             def __init__(self):
@@ -1742,7 +1750,10 @@ class TestAutoQuant(unittest.TestCase):
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
 @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
-@unittest.skip("AOTI tests are failing right now")
+@unittest.skip(
+    "AOTI tests are failing right now, repro by commenting out the skip and run:"
+    "python test/integration/test_integration.py -k TestAOTI.test_aoti_06"
+)
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
@@ -1782,10 +1793,11 @@ class TestAOTI(unittest.TestCase):
 
         # get float reference
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
-        ref_f = model(x)
+        model(x)
 
         api(model)
-        unwrap_tensor_subclass(model)
+        if not TORCH_VERSION_AT_LEAST_2_7:
+            unwrap_tensor_subclass(model)
 
         # running model
         model(x)
@@ -1795,7 +1807,7 @@ class TestAOTI(unittest.TestCase):
 
         example_inputs = (x,)
         torch._inductor.aoti_compile_and_package(
-            torch.export.export(model, example_inputs, strict=True), example_inputs
+            torch.export.export(model, example_inputs, strict=True)
         )
 
 
@@ -1841,10 +1853,11 @@ class TestExport(unittest.TestCase):
 
         # get float reference
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
-        ref_f = model(x)
+        model(x)
 
         api(model)
-        unwrap_tensor_subclass(model)
+        if not TORCH_VERSION_AT_LEAST_2_7:
+            unwrap_tensor_subclass(model)
 
         # running model
         ref = model(x)
@@ -1877,7 +1890,7 @@ class TestUtils(unittest.TestCase):
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
+                self.skipTest("bfloat16 requires sm80+")
         m, k, n = 16, 128, 128
         model = (
             torch.nn.Sequential(
