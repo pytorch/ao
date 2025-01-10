@@ -1,25 +1,24 @@
-from pathlib import Path
-import torch
-from tqdm import tqdm
-import time
 import json
-import fire
-import numpy as np
+import time
 from collections import OrderedDict
 from datetime import datetime
-from server import file_bytes_to_image_tensor
-from server import show_anns
-from server import model_type_to_paths
-from server import MODEL_TYPES_TO_MODEL
-from compile_export_utils import set_fast
+from pathlib import Path
+
+import fire
+import numpy as np
+import torch
 
 # from compile_export_utils import set_aot_fast
-from compile_export_utils import set_furious
-from server import masks_to_rle_dict
-from server import max_memory_allocated_stats
-from server import profiler_runner
-from io import BytesIO
+from compile_export_utils import set_fast, set_furious
+from server import (
+    MODEL_TYPES_TO_MODEL,
+    file_bytes_to_image_tensor,
+    masks_to_rle_dict,
+    max_memory_allocated_stats,
+    model_type_to_paths,
+)
 from torch.autograd.profiler import record_function
+from tqdm import tqdm
 
 
 def latencies_statistics(data):
@@ -511,18 +510,14 @@ def main(
             )
 
     if baseline:
-        from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-        from sam2.sam2_image_predictor import SAM2ImagePredictor
-        from sam2.utils.amg import rle_to_mask
+        from sam2.build_sam import build_sam2
         from sam2.utils.amg import mask_to_rle_pytorch
     else:
-        from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
-        from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
-        from torchao._models.sam2.utils.amg import rle_to_mask
+        from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.utils.amg import (
             mask_to_rle_pytorch_2 as mask_to_rle_pytorch,
         )

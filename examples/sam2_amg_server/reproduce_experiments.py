@@ -1,14 +1,14 @@
-import subprocess
-import os
-import fire
 import json
-import pandas as pd
+import os
+import subprocess
 import time
-import itertools
 from pathlib import Path
-from compare_rle_lists import compare as compare_folders
+
+import fire
+import pandas as pd
 import torch
 import torchvision
+from compare_rle_lists import compare as compare_folders
 
 
 def cond_mkdir(path, overwrite, resume, dry):

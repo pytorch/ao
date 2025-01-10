@@ -1,7 +1,9 @@
-import torch
 import time
 from pathlib import Path
 from typing import Optional
+
+import torch
+
 from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 
 # Tools used to avoid compilation cold start and dynamo cache lookups
@@ -305,7 +307,7 @@ def load_exported_model(
     if task_type in ["amg", "mps"]:
         return mask_generator
 
-    path = Path(model_directory) / Path(f"sam2_image_predict_masks.pt2")
+    path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
     assert path.exists(), f"Expected {path} to exist"
     print(f"Start load from {path}")
     pkg = torch._inductor.aoti_load_package(str(path))
