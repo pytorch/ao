@@ -5,7 +5,7 @@ on:
     tags:
       - ciflow/tutorials/*
 jobs:
-  benchmark:
+  run_tutorials:
     runs-on: linux.aws.a100
     strategy:
       matrix:
@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Run benchmark
+      - name: Run tutorials
         shell: bash
         run: |
           set -eux
