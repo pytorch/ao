@@ -227,7 +227,7 @@ def file_bytes_to_image_tensor(file_bytes, output_format="numpy"):
         return example_image
     if output_format not in ["torch"]:
         raise ValueError(
-            "Expected output_format to be numpy or torch," f" but got {output_format}"
+            f"Expected output_format to be numpy or torch, but got {output_format}"
         )
     from torchvision.transforms import ToTensor
 
@@ -488,10 +488,12 @@ def main(
         set_furious(mask_generator)
 
     if save_fast != "":
-        assert (
-            load_fast == ""
-        ), "Can't save compiled models while loading them with --load-fast."
-        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        assert load_fast == "", (
+            "Can't save compiled models while loading them with --load-fast."
+        )
+        assert not baseline, (
+            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        )
         print(f"Saving compiled models under directory {save_fast}")
         export_model(
             mask_generator,
@@ -503,7 +505,9 @@ def main(
         )
 
     if fast:
-        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        assert not baseline, (
+            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        )
         set_fast(mask_generator, load_fast)
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
