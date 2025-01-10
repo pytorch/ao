@@ -1,10 +1,12 @@
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
 
-#include <ATen/ATen.h>
-#include <ATen/core/Tensor.h>
-#include <ATen/cuda/CUDAContext.h>
+// #include <ATen/ATen.h>
+// #include <ATen/core/Tensor.h>
 #include <ATen/DeviceGuard.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/inductor/aoti_torch/utils.h>
 #include <torch/library.h>
 
 template <typename U, typename V>
@@ -15,18 +17,18 @@ constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
 }
 constexpr int32_t kWarpSize = 32;
 
-//Simple data structure to represent 4 pairs of bfloat16s, used for vectorized dequantization
-//https://github.com/pytorch/pytorch/blob/b6689e0fb83a1578959ab0d9c6d2d9e11f7df21a/aten/src/ATen/native/cuda/int4mm.cu#L178-L180
-struct __align__(16) bf16x2x4 {
-  __nv_bfloat162 vals[4];
-};
+// Simple data structure to represent 4 pairs of bfloat16s, used for vectorized
+// dequantization
+// https://github.com/pytorch/pytorch/blob/b6689e0fb83a1578959ab0d9c6d2d9e11f7df21a/aten/src/ATen/native/cuda/int4mm.cu#L178-L180
+struct __align__(16) bf16x2x4 { __nv_bfloat162 vals[4]; };
 
-//Copied from https://github.com/pytorch/pytorch/blob/b6689e0fb83a1578959ab0d9c6d2d9e11f7df21a/aten/src/ATen/native/cuda/int4mm.cu#L195C1-L241C1
+// Copied from
+// https://github.com/pytorch/pytorch/blob/b6689e0fb83a1578959ab0d9c6d2d9e11f7df21a/aten/src/ATen/native/cuda/int4mm.cu#L195C1-L241C1
 inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
   bf16x2x4 result;
   constexpr int kElements = 8;
 
-  uint32_t* h = reinterpret_cast<uint32_t*>(&result);
+  uint32_t *h = reinterpret_cast<uint32_t *>(&result);
   uint32_t const source_i4s = source;
 
   // First, we extract the i4s and construct an intermediate fp16 number.
@@ -44,10 +46,10 @@ inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
   for (int ii = 1; ii < kElements / 2; ++ii) {
     i4s >>= 4; // or is it 8?
     // (i4s & 0x000f000f) | 0x43004300
-    asm volatile(
-        "lop3.b32 %0, %1, %2, %3, %4;\n"
-        : "=r"(h[ii])
-        : "r"(i4s), "n"(MASK), "n"(I4s_TO_BF16s_MAGIC_NUM), "n"(immLut));
+    asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
+                 : "=r"(h[ii])
+                 : "r"(i4s), "n"(MASK), "n"(I4s_TO_BF16s_MAGIC_NUM),
+                   "n"(immLut));
   }
 
   // This is the BF16 {-136, -136} represented as an integer.
@@ -73,8 +75,9 @@ template <typename Out_t, int InnerKTiles, int groupSize, bool kDequant = true>
 __global__ void _dequantize_int4_kernel(
     const at::PackedTensorAccessor32<int32_t, 4, at::RestrictPtrTraits> in,
     at::PackedTensorAccessor32<Out_t, 2, at::RestrictPtrTraits> out,
-    std::optional<const at::PackedTensorAccessor32<c10::BFloat16, 3, at::RestrictPtrTraits>> scales_and_zeros = std::nullopt)
-{
+    std::optional<const at::PackedTensorAccessor32<c10::BFloat16, 3,
+                                                   at::RestrictPtrTraits>>
+        scales_and_zeros = std::nullopt) {
 
   constexpr int32_t kNTileSize = 8;
   constexpr int32_t kKTileSize = 16;
@@ -88,7 +91,8 @@ __global__ void _dequantize_int4_kernel(
 
   // 8 k-tile values, 4 per m16n8k16 mma.sync operand B
   // int32_t ks[8];
-  //Only need 4 offsets since TC layout for single tile is 2x2 (2 pairs of 2 contiguous values)
+  // Only need 4 offsets since TC layout for single tile is 2x2 (2 pairs of 2
+  // contiguous values)
   int32_t ks[4];
 
   // Store address base offset
@@ -97,9 +101,9 @@ __global__ void _dequantize_int4_kernel(
 // Unpack 2 k-tiles at a time since min pack size is InnerKTiles = 2
 #pragma unroll
   for (int innerKTile = 0; innerKTile < InnerKTiles; innerKTile += 2) {
-    //Tensor-core layout for m16n8k16 is such that each tile has 2 pairs of 2 contiguous values
-    //Hence, we only need 4 offsets
-    // Offsets of innerTile0
+    // Tensor-core layout for m16n8k16 is such that each tile has 2 pairs of 2
+    // contiguous values Hence, we only need 4 offsets
+    //  Offsets of innerTile0
     auto kBase0 = (kOuterTile * InnerKTiles + innerKTile) * kKTileSize;
     ks[0] = kBase0 + (t % 4) * 2;
     ks[1] = ks[0] + 8;
@@ -112,30 +116,35 @@ __global__ void _dequantize_int4_kernel(
     // inner k-tiles unpack two at a time
     int32_t pack = in[nTile][kOuterTile][t][innerKTile / 2];
 
-    if constexpr(kDequant) {
-      // static_assert(scales_and_zeros.has_value(), "scales_and_zeros must be set when dequantizing");
-      static_assert(std::is_same<Out_t, c10::BFloat16>::value, "Out must be BFloat16 when dequantizing");
+    if constexpr (kDequant) {
+      // static_assert(scales_and_zeros.has_value(), "scales_and_zeros must be
+      // set when dequantizing");
+      static_assert(std::is_same<Out_t, c10::BFloat16>::value,
+                    "Out must be BFloat16 when dequantizing");
       // __nv_bfloat16 v[8];
 
-      // // Extract u4, convert to s4 by subtracting by 2 ** nbits / 2, then convert to bfloat16
+      // // Extract u4, convert to s4 by subtracting by 2 ** nbits / 2, then
+      // convert to bfloat16
       bf16x2x4 v_bf16x2x4 = convert_i4x8_to_bf16x2x4(pack);
 
       // All b values within a 16x16 tile should fall within the same q group
       // Hence we load 1 scale and zero per loop
-      int qgroup = ks[0] /  groupSize;
-      const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&scales_and_zeros.value()[qgroup][n0][0]);
+      int qgroup = ks[0] / groupSize;
+      const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16 *>(
+          &scales_and_zeros.value()[qgroup][n0][0]);
 
       // Vectorize scales and zeros
       __nv_bfloat162 scale2 = __bfloat162bfloat162(pSZ[0]);
       __nv_bfloat162 zero2 = __bfloat162bfloat162(pSZ[1]);
 
-  #pragma unroll
+#pragma unroll
       for (int i = 0; i < 4; i++) {
-        reinterpret_cast<__nv_bfloat162*>(&pOut[ks[i]])[0] = __hfma2(v_bf16x2x4.vals[i], scale2, zero2);
+        reinterpret_cast<__nv_bfloat162 *>(&pOut[ks[i]])[0] =
+            __hfma2(v_bf16x2x4.vals[i], scale2, zero2);
       }
-    }
-    else {
-      static_assert(std::is_same<Out_t, int32_t>::value, "Out must be int32_t when unpacking to int");
+    } else {
+      static_assert(std::is_same<Out_t, int32_t>::value,
+                    "Out must be int32_t when unpacking to int");
       int32_t v[8];
 
       v[0] = pack & 0x0000000f;
@@ -146,9 +155,9 @@ __global__ void _dequantize_int4_kernel(
       v[3] = (pack >> 20) & 0x0000000f;
       v[5] = (pack >> 24) & 0x0000000f;
       v[7] = (pack >> 28) & 0x0000000f;
-      int2* v_i32x2 = reinterpret_cast<int2 *>(v);
+      int2 *v_i32x2 = reinterpret_cast<int2 *>(v);
 
-    #pragma unroll
+#pragma unroll
       for (int i = 0; i < 4; ++i) {
         reinterpret_cast<int2 *>(&pOut[ks[i]])[0] = v_i32x2[i];
       }
@@ -156,16 +165,9 @@ __global__ void _dequantize_int4_kernel(
   }
 }
 
-// output is [n][k] (int32 dtype)
-// input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
-// scales_and_zeros is [numQGroups][n][2]
-// qGroupSize is 32, 64, 128 or 256
-at::Tensor _dequantize_tensor_core_tiled_layout(
-    const at::Tensor& packed_w,
-    const at::Tensor& scales_and_zeros,
-    int64_t group_size,
-    int64_t innerKTiles)
-{
+at::Tensor _ATH_dequantize_tensor_core_tiled_layout(
+    const AtenTensorHandle packed_w, const AtenTensorHandle scales_and_zeros,
+    int64_t group_size, int64_t innerKTiles) {
 
   constexpr int32_t kNTileSize = 8;
   constexpr int32_t kKTileSize = 16;
@@ -173,94 +175,147 @@ at::Tensor _dequantize_tensor_core_tiled_layout(
   c10::cuda::CUDAGuard g(packed_w.device());
 
   // packed_w preconditions
-  TORCH_CHECK(packed_w.dim() == 4);
-  TORCH_CHECK(packed_w.dtype() == at::kInt);
-  TORCH_CHECK(packed_w.is_contiguous());
-  TORCH_CHECK(packed_w.size(2) == 32);
-  TORCH_CHECK(packed_w.size(3) == innerKTiles / 2);
+  int64_t packed_w_dim;
+  aoti_torch_get_dim(packed_w, &packed_w_dim);
+  TORCH_CHECK(packed_w_dim == 4);
+
+  int32_t packed_w_dtype;
+  aoti_torch_get_dtype(packed_w, &packed_w_dtype);
+  TORCH_CHECK(packed_w_dtype == at::kInt);
+
+  // is_contiguous not existent today
+  // TORCH_CHECK(packed_w.is_contiguous());
+
+  int64_t packed_w_dim_2_size;
+  aoti_torch_get_size(packed_w, 2, &packed_w_dim_2_size);
+  TORCH_CHECK(packed_w_dim_2_size == 32);
+
+  int64_t packed_w_dim_3_size;
+  aoti_torch_get_size(packed_w, 3, &packed_w_dim_3_size);
+  TORCH_CHECK(packed_w_dim_3_size == innerKTiles / 2);
   TORCH_CHECK(innerKTiles == 2 || innerKTiles == 4 || innerKTiles == 8);
 
-  auto numQGroups = scales_and_zeros.size(0);
-  int N = packed_w.size(0) * kNTileSize;
-  int K = packed_w.size(1) * innerKTiles * kKTileSize;
+  auto numQGroups;
+  aoti_torch_get_size(scales_and_zeros, 0, &numQGroups);
+
+  int64_t packed_w_dim_0_size;
+  aoti_torch_get_size(packed_w, 0, &packed_w_dim_0_size);
+  int N = packed_w_dim_0_size * kNTileSize;
+
+  int64_t packed_w_dim_1_size;
+  aoti_torch_get_size(packed_w, 1, &packed_w_dim_1_size);
+  int K = packed_w_dim_1_size * innerKTiles * kKTileSize;
 
   // scales_and_zeros preconditions
-  TORCH_CHECK(
-      group_size == 32 || group_size == 64 || group_size == 128 ||
-      group_size == 256);
+  TORCH_CHECK(group_size == 32 || group_size == 64 || group_size == 128 ||
+              group_size == 256);
   TORCH_CHECK(numQGroups == K / group_size);
-  TORCH_CHECK(scales_and_zeros.dim() == 3);
-  TORCH_CHECK(scales_and_zeros.size(1) == N);
-  TORCH_CHECK(scales_and_zeros.size(2) == 2);
+
+  int64_t scales_and_zeros_dim;
+  aoti_torch_get_dim(scales_and_zeros, &scales_and_zeros_dim);
+  TORCH_CHECK(scales_and_zeros_dim == 3);
+
+  int64_t scales_and_zeros_dim_1_size;
+  int64_t scales_and_zeros_dim_2_size;
+  aoti_torch_get_size(scales_and_zeros, 1, &scales_and_zeros_dim_1_size);
+  aoti_torch_get_size(scales_and_zeros, 2, &scales_and_zeros_dim_2_size);
+  TORCH_CHECK(scales_and_zeros_dim_1_size == N);
+  TORCH_CHECK(scales_and_zeros_dim_2_size == 2);
 
   auto nTiles = divUp(N, kNTileSize);
   auto kSuperTiles = divUp(K, innerKTiles * kKTileSize);
   auto out = at::empty(
       {N, K},
       at::TensorOptions().dtype(at::kBFloat16).device(packed_w.device()));
+  // gotta swap this to be an AtenTensorHandle
 
   auto stream = at::cuda::getCurrentCUDAStream();
   dim3 grid(kSuperTiles, nTiles);
 
-#define RUN_DEQUANT(QGROUPSIZE) \
-  do { \
-    switch(innerKTiles) { \
-      case 2: \
-        _dequantize_int4_kernel<c10::BFloat16, 2, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
-        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
-        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
-        break; \
-      case 4: \
-        _dequantize_int4_kernel<c10::BFloat16, 4, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
-        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
-        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
-        break; \
-      case 8: \
-        _dequantize_int4_kernel<c10::BFloat16, 8, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
-        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
-        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
-        break; \
-      default: \
-        break; \
-    } \
-  } while(false)
+  void *packed_w_data_ptr;
+  void *scales_and_zeros_data_ptr;
+  void *out_data_ptr;
+  aoti_torch_get_data_ptr(packed_w, &packed_w_data_ptr);
+  aoti_torch_get_data_ptr(scales_and_zeros, &scales_and_zeros_data_ptr);
+  aoti_torch_get_data_ptr(out, &out_data_ptr);
 
-#define DISPATCH_Q_GROUP() \
-  do { \
-    switch (group_size) { \
-      case 32: \
-        RUN_DEQUANT(32); \
-        break; \
-      case 64: \
-        RUN_DEQUANT(64); \
-        break; \
-      case 128: \
-        RUN_DEQUANT(128); \
-        break; \
-      case 256: \
-        RUN_DEQUANT(256); \
-        break; \
-      default: \
-        break; \
-    } \
-  } while(false)
+// packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),  \
+        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
+        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
+
+#define RUN_DEQUANT(QGROUPSIZE)                                                \
+  do {                                                                         \
+    switch (innerKTiles) {                                                     \
+    case 2:                                                                    \
+      _dequantize_int4_kernel<c10::BFloat16, 2, QGROUPSIZE, true>              \
+          <<<grid, kWarpSize, 0, stream>>>(packed_w_data_ptr, out_data_ptr,    \
+                                           scales_and_zeros_data_ptr);         \
+      break;                                                                   \
+    case 4:                                                                    \
+      _dequantize_int4_kernel<c10::BFloat16, 4, QGROUPSIZE, true>              \
+          <<<grid, kWarpSize, 0, stream>>>(packed_w_data_ptr, out_data_ptr,    \
+                                           scales_and_zeros_data_ptr);         \
+      break;                                                                   \
+    case 8:                                                                    \
+      _dequantize_int4_kernel<c10::BFloat16, 8, QGROUPSIZE, true>              \
+          <<<grid, kWarpSize, 0, stream>>>(packed_w_data_ptr, out_data_ptr,    \
+                                           scales_and_zeros_data_ptr);         \
+      break;                                                                   \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+  } while (false)
+
+#define DISPATCH_Q_GROUP()                                                     \
+  do {                                                                         \
+    switch (group_size) {                                                      \
+    case 32:                                                                   \
+      RUN_DEQUANT(32);                                                         \
+      break;                                                                   \
+    case 64:                                                                   \
+      RUN_DEQUANT(64);                                                         \
+      break;                                                                   \
+    case 128:                                                                  \
+      RUN_DEQUANT(128);                                                        \
+      break;                                                                   \
+    case 256:                                                                  \
+      RUN_DEQUANT(256);                                                        \
+      break;                                                                   \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+  } while (false)
 
   DISPATCH_Q_GROUP();
-  #undef DISPATCH_Q_GROUP
-  #undef RUN_DEQUANT
+#undef DISPATCH_Q_GROUP
+#undef RUN_DEQUANT
 
   return out;
 }
 
 // output is [n][k] (int32 dtype)
 // input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
-at::Tensor _unpack_tensor_core_tiled_layout(
-    const at::Tensor& packed_w,
-    int64_t innerKTiles)
-{
+// scales_and_zeros is [numQGroups][n][2]
+// qGroupSize is 32, 64, 128 or 256
+at::Tensor
+_dequantize_tensor_core_tiled_layout(const at::Tensor &packed_w,
+                                     const at::Tensor &scales_and_zeros,
+                                     int64_t group_size, int64_t innerKTiles) {
+
+  AtenTensorHandle packed_w_ath = tensor_pointer_to_tensor_handle(&packed_w);
+  AtenTensorHandle scales_and_zeros_ath =
+      tensor_pointer_to_tensor_handle(&scales_and_zeros);
+
+  AtenTensorHandle ath_res = _ATH_dequantize_tensor_core_tiled_layout(
+      packed_w_ath, scales_and_zeros_ath, group_size, innerKTiles);
+
+  return ath_res; // tensor_handle_to_tensor_pointer(ath_res);
+}
+
+// output is [n][k] (int32 dtype)
+// input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
+at::Tensor _unpack_tensor_core_tiled_layout(const at::Tensor &packed_w,
+                                            int64_t innerKTiles) {
 
   c10::cuda::CUDAGuard g(packed_w.device());
 
@@ -283,29 +338,39 @@ at::Tensor _unpack_tensor_core_tiled_layout(
   auto kSuperTiles = divUp(K, innerKTiles * kKTileSize);
 
   auto out = at::empty(
-      {N, K},
-      at::TensorOptions().dtype(at::kInt).device(packed_w.device()));
+      {N, K}, at::TensorOptions().dtype(at::kInt).device(packed_w.device()));
 
   auto stream = at::cuda::getCurrentCUDAStream();
   dim3 grid(kSuperTiles, nTiles);
 
   if (innerKTiles == 2) {
-    _dequantize_int4_kernel<int32_t, 2, 0, false><<<grid, kWarpSize, 0, stream>>>(
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
-  }
-   else if (innerKTiles == 4) {
-    _dequantize_int4_kernel<int32_t, 4, 0, false><<<grid, kWarpSize, 0, stream>>>(
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+    _dequantize_int4_kernel<int32_t, 2, 0, false>
+        <<<grid, kWarpSize, 0, stream>>>(
+            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
+            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+  } else if (innerKTiles == 4) {
+    _dequantize_int4_kernel<int32_t, 4, 0, false>
+        <<<grid, kWarpSize, 0, stream>>>(
+            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
+            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
   } else if (innerKTiles == 8) {
-    _dequantize_int4_kernel<int32_t, 8, 0, false><<<grid, kWarpSize, 0, stream>>>(
-        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+    _dequantize_int4_kernel<int32_t, 8, 0, false>
+        <<<grid, kWarpSize, 0, stream>>>(
+            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
+            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
   }
 
   return out;
 }
+
+// // Use when all tensors arguments accept one (normal) batch dim.
+// // This batching rule expands the batch dim on all Tensors, reshapes it into
+// // dim 0, calls the op, and then reshapes the batch dim out of dim 0.
+// // This is not the most efficient thing; if there are alternatives, plese try
+// // to use them. Use this only as a last resort.
+// #define EXISTING_BDIM_ALL_BOXED(op) \
+//   m.impl(#op,
+//   torch::CppFunction::makeFromBoxedFunction<boxed_existing_bdim_all_batch_rule>());
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::unpack_tensor_core_tiled_layout", &_unpack_tensor_core_tiled_layout);
