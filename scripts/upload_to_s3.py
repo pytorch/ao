@@ -61,10 +61,11 @@ if __name__ == "__main__":
     today_timestamp = str(int(today.timestamp()))
     print("Today timestamp:", today_timestamp)
     import subprocess
+
     # Execute the command and capture the output
-    output = subprocess.check_output(['hostname', '-s'])
+    output = subprocess.check_output(["hostname", "-s"])
     # Decode the output from bytes to string
-    hostname = output.decode('utf-8').strip()
+    hostname = output.decode("utf-8").strip()
     upload_to_s3(
         "ossci-benchmarks",
         f"v3/pytorch/ao/{hostname}/torchao-models-" + today_timestamp + ".json",
