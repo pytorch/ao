@@ -27,7 +27,6 @@ for dir in $(find . -type d); do
         FAILED=1
         echo "Test failed: $file $FAILED"
       fi
-      done
     done
   fi
 done
