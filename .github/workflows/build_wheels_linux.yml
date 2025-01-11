@@ -56,26 +56,11 @@ jobs:
       upload-to-pypi: cu121
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-  
-  capture-error:
-    runs-on: ubuntu-latest
-    if: failure()
-    needs: [build, generate-matrix]
-    outputs:
-      error-message: ${{ steps.get-error.outputs.error }}
-    steps:
-      - id: get-error
-        run: |
-          ERROR=$(gh run view ${{ github.run_id }} --json jobs -q '.jobs[] | select(.conclusion == "failure") | .steps[] | select(.conclusion == "failure") | .name + ": " + .conclusion')
-          echo "error=$ERROR" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
   notify:
     runs-on: ubuntu-latest
     name: Email notification
     needs: [generate-matrix, build]
-    if: failure() && github.event_name == 'pull_request'
+    if: failure() && github.event_name == 'pull_request' # SHOULD BE schedule
     steps:
       - uses: dawidd6/action-send-mail@v4
         with:
@@ -101,7 +86,8 @@ jobs:
             You can view the full run details here:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            Error Details:
-            ${{ needs.capture-error.outputs.error-message }}
+            Error Information:
+            ${{ needs.generate-matrix.result == 'failure' && 'Matrix generation failed' || '' }}
+            ${{ needs.build.result == 'failure' && 'Build job failed' || '' }}
             
             This is an automated notification. Please check the GitHub Actions page for more details about the failure.
