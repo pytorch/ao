@@ -44,3 +44,7 @@ print(f"gelu(a_nf4): {torch.nn.functional.gelu(a_nf4)}")
 
 # We collect these implementations in torchao.dtypes.nf4tensor, but you can also
 # just roll your own.
+
+import sys
+
+sys.exit(1)

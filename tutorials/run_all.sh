@@ -32,7 +32,7 @@ find . -type d | while read dir; do
 done
 
 echo "Failed: $FAILED"
-if (( $FAILED == 1 )); then
+if [ "$FAILED" -eq 1 ]; then
   echo "One or more tests failed"
   exit 1
 else
