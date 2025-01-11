@@ -21,46 +21,47 @@ on:
   workflow_dispatch:
 
 jobs:
-  # generate-matrix:
-  #   uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
-  #   with:
-  #     package-type: wheel
-  #     os: linux
-  #     with-cpu: enable
-  #     with-cuda: enable
-  #     with-rocm: enable
-  #     with-xpu: enable
+  generate-matrix:
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      os: linux
+      with-cpu: enable
+      with-cuda: enable
+      with-rocm: enable
+      with-xpu: enable
 
-  # build:
-  #   needs: generate-matrix
-  #   permissions:
-  #     id-token: write
-  #     contents: read
-  #   uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
-  #   with:
-  #     # Set the ref to an empty string instead of the default nightly because
-  #     # torchao doesn't have nightly branch setup yet, instead the build is
-  #     # triggered daily from main with a schedule
-  #     repository: pytorch/ao
-  #     ref: ""
-  #     test-infra-repository: pytorch/test-infra
-  #     test-infra-ref: main
-  #     build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
-  #     env-var-script: packaging/env_var_script_linux.sh
-  #     pre-script: packaging/pre_build_script.sh
-  #     post-script: packaging/post_build_script.sh
-  #     smoke-test-script: packaging/smoke_test.py
-  #     package-name: torchao
-  #     trigger-event: ${{ github.event_name }}
-  #     # This is the CUDA version to be uploaded to torchao-nightly pypi
-  #     upload-to-pypi: cu121
-  #   secrets:
-  #     PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+  build:
+    needs: generate-matrix
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    with:
+      # Set the ref to an empty string instead of the default nightly because
+      # torchao doesn't have nightly branch setup yet, instead the build is
+      # triggered daily from main with a schedule
+      repository: pytorch/ao
+      ref: ""
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
+      env-var-script: packaging/env_var_script_linux.sh
+      pre-script: packaging/pre_build_script.sh
+      post-script: packaging/post_build_script.sh
+      smoke-test-script: packaging/smoke_test.py
+      package-name: torchao
+      trigger-event: ${{ github.event_name }}
+      # This is the CUDA version to be uploaded to torchao-nightly pypi
+      upload-to-pypi: cu121
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   notify:
     runs-on: ubuntu-latest
     name: Email notification
+    needs: [build]
+    if: github.event_name == 'pull_request'
     steps:
-    # if: failure()
       - uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
@@ -70,5 +71,28 @@ jobs:
           from: torchao.notify@gmail.com
           to: cdhernandez@meta.com
           subject: Scheduled CI Failure for TorchAO
-          body: "Workflow failed: Build Linux Wheels\ngetlink"
+          body: |
+            Workflow failed: ${{ name }}.
+            The error is: ${{ env.WORKFLOW_CONCLUSION }}.
+            see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            ${{ github.event_name }} and ${{ github.event_name == 'pull_request' }}
+            ${{ env.WORKFLOW_CONCLUSION }}
+            ------ claude message ------
+            Build Failure Notification for TorchAO
 
+            A failure occurred in the Build Linux Wheels workflow.
+
+            Run Details:
+            - Workflow: ${{ github.workflow }}
+            - Run Type: ${{ github.event_name }}
+            - Repository: ${{ github.repository }}
+            - Branch/PR: ${{ github.ref }}
+            - Commit: ${{ github.sha }}
+
+            You can view the full run details here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Error Information:
+            ${{ job.status }}
+
+            This is an automated notification. Please check the GitHub Actions page for more details about the failure.
