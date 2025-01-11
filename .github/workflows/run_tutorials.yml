@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - ciflow/tutorials/*
+  workflow_dispatch:
+
 jobs:
   run_tutorials:
     runs-on: linux.aws.a100
