@@ -47,7 +47,7 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
-      pre-script: packaging/pre_build_script.shs #ERROR
+      pre-script: packaging/pre_build_script.sh
       post-script: packaging/post_build_script.sh
       smoke-test-script: packaging/smoke_test.py
       package-name: torchao
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Email notification
     needs: [generate-matrix, build]
-    if: failure() && github.event_name == 'pull_request' # SHOULD BE schedule
+    if: failure() && github.event_name == 'schedule'
     steps:
       - uses: dawidd6/action-send-mail@v4
         with:
