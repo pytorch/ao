@@ -1,6 +1,6 @@
 #!/bin/bash
 FAILED=0
-while read -r dir; do
+for dir in $(find . -type d); do
   if [ -f "$dir/run.sh" ]; then
     echo "Running: $dir/run.sh"
     CURRENT_DIR=$(pwd)
@@ -8,7 +8,7 @@ while read -r dir; do
     bash run.sh
     cd "$CURRENT_DIR"
   else
-    while read -r file; do
+    for file in $(find "$dir" -maxdepth 1 -name "*.py"); do
       filename=$(basename "$file")
       echo "filename: $filename"
       if echo "$filename" | grep -q "tensor_parallel"; then
@@ -27,10 +27,10 @@ while read -r dir; do
         FAILED=1
         echo "Test failed: $file $FAILED"
       fi
-      done < <(find "$dir" -maxdepth 1 -name "*.py")
+      done
     done
   fi
-done < <(find . -type d)
+done
 
 echo "Failed: $FAILED"
 if [ "$FAILED" -eq 1 ]; then
