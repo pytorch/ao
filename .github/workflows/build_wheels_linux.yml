@@ -72,7 +72,7 @@ jobs:
           to: cdhernandez@meta.com
           subject: Scheduled CI Failure for TorchAO
           body: |
-            Workflow failed: ${{ name }}.
+            Workflow failed: Build Linux Wheels.
             The error is: ${{ env.WORKFLOW_CONCLUSION }}.
             see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             ${{ github.event_name }} and ${{ github.event_name == 'pull_request' }}
