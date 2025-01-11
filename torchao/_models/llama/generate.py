@@ -1028,6 +1028,7 @@ def main(
             "name",
             "dtype",
             "min_sqnr",
+            "compile",
             "device",
             "arch",
             "metric",
@@ -1037,11 +1038,22 @@ def main(
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, min_sqnr, device, arch, "mem/s", bandwidth, None]
+        memory_result = [
+            name,
+            dtype,
+            min_sqnr,
+            compile,
+            device,
+            arch,
+            "mem/s",
+            bandwidth,
+            None,
+        ]
         performance_result = [
             name,
             dtype,
             min_sqnr,
+            compile,
             device,
             arch,
             "tok/s",

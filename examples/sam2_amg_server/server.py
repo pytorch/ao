@@ -413,7 +413,7 @@ def set_autoquant(mask_generator, autoquant_type, min_sqnr):
     mask_generator.predictor._transforms_device = mask_generator.predictor.device
     torch.set_float32_matmul_precision("high")
     # NOTE: this fails when we run
-    # python server.py ~/checkpoints/sam2 large --port 8000 --host localhost --fast --use_autoquant --unittest
+    # python server.py ~/checkpoints/sam2 large --port 8000 --host localhost --fast --autoquant_type autoquant --unittest
     # https://gist.github.com/jerryzh168/d337cb5de0a1dec306069fe48ac8225e
     # mask_generator.predictor.model.sam_mask_decoder = autoquant(mask_generator.predictor.model.sam_mask_decoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
 
@@ -508,7 +508,7 @@ def main(
 
     # since autoquant is replicating what furious mode is doing, don't use these two together
     if autoquant_type is not None:
-        assert not furious, "use autoquant can't be used together with furious"
+        assert not furious, "autoquant can't be used together with furious"
         set_autoquant(mask_generator, autoquant_type, min_sqnr)
 
     with open("dog.jpg", "rb") as f:
@@ -568,10 +568,22 @@ def main(
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
         if output_json_path:
-            headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+            headers = [
+                "name",
+                "dtype",
+                "min_sqnr",
+                "compile",
+                "device",
+                "arch",
+                "metric",
+                "actual",
+                "target",
+            ]
             name = "sam2-" + model_type
             arch = get_arch_name()
             dtype = autoquant_type or "noquant"
+            # boolean flag to indicate whether it's eager or compile
+            compile = fast
             (
                 avg_time_per_run,
                 max_memory_allocated_bytes,
@@ -580,24 +592,19 @@ def main(
             memory_result = [
                 name,
                 dtype,
+                min_sqnr,
+                compile,
                 device,
                 arch,
                 "memory(MiB)",
                 max_memory_allocated_bytes,
                 None,
             ]
-            memory_percent_result = [
-                name,
-                dtype,
-                device,
-                arch,
-                "memory(%)",
-                max_memory_allocated_percentage,
-                None,
-            ]
             performance_result = [
                 name,
                 dtype,
+                min_sqnr,
+                compile,
                 device,
                 arch,
                 "time_s(avg)",
@@ -610,7 +617,6 @@ def main(
                 else write_json_result_ossci
             )
             write_json_result(output_json_path, headers, memory_result)
-            write_json_result(output_json_path, headers, memory_percent_result)
             write_json_result(output_json_path, headers, performance_result)
 
     if profile is not None:
