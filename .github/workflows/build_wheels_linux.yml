@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Email notification
     needs: [build]
-    if: github.event_name == 'pull_request' && job.status != 'success'
+    if: github.event_name == 'pull_request' && failure()
     steps:
       - uses: dawidd6/action-send-mail@v4
         with:
