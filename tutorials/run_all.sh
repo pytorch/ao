@@ -25,7 +25,7 @@ find . -type d | while read dir; do
 
       if [ $STATUS -ne 0 ]; then
         FAILED=1
-        echo "Test failed: $file"
+        echo "Test failed: $file $FAILED"
       fi
     done
   fi
