@@ -64,7 +64,7 @@ jobs:
       - uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
-          server_port: 587
+          server_port: 465
           username: torchao.notify
           password: ${{ secrets.TORCHAO_NOTIFY_PASSWORD }}
           from: torchao.notify@gmail.com
