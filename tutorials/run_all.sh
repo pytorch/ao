@@ -10,6 +10,7 @@ find . -type d | while read dir; do
   else
     find "$dir" -maxdepth 1 -name "*.py" | while read file; do
       filename=$(basename "$file")
+      echo "filename: $filename"
       if [ "$filename" = *"tensor_parallel"* ]; then
         echo "Running: torchrun --standalone --nnodes=1 --nproc-per-node=1 $file"
         torchrun --standalone --nnodes=1 --nproc-per-node=4 "$file"
@@ -30,7 +31,8 @@ find . -type d | while read dir; do
   fi
 done
 
-if [ $FAILED -eq 1 ]; then
+echo "Failed: $FAILED"
+if (( FAILED == 1 )); then
   echo "One or more tests failed"
   exit 1
 else
