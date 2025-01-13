@@ -1,0 +1,33 @@
+name: Run tutorials
+
+on:
+  push:
+    tags:
+      - ciflow/tutorials/*
+  workflow_dispatch:
+
+jobs:
+  run_tutorials:
+    runs-on: linux.aws.a100
+    strategy:
+      matrix:
+        torch-spec:
+          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup miniconda
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@main
+        with:
+          python-version: "3.9"
+
+      - name: Run tutorials
+        shell: bash
+        run: |
+          set -eux
+          ${CONDA_RUN} python -m pip install --upgrade pip
+          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
+          ${CONDA_RUN} pip install -r dev-requirements.txt
+          ${CONDA_RUN} pip install .
+          cd tutorials
+          ${CONDA_RUN} sh run_all.sh
