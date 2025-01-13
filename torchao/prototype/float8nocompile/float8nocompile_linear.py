@@ -9,7 +9,6 @@ does not require `torch.compile` to be performant.
 """
 
 import torch
-from torch.utils.checkpoint import checkpoint
 
 from torchao.float8.config import Float8LinearConfig
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
