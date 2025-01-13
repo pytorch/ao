@@ -25,12 +25,12 @@ permissions:
 
 jobs:
   generate-matrix:
-    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@torchao-release0.8
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
       os: windows
       test-infra-repository: pytorch/test-infra
-      test-infra-ref: torchao-release0.8
+      test-infra-ref: main
       with-xpu: enable
       with-cuda: disable
 
@@ -47,12 +47,12 @@ jobs:
             smoke-test-script: packaging/smoke_test.py
             package-name: torchao
     name: ${{ matrix.repository }}
-    uses: pytorch/test-infra/.github/workflows/build_wheels_windows.yml@torchao-release0.8
+    uses: pytorch/test-infra/.github/workflows/build_wheels_windows.yml@main
     with:
       repository: ${{ matrix.repository }}
       ref: ""
       test-infra-repository: pytorch/test-infra
-      test-infra-ref: torchao-release0.8
+      test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       pre-script: ${{ matrix.pre-script }}
       env-script: ${{ matrix.env-script }}

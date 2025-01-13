@@ -36,7 +36,7 @@ on:
         type: string
 jobs:
   validate-binaries:
-    uses: pytorch/test-infra/.github/workflows/validate-domain-library.yml@torchao-release0.8
+    uses: pytorch/test-infra/.github/workflows/validate-domain-library.yml@main
     with:
       package_type: "wheel"
       version: ${{ inputs.version }}
