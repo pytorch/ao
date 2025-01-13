@@ -16,7 +16,7 @@ from torchao.dtypes.utils import (
     Layout,
     PlainLayout,
 )
-from torchao.quantization.quant_primitives import (
+from torchao.quantization import (
     MappingType,
     choose_qparams_affine,
     dequantize_affine,
