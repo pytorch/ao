@@ -176,13 +176,13 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     act_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity_type=PerTensor(),
+        granularity=PerTensor(),
         eps=torch.finfo(torch.float32).eps,
     )
     weight_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity_type=PerAxis(axis=0),
+        granularity=PerAxis(axis=0),
         eps=torch.finfo(torch.float32).eps,
     )
 

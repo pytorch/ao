@@ -54,26 +54,37 @@ We've added kv cache quantization and other features in order to enable long con
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](torchao/_models/llama/README.md)
 
+## Training
+
 ### Quantization Aware Training
 
-Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/)
+Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/). For more details, please see the [QAT README](./torchao/quantization/qat/README.md).
 
 ```python
-from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
+from torchao.quantization import (
+    quantize_,
+    int8_dynamic_activation_int4_weight,
+)
+from torchao.quantization.qat import (
+    FakeQuantizeConfig,
+    from_intx_quantization_aware_training,
+    intx_quantization_aware_training,
+)
 
-qat_quantizer = Int8DynActInt4WeightQATQuantizer()
+# Insert fake quantization
+activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
+quantize_(
+    my_model,
+    intx_quantization_aware_training(activation_config, weight_config),
+)
 
-# Insert "fake quantize" operations into linear layers.
-# These operations simulate quantization numerics
-model = qat_quantizer.prepare(model)
+# Run training... (not shown)
 
-# Run Training...
-
-# Convert fake quantize to actual quantize operations
-model = qat_quantizer.convert(model)
+# Convert fake quantization to actual quantized operations
+quantize_(my_model, from_intx_quantization_aware_training())
+quantize_(my_model, int8_dynamic_activation_int4_weight(group_size=32))
 ```
-
-## Training
 
 ### Float8
 

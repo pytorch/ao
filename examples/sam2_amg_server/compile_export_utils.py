@@ -332,9 +332,6 @@ def load_exported_model(
 def set_fast(
     mask_generator, task_type, loaded_exported_model=False, allow_recompiles=True
 ):
-    if task_type == "":
-        task_type = "amg"
-
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     if not loaded_exported_model:
         # TODO: Using CUDA graphs can cause numerical differences?

@@ -76,6 +76,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
     is_fbcode,
     is_sm_at_least_90,
@@ -1749,7 +1750,10 @@ class TestAutoQuant(unittest.TestCase):
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
 @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
-@unittest.skip("AOTI tests are failing right now")
+@unittest.skip(
+    "AOTI tests are failing right now, repro by commenting out the skip and run:"
+    "python test/integration/test_integration.py -k TestAOTI.test_aoti_06"
+)
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
@@ -1792,7 +1796,8 @@ class TestAOTI(unittest.TestCase):
         model(x)
 
         api(model)
-        unwrap_tensor_subclass(model)
+        if not TORCH_VERSION_AT_LEAST_2_7:
+            unwrap_tensor_subclass(model)
 
         # running model
         model(x)
@@ -1802,7 +1807,7 @@ class TestAOTI(unittest.TestCase):
 
         example_inputs = (x,)
         torch._inductor.aoti_compile_and_package(
-            torch.export.export(model, example_inputs, strict=True), example_inputs
+            torch.export.export(model, example_inputs, strict=True)
         )
 
 
@@ -1851,7 +1856,8 @@ class TestExport(unittest.TestCase):
         model(x)
 
         api(model)
-        unwrap_tensor_subclass(model)
+        if not TORCH_VERSION_AT_LEAST_2_7:
+            unwrap_tensor_subclass(model)
 
         # running model
         ref = model(x)
