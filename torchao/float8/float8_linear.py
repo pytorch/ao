@@ -15,7 +15,6 @@ import torch.utils.checkpoint as checkpoint
 from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
-    NoopFwToFloat8BwDynamic,
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
@@ -27,33 +26,6 @@ from torchao.float8.float8_tensor import (
 )
 from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-
-
-def _cast_input_to_float8(
-    input: torch.Tensor,
-    scaling_type_input: ScalingType,
-    config: Float8LinearConfig,
-    linear_mm_config: LinearMMConfig,
-) -> torch.Tensor:
-    # Duplicate the autocast logic for F.linear, so that the output
-    # of our module has the right original precision
-    if torch.is_autocast_enabled():
-        # For now, hardcode to GPU's autocast dtype
-        # if we need CPU support in the future, we can add it
-        autocast_dtype = torch.get_autocast_gpu_dtype()
-        input = input.to(autocast_dtype)
-
-    if tensor_already_casted_to_fp8(input):
-        input_fp8 = input
-    else:
-        assert scaling_type_input is ScalingType.DYNAMIC
-        input_fp8 = hp_tensor_to_float8_dynamic(
-            input,
-            config.cast_config_input.target_dtype,
-            linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-        )
-    return input_fp8
 
 
 def _get_weight_scale(
@@ -83,21 +55,6 @@ def _cast_weight_to_float8_t(
         gemm_input_role=GemmInputRole.WEIGHT,
     )
     return weight_fp8.t()
-
-
-def _cast_output_to_float8_in_bw(
-    output: torch.Tensor,
-    scaling_type_grad_output,
-    linear_mm_config: LinearMMConfig,
-    config: Float8LinearConfig,
-) -> torch.Tensor:
-    assert scaling_type_grad_output is ScalingType.DYNAMIC
-    output = NoopFwToFloat8BwDynamic.apply(
-        output,
-        linear_mm_config,
-        config.cast_config_grad_output.target_dtype,
-    )
-    return output
 
 
 @torch._dynamo.allow_in_graph
@@ -329,6 +286,14 @@ class Float8Linear(torch.nn.Linear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        # Duplicate the autocast logic for F.linear, so that the output
+        # of our module has the right original precision
+        if torch.is_autocast_enabled():
+            # For now, hardcode to GPU's autocast dtype
+            # if we need CPU support in the future, we can add it
+            autocast_dtype = torch.get_autocast_gpu_dtype()
+            input = input.to(autocast_dtype)
+
         has_any_axiswise_scaling = any(
             cc.scaling_granularity is ScalingGranularity.AXISWISE
             for cc in [
@@ -341,18 +306,11 @@ class Float8Linear(torch.nn.Linear):
             ]
         )
 
-        input_maybe_fp8 = input
         weight_maybe_fp8_t = self.weight.t()
 
         # TODO(future PR): check for axiswise scaling for input, weight,
         # grad_output separately instead of together
         if not has_any_axiswise_scaling:
-            input_fp8 = _cast_input_to_float8(
-                input,
-                self.scaling_type_input,
-                self.config,
-                self.linear_mm_config,
-            )
             # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
             # weight_scale should be saved.
             weight_scale = _get_weight_scale(
@@ -375,24 +333,14 @@ class Float8Linear(torch.nn.Linear):
                     weight_scale,
                 )
 
-            input_maybe_fp8 = input_fp8
             weight_maybe_fp8_t = weight_fp8_t
 
         output = matmul_with_hp_or_float8_args.apply(
-            input_maybe_fp8,
+            input,
             weight_maybe_fp8_t,
             self.linear_mm_config,
             self.config,
         )
-
-        if not has_any_axiswise_scaling:
-            # Cast grad_output to float8_e5m2 during backward
-            output = _cast_output_to_float8_in_bw(
-                output,
-                self.scaling_type_grad_output,
-                self.linear_mm_config,
-                self.config,
-            )
 
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)
