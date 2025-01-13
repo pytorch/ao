@@ -80,15 +80,20 @@ class Float8LinearNoCompile(torch.nn.Linear):
         return output
 
     @classmethod
-    def from_float(cls, mod, kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX):
+    def from_float(
+        cls,
+        mod,
+        config: Float8LinearConfig,  # only default config is supported, non-defaults silently ignored
+        kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    ):
         """
         Create an nn.Linear with fp8 compute from a regular nn.Linear
 
         Args:
             mod (torch.nn.Linear): nn.Linear to convert
-            config (Optional[Float8LinearConfig]): configuration for conversion to float8
+            config (Optional[Float8LinearConfig]): configuration for conversion to float8 (note: only
+                default config is supported, non-defaults silently ignored)
         """
-        config = Float8LinearConfig()
         with torch.device("meta"):
             new_mod = cls(
                 mod.in_features,
@@ -107,6 +112,10 @@ class Float8LinearNoCompile(torch.nn.Linear):
 class matmul_with_args_in_hp(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo):
+        # reshape to be 2D for triton kernels
+        orig_input_shape = input_hp.shape
+        input_hp = input_hp.reshape(-1, input_hp.shape[-1])
+
         # output = input @ weight_t
         input_fp8_row_major, input_fp8_col_major = ToFP8RowAndColumnMajor.apply(
             input_hp,
@@ -130,11 +139,23 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         ctx.linear_mm_config = linear_mm_config
         ctx.kernel_algo = kernel_algo
 
+        # reshape back to expected dims
+        output = output.reshape(*orig_input_shape[:-1], output.shape[-1])
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
+        # grad_output may not be contiguous in cases like:
+        # output.sum().backward() where grad is all 1s, so the (M,N) view of the scalar "1"
+        # results in a non-contiguous tensor with stride (0,0).
+        if not grad_output.is_contiguous():
+            grad_output = grad_output.contiguous()
+
         input_fp8_col_major, weight_hp = ctx.saved_tensors
+
+        # reshsape to be 2D for triton kernels
+        orig_grad_output_shape = grad_output.shape
+        grad_output = grad_output.reshape(-1, grad_output.shape[-1])
 
         # cast grad output to float8_e5m2 for backward
         grad_output_fp8_row_major, grad_output_t_row_major = (
@@ -162,4 +183,10 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         # source: https://github.com/pytorch/ao/blob/fe5f11b2c58b452e01ba9ec7359629928b143619/torchao/float8/float8_linear.py#L84-L85
         grad_weight = torch.mm(grad_output_t_row_major, input_fp8_col_major)
 
+        # reshape grad input to match original shape
+        grad_input = grad_input.reshape(
+            *orig_grad_output_shape[:-1], grad_input.shape[-1]
+        )
+
+        # grad input shape
         return grad_input, grad_weight, None, None, None

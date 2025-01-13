@@ -548,14 +548,15 @@ def main(
                 precision == torch.float32
             ), "int8_dynamic_activation_intx_weight requires fp32 precision"
 
-            # Build kernels in temp location, and load them in torch
-            # This requires an ARM CPU
-            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
-
-            temp_build_and_load_torchao_ops(
-                cmake_lists_path=os.path.dirname(os.path.realpath(__file__))
-                + "/../../experimental"
-            )
+            try:
+                torch.ops.torchao._pack_8bit_act_4bit_weight
+            except:
+                print(
+                    "Unable to load experimental torchao kernels.  Performance will be slow."
+                )
+                print(
+                    "To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU"
+                )
 
             # Quantize model
             _quant_args = quantization.split("-")
@@ -1028,6 +1029,7 @@ def main(
             "name",
             "dtype",
             "min_sqnr",
+            "compile",
             "device",
             "arch",
             "metric",
@@ -1037,11 +1039,22 @@ def main(
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, min_sqnr, device, arch, "mem/s", bandwidth, None]
+        memory_result = [
+            name,
+            dtype,
+            min_sqnr,
+            compile,
+            device,
+            arch,
+            "mem/s",
+            bandwidth,
+            None,
+        ]
         performance_result = [
             name,
             dtype,
             min_sqnr,
+            compile,
             device,
             arch,
             "tok/s",

@@ -25,6 +25,7 @@ from torchao.quantization.granularity import (
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
+    from_intx_quantization_aware_training,
     intx_quantization_aware_training,
 )
 from torchao.quantization.qat.embedding import (
@@ -41,6 +42,9 @@ from torchao.quantization.qat.utils import (
     _fake_quantize_per_token,
     _GenericFakeQuantize,
     _get_qmin_qmax,
+)
+from torchao.quantization.quant_api import (
+    int8_dynamic_activation_int4_weight,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -1261,6 +1265,67 @@ class TestQAT(unittest.TestCase):
                 intx_quantization_aware_training(my_config, my_config),
                 lambda m, _: isinstance(m, torch.nn.ReLU),
             )
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_quantize_api_convert_path(self):
+        """
+        Test that the following:
+
+            quantize_(model, intx_quantization_aware_training(...))
+            quantize_(model, from_intx_quantization_aware_training(...))
+            quantize_(model, int8_dynamic_activation_int4_weight())
+
+        can produce the same results as `Int8DynActInt4WeightQATQuantizer` prepare + convert.
+        """
+        from torchao.quantization.qat import (
+            Int8DynActInt4WeightQATQuantizer,
+        )
+
+        group_size = 16
+        torch.manual_seed(self.SEED)
+        m = M()
+        baseline_model = copy.deepcopy(m)
+
+        # Baseline prepare
+        baseline_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        baseline_model = baseline_quantizer.prepare(baseline_model)
+
+        # quantize_ prepare
+        activation_config = FakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+        )
+        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        quantize_(
+            m,
+            intx_quantization_aware_training(activation_config, weight_config),
+        )
+
+        # Compare prepared values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+        # Baseline convert
+        baseline_model = baseline_quantizer.convert(baseline_model)
+
+        # quantize_ convert
+        quantize_(m, from_intx_quantization_aware_training())
+        quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
+
+        # Compare converted values
+        torch.manual_seed(self.SEED)
+        x = m.example_inputs()
+        x2 = copy.deepcopy(x)
+        out = m(*x)
+        baseline_out = baseline_model(*x2)
+        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
 
 if __name__ == "__main__":
