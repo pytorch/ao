@@ -642,6 +642,7 @@ def run(
             "name",
             "dtype",
             "min_sqnr",
+            "compile",
             "device",
             "arch",
             "metric",
@@ -651,10 +652,13 @@ def run(
         name = sam_model_type
         arch = get_arch_name()
         dtype = compress or "noquant"
+        # boolean flag to indicate whether compile is used
+        compile = use_compile != "False"
         memory_result = [
             name,
             dtype,
             min_sqnr,
+            compile,
             device,
             arch,
             "memory(MiB)",
@@ -665,6 +669,7 @@ def run(
             name,
             dtype,
             min_sqnr,
+            compile,
             device,
             arch,
             "img_s(avg)",
