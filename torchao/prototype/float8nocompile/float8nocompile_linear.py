@@ -70,25 +70,14 @@ class Float8LinearNoCompile(torch.nn.Linear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if self.use_activation_checkpointing:
-            output = checkpoint(
-                matmul_with_args_in_hp.apply,
-                input,
-                self.weight,
-                self.config,
-                self.linear_mm_config,
-                self.kernel_algo,
-                self.use_activation_checkpointing,
-            )
-        else:
-            output = matmul_with_args_in_hp.apply(
-                input,
-                self.weight,
-                self.config,
-                self.linear_mm_config,
-                self.kernel_algo,
-                self.use_activation_checkpointing,
-            )
+        output = matmul_with_args_in_hp.apply(
+            input,
+            self.weight,
+            self.config,
+            self.linear_mm_config,
+            self.kernel_algo,
+            self.use_activation_checkpointing,
+        )
         return output
 
     @classmethod
