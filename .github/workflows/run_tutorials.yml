@@ -30,4 +30,4 @@ jobs:
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
           cd tutorials
-          ${CONDA_RUN} sh run_all.sh
+          ${CONDA_RUN} bash run_all.sh
