@@ -1747,6 +1747,7 @@ class TestAutoQuant(unittest.TestCase):
         # setting min_sqnr for individual linear to be 60 allows us to achieve >= 50 final sqnr
         self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_autoquant_float(self):
         device = "cuda"
         dtype = torch.float32
