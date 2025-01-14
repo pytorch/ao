@@ -369,20 +369,13 @@ def main(task_type,
             key = f"{Path(meta_path).parent.name}/{key}"
             meta_mapping[key] = meta_path
 
-def main(
-    input_path,
-    output_path,
-    fast=False,
-    furious=False,
-    model_type="large",
-    output_rle=False,
-):
-    input_bytes = bytearray(open(input_path, "rb").read())
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
         print(
-            "Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing"
+            "Can't find running app. To deploy the app run the following",
+            "command. Note that this costs money!",
+            "See https://modal.com/pricing"
         )
         print("modal deploy cli_on_modal.py")
         return
