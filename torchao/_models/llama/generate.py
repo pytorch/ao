@@ -543,32 +543,22 @@ def main(
             from torchao.experimental.quant_api import (
                 int8_dynamic_activation_intx_weight,
             )
+            from torchao.quantization.granularity import PerGroup
 
             assert (
                 precision == torch.float32
-            ), "int8_dynamic_activation_intx_weight requires fp32 precision"
-
-            try:
-                torch.ops.torchao._pack_8bit_act_4bit_weight
-            except:
-                print(
-                    "Unable to load experimental torchao kernels.  Performance will be slow."
-                )
-                print(
-                    "To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU"
-                )
+            ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
 
             # Quantize model
             _quant_args = quantization.split("-")
-            nbit = int(_quant_args[1])
-            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
-            group_size = int(_quant_args[2])
+            weight_dtype = getattr(torch, f"int{_quant_args[1]}")
+            granularity = PerGroup(int(_quant_args[2]))
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
                 int8_dynamic_activation_intx_weight(
-                    group_size=group_size,
-                    nbit=nbit,
+                    weight_dtype=weight_dtype,
+                    granularity=granularity,
                     has_weight_zeros=has_weight_zeros,
                 ),
             )
