@@ -63,6 +63,7 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_6,
 )
 
 # TODO: put this in a common test utils file
@@ -1326,6 +1327,26 @@ class TestQAT(unittest.TestCase):
         out = m(*x)
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
+    )
+    def test_fake_quantize_config_torch_intx(self):
+        """
+        Test that `FakeQuantizeConfig` works with torch.intx.
+        """
+        group_size = 16
+        config1 = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
+        config2 = FakeQuantizeConfig(torch.int4, group_size=group_size)
+        linear1 = FakeQuantizedLinear(32, 64, weight_config=config1)
+        linear2 = FakeQuantizedLinear(32, 64, weight_config=config2)
+        linear2.weight = linear1.weight
+        torch.manual_seed(self.SEED)
+        x = torch.randn((1, 32)).to(torch.float)
+        x2 = copy.deepcopy(x)
+        out1 = linear1(*x)
+        out2 = linear2(*x2)
+        torch.testing.assert_close(out1, out2, atol=0, rtol=0)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from torchao.prototype.custom_fp_utils import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
     _is_float8_type,
     _register_custom_op,
 )
@@ -159,6 +160,31 @@ if TORCH_VERSION_AT_LEAST_2_3:
             torch.uint5: 5,
             torch.uint6: 6,
             torch.uint7: 7,
+        }
+    )
+
+# torch.intX available only in PyTorch 2.6+
+if TORCH_VERSION_AT_LEAST_2_6:
+    _SUB_BYTE_INT_BOUNDS.update(
+        {
+            torch.int1: (-(2**0), 2**0 - 1),
+            torch.int2: (-(2**1), 2**1 - 1),
+            torch.int3: (-(2**2), 2**2 - 1),
+            torch.int4: (-(2**3), 2**3 - 1),
+            torch.int5: (-(2**4), 2**4 - 1),
+            torch.int6: (-(2**5), 2**5 - 1),
+            torch.int7: (-(2**6), 2**6 - 1),
+        }
+    )
+    _DTYPE_TO_BIT_WIDTH.update(
+        {
+            torch.int1: 1,
+            torch.int2: 2,
+            torch.int3: 3,
+            torch.int4: 4,
+            torch.int5: 5,
+            torch.int6: 6,
+            torch.int7: 7,
         }
     )
 
