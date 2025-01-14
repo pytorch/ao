@@ -39,9 +39,9 @@ def model2():
 @pytest.mark.parametrize(
     "input_shape", [(16, 32), (1, 16, 32), (2, 16, 32), (128, 8192, 32)]
 )
-@pytest.mark.parametrize("use_activation_checkpointing", [True, False])
+@pytest.mark.parametrize("no_precompute_for_backward", [True, False])
 def test_model_weights_and_gradients(
-    model1, model2, input_shape: tuple[int, int], use_activation_checkpointing: bool
+    model1, model2, input_shape: tuple[int, int], no_precompute_for_backward: bool
 ):
     assert torch.cuda.is_available()
     device = torch.device("cuda")
@@ -52,7 +52,7 @@ def test_model_weights_and_gradients(
     # compare production float8 linear conversion with no-compile version
     convert_to_float8_training(model2)
     convert_to_float8_nocompile_training(
-        model1, use_activation_checkpointing=use_activation_checkpointing
+        model1, no_precompute_for_backward=no_precompute_for_backward
     )
 
     input_tensor = torch.randn(

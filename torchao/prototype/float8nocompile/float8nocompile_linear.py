@@ -39,8 +39,8 @@ class Float8LinearNoCompile(torch.nn.Linear):
         """
         self.config = kwargs.pop("config")
         self.kernel_algo = kwargs.pop("kernel_algo")
-        self.use_activation_checkpointing = kwargs.pop(
-            "use_activation_checkpointing", False
+        self.no_precompute_for_backward = kwargs.pop(
+            "no_precompute_for_backward", False
         )
         super().__init__(*args, **kwargs)
 
@@ -75,7 +75,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
             self.config,
             self.linear_mm_config,
             self.kernel_algo,
-            self.use_activation_checkpointing,
+            self.no_precompute_for_backward,
         )
         return output
 
@@ -85,7 +85,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
         mod,
         config: Float8LinearConfig,  # only default config is supported, non-defaults silently ignored
         kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
-        use_activation_checkpointing: bool = False,
+        no_precompute_for_backward: bool = False,
     ):
         """
         Create an nn.Linear with fp8 compute from a regular nn.Linear
@@ -102,7 +102,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
                 bias=False,
                 config=config,
                 kernel_algo=kernel_algo,
-                use_activation_checkpointing=use_activation_checkpointing,
+                no_precompute_for_backward=no_precompute_for_backward,
             )
         new_mod.weight = mod.weight
         new_mod.bias = mod.bias
@@ -120,9 +120,9 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         config: Float8LinearConfig,
         linear_mm_config: LinearMMConfig,
         kernel_algo: KernelAlgorithm,
-        use_activation_checkpointing: bool,
+        no_precompute_for_backward: bool,
     ):
-        if use_activation_checkpointing:
+        if no_precompute_for_backward:
             return matmul_with_args_in_hp._forward_with_ac(
                 ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo
             )
@@ -133,7 +133,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        if ctx.use_activation_checkpointing:
+        if ctx.no_precompute_for_backward:
             return matmul_with_args_in_hp._backward_with_ac(ctx, grad_output)
         else:
             return matmul_with_args_in_hp._backward_no_ac(ctx, grad_output)
@@ -173,7 +173,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         ctx.config = config
         ctx.linear_mm_config = linear_mm_config
         ctx.kernel_algo = kernel_algo
-        ctx.use_activation_checkpointing = False
+        ctx.no_precompute_for_backward = False
 
         # reshape back to expected dims
         output = output.reshape(*orig_input_shape[:-1], output.shape[-1])
@@ -263,7 +263,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         ctx.config = config
         ctx.linear_mm_config = linear_mm_config
         ctx.kernel_algo = kernel_algo
-        ctx.use_activation_checkpointing = True
+        ctx.no_precompute_for_backward = True
 
         # reshape back to expected dims
         output = output.reshape(*orig_input_shape[:-1], output.shape[-1])
