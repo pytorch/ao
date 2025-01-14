@@ -1748,6 +1748,9 @@ class TestAutoQuant(unittest.TestCase):
         self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "autoquant float option requires 2.4+."
+    )
     def test_autoquant_float(self):
         device = "cuda"
         dtype = torch.float32
