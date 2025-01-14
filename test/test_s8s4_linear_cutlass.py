@@ -7,6 +7,9 @@ from torchao.ops import s8s4_linear_cutlass
 from torchao.quantization.utils import group_quantize_tensor_symmetric
 from torchao.utils import compute_max_diff
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
+
 S8S4_LINEAR_CUTLASS_DTYPE = [torch.float16, torch.bfloat16]
 S8S4_LINEAR_CUTLASS_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
 S8S4_LINEAR_CUTLASS_SIZE_MNK = [

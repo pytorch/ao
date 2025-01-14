@@ -1,9 +1,38 @@
+import functools
 import unittest
 from unittest.mock import patch
 
+import pytest
 import torch
 
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+
+
+def skip_if_rocm(message=None):
+    """Decorator to skip tests on ROCm platform with custom message.
+
+    Args:
+        message (str, optional): Additional information about why the test is skipped.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if torch.version.hip is not None:
+                skip_message = "Skipping the test in ROCm"
+                if message:
+                    skip_message += f": {message}"
+                pytest.skip(skip_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    # Handle both @skip_if_rocm and @skip_if_rocm() syntax
+    if callable(message):
+        func = message
+        message = None
+        return decorator(func)
+    return decorator
 
 
 class TestTorchVersionAtLeast(unittest.TestCase):
