@@ -35,7 +35,7 @@ def write_json_result_ossci(output_json_path, headers, row):
                 "arch": mapping_headers["arch"],
                 "min_sqnr": mapping_headers["min_sqnr"],
                 # True means compile is enabled, False means eager mode
-                "complie": mapping_headers["compile"],
+                "compile": mapping_headers["compile"],
             },
         },
         "model": {
@@ -87,7 +87,7 @@ def write_json_result_local(output_json_path, headers, row):
                 "arch": mapping_headers["arch"],
                 "min_sqnr": mapping_headers["min_sqnr"],
                 # True means compile is enabled, False means eager mode
-                "complie": mapping_headers["compile"],
+                "compile": mapping_headers["compile"],
             },
         },
         "model": {
