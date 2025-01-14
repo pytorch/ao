@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 import torch
-from packaging.version import Version
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
@@ -17,6 +16,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from packaging.version import Version
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import (
     _fp32_to_bf16_sr,
@@ -27,10 +27,9 @@ from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
 from torchao.utils import (
-    get_available_devices,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
+    get_available_devices,
 )
 
 try:

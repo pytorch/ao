@@ -1,8 +1,8 @@
-from pathlib import Path
 import time
 import json
-import fire
+from pathlib import Path
 
+import fire
 import modal
 
 TARGET = "/root/"
@@ -32,9 +32,13 @@ image = (
         "gitpython",
     )
     .apt_install("wget")
-    .run_commands([f"wget https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/requirements.txt"])
+    .run_commands(
+        [
+            "wget https://raw.githubusercontent.com/pytorch/ao/refs/heads/main/examples/sam2_amg_server/requirements.txt"
+        ]
+    )
     .pip_install_from_requirements(
-        'requirements.txt',
+        "requirements.txt",
     )
     # .pip_install(
     #     f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
@@ -43,7 +47,9 @@ image = (
 
 app = modal.App("torchao-sam-2-cli", image=image)
 
-checkpoints = modal.Volume.from_name("torchao-sam-2-cli-checkpoints", create_if_missing=True)
+checkpoints = modal.Volume.from_name(
+    "torchao-sam-2-cli-checkpoints", create_if_missing=True
+)
 data = modal.Volume.from_name("torchao-sam-2-cli-data", create_if_missing=True)
 exported_models = modal.Volume.from_name("torchao-sam-2-exported-models", create_if_missing=True)
 traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
@@ -64,17 +70,19 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
 )
 class Model:
 
-    def calculate_file_hash(self, file_path, hash_algorithm='sha256'):
+    def calculate_file_hash(self, file_path, hash_algorithm="sha256"):
         import hashlib
+
         """Calculate the hash of a file."""
         hash_func = hashlib.new(hash_algorithm)
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_func.update(chunk)
         return hash_func.hexdigest()
 
     def download_file(self, url, filename):
         import subprocess
+
         command = f"wget -O {filename} {url}"
         subprocess.run(command, shell=True, check=True)
 
@@ -100,6 +108,10 @@ class Model:
     @modal.enter()
     def build(self):
         import os
+
+        from torchao._models.sam2.automatic_mask_generator import (
+            SAM2AutomaticMaskGenerator,
+        )
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
         # Baseline
@@ -125,6 +137,7 @@ class Model:
 
         os.chdir(Path(TARGET + "data"))
         import sys
+
         sys.path.append(".")
 
         from server import model_type_to_paths
@@ -264,6 +277,45 @@ class Model:
         plt.imshow(image_tensor)
         self.show_anns(masks, self.rle_to_mask, sort_by_area=False, seed=42)
         plt.axis('off')
+=======
+
+        os.chdir(Path(TARGET + "data"))
+        import sys
+
+        sys.path.append(".")
+        from server import file_bytes_to_image_tensor, masks_to_rle_dict
+
+        image_tensor = file_bytes_to_image_tensor(input_bytes)
+        masks = self.mask_generator.generate(image_tensor)
+        return masks_to_rle_dict(masks)
+
+    @modal.method()
+    def inference(self, input_bytes, output_format="png"):
+        import os
+
+        os.chdir(Path(TARGET + "data"))
+        import sys
+
+        sys.path.append(".")
+        from server import file_bytes_to_image_tensor, show_anns
+
+        image_tensor = file_bytes_to_image_tensor(input_bytes)
+        masks = self.mask_generator.generate(image_tensor)
+
+        from io import BytesIO
+
+        import matplotlib.pyplot as plt
+
+        from torchao._models.sam2.utils.amg import rle_to_mask
+
+        plt.figure(
+            figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
+            dpi=100,
+        )
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
+        plt.axis("off")
+>>>>>>> main
         plt.tight_layout()
         if prompts is not None:
             ax = plt.gca()
@@ -361,11 +413,21 @@ def main(task_type,
             key = f"{Path(meta_path).parent.name}/{key}"
             meta_mapping[key] = meta_path
 
+def main(
+    input_path,
+    output_path,
+    fast=False,
+    furious=False,
+    model_type="large",
+    output_rle=False,
+):
+    input_bytes = bytearray(open(input_path, "rb").read())
     try:
         model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
     except modal.exception.NotFoundError:
-        print("Can't find running app. To deploy run the following command.")
-        print("Note that this costs money! See https://modal.com/pricing")
+        print(
+            "Can't find running app. To deploy the app run the following command. Note that this costs money! See https://modal.com/pricing"
+        )
         print("modal deploy cli_on_modal.py")
         return
 

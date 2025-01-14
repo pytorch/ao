@@ -1,34 +1,34 @@
 import argparse
-import requests
-import time
 import os
+import time
 from datetime import datetime
-
-import numpy as np
-import torch
-from PIL import Image, ImageDraw
 from pathlib import Path
 
+import numpy as np
+import requests
+import torch
+from PIL import Image, ImageDraw
+
 MODEL_TYPES_TO_CONFIG = {
-        "tiny": "sam2.1_hiera_t.yaml",
-        "small": "sam2.1_hiera_s.yaml",
-        "plus": "sam2.1_hiera_b+.yaml",
-        "large": "sam2.1_hiera_l.yaml",
-        }
+    "tiny": "sam2.1_hiera_t.yaml",
+    "small": "sam2.1_hiera_s.yaml",
+    "plus": "sam2.1_hiera_b+.yaml",
+    "large": "sam2.1_hiera_l.yaml",
+}
 
 MODEL_TYPES_TO_MODEL = {
-        "tiny": "sam2.1_hiera_tiny.pt",
-        "small": "sam2.1_hiera_small.pt",
-        "plus": "sam2.1_hiera_base_plus.pt",
-        "large": "sam2.1_hiera_large.pt",
-        }
+    "tiny": "sam2.1_hiera_tiny.pt",
+    "small": "sam2.1_hiera_small.pt",
+    "plus": "sam2.1_hiera_base_plus.pt",
+    "large": "sam2.1_hiera_large.pt",
+}
 
 MODEL_TYPES_TO_URL = {
-        "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
-        "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
-        "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
-        "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
-        }
+    "tiny": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+    "small": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt",
+    "plus": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt",
+    "large": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+}
 
 
 def download_file(url, download_dir):
@@ -36,7 +36,7 @@ def download_file(url, download_dir):
     download_dir = Path(download_dir)
     download_dir.mkdir(parents=True, exist_ok=True)
     # Extract the file name from the URL
-    file_name = url.split('/')[-1]
+    file_name = url.split("/")[-1]
     # Define the full path for the downloaded file
     file_path = download_dir / file_name
     # Download the file
@@ -44,31 +44,36 @@ def download_file(url, download_dir):
     response.raise_for_status()  # Raise an error for bad responses
     # Write the file to the specified directory
     print(f"Downloading '{file_name}' to '{download_dir}'")
-    with open(file_path, 'wb') as file:
+    with open(file_path, "wb") as file:
         for chunk in response.iter_content(chunk_size=8192):
             file.write(chunk)
     print(f"Downloaded '{file_name}' to '{download_dir}'")
 
+
 def model_type_to_paths(checkpoint_path, model_type):
     if model_type not in MODEL_TYPES_TO_MODEL.keys():
-        raise ValueError(f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}")
+        raise ValueError(
+            f"Expected model_type to be one of {', '.join(MODEL_TYPES_TO_MODEL.keys())} but got {model_type}"
+        )
     sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
     if not sam2_checkpoint.exists():
-        print(f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading.")
+        print(
+            f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading."
+        )
         download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
     assert sam2_checkpoint.exists(), "Can't find downloaded file. Please open an issue."
     model_cfg = f"configs/sam2.1/{MODEL_TYPES_TO_CONFIG[model_type]}"
     return sam2_checkpoint, model_cfg
 
+
 from torch._inductor import config as inductorconfig
+
 inductorconfig.triton.unique_kernel_names = True
 inductorconfig.coordinate_descent_tuning = True
 inductorconfig.coordinate_descent_check_all_directions = True
 
-from torch.nn.attention import SDPBackend, sdpa_kernel
 
 # timer.py
-import time
 from collections import defaultdict
 
 
@@ -112,9 +117,13 @@ global_timer = CodeTimer()
 def max_memory_allocated():
     max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
     _, total_memory = torch.cuda.mem_get_info()
-    max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+    max_memory_allocated_percentage = int(
+        100 * (max_memory_allocated_bytes / total_memory)
+    )
     max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
+    print(
+        f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%"
+    )
 
 
 def synthesize_video_data(
@@ -143,7 +152,9 @@ def synthesize_video_data(
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
     print(f"Generate {n_frames} frames under path {out_dir}")
     if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
-        raise ValueError(f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified.")
+        raise ValueError(
+            f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified."
+        )
     # Generate 100 frames
     for i in range(n_frames):
         # Create a new image with a black background
@@ -185,7 +196,13 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
-def main_loop(predictor, inference_state, time_profile=True, accumulate_result=False, count_result=False):
+def main_loop(
+    predictor,
+    inference_state,
+    time_profile=True,
+    accumulate_result=False,
+    count_result=False,
+):
     results = []
     num_output_frames = 0
     with torch.autograd.profiler.record_function("main_loop"):
@@ -287,56 +304,58 @@ def run_test(
     if use_compile:
         print("Using torch.compile")
         predictor.image_encoder.trunk.forward = torch.compile(
-                predictor.image_encoder.trunk.forward,
-                # mode="max-autotune-no-cudagraphs",
-                mode="max-autotune",
-                fullgraph=True,
-                dynamic=False,
-            )
+            predictor.image_encoder.trunk.forward,
+            # mode="max-autotune-no-cudagraphs",
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
 
         predictor.sam_prompt_encoder.forward = torch.compile(
-                predictor.sam_prompt_encoder.forward,
-                # mode="max-autotune-no-cudagraphs",
-                mode="max-autotune",
-                fullgraph=True,
-                dynamic=False,
-            )
+            predictor.sam_prompt_encoder.forward,
+            # mode="max-autotune-no-cudagraphs",
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
 
         predictor.sam_mask_decoder.transformer = torch.compile(
-                predictor.sam_mask_decoder.transformer,
-                mode="max-autotune",
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=False,
-            )
+            predictor.sam_mask_decoder.transformer,
+            mode="max-autotune",
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=False,
+        )
 
         predictor._forward_sam_heads = torch.compile(
-                predictor._forward_sam_heads,
-                mode="max-autotune",
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=False,
-            )
+            predictor._forward_sam_heads,
+            mode="max-autotune",
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=False,
+        )
 
         predictor.memory_attention = torch.compile(
-                predictor.memory_attention,
-                # mode="max-autotune",
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=True,
-            )
+            predictor.memory_attention,
+            # mode="max-autotune",
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=True,
+        )
 
         predictor.memory_encoder.forward = torch.compile(
-                predictor.memory_encoder.forward,
-                mode="max-autotune",
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=False,
-            )
+            predictor.memory_encoder.forward,
+            mode="max-autotune",
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=False,
+        )
 
     print("\nWarm-up round and gather outputs.")
     global_timer.reset()
-    result = main_loop(predictor=predictor, inference_state=inference_state, accumulate_result=True)
+    result = main_loop(
+        predictor=predictor, inference_state=inference_state, accumulate_result=True
+    )
     if store_output:
         print(f"Writing results to {store_output}")
         torch.save(result, store_output)
@@ -367,9 +386,13 @@ def run_test(
     torch.cuda.reset_peak_memory_stats()
     global_timer.reset()
     t0 = time.time()
-    num_output_frames = main_loop(predictor=predictor, inference_state=inference_state, count_result=True)
+    num_output_frames = main_loop(
+        predictor=predictor, inference_state=inference_state, count_result=True
+    )
     t = time.time() - t0
-    print(f"main_loop took {t}s for {num_output_frames} frames at {num_output_frames / t}fps")
+    print(
+        f"main_loop took {t}s for {num_output_frames} frames at {num_output_frames / t}fps"
+    )
     max_memory_allocated()
     if print_all_timings:
         global_timer.print_all_timings()

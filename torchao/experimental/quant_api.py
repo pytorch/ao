@@ -5,13 +5,18 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
     dequantize_per_channel_group,
     quantize_per_channel_group,
+)
+
+from torchao.quantization.granularity import (
+    PerGroup,
+    PerRow,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +30,9 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def _quantize(vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True):
+def _quantize(
+    vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True
+):
     assert nbit >= 1 and nbit <= 8
     if signed:
         qmin = -(1 << (nbit - 1))
@@ -119,7 +126,9 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         lead_shape = x.shape[0:-2]
         m, k = x.shape[-2], x.shape[-1]
         n = self._n.shape[1]
-        res = self._linear_op(x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k)
+        res = self._linear_op(
+            x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k
+        )
         res = res.reshape(*lead_shape, m, n)
         return res
 
@@ -147,7 +156,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
     def _forward_2d(self, x):
         assert x.dim() == 2
 
-        n, k = self._n, self._k
+        _, k = self._n, self._k
         m, k_ = x.shape
         assert k_ == k
 
@@ -351,7 +360,12 @@ class _IntxWeightQuantizedEmbedding(nn.Module):
     def forward(self, x):
         shape = x.shape
         return self._embedding_op(
-            self.packed_weight_qvals, self.num_embeddings, self.embedding_dim, self.weight_scales, self.weight_zeros, x.reshape(-1)
+            self.packed_weight_qvals,
+            self.num_embeddings,
+            self.embedding_dim,
+            self.weight_scales,
+            self.weight_zeros,
+            x.reshape(-1),
         ).reshape(*shape, -1)
 
 
@@ -382,7 +396,7 @@ class _IntxWeightQuantizedEmbeddingFallback(nn.Module):
                 dequantize_per_channel_group(
                     w_int8=self.weight_qvals[i, :].reshape(1, -1),
                     scales=self.weight_scales[i, :].reshape(1, -1),
-                    zero_points=self.weight_zeros[i,:].reshape(1, -1),
+                    zero_points=self.weight_zeros[i, :].reshape(1, -1),
                     quant_min=None,  # TODO: why is this an arg for this function
                     quant_max=None,  # TODO: why is this an arg for this function
                     dtype=None,  # TODO: why is this an arg for this function
@@ -411,7 +425,9 @@ def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
                     getattr(torch.ops.torchao, f"_embedding_{nbit}bit"),
                 )
                 setattr(module, name, qembedding)
-                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+                getattr(module, name).quantize_and_pack_weights(
+                    child.weight, group_size
+                )
             except Exception as e:
                 logger.warning(
                     f"_IntxWeightQuantizedEmbedding raised an exception during quantize_and_pack_weights: {e}\n"
@@ -419,7 +435,9 @@ def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
                 )
                 qembedding = _IntxWeightQuantizedEmbeddingFallback(nbit)
                 setattr(module, name, qembedding)
-                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+                getattr(module, name).quantize_and_pack_weights(
+                    child.weight, group_size
+                )
 
 
 class IntxWeightEmbeddingQuantizer:
@@ -469,53 +487,138 @@ class IntxWeightEmbeddingQuantizer:
         return model
 
 
+from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+)
+from torchao.quantization.linear_activation_quantized_tensor import (
+    to_linear_activation_quantized,
+)
+from torchao.quantization.quant_api import (
+    MappingType,
+    ZeroPointDomain,
+    _get_linear_subclass_inserter,
+    to_affine_quantized_intx,
+)
+from torchao.quantization.utils import _get_per_token_block_size
+
+
 def int8_dynamic_activation_intx_weight(
-    group_size: int = 128,
-    nbit: int = 4,
+    weight_dtype: torch.dtype = torch.int4,
+    granularity: Union[PerRow, PerGroup] = PerGroup(128),
     has_weight_zeros: bool = False,
-    target: str = "native",
+    weight_mapping_type=MappingType.ASYMMETRIC,
+    act_mapping_type=MappingType.ASYMMETRIC,
+    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),  # PlainLayout() also works, but will be slow
 ):
-    from torchao.experimental._linear_8bit_act_xbit_weight_layout import Linear8BitActXBitWeightLayout
-    from torchao.quantization.quant_api import (
-        _get_linear_subclass_inserter,
-        MappingType,
-        to_affine_quantized_intx,
-        ZeroPointDomain,
-    )
+    """
+    Dynamically quantizes activations with 8-bits and weights with a low-bit value for linear layers.
+    More specifically, activations are dynamically quantized to 8-bits in a channelwise manner with scales and zeros.
+    Weights are quantized with scales and optionally zeros (controlled by has_weight_zeros) in a groupwise or channelwise
+    manner using the number of bits specified by weight_dtype.
+
+    args:
+        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
+        has_weight_zeros: Whether or not to include zeros in the weight quantization.
+        weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        layout: The layout to use for the packed weight tensor.  Must be PackedLinearInt8DynamicActivationIntxWeightLayout (default) or PlainLayout.
+            The layout does not affect the quantization numerically and both layouts will give the same results.  PlainLayout is a generic layout
+            that works on all devices, but it is much slower than PackedLinearInt8DynamicActivationIntxWeightLayout on CPU.
+            PackedLinearInt8DynamicActivationIntxWeightLayout is a specialized layout for CPU performance.
+            When using PackedLinearInt8DynamicActivationIntxWeightLayout,
+             - The weight tensor must have device=CPU
+             - The weight tensor must have dtype=float32 (note that after applying quantization, the weights will no longer be float32)
+             - act_mapping_type must be MappingType.ASYMMETRIC
+    """
+    try:
+        torch.ops.torchao._pack_8bit_act_4bit_weight
+    except AttributeError:
+        raise Exception(
+            "TorchAO experimental kernels are not loaded.  To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU."
+            + "  Alternatively, use layout=PlainLayout() with int8_dynamic_activation_intx_weight, but note that doing so will result in much slower performance."
+        )
+
+    dtype_to_bit_width = {
+        torch.int1: 1,
+        torch.int2: 2,
+        torch.int3: 3,
+        torch.int4: 4,
+        torch.int5: 5,
+        torch.int6: 4,
+        torch.int7: 7,
+        torch.int8: 8,
+    }
+    if weight_dtype not in dtype_to_bit_width:
+        raise ValueError(
+            f"weight_dtype must be one of {list(dtype_to_bit_width.keys())}, got {weight_dtype}"
+        )
+    bit_width = dtype_to_bit_width[weight_dtype]
+    layout_arg = layout
 
     def apply(weight):
+        if isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
+        elif isinstance(granularity, PerRow):
+            group_size = weight.shape[-1]
+        else:
+            raise ValueError(
+                f"granularity must be PerGroup or PerRow, got {granularity}"
+            )
+
         assert weight.shape[-1] % group_size == 0
-        assert weight.device == torch.device("cpu"), "Only CPU is supported"
-        use_hqq = False
-        layout = Linear8BitActXBitWeightLayout(
-            nbit=nbit, group_size=group_size, target=target
-        )
-        mapping_type = MappingType.ASYMMETRIC
-        eps = torch.finfo(torch.float32).eps
-        block_size = (1, group_size)
-        target_dtype = torch.int32
-        quant_min = -(1 << (nbit - 1))
-        quant_max = (1 << (nbit - 1)) - 1
-        zero_point_dtype = torch.int8
-        preserve_zero = has_weight_zeros
-        zero_point_domain = ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
-        # Note: this works differently than other quantizers because the dynamic
-        # activation quantization is fused with the kernel/op (and static activation quantization 
-        # is not supported).  
-        return to_affine_quantized_intx(
+
+        layout = layout_arg
+        if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+            assert (
+                weight.device == torch.device("cpu")
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
+            assert (
+                weight.dtype == torch.float32
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.dtype=float32"
+            assert (
+                act_mapping_type == MappingType.ASYMMETRIC
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
+            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
+            layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
+                bit_width=bit_width,
+                group_size=group_size,
+                has_weight_zeros=has_weight_zeros,
+            )
+
+        quant_min = -(1 << (bit_width - 1))
+        quant_max = (1 << (bit_width - 1)) - 1
+        weight = to_affine_quantized_intx(
             weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
+            mapping_type=weight_mapping_type,
+            block_size=(1, group_size),
+            target_dtype=torch.int32,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=torch.finfo(torch.float32).eps,
+            zero_point_dtype=torch.int8,
+            preserve_zero=has_weight_zeros,
+            zero_point_domain=ZeroPointDomain.INT
+            if has_weight_zeros
+            else ZeroPointDomain.NONE,
             _layout=layout,
-            use_hqq=use_hqq,
         )
+
+        # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
+        # with the kernel and it should not be applied separately
+        if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+            activation_quant_func = lambda x: to_affine_quantized_intx(
+                x,
+                mapping_type=act_mapping_type,
+                block_size=_get_per_token_block_size(x),
+                target_dtype=torch.int32,
+                quant_min=-128,  # lower bound of int8
+                quant_max=127,  # upper bound of int8
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.int32,
+            )
+            weight = to_linear_activation_quantized(weight, activation_quant_func)
+        return weight
 
     return _get_linear_subclass_inserter(apply)
 
@@ -549,15 +652,24 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         assert x.dim() >= 2
         if x.dim() == 2:
             return self._linear_op(
-                x, self.packed_weights, self.group_size, self.weight_scales, self.weight_zeros
+                x,
+                self.packed_weights,
+                self.group_size,
+                self.weight_scales,
+                self.weight_zeros,
             )
 
         lead_shape = x.shape[0:-1]
         k = x.shape[-1]
         n = self.weight_scales.shape[1]
         return self._linear_op(
-            x.reshape(-1, k), self.packed_weights, self.group_size, self.weight_scales, self.weight_zeros
+            x.reshape(-1, k),
+            self.packed_weights,
+            self.group_size,
+            self.weight_scales,
+            self.weight_zeros,
         ).reshape(*lead_shape, n)
+
 
 # TODO(mcandales): Consolidate with _replace_linear_with_quantized_linear
 def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
@@ -579,9 +691,7 @@ def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
                 ),
             )
             setattr(module, name, qlinear)
-            qlinear.quantize_and_pack_weights(
-                child.weight, nbit, group_size
-            )
+            qlinear.quantize_and_pack_weights(child.weight, nbit, group_size)
 
 
 class UIntxWeightOnlyLinearQuantizer:

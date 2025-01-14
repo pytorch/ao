@@ -69,7 +69,9 @@ from typing import Dict, List, Optional
 try:
     from github import Github
 except ImportError as err:
-    raise ValueError("PyGithub not installed, please run 'pip install PyGithub'") from err
+    raise ValueError(
+        "PyGithub not installed, please run 'pip install PyGithub'"
+    ) from err
 
 if len(sys.argv) != 2:
     print("Usage: python clean_release_notes.py [raw_release_notes.txt]")
@@ -102,10 +104,12 @@ def clean_release_notes():
     # Write the header section
     with open(output_file, "w") as out_f:
         out_f.write("## Highlights\n\n")
-        out_f.write("We are excited to announce the X.Y.Z release of torchao! This release adds support for A, B, C, D!\n\n")
+        out_f.write(
+            "We are excited to announce the X.Y.Z release of torchao! This release adds support for A, B, C, D!\n\n"
+        )
         out_f.write("### Highlight Feature 1\n\n")
         out_f.write("### Highlight Feature 2\n\n")
-    
+
     # Sort commits into different categories and write them to output file
     # For lines after the commits, just copy them to the output file as is
     commit_lines = []
@@ -177,7 +181,9 @@ def fetch_pr_labels(commit_lines: List[str]) -> Dict[int, str]:
     return pr_number_to_label
 
 
-def get_commit_category(commit_line: str, pr_number_to_label: Dict[int, str]) -> Optional[str]:
+def get_commit_category(
+    commit_line: str, pr_number_to_label: Dict[int, str]
+) -> Optional[str]:
     """
     Assign the commit to a category based on:
       (1) The github label if it exists
@@ -195,7 +201,10 @@ def get_commit_category(commit_line: str, pr_number_to_label: Dict[int, str]) ->
             return GITHUB_LABEL_TO_CATEGORY[label]
     elif any(x in commit_line.lower() for x in ["revert", "version.txt"]):
         return None
-    elif any(x in commit_line.lower() for x in ["doc", "readme", "tutorial", "typo", "example", "spelling"]):
+    elif any(
+        x in commit_line.lower()
+        for x in ["doc", "readme", "tutorial", "typo", "example", "spelling"]
+    ):
         return "Documentation"
     elif any(x in commit_line.lower() for x in ["test", "lint", " ci", "nightl"]):
         return "Developers"
