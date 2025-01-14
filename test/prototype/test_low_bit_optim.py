@@ -42,6 +42,7 @@ try:
 except ImportError:
     lpmm = None
 
+from test_utils import skip_if_rocm
 
 _DEVICES = get_available_devices()
 
@@ -112,6 +113,7 @@ class TestOptim(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
+    @skip_if_rocm("ROCm development in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda":
             if not TORCH_VERSION_AT_LEAST_2_4:

@@ -13,6 +13,8 @@ try:
 except ImportError:
     triton_available = False
 
+from test_utils import skip_if_rocm
+
 from torchao.utils import skip_if_compute_capability_less_than
 
 
@@ -20,6 +22,7 @@ from torchao.utils import skip_if_compute_capability_less_than
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
 class TestFP8Gemm(TestCase):
     @skip_if_compute_capability_less_than(9.0)
+    @skip_if_rocm("ROCm development in progress")
     def test_gemm_split_k(self):
         dtype = torch.float16
         qdtype = torch.float8_e4m3fn
