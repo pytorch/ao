@@ -137,7 +137,6 @@ class Model:
                 f"{download_url}/{f}", TARGET + f"data/{f}", file_hashes[f]
             )
 
-
         os.chdir(Path(TARGET + "data"))
         import sys
 
@@ -216,7 +215,6 @@ class Model:
 
     @modal.web_endpoint(docs=True, method="POST")
     async def upload_rle(self, image):
-
         def upload_rle_inner(input_bytes):
             image_tensor = self.file_bytes_to_image_tensor(input_bytes)
             masks = self.mask_generator.generate(image_tensor)
@@ -282,8 +280,9 @@ class Model:
         return self.masks_to_rle_dict(masks)
 
     def plot_image_tensor(self, image_tensor, masks, output_format, prompts=None):
-        import matplotlib.pyplot as plt
         from io import BytesIO
+
+        import matplotlib.pyplot as plt
 
         fig = plt.figure(
             figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
@@ -296,20 +295,21 @@ class Model:
         if prompts is not None:
             ax = plt.gca()
             marker_size = 375
-            ax.scatter(prompts[:, 0],
-                       prompts[:, 1],
-                       color='green',
-                       marker='*',
-                       s=marker_size,
-                       edgecolor='white',
-                       linewidth=1.25)
+            ax.scatter(
+                prompts[:, 0],
+                prompts[:, 1],
+                color="green",
+                marker="*",
+                s=marker_size,
+                edgecolor="white",
+                linewidth=1.25,
+            )
         buf = BytesIO()
         plt.savefig(buf, format=output_format)
         buf.seek(0)
         result = buf.getvalue()
         plt.close(fig)
         return result
-
 
     @modal.method()
     def inference_amg(self, input_bytes, output_format="png"):
