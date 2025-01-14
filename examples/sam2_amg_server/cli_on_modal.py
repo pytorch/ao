@@ -1,5 +1,5 @@
-import time
 import json
+import time
 from pathlib import Path
 
 import fire
@@ -116,9 +116,6 @@ class Model:
             SAM2AutomaticMaskGenerator,
         )
         from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.automatic_mask_generator import (
-            SAM2AutomaticMaskGenerator,
-        )
         # Baseline
         # from sam2.build_sam import build_sam2
         # from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
@@ -139,6 +136,7 @@ class Model:
             self.download_and_verify_file(
                 f"{download_url}/{f}", TARGET + f"data/{f}", file_hashes[f]
             )
+
 
         os.chdir(Path(TARGET + "data"))
         import sys
@@ -168,21 +166,27 @@ class Model:
         #                                      points_per_batch=1024)
         self.mask_generator = mask_generator
         import os
-        import torch
-        import numpy as np
         import sys
+
+        import numpy as np
+        import torch
 
         os.chdir(Path(TARGET + "data"))
         sys.path.append(".")
+        from server import (
+            file_bytes_to_image_tensor,
+            masks_to_rle_dict,
+            profiler_runner,
+            show_anns,
+        )
         from torchvision import io as tio
         from torchvision.transforms.v2 import functional as tio_F
-        from server import masks_to_rle_dict
-        from server import profiler_runner
-        from server import file_bytes_to_image_tensor
-        from server import show_anns
-        from torchao._models.sam2.utils.amg import rle_to_mask
-        from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
-        from torchao._models.sam2.utils.amg import area_from_rle
+
+        from torchao._models.sam2.utils.amg import (
+            area_from_rle,
+            mask_to_rle_pytorch_2,
+            rle_to_mask,
+        )
 
         # Baselien
         # from sam2.utils.amg import rle_to_mask
@@ -212,7 +216,6 @@ class Model:
 
     @modal.web_endpoint(docs=True, method="POST")
     async def upload_rle(self, image):
-        from torch.autograd.profiler import record_function
 
         def upload_rle_inner(input_bytes):
             image_tensor = self.file_bytes_to_image_tensor(input_bytes)
@@ -282,23 +285,31 @@ class Model:
         import matplotlib.pyplot as plt
         from io import BytesIO
 
-        plt.figure(
+        fig = plt.figure(
             figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
             dpi=100,
         )
         plt.imshow(image_tensor)
         self.show_anns(masks, self.rle_to_mask, sort_by_area=False, seed=42)
         plt.axis("off")
+        plt.tight_layout()
+        if prompts is not None:
+            ax = plt.gca()
+            marker_size = 375
+            ax.scatter(prompts[:, 0],
+                       prompts[:, 1],
+                       color='green',
+                       marker='*',
+                       s=marker_size,
+                       edgecolor='white',
+                       linewidth=1.25)
+        buf = BytesIO()
+        plt.savefig(buf, format=output_format)
+        buf.seek(0)
+        result = buf.getvalue()
+        plt.close(fig)
+        return result
 
-        os.chdir(Path(TARGET + "data"))
-        import sys
-
-        sys.path.append(".")
-        from server import file_bytes_to_image_tensor, masks_to_rle_dict
-
-        image_tensor = file_bytes_to_image_tensor(input_bytes)
-        masks = self.mask_generator.generate(image_tensor)
-        return masks_to_rle_dict(masks)
 
     @modal.method()
     def inference_amg(self, input_bytes, output_format="png"):
