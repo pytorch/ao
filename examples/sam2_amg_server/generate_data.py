@@ -396,6 +396,7 @@ def batched_zip(
 # SPS: Single point segmentation
 # MPS: Multi point segmentation
 
+
 def main_docstring():
     return f"""
     Args:

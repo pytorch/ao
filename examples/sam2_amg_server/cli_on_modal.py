@@ -277,7 +277,6 @@ class Model:
         plt.imshow(image_tensor)
         self.show_anns(masks, self.rle_to_mask, sort_by_area=False, seed=42)
         plt.axis('off')
-=======
 
         os.chdir(Path(TARGET + "data"))
         import sys
@@ -288,49 +287,6 @@ class Model:
         image_tensor = file_bytes_to_image_tensor(input_bytes)
         masks = self.mask_generator.generate(image_tensor)
         return masks_to_rle_dict(masks)
-
-    @modal.method()
-    def inference(self, input_bytes, output_format="png"):
-        import os
-
-        os.chdir(Path(TARGET + "data"))
-        import sys
-
-        sys.path.append(".")
-        from server import file_bytes_to_image_tensor, show_anns
-
-        image_tensor = file_bytes_to_image_tensor(input_bytes)
-        masks = self.mask_generator.generate(image_tensor)
-
-        from io import BytesIO
-
-        import matplotlib.pyplot as plt
-
-        from torchao._models.sam2.utils.amg import rle_to_mask
-
-        plt.figure(
-            figsize=(image_tensor.shape[1] / 100.0, image_tensor.shape[0] / 100.0),
-            dpi=100,
-        )
-        plt.imshow(image_tensor)
-        show_anns(masks, rle_to_mask)
-        plt.axis("off")
->>>>>>> main
-        plt.tight_layout()
-        if prompts is not None:
-            ax = plt.gca()
-            marker_size = 375
-            ax.scatter(prompts[:, 0],
-                       prompts[:, 1],
-                       color='green',
-                       marker='*',
-                       s=marker_size,
-                       edgecolor='white',
-                       linewidth=1.25)
-        buf = BytesIO()
-        plt.savefig(buf, format=output_format)
-        buf.seek(0)
-        return buf.getvalue()
 
     @modal.method()
     def inference_amg(self, input_bytes, output_format='png'):
