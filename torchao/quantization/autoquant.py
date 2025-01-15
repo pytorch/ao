@@ -778,7 +778,7 @@ class Float32Tensor(TorchAOBaseTensor):
 
     @classmethod
     def from_float(cls, weight):
-        return cls(weight)
+        return Float32Tensor(weight)
 
 
 @Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
@@ -829,6 +829,10 @@ class BFloat16Tensor(Float32Tensor):
             bias.to(_DTYPE) if bias is not None else bias,
         ).to(dtype=orig_dtype)
 
+    @classmethod
+    def from_float(cls, weight):
+        return BFloat16Tensor(weight)
+
 
 class Float16Tensor(Float32Tensor):
     def __init__(self, weight):
@@ -843,6 +847,10 @@ class Float16Tensor(Float32Tensor):
             w_qtensor.weight,
             bias.to(_DTYPE) if bias is not None else bias,
         ).to(dtype=orig_dtype)
+
+    @classmethod
+    def from_float(cls, weight):
+        return Float16Tensor(weight)
 
 
 class AQFloat32LinearWeight(Float32Tensor, AQMixin):

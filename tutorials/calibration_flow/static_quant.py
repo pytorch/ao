@@ -13,6 +13,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx_static,
 )
+from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import quantize_, to_linear_activation_quantized
 from torchao.quantization.granularity import (
     PerAxis,
@@ -26,6 +27,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
 )
 from torchao.quantization.utils import compute_error
+from torchao.utils import is_sm_at_least_90
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -90,12 +92,13 @@ def apply_static_quant(target_dtype: torch.dtype):
                     weight, weight_scale, weight_zero_point, block_size, target_dtype
                 )
             elif target_dtype == torch.float8_e4m3fn:
+                mm_config = Float8MMConfig(use_fast_accum=True)
                 return to_affine_quantized_floatx_static(
                     weight,
                     weight_scale,
                     block_size,
                     target_dtype,
-                    Float8Layout(mm_config=None),
+                    Float8Layout(mm_config=mm_config),
                 )
             else:
                 raise ValueError(f"Unsupported target dtype {target_dtype}")
@@ -248,7 +251,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     act_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity_type=PerTensor(),
+        granularity=PerTensor(),
         eps=torch.finfo(torch.float32).eps,
         scale_dtype=torch.float32,
         zero_point_dtype=torch.float32,
@@ -256,7 +259,7 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
     weight_obs = AffineQuantizedMinMaxObserver(
         mapping_type,
         target_dtype,
-        granularity_type=PerAxis(axis=0),
+        granularity=PerAxis(axis=0),
         eps=torch.finfo(torch.float32).eps,
         scale_dtype=torch.float32,
         zero_point_dtype=torch.float32,
@@ -293,4 +296,6 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
 
 if __name__ == "__main__":
     test_static_quant(torch.uint8, MappingType.ASYMMETRIC)
-    test_static_quant(torch.float8_e4m3fn, MappingType.SYMMETRIC)
+    if is_sm_at_least_90():
+        # this is testing per row float8 quant
+        test_static_quant(torch.float8_e4m3fn, MappingType.SYMMETRIC)
