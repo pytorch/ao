@@ -206,6 +206,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
+        bias: Optional[torch.Tensor] = None
     ):
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
@@ -278,7 +279,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
+        args = [data, scale, zero_point, _layout]
+        # Only PackedLinearInt8DynamicActivationIntxWeightLayout() with "aten" target supports bias
+        if bias is not None:
+            args.append(bias)
+        tensor_impl = tensor_impl_ctr(*args)
         return cls(
             tensor_impl,
             block_size,
