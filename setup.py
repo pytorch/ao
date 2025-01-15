@@ -267,7 +267,6 @@ def get_extensions():
             extension(
                 "torchao._C",
                 sources,
-                py_limited_api=True,
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
             )
@@ -301,5 +300,4 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": TorchAOBuildExt},
-    options={"bdist_wheel": {"py_limited_api": "cp39"}},
 )
