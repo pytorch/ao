@@ -26,6 +26,16 @@ if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
+# source: https://stackoverflow.com/a/22638709
+@pytest.fixture(autouse=True)
+def run_around_tests():
+    # 1. before test - set up (currently do nothing)
+    # 2. run test
+    yield
+    # 3. after test - teardown
+    torch._dynamo.reset()
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
