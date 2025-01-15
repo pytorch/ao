@@ -9,6 +9,7 @@ warnings.filterwarnings(
     "ignore", message="Failed to initialize NumPy: No module named 'numpy'"
 )
 
+raise ValueError("BREAK")
 
 # We use this "hack" to set torchao.__version__ correctly
 # the version of ao is dependent on environment variables for multiple architectures
