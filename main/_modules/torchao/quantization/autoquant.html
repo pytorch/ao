@@ -1179,7 +1179,7 @@
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Float32Tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
 <span class="nd">@Float32Tensor</span><span class="o">.</span><span class="n">implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
@@ -1230,6 +1230,10 @@
             <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
 
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">BFloat16Tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Float16Tensor</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
@@ -1244,6 +1248,10 @@
             <span class="n">w_qtensor</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
             <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">_DTYPE</span><span class="p">)</span> <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span><span class="p">,</span>
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">orig_dtype</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">Float16Tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">AQFloat32LinearWeight</span><span class="p">(</span><span class="n">Float32Tensor</span><span class="p">,</span> <span class="n">AQMixin</span><span class="p">):</span>
