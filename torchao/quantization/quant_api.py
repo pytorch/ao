@@ -450,15 +450,18 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
-def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **kwargs):
+def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, propagate_bias=False, **kwargs):
     """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
     to the weight of linear module
     """
 
     def insert_subclass(lin):
         requires_grad = allow_requires_grad and lin.weight.requires_grad
+        args = [lin.weight]
+        if propagate_bias == True:
+            args.append(lin.bias)
         lin.weight = torch.nn.Parameter(
-            constructor(lin.weight, **kwargs), requires_grad=requires_grad
+            constructor(*args, **kwargs), requires_grad=requires_grad
         )
         lin.extra_repr = types.MethodType(_linear_extra_repr, lin)
         return lin
