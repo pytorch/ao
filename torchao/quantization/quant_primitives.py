@@ -372,7 +372,7 @@ def _quantize_affine_no_dtype_cast(
     zero_point: Optional[torch.Tensor],
     quant_min: Union[int, float],
     quant_max: Union[int, float],
-    quant_dtype: Optional[torch.dtype],
+    quant_dtype: torch.dtype,
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     """

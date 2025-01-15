@@ -10,6 +10,7 @@ import itertools
 import logging
 import os
 import unittest
+from functools import partial
 
 import torch
 import torch.nn as nn
@@ -1004,8 +1005,6 @@ class TestSubclass(unittest.TestCase):
     def test_int8_dynamic_quant_subclass_api(
         self, device, dtype, act_mapping, weight_zero_point_domain
     ):
-        from functools import partial
-
         if (
             not TORCH_VERSION_AT_LEAST_2_5
             and dtype in (torch.float16, torch.bfloat16)
