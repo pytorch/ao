@@ -45,6 +45,8 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
     dequantize_affine,
 )
 from torchao.quantization.smoothquant import (
@@ -99,6 +101,10 @@ COMMON_DEVICES = ["cpu", "cuda"]
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
+ACT_MAPPING_TYPES = [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
+
+WEIGHT_ZERO_POINT_DOMAINS = [ZeroPointDomain.NONE, ZeroPointDomain.INT]
+
 COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
 
 
@@ -118,9 +124,20 @@ def _int8wo_groupwise_api(mod):
     quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
 
 
-def _int8da_int8w_api(mod):
+def _int8da_int8w_api(
+    mod,
+    act_mapping_type=MappingType.SYMMETRIC,
+    weight_zero_point_domain=ZeroPointDomain.INT,
+):
     if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
+        quantize_(
+            mod,
+            int8_dynamic_activation_int8_weight(
+                act_mapping_type=act_mapping_type,
+                weight_zp_domain=weight_zero_point_domain,
+            ),
+            set_inductor_config=False,
+        )
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
@@ -959,10 +976,11 @@ class TestSubclass(unittest.TestCase):
             mod[0].weight.tensor_impl.get_plain()
 
         test = mod(x)
+
         self.assertGreater(
             SQNR(ref_f, test),
             min_sqnr,
-            f"{api.__name__} failed, no compile dtype={test_dtype}, (m, k, n)={test_shape}",
+            f"API failed, no compile dtype={test_dtype}, (m, k, n)={test_shape}",
         )
 
         mod_qc = torch.compile(mod, mode="max-autotune")
@@ -970,14 +988,37 @@ class TestSubclass(unittest.TestCase):
         self.assertGreater(
             SQNR(ref_f, test_comp),
             min_sqnr,
-            f"{api.__name__} failed when compiled with dtype={test_dtype}, (m, k, n)={test_shape}",
+            f"API failed when compiled with dtype={test_dtype}, (m, k, n)={test_shape}",
         )
 
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_dynamic_quant_subclass_api(self, device, dtype):
-        self._test_lin_weight_subclass_api_impl(
-            _int8da_int8w_api, device, 35, test_dtype=dtype
+    @parameterized.expand(
+        list(
+            itertools.product(
+                COMMON_DEVICES,
+                COMMON_DTYPES,
+                ACT_MAPPING_TYPES,
+                WEIGHT_ZERO_POINT_DOMAINS,
+            )
         )
+    )
+    def test_int8_dynamic_quant_subclass_api(
+        self, device, dtype, act_mapping, weight_zero_point_domain
+    ):
+        from functools import partial
+
+        if (
+            not TORCH_VERSION_AT_LEAST_2_5
+            and dtype in (torch.float16, torch.bfloat16)
+            and act_mapping is MappingType.ASYMMETRIC
+            and device == "cpu"
+        ):
+            self.skipTest("Inductor-CPU codegen issue fixed in torch 2.5")
+        api = partial(
+            _int8da_int8w_api,
+            act_mapping_type=act_mapping,
+            weight_zero_point_domain=weight_zero_point_domain,
+        )
+        self._test_lin_weight_subclass_api_impl(api, device, 35, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
