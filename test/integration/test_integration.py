@@ -29,6 +29,9 @@ from torchao.quantization.autoquant import (
     AQInt8WeightOnlyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight2,
     AQInt8WeightOnlyQuantizedLinearWeight3,
+    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+    AQInt4G32WeightOnlyQuantizedLinearWeight,
+    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AutoQuantizableLinearWeight,
 )
 
@@ -1751,7 +1754,7 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "autoquant float option requires 2.4+."
     )
-    def test_autoquant_float(self):
+    def test_autoquant_hp_float(self):
         device = "cuda"
         dtype = torch.float32
         m, k, n = 128, 128, 128
@@ -1771,14 +1774,8 @@ class TestAutoQuant(unittest.TestCase):
             qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
         )
         out = model(example_input)
-        from torchao.quantization.autoquant import (
-            BFloat16Tensor,
-            Float16Tensor,
-            Float32Tensor,
-        )
-
         self.assertIn(
-            type(model[1].weight), [Float32Tensor, Float16Tensor, BFloat16Tensor]
+            type(model[1].weight), torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
         )
         self.assertGreater(compute_error(out, ref), 60)
 
@@ -1792,19 +1789,51 @@ class TestAutoQuant(unittest.TestCase):
         if device == "cpu":
             self.skipTest(f"int4wo is for cuda, not {device}")
 
-        # note: marlin sparse layout failed when scale_t has a dimension of 1d
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
-        from torchao.quantization.autoquant import (
-            AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
-            AQInt4G32WeightOnlyQuantizedLinearWeight,
-            AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
-        )
 
         for qclass in [
             AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
             AQInt4G32WeightOnlyQuantizedLinearWeight,
             AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
+        ]:
+            model = (
+                torch.nn.Sequential(
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(k, n),
+                    torch.nn.ReLU(),
+                )
+                .to(device)
+                .to(dtype)
+            )
+            ref = model(example_input)
+            qtensor_class_list = [qclass]
+            torchao.autoquant(
+                model,
+                qtensor_class_list=qtensor_class_list,
+            )
+            out = model(example_input)
+
+            self.assertIn(type(model[1].weight), qtensor_class_list)
+            self.assertGreater(compute_error(ref, out), 20)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
+    )
+    def test_autoquant_fp8(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"int4wo is for cuda, not {device}")
+
+        # note: marlin sparse layout failed when scale_t has a dimension of 1d
+        m, k, n = 128, 128, 128
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+
+        for qclass in [
+            AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
+            AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
+            AQFloat8WeightOnlyQuantizedLinearWeight,
         ]:
             model = (
                 torch.nn.Sequential(

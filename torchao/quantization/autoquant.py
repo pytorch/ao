@@ -16,6 +16,7 @@ from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
+    to_linear_activation_quantized,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -789,8 +790,20 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
 class Float32Tensor(TorchAOBaseTensor):
     """Tensor subclass tensor for fp32 dtype"""
 
-    def __init__(self, weight):
-        self.weight = weight.to(torch.float32)
+    @staticmethod
+    def __new__(cls, weight, skip_weight_conversion=False):
+        kwargs = {}
+        kwargs["device"] = weight.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else weight.layout
+        )
+        kwargs["dtype"] = weight.dtype
+        kwargs["requires_grad"] = False
+        shape = weight.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
+
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.float32)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -809,7 +822,7 @@ class Float32Tensor(TorchAOBaseTensor):
 
     @classmethod
     def from_float(cls, weight):
-        return Float32Tensor(weight)
+        return cls(weight)
 
 
 @Float32Tensor.implements([torch.nn.functional.linear, aten.linear.default])
@@ -847,8 +860,8 @@ def _(func, types, args, kwargs):
 
 
 class BFloat16Tensor(Float32Tensor):
-    def __init__(self, weight):
-        self.weight = weight.to(torch.bfloat16)
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.bfloat16)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -861,13 +874,15 @@ class BFloat16Tensor(Float32Tensor):
         ).to(dtype=orig_dtype)
 
     @classmethod
-    def from_float(cls, weight):
-        return BFloat16Tensor(weight)
+    def from_float(cls, weight, skip_weight_conversion=False):
+        return cls(weight, skip_weight_conversion)
+
+
 
 
 class Float16Tensor(Float32Tensor):
-    def __init__(self, weight):
-        self.weight = weight.to(torch.float16)
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.float16)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -880,8 +895,8 @@ class Float16Tensor(Float32Tensor):
         ).to(dtype=orig_dtype)
 
     @classmethod
-    def from_float(cls, weight):
-        return Float16Tensor(weight)
+    def from_float(cls, weight, skip_weight_conversion=False):
+        return cls(weight, skip_weight_conversion)
 
 
 class AQFloat32LinearWeight(Float32Tensor, AQMixin):
@@ -943,7 +958,7 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
 
 
 class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
-    AQMixin, LinearActivationQuantizedTensor
+    AQMixin, BFloat16Tensor
 ):
     """
     AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
@@ -973,12 +988,13 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
         # TODO: make this serializable
-        input_quant_func = lambda x: _input_activation_quant_func_fp8(
-            x=x,
-            activation_granularity=cls.activation_granularity,
-            activation_dtype=input_target_dtype,
-        )
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_kwargs = {
+            "activation_granularity": cls.activation_granularity,
+            "activation_dtype": input_target_dtype,
+        }
         block_size = get_weight_block_size(weight)
+
         weight = to_affine_quantized_floatx(
             input_float=weight,
             block_size=block_size,
@@ -986,10 +1002,13 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
             _layout=_layout,
             scale_dtype=torch.float32,
         )
-        weight = super(
+        weight = to_linear_activation_quantized(weight, input_quant_func, quant_kwargs=input_quant_kwargs)
+        # at inference time,
+        # we first convert the input, weight and bias to bfloat16, and then quantize activation
+        # and then dispatch to the quantized ops
+        return super(
             AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls
-        ).from_float(weight, input_quant_func)
-        return weight
+        ).from_float(weight, skip_weight_conversion=True)
 
 
 class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
@@ -1013,15 +1032,14 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
             return x.shape
 
         target_dtype = torch.float8_e4m3fn
-
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
-        # TODO: make this serializable
-        input_quant_func = lambda x: _input_activation_quant_func_fp8(
-            x=x,
-            activation_granularity=cls.activation_granularity,
-            activation_dtype=input_target_dtype,
-        )
+        # TODO: test serializable
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_args = {
+            "activation_granularity": cls.activation_granularity,
+            "activation_dtype": input_target_dtype,
+        }
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_floatx(
             input_float=weight,
@@ -1032,7 +1050,7 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
         )
         weight = super(
             AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls
-        ).from_float(weight, input_quant_func)
+        ).from_float(weight, input_quant_func, input_quant_args)
         return weight
 
 
