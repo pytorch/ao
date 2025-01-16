@@ -6,9 +6,11 @@
 import glob
 import os
 import subprocess
+import sys
+import time
 from datetime import datetime
 
-from setuptools import find_packages, setup
+from setuptools import Extension, find_packages, setup
 
 current_date = datetime.now().strftime("%Y%m%d")
 
@@ -41,6 +43,14 @@ if version_suffix is None:
 
 use_cpp = os.getenv("USE_CPP")
 
+import platform
+
+build_torchao_experimental = (
+    use_cpp == "1"
+    and platform.machine().startswith("arm64")
+    and platform.system() == "Darwin"
+)
+
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -48,6 +58,11 @@ version = (
     if os.environ.get("TORCHAO_NIGHTLY")
     else version_prefix
 )
+
+
+def use_debug_mode():
+    return os.getenv("DEBUG", "0") == "1"
+
 
 import torch
 from torch.utils.cpp_extension import (
@@ -58,9 +73,127 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
+# Constant known variables used throughout this file
+cwd = os.path.abspath(os.path.curdir)
+third_party_path = os.path.join(cwd, "third_party")
+
+
+def get_submodule_folders():
+    git_modules_path = os.path.join(cwd, ".gitmodules")
+    default_modules_path = [
+        os.path.join(third_party_path, name)
+        for name in [
+            "cutlass",
+        ]
+    ]
+    if not os.path.exists(git_modules_path):
+        return default_modules_path
+    with open(git_modules_path) as f:
+        return [
+            os.path.join(cwd, line.split("=", 1)[1].strip())
+            for line in f
+            if line.strip().startswith("path")
+        ]
+
+
+def check_submodules():
+    def check_for_files(folder, files):
+        if not any(os.path.exists(os.path.join(folder, f)) for f in files):
+            print("Could not find any of {} in {}".format(", ".join(files), folder))
+            print("Did you run 'git submodule update --init --recursive'?")
+            sys.exit(1)
+
+    def not_exists_or_empty(folder):
+        return not os.path.exists(folder) or (
+            os.path.isdir(folder) and len(os.listdir(folder)) == 0
+        )
+
+    if bool(os.getenv("USE_SYSTEM_LIBS", False)):
+        return
+    folders = get_submodule_folders()
+    # If none of the submodule folders exists, try to initialize them
+    if all(not_exists_or_empty(folder) for folder in folders):
+        try:
+            print(" --- Trying to initialize submodules")
+            start = time.time()
+            subprocess.check_call(
+                ["git", "submodule", "update", "--init", "--recursive"], cwd=cwd
+            )
+            end = time.time()
+            print(f" --- Submodule initialization took {end - start:.2f} sec")
+        except Exception:
+            print(" --- Submodule initalization failed")
+            print("Please run:\n\tgit submodule update --init --recursive")
+            sys.exit(1)
+    for folder in folders:
+        check_for_files(
+            folder,
+            [
+                "CMakeLists.txt",
+                "Makefile",
+                "setup.py",
+                "LICENSE",
+                "LICENSE.md",
+                "LICENSE.txt",
+            ],
+        )
+
+
+# BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
+class TorchAOBuildExt(BuildExtension):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def build_extensions(self):
+        cmake_extensions = [
+            ext for ext in self.extensions if isinstance(ext, CMakeExtension)
+        ]
+        other_extensions = [
+            ext for ext in self.extensions if not isinstance(ext, CMakeExtension)
+        ]
+        for ext in cmake_extensions:
+            self.build_cmake(ext)
+
+        # Use BuildExtension to build other extensions
+        self.extensions = other_extensions
+        super().build_extensions()
+
+        self.extensions = other_extensions + cmake_extensions
+
+    def build_cmake(self, ext):
+        extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
+
+        build_type = "Debug" if use_debug_mode() else "Release"
+
+        from distutils.sysconfig import get_python_lib
+
+        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
+
+        if not os.path.exists(self.build_temp):
+            os.makedirs(self.build_temp)
+
+        subprocess.check_call(
+            [
+                "cmake",
+                ext.sourcedir,
+                "-DCMAKE_BUILD_TYPE=" + build_type,
+                "-DTORCHAO_BUILD_EXECUTORCH_OPS=OFF",
+                "-DTorch_DIR=" + torch_dir,
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+            ],
+            cwd=self.build_temp,
+        )
+        subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
+
+
+class CMakeExtension(Extension):
+    def __init__(self, name, sourcedir=""):
+        Extension.__init__(self, name, sources=[])
+        self.sourcedir = os.path.abspath(sourcedir)
+
 
 def get_extensions():
-    debug_mode = os.getenv("DEBUG", "0") == "1"
+    debug_mode = use_debug_mode()
     if debug_mode:
         print("Compiling in debug mode")
 
@@ -106,8 +239,7 @@ def get_extensions():
     use_cutlass = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
-        this_dir = os.path.abspath(os.path.curdir)
-        cutlass_dir = os.path.join(this_dir, "third_party", "cutlass")
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
     if use_cutlass:
         extra_compile_args["nvcc"].extend(
@@ -129,21 +261,30 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
-    if len(sources) == 0:
-        return None
-
-    ext_modules = [
-        extension(
-            "torchao._C",
-            sources,
-            py_limited_api=True,
-            extra_compile_args=extra_compile_args,
-            extra_link_args=extra_link_args,
+    ext_modules = []
+    if len(sources) > 0:
+        ext_modules.append(
+            extension(
+                "torchao._C",
+                sources,
+                py_limited_api=True,
+                extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
         )
-    ]
+
+    if build_torchao_experimental:
+        ext_modules.append(
+            CMakeExtension(
+                "torchao.experimental",
+                sourcedir="torchao/experimental",
+            )
+        )
 
     return ext_modules
 
+
+check_submodules()
 
 setup(
     name="torchao",
@@ -159,6 +300,6 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass={"build_ext": TorchAOBuildExt},
     options={"bdist_wheel": {"py_limited_api": "cp39"}},
 )
