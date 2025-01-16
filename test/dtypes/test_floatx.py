@@ -2,7 +2,6 @@ import copy
 import unittest
 
 import torch
-from test_utils import skip_if_rocm
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -28,7 +27,7 @@ from torchao.quantization import (
     fpx_weight_only,
     quantize_,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode, skip_if_rocm
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]

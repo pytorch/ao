@@ -2,7 +2,6 @@ import copy
 
 import pytest
 import torch
-from test_utils import skip_if_rocm
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 
@@ -16,7 +15,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
 from torchao.sparsity.sparse_api import apply_fake_sparsity
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
 
 
 class SparseMarlin24(TestCase):

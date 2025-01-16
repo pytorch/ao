@@ -80,6 +80,7 @@ from torchao.utils import (
     benchmark_model,
     is_fbcode,
     is_sm_at_least_90,
+    skip_if_rocm,
     unwrap_tensor_subclass,
 )
 
@@ -90,7 +91,6 @@ try:
 except ModuleNotFoundError:
     has_gemlite = False
 
-from test_utils import skip_if_rocm
 
 logger = logging.getLogger("INFO")
 

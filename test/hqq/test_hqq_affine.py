@@ -1,7 +1,6 @@
 import unittest
 
 import torch
-from test_utils import skip_if_rocm
 
 from torchao.quantization import (
     MappingType,
@@ -11,6 +10,7 @@ from torchao.quantization import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
+    skip_if_rocm,
 )
 
 cuda_available = torch.cuda.is_available()
