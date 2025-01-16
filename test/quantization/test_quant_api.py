@@ -14,10 +14,7 @@ from pathlib import Path
 
 import torch
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    XNNPACKQuantizer,
-    get_symmetric_quantization_config,
-)
+
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
@@ -47,47 +44,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     unwrap_tensor_subclass,
 )
-
-
-def dynamic_quant(model, example_inputs):
-    m = torch.export.export(model, example_inputs, strict=True).module()
-    quantizer = XNNPACKQuantizer().set_global(
-        get_symmetric_quantization_config(is_dynamic=True)
-    )
-    m = prepare_pt2e(m, quantizer)
-    m = convert_pt2e(m)
-    return m
-
-
-def capture_and_prepare(model, example_inputs):
-    m = torch.export.export(model, example_inputs, strict=True)
-    quantizer = XNNPACKQuantizer().set_global(
-        get_symmetric_quantization_config(is_dynamic=True)
-    )
-    m = prepare_pt2e(m, quantizer)
-    # TODO: we can run the weight observer in convert_pt2e so that user don't need to run this
-    m(*example_inputs)
-    return m
-
-
-class XNNPackDynamicQuantizer(TwoStepQuantizer):
-    def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
-        _replace_with_custom_fn_if_matches_filter(
-            model,
-            lambda linear_mod: capture_and_prepare(
-                linear_mod, (torch.randn(1, linear_mod.in_features))
-            ),
-            lambda mod, fqn: isinstance(mod, torch.nn.Linear),
-        )
-        return model
-
-    def convert(self, model: torch.nn.Module) -> torch.nn.Module:
-        _replace_with_custom_fn_if_matches_filter(
-            model,
-            lambda linear_mod: convert_pt2e(linear_mod),
-            lambda mod, fqn: isinstance(mod, torch.fx.GraphModule),
-        )
-        return model
 
 
 class TorchCompileDynamicQuantizer(Quantizer):
@@ -182,21 +138,6 @@ class TestQuantFlow(TestCase):
         # print(example_inputs[0].dtype)
         # compiled = m(*example_inputs)
         # torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
-
-    @unittest.skip("skipping for now due to torch.compile error")
-    def test_dynamic_quant_gpu_unified_api_unified_impl(self):
-        quantizer = XNNPackDynamicQuantizer()
-        m = ToyLinearModel().eval()
-        example_inputs = m.example_inputs()
-        m = quantizer.prepare(m)
-        m = quantizer.convert(m)
-        quantized = m(*example_inputs)
-        # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
-        # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
-        m = torch.compile(m, mode="max-autotune")
-        # print(example_inputs[0].dtype)
-        compiled = m(*example_inputs)
-        torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     @unittest.skip(
         "FAILED test/quantization/test_quant_api.py::TestQuantFlow::test_dynamic_quant_gpu_unified_api_eager_mode_impl - AssertionError: Tensor-likes are not equal!"
