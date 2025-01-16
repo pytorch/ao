@@ -255,7 +255,6 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         if num_bits not in [4]:
             raise ValueError(f"Only {[4]} bits are supported, got {num_bits}.")
 
-        print("scale_t shape:", scale_t.shape, " in features:", in_features)
         group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features

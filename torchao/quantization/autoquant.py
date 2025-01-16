@@ -669,8 +669,6 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
         zero_point_domain = ZeroPointDomain.FLOAT
 
         if isinstance(_layout, MarlinSparseLayout):
-            print("group size:", group_size)
-            print("block size:", block_size)
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
