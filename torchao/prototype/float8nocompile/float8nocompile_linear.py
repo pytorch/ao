@@ -70,7 +70,7 @@ class Float8LinearNoCompile(torch.nn.Linear):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.no_precompute_for_backward:
-            output = matmul_with_args_in_hp_using_ac.apply(
+            output = matmul_with_args_in_hp_no_precompute_for_backward.apply(
                 input,
                 self.weight,
                 self.config,
@@ -215,7 +215,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         return grad_input, grad_weight, None, None, None, None
 
 
-class matmul_with_args_in_hp_using_ac(torch.autograd.Function):
+class matmul_with_args_in_hp_no_precompute_for_backward(torch.autograd.Function):
     """FP8 matmul with args in high precision to be used in a region with AC.
     FP8 tensors only needed for backward are only computed in the backward pass
     when needed, to reduce peak memory usage."""
