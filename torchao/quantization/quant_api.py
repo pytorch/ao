@@ -747,6 +747,8 @@ def int4_weight_only(
             assert (
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
+            print("block size:", block_size)
+            print("weight size:", weight.shape)
 
         return to_affine_quantized_intx(
             weight,

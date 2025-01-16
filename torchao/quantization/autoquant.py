@@ -370,6 +370,18 @@ def _is_interpolate_mode(mode):
     return False
 
 
+def _to_float16(x: torch.Tensor) -> torch.Tensor:
+    return x.to(torch.float16)
+
+
+def _to_bfloat16(x: torch.Tensor) -> torch.Tensor:
+    return x.to(torch.bfloat16)
+
+
+def _identity(x: torch.Tensor) -> torch.Tensor:
+    return x
+
+
 class AQMixin:
     """
     Tests and benchmarks the autoquantization process for the given activation matrix, weight, and bias.
@@ -610,7 +622,9 @@ class AQInt8WeightOnlyQuantizedLinearWeight3(
         return y
 
 
-class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQInt4G32WeightOnlyQuantizedLinearWeight(
+    LinearActivationQuantizedTensor, AQMixin
+):
     """
     AutoQuantizable version of Int4WeightOnlyQuantizedLinearWeight
     """
@@ -621,20 +635,27 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
 
     @classmethod
     def from_float(cls, weight):
+        from torchao.dtypes import to_affine_quantized_intx
+
         group_size = cls.group_size
         _layout = cls.aq_layout
 
         if weight.shape[-1] % group_size != 0:
             return weight
 
+        input_quant_func = None
+
         if (
             isinstance(_layout, TensorCoreTiledLayout)
             and weight.dtype != torch.bfloat16
         ):
-            return weight
-
-        if isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
-            return weight
+            weight = weight.to(torch.bfloat16)
+            input_quant_func = _to_bfloat16
+        elif isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
+            weight = weight.to(torch.float16)
+            input_quant_func = _to_float16
+        else:
+            input_quant_func = _identity
 
         use_hqq = True
         mapping_type = MappingType.ASYMMETRIC
@@ -648,12 +669,14 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         zero_point_domain = ZeroPointDomain.FLOAT
 
         if isinstance(_layout, MarlinSparseLayout):
+            print("group size:", group_size)
+            print("block size:", block_size)
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
             use_hqq = False
 
-        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(
+        weight = to_affine_quantized_intx(
             weight,
             mapping_type,
             block_size,
@@ -666,6 +689,10 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
             zero_point_domain=zero_point_domain,
             _layout=_layout,
             use_hqq=use_hqq,
+        )
+
+        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_float(
+            weight, input_quant_func
         )
 
 
@@ -694,15 +721,18 @@ class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
     aq_layout: Layout = MarlinSparseLayout()
 
 
-class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
+    LinearActivationQuantizedTensor, AQMixin
+):
     group_size: int = 32
 
     @classmethod
     def from_float(cls, weight):
-        if weight.dtype != torch.float16:
-            return weight
-
+        from torchao.dtypes import to_affine_quantized_intx
         from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
+        if weight.dtype != torch.float16:
+            weight = weight.to(torch.float16)
 
         bit_width = 4
         packing_bitwidth = 32
@@ -711,9 +741,12 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQM
         aqt_kwargs = get_gemlite_aqt_kwargs(
             weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
         )
-        return super(
-            AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls
-        ).from_hp_to_intx(weight, **aqt_kwargs)
+        weight = to_affine_quantized_intx(weight, **aqt_kwargs)
+        input_quant_func = _to_float16
+
+        return super(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls).from_float(
+            weight, input_quant_func
+        )
 
 
 class AQGemliteInt4G64WeightOnlyQuantizedLinearWeight(
@@ -1299,3 +1332,10 @@ def autoquant(
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals(ALL_AUTOQUANT_CLASS_LIST)
+    torch.serialization.add_safe_globals(
+        [
+            _to_float16,
+            _to_bfloat16,
+            _identity,
+        ]
+    )
