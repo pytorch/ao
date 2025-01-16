@@ -74,7 +74,6 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
-
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
 
 # Constant known variables used throughout this file
@@ -196,7 +195,6 @@ class CMakeExtension(Extension):
         self.sourcedir = os.path.abspath(sourcedir)
 
 
-
 def get_extensions():
     debug_mode = use_debug_mode()
     if debug_mode:
@@ -279,7 +277,6 @@ def get_extensions():
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
 
-
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
     if IS_ROCM and use_cuda:
         # Add ROCm GPU architecture check
@@ -306,7 +303,6 @@ def get_extensions():
                 extra_link_args=extra_link_args,
             )
         )
-
 
     if build_torchao_experimental:
         ext_modules.append(
