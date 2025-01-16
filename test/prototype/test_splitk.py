@@ -13,9 +13,8 @@ try:
 except ImportError:
     triton_available = False
 
-from test_utils import skip_if_rocm
 
-from torchao.utils import skip_if_compute_capability_less_than
+from torchao.utils import skip_if_compute_capability_less_than, skip_if_rocm
 
 
 @unittest.skipIf(not triton_available, "Triton is required but not available")

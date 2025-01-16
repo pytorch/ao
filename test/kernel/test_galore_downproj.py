@@ -8,10 +8,10 @@ except ImportError:
 
 import torch
 from galore_test_utils import make_data
-from test_utils import skip_if_rocm
 
 from torchao.prototype.galore.kernels.matmul import set_tuner_top_k as matmul_tuner_topk
 from torchao.prototype.galore.kernels.matmul import triton_mm_launcher
+from torchao.utils import skip_if_rocm
 
 torch.manual_seed(0)
 

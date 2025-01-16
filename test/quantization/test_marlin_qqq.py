@@ -3,7 +3,6 @@ import unittest
 
 import pytest
 import torch
-from test_utils import skip_if_rocm
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 
@@ -20,7 +19,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_and_quantize_affine_qqq,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode, skip_if_rocm
 
 
 @unittest.skipIf(

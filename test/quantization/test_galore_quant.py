@@ -13,12 +13,12 @@ from bitsandbytes.functional import (
     dequantize_blockwise,
     quantize_blockwise,
 )
-from test_utils import skip_if_rocm
 
 from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,
     triton_quantize_blockwise,
 )
+from torchao.utils import skip_if_rocm
 
 SEED = 0
 torch.manual_seed(SEED)
