@@ -408,11 +408,7 @@ at::Tensor _unpack_tensor_core_tiled_layout(const at::Tensor &packed_w,
   return out;
 }
 
-// // Use when all tensors arguments accept one (normal) batch dim.
-// // This batching rule expands the batch dim on all Tensors, reshapes it into
-// // dim 0, calls the op, and then reshapes the batch dim out of dim 0.
-// // This is not the most efficient thing; if there are alternatives, plese try
-// // to use them. Use this only as a last resort.
+// The following example will be useful when we do registration
 // #define EXISTING_BDIM_ALL_BOXED(op) \
 //   m.impl(#op,
 //   torch::CppFunction::makeFromBoxedFunction<boxed_existing_bdim_all_batch_rule>());
