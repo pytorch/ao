@@ -1754,7 +1754,6 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "autoquant float option requires 2.4+."
     )
-
     def test_autoquant_hp_float(self):
         device = "cuda"
         dtype = torch.float32

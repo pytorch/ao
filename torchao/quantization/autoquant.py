@@ -879,7 +879,6 @@ class BFloat16Tensor(Float32Tensor):
 
 
 
-
 class Float16Tensor(Float32Tensor):
     def __init__(self, weight, skip_weight_conversion=False):
         self.weight = weight if skip_weight_conversion else weight.to(torch.float16)
