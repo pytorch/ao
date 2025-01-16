@@ -15,6 +15,7 @@ from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
     hp_to_fp8_col_major,
     hp_to_fp8_col_major_t,
+    hp_to_fp8_col_major_t_and_non_t,
     hp_to_fp8_row_and_col_major,
     hp_to_fp8_row_major,
     hp_to_fp8_row_major_t,
@@ -196,6 +197,36 @@ class ToFP8RowMajorTAndNonT(torch.autograd.Function):
             algo=kernel_algo,
         )
         return fp8_row_major, fp8_row_major_t
+
+    @staticmethod
+    def backward(ctx, g):
+        return g, None, None, None, None
+
+
+class ToFP8ColumnMajorTAndNonT(torch.autograd.Function):
+    """
+    A differentiable conversion to fp8.
+    * forward: convert from high precision to float8 and produces both col-major (transposed) and col-major (non-transposed) outputs
+    * backward: pass the gradient without changes
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        float8_dtype: torch.dtype,
+        linear_mm_config: LinearMMConfig,
+        gemm_input_role: GemmInputRole,
+        kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    ):
+        fp8_col_major, fp8_col_major_t = hp_to_fp8_col_major_t_and_non_t(
+            tensor,
+            float8_dtype,
+            linear_mm_config,
+            gemm_input_role,
+            algo=kernel_algo,
+        )
+        return fp8_col_major, fp8_col_major_t
 
     @staticmethod
     def backward(ctx, g):

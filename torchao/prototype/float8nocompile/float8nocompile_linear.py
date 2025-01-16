@@ -15,6 +15,7 @@ from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMM
 from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     ToFP8ColumnMajor,
     ToFP8ColumnMajorT,
+    ToFP8ColumnMajorTAndNonT,
     ToFP8RowAndColumnMajor,
     ToFP8RowMajor,
     ToFP8RowMajorTAndNonT,
@@ -138,7 +139,8 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         orig_input_shape = input_hp.shape
         input_hp = input_hp.reshape(-1, input_hp.shape[-1])
 
-        # output = input @ weight_t
+        # compute input_fp8_row_major for forward.
+        # precompute input_fp8_col_major for backward.
         input_fp8_row_major, input_fp8_col_major = ToFP8RowAndColumnMajor.apply(
             input_hp,
             config.cast_config_input.target_dtype,
@@ -146,17 +148,22 @@ class matmul_with_args_in_hp(torch.autograd.Function):
             GemmInputRole.INPUT,
             kernel_algo,
         )
-        weight_t_fp8_col_major = ToFP8ColumnMajorT.apply(
+
+        # compute weight_fp8_t_col_major for forward.
+        # precompute weight_fp8_col_major for backward.
+        weight_fp8_col_major, weight_t_fp8_col_major = ToFP8ColumnMajorTAndNonT.apply(
             weight_hp,
             config.cast_config_weight.target_dtype,
             linear_mm_config,
             GemmInputRole.WEIGHT,
             kernel_algo,
         )
+
+        # output = input @ weight_t
         output = torch.mm(input_fp8_row_major, weight_t_fp8_col_major)
 
         # save data for backward before returning
-        ctx.save_for_backward(input_fp8_col_major, weight_hp)
+        ctx.save_for_backward(input_fp8_col_major, weight_fp8_col_major)
         ctx.config = config
         ctx.linear_mm_config = linear_mm_config
         ctx.kernel_algo = kernel_algo
@@ -174,7 +181,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         if not grad_output.is_contiguous():
             grad_output = grad_output.contiguous()
 
-        input_fp8_col_major, weight_hp = ctx.saved_tensors
+        input_fp8_col_major, weight_fp8_col_major = ctx.saved_tensors
 
         # reshsape to be 2D for triton kernels
         orig_grad_output_shape = grad_output.shape
@@ -192,13 +199,6 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         )
 
         # grad_input = grad_output @ weight
-        weight_fp8_col_major = ToFP8ColumnMajor.apply(
-            weight_hp,
-            ctx.config.cast_config_weight.target_dtype,
-            ctx.linear_mm_config,
-            GemmInputRole.WEIGHT,
-            ctx.kernel_algo,
-        )
         grad_input = torch.mm(grad_output_fp8_row_major, weight_fp8_col_major)
 
         # reshape grad input to match original shape
