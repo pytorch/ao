@@ -42,7 +42,6 @@ jobs:
     with:
       timeout: 120
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
-      test-infra-ref: main
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
