@@ -11,11 +11,15 @@ needed to ensure proper gradient updates during training:
 """
 
 import torch
-from my_dtype_tensor_subclass import MyDTypeLayout, MyDTypeTensor
+from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.utils import Layout, PlainLayout
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization import (
+    MappingType,
+    choose_qparams_affine,
+    quantize_affine,
+)
 
 aten = torch.ops.aten
 
@@ -35,15 +39,17 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         cls,
         input_float: torch.Tensor,
         _layout: Layout,
-    ) -> MyDTypeLayout:
+    ) -> MyDTypeTensorImpl:
         """
         Convert from a floating point tensor (fp32/fp16/bf16) to the desired dtype.
         """
         mapping_type = MappingType.SYMMETRIC
-        block_size = input_float.shape
-        dtype = torch.int16
-        scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
-        int_data = (input_float / scale).to(torch.int8)
+        block_size = (1, input_float.shape[-1])
+        dtype = torch.int8
+        scale, zero_point = choose_qparams_affine(
+            input_float, mapping_type, block_size, dtype
+        )
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
         tensor_impl_ctr = cls.get_tensor_impl_constructor(type(_layout))
         return tensor_impl_ctr(int_data, scale, _layout)
 

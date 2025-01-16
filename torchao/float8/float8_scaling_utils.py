@@ -52,8 +52,6 @@ def hp_tensor_to_float8_dynamic(
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
     """
-    if tensor_already_casted_to_fp8(hp_tensor):
-        return hp_tensor
     scale = tensor_to_scale(
         hp_tensor,
         float8_dtype,

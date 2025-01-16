@@ -543,31 +543,22 @@ def main(
             from torchao.experimental.quant_api import (
                 int8_dynamic_activation_intx_weight,
             )
+            from torchao.quantization.granularity import PerGroup
 
             assert (
                 precision == torch.float32
-            ), "int8_dynamic_activation_intx_weight requires fp32 precision"
-
-            # Build kernels in temp location, and load them in torch
-            # This requires an ARM CPU
-            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
-
-            temp_build_and_load_torchao_ops(
-                cmake_lists_path=os.path.dirname(os.path.realpath(__file__))
-                + "/../../experimental"
-            )
+            ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
 
             # Quantize model
             _quant_args = quantization.split("-")
-            nbit = int(_quant_args[1])
-            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
-            group_size = int(_quant_args[2])
+            weight_dtype = getattr(torch, f"int{_quant_args[1]}")
+            granularity = PerGroup(int(_quant_args[2]))
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
                 int8_dynamic_activation_intx_weight(
-                    group_size=group_size,
-                    nbit=nbit,
+                    weight_dtype=weight_dtype,
+                    granularity=granularity,
                     has_weight_zeros=has_weight_zeros,
                 ),
             )
@@ -1028,6 +1019,7 @@ def main(
             "name",
             "dtype",
             "min_sqnr",
+            "compile",
             "device",
             "arch",
             "metric",
@@ -1037,11 +1029,22 @@ def main(
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, min_sqnr, device, arch, "mem/s", bandwidth, None]
+        memory_result = [
+            name,
+            dtype,
+            min_sqnr,
+            compile,
+            device,
+            arch,
+            "mem/s",
+            bandwidth,
+            None,
+        ]
         performance_result = [
             name,
             dtype,
             min_sqnr,
+            compile,
             device,
             arch,
             "tok/s",
