@@ -56,20 +56,3 @@ def convert_to_float8_nocompile_training(
         from_float,
         module_filter_fn=module_filter_fn,
     )
-
-
-def no_precompute_for_backward_every_nth_layer(model: nn.Module, n: int):
-    """Set no_precompute_for_backward to True for every nth layer in the model."""
-    for layer_idx, (layer_id, layer) in enumerate(model.layers.named_children()):
-        if layer_idx % n == 0:
-            log.info(f"Enabling no_precompute_for_backward for layer {layer_id}")
-            _enable_no_precompute_for_backward(layer)
-
-
-def _enable_no_precompute_for_backward(model: nn.Module):
-    """Recursively set no_precompute_for_backward to True for all linear layers in the given model."""
-    for child_layer in model.children():
-        if isinstance(child_layer, nn.Linear):
-            child_layer.no_precompute_for_backward = True
-        else:
-            _enable_no_precompute_for_backward(child_layer)
