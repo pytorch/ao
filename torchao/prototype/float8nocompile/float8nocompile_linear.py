@@ -69,14 +69,22 @@ class Float8LinearNoCompile(torch.nn.Linear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        output = matmul_with_args_in_hp.apply(
-            input,
-            self.weight,
-            self.config,
-            self.linear_mm_config,
-            self.kernel_algo,
-            self.no_precompute_for_backward,
-        )
+        if self.no_precompute_for_backward:
+            output = matmul_with_args_in_hp_using_ac.apply(
+                input,
+                self.weight,
+                self.config,
+                self.linear_mm_config,
+                self.kernel_algo,
+            )
+        else:
+            output = matmul_with_args_in_hp.apply(
+                input,
+                self.weight,
+                self.config,
+                self.linear_mm_config,
+                self.kernel_algo,
+            )
         return output
 
     @classmethod
@@ -112,34 +120,13 @@ class Float8LinearNoCompile(torch.nn.Linear):
 
 
 class matmul_with_args_in_hp(torch.autograd.Function):
+    """FP8 matmul with args in high precision to be used in a region without AC.
+    FP8 tensors only needed for backward are computed as part of kernels in the forward pass,
+    to reduce number of kernel dispatches and increase throughput, at the cost of higher
+    peak memory usage."""
+
     @staticmethod
     def forward(
-        ctx,
-        input_hp: torch.Tensor,
-        weight_hp: torch.Tensor,
-        config: Float8LinearConfig,
-        linear_mm_config: LinearMMConfig,
-        kernel_algo: KernelAlgorithm,
-        no_precompute_for_backward: bool,
-    ):
-        if no_precompute_for_backward:
-            return matmul_with_args_in_hp._forward_with_ac(
-                ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo
-            )
-        else:
-            return matmul_with_args_in_hp._forward_no_ac(
-                ctx, input_hp, weight_hp, config, linear_mm_config, kernel_algo
-            )
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        if ctx.no_precompute_for_backward:
-            return matmul_with_args_in_hp._backward_with_ac(ctx, grad_output)
-        else:
-            return matmul_with_args_in_hp._backward_no_ac(ctx, grad_output)
-
-    @staticmethod
-    def _forward_no_ac(
         ctx,
         input_hp: torch.Tensor,
         weight_hp: torch.Tensor,
@@ -180,7 +167,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         return output
 
     @staticmethod
-    def _backward_no_ac(ctx, grad_output):
+    def backward(ctx, grad_output):
         # grad_output may not be contiguous in cases like:
         # output.sum().backward() where grad is all 1s, so the (M,N) view of the scalar "1"
         # results in a non-contiguous tensor with stride (0,0).
@@ -227,8 +214,14 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         # grad input shape
         return grad_input, grad_weight, None, None, None, None
 
+
+class matmul_with_args_in_hp_using_ac(torch.autograd.Function):
+    """FP8 matmul with args in high precision to be used in a region with AC.
+    FP8 tensors only needed for backward are only computed in the backward pass
+    when needed, to reduce peak memory usage."""
+
     @staticmethod
-    def _forward_with_ac(
+    def forward(
         ctx,
         input_hp: torch.Tensor,
         weight_hp: torch.Tensor,
@@ -270,7 +263,7 @@ class matmul_with_args_in_hp(torch.autograd.Function):
         return output
 
     @staticmethod
-    def _backward_with_ac(ctx, grad_output):
+    def backward(ctx, grad_output):
         # grad_output may not be contiguous in cases like:
         # output.sum().backward() where grad is all 1s, so the (M,N) view of the scalar "1"
         # results in a non-contiguous tensor with stride (0,0).
