@@ -25,13 +25,13 @@ from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
+    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+    AQInt4G32WeightOnlyQuantizedLinearWeight,
+    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight2,
     AQInt8WeightOnlyQuantizedLinearWeight3,
-    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
-    AQInt4G32WeightOnlyQuantizedLinearWeight,
-    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AutoQuantizableLinearWeight,
 )
 
@@ -1775,7 +1775,8 @@ class TestAutoQuant(unittest.TestCase):
         )
         out = model(example_input)
         self.assertIn(
-            type(model[1].weight), torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
+            type(model[1].weight),
+            torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
         )
         self.assertGreater(compute_error(out, ref), 60)
 

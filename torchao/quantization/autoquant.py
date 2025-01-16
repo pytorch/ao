@@ -878,7 +878,6 @@ class BFloat16Tensor(Float32Tensor):
         return cls(weight, skip_weight_conversion)
 
 
-
 class Float16Tensor(Float32Tensor):
     def __init__(self, weight, skip_weight_conversion=False):
         self.weight = weight if skip_weight_conversion else weight.to(torch.float16)
@@ -956,9 +955,7 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         )
 
 
-class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
-    AQMixin, BFloat16Tensor
-):
+class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Tensor):
     """
     AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
     """
@@ -1001,7 +998,9 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
             _layout=_layout,
             scale_dtype=torch.float32,
         )
-        weight = to_linear_activation_quantized(weight, input_quant_func, quant_kwargs=input_quant_kwargs)
+        weight = to_linear_activation_quantized(
+            weight, input_quant_func, quant_kwargs=input_quant_kwargs
+        )
         # at inference time,
         # we first convert the input, weight and bias to bfloat16, and then quantize activation
         # and then dispatch to the quantized ops
