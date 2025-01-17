@@ -838,8 +838,8 @@ class TestQuantPrimitives(unittest.TestCase):
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
 
-    # ZeroPointDomain.NONE should work
     def test_none_zero_point_domain(self):
+        """A None value for a ZeroPointDomain should not work, but ZeroPointDomain.NONE should"""
         input = torch.randn(10, 256)
         mapping_type = MappingType.SYMMETRIC
         dtype = torch.int8
@@ -849,20 +849,43 @@ class TestQuantPrimitives(unittest.TestCase):
         eps = 1e-6
         scale_dtype = torch.float32
         zero_point_dtype = torch.int64
-        _, zero_point = choose_qparams_affine(
-            input,
-            mapping_type,
-            block_size,
-            dtype,
-            quant_min,
-            quant_max,
-            eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=True,
-            zero_point_domain=ZeroPointDomain.NONE,
-        )
-        self.assertTrue(zero_point is None)
+        try:
+            _, zero_point = choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype=scale_dtype,
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=True,
+                zero_point_domain=None,
+            )
+        except ValueError:
+            # This exception was expected
+            # Now test for ZeroPointDomain.NONE
+            _, zero_point = choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype=scale_dtype,
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=True,
+                zero_point_domain=ZeroPointDomain.NONE,
+            )
+            self.assertTrue(zero_point is None)
+        else:
+            # An exception should have been thrown for zero_point_domain None
+            self.assertTrue(
+                False,
+                msg="A runtime exception should have been thrown for zero_point_domain None",
+            )
 
 
 if __name__ == "__main__":

@@ -200,6 +200,7 @@ class TestLinearObserver(TestCase):
             input_scale.item(),
             max_val / max_fp8,
         )
+        self.assertIsNone(input_zero_point)
 
         if observe_weight:
             weight_observer = linear.weight.weight_observer
@@ -210,6 +211,7 @@ class TestLinearObserver(TestCase):
                 atol=5e-5,
                 rtol=0.0,
             )
+            self.assertIsNone(weight_zero_point)
         else:
             self.assertIsNone(linear.weight.weight_observer)
 

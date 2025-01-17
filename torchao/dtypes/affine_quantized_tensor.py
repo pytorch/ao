@@ -85,6 +85,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         dtype=None,
         strides=None,
     ):
+        if zero_point_domain is None:
+            raise ValueError("please use ZeroPointDomain.NONE instead of None")
         kwargs = {}
         kwargs["device"] = tensor_impl.device
         kwargs["layout"] = (
@@ -203,7 +205,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
     ):
@@ -298,13 +300,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
     ):
+        if zero_point_domain is None:
+            raise ValueError("please use ZeroPointDomain.NONE instead of None")
         if target_dtype not in FP8_TYPES:
-            assert (
-                zero_point_domain is not None
-            ), "zero_point_domain must be specified for non-fp8 types"
             assert (
                 zero_point is not None
             ), "zero_point must be specified for non-fp8 types"
