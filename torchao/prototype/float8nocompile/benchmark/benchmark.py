@@ -1,5 +1,5 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
-
+import argparse
 import itertools
 from dataclasses import dataclass
 from typing import Callable, List
@@ -80,13 +80,20 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
+def forward(model, input_tensor):
+    return model(input_tensor)
+
+
 def forward_backward(model, input_tensor):
     output = model(input_tensor)
     loss = F.mse_loss(output, torch.zeros_like(output))
     loss.backward()
 
 
-def run_experiment(config: ExperimentConfig) -> ExperimentResult:
+def run_experiment(config: ExperimentConfig, inference: bool) -> ExperimentResult:
+    # only benchmark forward pass for inference
+    test_fn = forward if inference else forward_backward
+
     # eager float8 baseline
     eager_float8_model = convert_to_float8_training(
         TestModel(config.layer_sizes).to(device)
@@ -113,19 +120,19 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # benchmark forward + backward for each model
     eager_time = benchmark_cuda_function_in_microseconds(
-        forward_backward,
+        test_fn,
         eager_float8_model,
         input_eager,
     )
 
     compiled_time = benchmark_cuda_function_in_microseconds(
-        forward_backward,
+        test_fn,
         compiled_float8_model,
         input_compiled,
     )
 
     float8nocompile_time = benchmark_cuda_function_in_microseconds(
-        forward_backward,
+        test_fn,
         float8nocompile_model,
         input_triton,
     )
@@ -139,6 +146,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
 def print_results(experiments: List[Experiment]):
     headers = [
+        "layer_sizes",
         "input_shape",
         "kernel_algo",
         "high_precision_dtype",
@@ -153,6 +161,7 @@ def print_results(experiments: List[Experiment]):
         )
         rows.append(
             [
+                experiment.config.layer_sizes,
                 input_shape,
                 str(experiment.config.kernel_algo),
                 experiment.config.high_precision_dtype,
@@ -171,12 +180,15 @@ def benchmark_cuda_function_in_microseconds(func: Callable, *args, **kwargs) -> 
     return time * 1e3
 
 
-def main():
+def main(args: argparse.Namespace):
     torch.random.manual_seed(123)
     configs = get_configs()
     results = []
+    print(
+        "Benchmarking inference" if args.inference else "Benchmarking forward+backward"
+    )
     for config in tqdm(configs):
-        result = run_experiment(config)
+        result = run_experiment(config, args.inference)
         results.append(Experiment(config=config, result=result))
 
     # Use Tabulate to print results
@@ -184,4 +196,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--inference", action="store_true")
+    args = argparser.parse_args()
+    main(args)
