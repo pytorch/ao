@@ -15,7 +15,6 @@ from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     fill_defaults,
     find_multiple,
 )
