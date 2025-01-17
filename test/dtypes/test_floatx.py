@@ -2,6 +2,7 @@ import copy
 import unittest
 
 import torch
+from test_utils import skip_if_rocm
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -108,6 +109,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
+    @skip_if_rocm("ROCm development in progress")
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
