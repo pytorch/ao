@@ -790,6 +790,7 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
         return weight
 
 
+# TODO: remove skip_weight_conversion arg
 class Float32Tensor(TorchAOBaseTensor):
     """Tensor subclass tensor for fp32 dtype"""
 
