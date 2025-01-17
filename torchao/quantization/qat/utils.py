@@ -16,14 +16,6 @@ from torchao.quantization.utils import (
     _get_per_token_block_size,
 )
 
-# Attribute name representing the forward prehook wrapping the
-# linear input in an `AffineFakeQuantizedTensor` on a linear module.
-#
-# The value of this attribute is a 2-tuple of (prehook, handle).
-# The prehook can be disabled by calling `handle.remove()`, and
-# re-enabled by calling `module.register_forward_pre_hook(prehook)`.
-_QAT_LINEAR_SUBCLASS_INPUT_PREHOOK = "_qat_linear_subclass_input_prehook"
-
 
 class _GenericFakeQuantize(torch.autograd.Function):
     """

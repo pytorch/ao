@@ -1821,7 +1821,7 @@ class TestAutoQuant(unittest.TestCase):
             self.assertGreater(compute_error(ref, out), 20)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
     )
