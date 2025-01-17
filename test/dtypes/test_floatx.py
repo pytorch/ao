@@ -2,7 +2,6 @@ import copy
 import unittest
 
 import torch
-from test_utils import skip_if_rocm
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,

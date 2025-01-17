@@ -14,8 +14,6 @@ from torchao.utils import (
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
 
-from test_utils import skip_if_rocm
-
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
