@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }} 
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
   test:
@@ -25,7 +25,9 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
 
-
+    permissions:
+      id-token: write
+      contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       runner: ${{ matrix.runs-on }}
