@@ -10,8 +10,6 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
 
-from test_utils import skip_if_rocm
-
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
@@ -115,7 +113,6 @@ def test_awq_loading(device, qdtype):
 
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires nightly pytorch")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@skip_if_rocm("ROCm development in progress")
 def test_save_weights_only():
     dataset_size = 100
     l1, l2, l3 = 512, 256, 128

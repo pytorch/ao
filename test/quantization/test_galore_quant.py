@@ -13,7 +13,6 @@ from bitsandbytes.functional import (
     dequantize_blockwise,
     quantize_blockwise,
 )
-from test_utils import skip_if_rocm
 
 from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,
@@ -83,7 +82,6 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )
-@skip_if_rocm("ROCm development in progress")
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 
