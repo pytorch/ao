@@ -34,10 +34,11 @@ jobs:
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
           - name: ROCM Nightly
-            runs-on: linux.rocm.gpu
+            runs-on: linux.rocm.gpu.2
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
+
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 120
