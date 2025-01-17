@@ -2,7 +2,6 @@ import copy
 
 import pytest
 import torch
-from test_utils import skip_if_rocm
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 
@@ -38,7 +37,6 @@ class SparseMarlin24(TestCase):
         )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @skip_if_rocm("ROCm development in progress")
     def test_quant_sparse_marlin_layout_eager(self):
         apply_fake_sparsity(self.model)
         model_copy = copy.deepcopy(self.model)
@@ -50,13 +48,13 @@ class SparseMarlin24(TestCase):
         # Sparse + quantized
         quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
         sparse_result = self.model(self.input)
+
         assert torch.allclose(
             dense_result, sparse_result, atol=3e-1
         ), "Results are not close"
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @skip_if_rocm("ROCm development in progress")
     def test_quant_sparse_marlin_layout_compile(self):
         apply_fake_sparsity(self.model)
         model_copy = copy.deepcopy(self.model)
