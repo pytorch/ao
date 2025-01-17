@@ -857,7 +857,6 @@ def int8_dynamic_activation_int8_weight(
     layout=PlainLayout(),
     act_mapping_type=MappingType.SYMMETRIC,
     weight_only_decode=False,
-    weight_zp_domain=ZeroPointDomain.NONE,
 ):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -876,6 +875,7 @@ def int8_dynamic_activation_int8_weight(
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
         def get_weight_block_size(x):
             return (1, x.shape[1])
@@ -902,7 +902,7 @@ def int8_dynamic_activation_int8_weight(
             eps=eps,
             zero_point_dtype=zero_point_dtype,
             _layout=layout,
-            zero_point_domain=weight_zp_domain,
+            zero_point_domain=weight_zero_point_domain,
         )
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
