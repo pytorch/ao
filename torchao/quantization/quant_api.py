@@ -457,11 +457,10 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, pro
 
     def insert_subclass(lin):
         requires_grad = allow_requires_grad and lin.weight.requires_grad
-        args = [lin.weight]
         if propagate_bias == True:
-            args.append(lin.bias)
+            kwargs["bias"] = lin.bias
         lin.weight = torch.nn.Parameter(
-            constructor(*args, **kwargs), requires_grad=requires_grad
+            constructor(lin.weight, **kwargs), requires_grad=requires_grad
         )
         lin.extra_repr = types.MethodType(_linear_extra_repr, lin)
         return lin

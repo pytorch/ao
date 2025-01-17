@@ -494,6 +494,7 @@ class IntxWeightEmbeddingQuantizer:
 
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
+    to_packedlinearint8dynamicactivationintxweight_quantized_intx,
 )
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
@@ -576,6 +577,7 @@ def int8_dynamic_activation_intx_weight(
         )
     bit_width = dtype_to_bit_width[weight_dtype]
     layout_arg = layout
+    propagate_bias = isinstance(layout_arg, PackedLinearInt8DynamicActivationIntxWeightLayout) and layout_arg.target=="aten"
 
     def apply(weight, bias: Optional[torch.Tensor] = None):
         if isinstance(granularity, PerGroup):
@@ -591,6 +593,10 @@ def int8_dynamic_activation_intx_weight(
 
         layout = layout_arg
         scale_dtype = None
+        tensor_quantizer = to_affine_quantized_intx
+        quant_min = -(1 << (bit_width - 1))
+        quant_max = (1 << (bit_width - 1)) - 1
+
         if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
             assert (
                 weight.device == torch.device("cpu")
@@ -613,26 +619,23 @@ def int8_dynamic_activation_intx_weight(
                 if torch.backends.kleidiai.is_available():
                     if isinstance(granularity, PerGroup):
                         scale_dtype = torch.bfloat16 # KleidiAI kernel requires bfloat16 scale_dtype
+                tensor_quantizer = to_packedlinearint8dynamicactivationintxweight_quantized_intx
 
-        quant_min = -(1 << (bit_width - 1))
-        quant_max = (1 << (bit_width - 1)) - 1
-        weight = to_affine_quantized_intx(
-            weight,
-            mapping_type=weight_mapping_type,
-            block_size=(1, group_size),
-            target_dtype=torch.int32,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=torch.finfo(torch.float32).eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=torch.int8,
-            preserve_zero=has_weight_zeros,
-            zero_point_domain=ZeroPointDomain.INT
-            if has_weight_zeros
-            else ZeroPointDomain.NONE,
-            _layout=layout,
-            bias=bias
-        )
+        quantizer_args = [weight,
+                          weight_mapping_type,
+                          (1, group_size),
+                          torch.int32,
+                          quant_min,
+                          quant_max,
+                          torch.finfo(torch.float32).eps,
+                          scale_dtype,
+                          torch.int8,
+                          has_weight_zeros,
+                          ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE,
+                          layout,
+                          False] + ([bias] if propagate_bias else [])
+
+        weight = tensor_quantizer(*quantizer_args)
 
         # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
         # with the kernel and it should not be applied separately
@@ -650,7 +653,6 @@ def int8_dynamic_activation_intx_weight(
             weight = to_linear_activation_quantized(weight, activation_quant_func)
         return weight
 
-    propagate_bias = isinstance(layout_arg, PackedLinearInt8DynamicActivationIntxWeightLayout) and layout_arg.target=="aten"
     return _get_linear_subclass_inserter(apply, propagate_bias=propagate_bias)
 
 

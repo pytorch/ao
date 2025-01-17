@@ -12,6 +12,8 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    get_tensor_impl_constructor,
     register_layout,
 )
 from torchao.dtypes.affine_quantized_tensor_ops import (
@@ -20,7 +22,11 @@ from torchao.dtypes.affine_quantized_tensor_ops import (
 from torchao.dtypes.utils import AQTTensorImpl, Layout
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
+    MappingType,
+    choose_qparams_affine,
+    quantize_affine,
 )
+
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
@@ -325,3 +331,78 @@ register_aqt_quantized_linear_dispatch(
     _linear_check,
     _linear_impl,
 )
+
+
+class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTensor):
+    """
+    PackedLinearInt8DynamicActivationIntxWeightAtenTensor quantized tensor subclass which inherits AffineQuantizedTensor class.
+    """
+
+    @classmethod
+    def from_hp_to_intx(
+        cls,
+        input_float: torch.Tensor,
+        mapping_type: MappingType,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero: bool = True,
+        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        _layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(),
+        use_hqq: bool = False,
+        bias: Optional[torch.Tensor] = None
+    ):
+        assert use_hqq == False, f"PackedLinearInt8DynamicActivationIntxWeightTensor can not support HQQ optimization"
+        assert isinstance(
+            _layout, PackedLinearInt8DynamicActivationIntxWeightLayout), f"PackedLinearInt8DynamicActivationIntxWeightTensor can only support PackedLinearInt8DynamicActivationIntxWeightLayout(). Provided {_layout}"
+        assert _layout.target == Target.ATEN, f"PackedLinearInt8DynamicActivationIntxWeightTensor requires target 'aten'."
+        original_shape = input_float.shape
+        input_float = _layout.pre_process(input_float)
+
+        scale, zero_point = choose_qparams_affine(
+            input_float,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+        # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
+        # TODO should probably consolidate ZeroPointDomain.NONE and None
+        if zero_point_domain is None or zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
+        data = quantize_affine(
+            input_float,
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
+        # Note: output will be uint8 tensor for sub byte tensors for now
+
+        data = _layout.post_process(data)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout, bias)
+        return cls(
+            tensor_impl,
+            block_size,
+            original_shape,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+            dtype=input_float.dtype,
+        )
+
+to_packedlinearint8dynamicactivationintxweight_quantized_intx = PackedLinearInt8DynamicActivationIntxWeightAtenTensor.from_hp_to_intx
