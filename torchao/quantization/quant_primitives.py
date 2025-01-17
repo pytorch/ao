@@ -23,6 +23,12 @@ from torchao.utils import (
     _register_custom_op,
 )
 
+from torch.ao.quantization.pt2e._affine_quantization  import (
+    _quantize_affine,
+    _dequantize_affine,
+    _choose_qparams_affine,
+)
+
 __all__ = [
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
@@ -328,42 +334,6 @@ def quantize_affine(
     )
 
 
-@register_custom_op
-def _quantize_affine(
-    input: torch.Tensor,
-    block_size: List[int],
-    scale: torch.Tensor,
-    zero_point: Optional[torch.Tensor],
-    output_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float, bool]] = None,
-    quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
-) -> torch.Tensor:
-    """op definition that has compatible signatures with custom op library
-
-    Note:
-        zero_point_domain is optional specifies how we quantize the floating point to quantized data:
-        INT: quantized_val = (float_val / scale) (integer) + zero_point (integer)
-        FLOAT: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
-        None: quantized_val = (float_val / scale) | this is primarily used for floatx quantization
-            Where we do not want to round values to nearest integer and instead scale and cast.
-    """
-    quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
-    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
-    # torch.uintx dtypes yet
-    if output_dtype in _SUB_BYTE_UINT_BOUNDS:
-        output_dtype = torch.uint8
-    return _quantize_affine_no_dtype_cast(
-        input,
-        block_size,
-        scale,
-        zero_point,
-        quant_min,
-        quant_max,
-        zero_point_domain,
-    ).to(output_dtype)
-
-
 def _quantize_affine_no_dtype_cast(
     input: torch.Tensor,
     block_size: List[int],
@@ -477,42 +447,6 @@ def dequantize_affine(
         quant_max,
         zero_point_domain.name if zero_point_domain is not None else None,
         output_dtype=output_dtype,
-    )
-
-
-@register_custom_op
-def _dequantize_affine(
-    input: torch.Tensor,
-    block_size: List[int],
-    scale: torch.Tensor,
-    zero_point: Optional[torch.Tensor],
-    input_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float, bool]] = None,
-    quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
-    output_dtype: torch.dtype = torch.float32,
-) -> torch.Tensor:
-    """op definition that has compatible signatures with custom op library"""
-    # TODO: validate scale/zero_point dimensions are compatible with block_size
-    if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
-        assert (
-            input.dtype == input_dtype
-        ), f"Expected: {input_dtype}, got: {input.dtype}"
-    assert output_dtype in [
-        torch.float32,
-        torch.float16,
-        torch.bfloat16,
-    ], f"Unsupported output dtype: {output_dtype}"
-    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
-    return _dequantize_affine_no_dtype_check(
-        input,
-        block_size,
-        scale,
-        zero_point,
-        quant_min,
-        quant_max,
-        zero_point_domain,
-        output_dtype,
     )
 
 
@@ -815,143 +749,6 @@ def choose_qparams_affine_with_min_max(
         min_val,
         max_val,
     )
-
-
-@register_custom_op
-def _choose_qparams_affine(
-    input: Optional[torch.Tensor],
-    mapping_type: str,
-    block_size: List[int],
-    target_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float, bool]] = None,
-    quant_max: Optional[Union[int, float, bool]] = None,
-    eps: Optional[float] = None,
-    scale_dtype: Optional[torch.dtype] = None,
-    zero_point_dtype: Optional[torch.dtype] = None,
-    preserve_zero: bool = True,
-    zero_point_domain: Optional[str] = "INT",
-    min_val: Optional[torch.Tensor] = None,
-    max_val: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """op definition that has compatible signatures with custom op library
-
-    The op does the following:
-    1. figure out the dimension for reduction based on block_size
-    2. find min_val/max_val based on the dimension for reduction
-    3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
-       and `zero_point_domain`
-    """
-    quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type in [
-        MappingType.SYMMETRIC.name,
-        MappingType.SYMMETRIC_NO_CLIPPING_ERR.name,
-        MappingType.ASYMMETRIC.name,
-    ], f"Unsupported mapping type: {mapping_type}"
-    if target_dtype in FP8_TYPES:
-        assert (
-            mapping_type == MappingType.SYMMETRIC.name
-        ), f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
-
-    if input is not None:
-        if scale_dtype is None:
-            scale_dtype = input.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = input.dtype
-        if eps is None:
-            eps = torch.finfo(input.dtype).eps
-
-        assert (
-            len(block_size) == input.dim()
-        ), f"Got input dim:{input.dim()}, block_size: {block_size}"
-        shape_for_reduction, reduction_dims = _get_reduction_params(
-            block_size, input.size()
-        )
-        input = input.view(shape_for_reduction)
-
-        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
-    else:
-        assert (
-            min_val is not None and max_val is not None
-        ), "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
-        assert (
-            min_val.dtype == max_val.dtype
-        ), "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
-
-        if scale_dtype is None:
-            scale_dtype = min_val.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = min_val.dtype
-        if eps is None:
-            eps = torch.finfo(min_val.dtype).eps
-
-    if preserve_zero:
-        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-    else:
-        min_val_neg = min_val
-        max_val_pos = max_val
-
-    if (
-        mapping_type == MappingType.SYMMETRIC.name
-        or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
-    ):
-        # scales
-        if mapping_type == MappingType.SYMMETRIC.name:
-            max_val_pos = torch.max(-min_val_neg, max_val_pos)
-            scale = max_val_pos / (float(quant_max - quant_min) / 2)
-        else:
-            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
-            # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
-            # quant_max = 7.
-            # - If smin is bigger: There would be coverage on negative values down to -8, and less rounding
-            # error than the existing SYMMETRIC case.
-            # - If smax is bigger: it covers the positive values up to 7. The round
-            # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
-            # quantization.
-            smin = min_val_neg / float(quant_min)
-            smax = max_val_pos / float(quant_max)
-            mask = smin > smax
-            scale = torch.where(mask, smin, smax)
-        # zeros
-        if not preserve_zero:
-            raise ValueError(
-                "preserve_zero == False is not supported for symmetric quantization"
-            )
-        if (
-            zero_point_domain is not None
-            and zero_point_domain == ZeroPointDomain.FLOAT.name
-        ):
-            # TODO INT should not be a valid ZeroPointDomain for symmetric quantization since
-            # symmetric quant doesn't have a zero_point
-            raise ValueError(
-                "zero_point_domain should be ZeroPointDomain.INT or ZeroPointDomain.NONE for symmetric quantization"
-            )
-        scale = torch.clamp(scale, min=eps)
-        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
-    else:
-        assert mapping_type == MappingType.ASYMMETRIC.name
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
-        scale = torch.clamp(scale, min=eps)
-        if zero_point_domain == ZeroPointDomain.NONE.name:
-            zero_point = None
-        else:
-            if preserve_zero:
-                zero_point = quant_min - torch.round(min_val_neg / scale)
-                zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            else:
-                assert (
-                    zero_point_domain == ZeroPointDomain.FLOAT.name
-                ), "if not preserve_zero, zero_point must be in FLOAT domain"
-                mid_point = (quant_max + quant_min + 1) / 2
-                # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
-                # TODO move the conversion of zero_point out of quant_primitives
-                # and into TensorCoreTiledLayout.from_plain
-                zero_point = min_val_neg + scale * mid_point
-
-    if zero_point is not None:
-        zero_point = zero_point.to(dtype=zero_point_dtype)
-    return scale.to(dtype=scale_dtype), zero_point
 
 
 def choose_qparams_and_quantize_affine_qqq(
