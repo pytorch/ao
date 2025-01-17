@@ -51,6 +51,10 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
+from torchao.dtypes.uintx.int4_cpu_layout import (
+    _linear_fp_act_uint4_weight_cpu_check,
+    _linear_fp_act_uint4_weight_cpu_impl,
+)
 from torchao.quantization.quant_primitives import dequantize_affine
 from torchao.utils import (
     fill_defaults,
@@ -150,6 +154,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_cutlass_check,
             _linear_int8_act_int4_weight_cutlass_impl,
+        ),
+        (
+            _linear_fp_act_uint4_weight_cpu_check,
+            _linear_fp_act_uint4_weight_cpu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
