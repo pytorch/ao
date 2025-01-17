@@ -322,6 +322,9 @@ def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
 
+    # reshape to 2D
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1])
+
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
     y = torch.ops.aten._weight_int4pack_mm_for_cpu(

@@ -762,24 +762,31 @@ class TestQuantFlow(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
-    def test_int4wo_cpu(self):
+    @common_utils.parametrize(
+        "dtype", [torch.float, torch.bfloat16, torch.half]
+    )
+    @common_utils.parametrize(
+        "x_dim", [2, 3]
+    )
+    def test_int4wo_cpu(self, dtype, x_dim):
         from torchao.dtypes import Int4CPULayout
 
         device = "cpu"
-        for dtype in (torch.float, torch.bfloat16, torch.half):
-            m = ToyLinearModel().eval().to(dtype).to(device)
-            example_inputs = m.example_inputs(dtype=dtype, device=device)
+        m = ToyLinearModel().eval().to(dtype).to(device)
+        example_inputs = m.example_inputs(dtype=dtype, device=device)
+        if x_dim == 3:
+            example_inputs = (example_inputs[0].unsqueeze(0),)
 
-            with torch.no_grad(), torch.autocast(
-                "cpu", enabled=(dtype != torch.float), dtype=dtype
-            ):
-                quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
-                # ensure the expected op is in the code
-                _, code = torch._inductor.utils.run_and_get_code(
-                    torch.compile(m, fullgraph=True, dynamic=True),
-                    *example_inputs,
-                )
-                assert "_weight_int4pack_mm_for_cpu" in code[0]
+        with torch.no_grad(), torch.autocast(
+            "cpu", enabled=(dtype != torch.float), dtype=dtype
+        ):
+            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            # ensure the expected op is in the code
+            _, code = torch._inductor.utils.run_and_get_code(
+                torch.compile(m, fullgraph=True, dynamic=True),
+                *example_inputs,
+            )
+            assert "_weight_int4pack_mm_for_cpu" in code[0]
 
 
 class TestMultiTensorFlow(TestCase):
