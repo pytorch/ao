@@ -607,7 +607,7 @@ def _torch_version_at_least(min_version):
 def is_MI300():
     if torch.cuda.is_available() and torch.version.hip:
         mxArchName = ["gfx940", "gfx941", "gfx942"]
-        archName = torch.cuda.get_device_properties(0).gcnArchName
+        archName = torch.cuda.get_device_properties().gcnArchName
         for arch in mxArchName:
             if arch in archName:
                 return True
