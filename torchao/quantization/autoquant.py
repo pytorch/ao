@@ -627,7 +627,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
     LinearActivationQuantizedTensor, AQMixin
 ):
     """
-    AutoQuantizable version of Int4WeightOnlyQuantizedLinearWeight
+    AutoQuantizable version of int4_weight_only
     """
 
     group_size: int = 32
@@ -646,6 +646,9 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
 
         input_quant_func = None
 
+        # NOTE: we only convert activation dtype and weight dtype here
+        # because the kernel implementation for both TensorCoreTiledLayout and MarlinSparseLayout
+        # can work with multiple bias dtypes (by converting bias to the dtype of activation)
         if (
             isinstance(_layout, TensorCoreTiledLayout)
             and weight.dtype != torch.bfloat16
