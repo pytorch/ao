@@ -5,12 +5,14 @@ import pytest
 import torch
 
 from torchao.quantization import quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+    skip_if_rocm,
+)
 
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
-
-from test_utils import skip_if_rocm
 
 
 class ToyLinearModel(torch.nn.Module):
