@@ -345,7 +345,7 @@ if __name__ == "__main__":
         args.device,
         args.precision,
         args.quantization,
-        args.sparstiy,
+        args.sparsity,
         args.compile,
         args.max_length,
         args.calibration_tasks,

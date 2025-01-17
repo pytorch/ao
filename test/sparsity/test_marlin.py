@@ -2,6 +2,7 @@ import copy
 
 import pytest
 import torch
+from test_utils import skip_if_rocm
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 

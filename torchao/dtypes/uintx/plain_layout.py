@@ -38,7 +38,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         kwargs = {}
@@ -55,7 +55,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         self,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         self.int_data = int_data
@@ -64,6 +64,8 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         self._layout = _layout
 
     def __tensor_flatten__(self):
+        if self.zero_point is None:
+            return ["int_data", "scale"], [self._layout]
         return ["int_data", "scale", "zero_point"], [self._layout]
 
     @classmethod
@@ -73,7 +75,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         int_data, scale, zero_point = (
             tensor_data_dict["int_data"],
             tensor_data_dict["scale"],
-            tensor_data_dict["zero_point"],
+            tensor_data_dict.get("zero_point", None),
         )
         (_layout,) = tensor_attributes
         return cls(int_data, scale, zero_point, _layout)
@@ -83,7 +85,9 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         return self.__class__(
             self.int_data.to(kwargs["device"]),
             self.scale.to(kwargs["device"]),
-            self.zero_point.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"])
+            if self.zero_point is not None
+            else None,
             self._layout,
         )
 
@@ -91,7 +95,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         return self.__class__(
             fn(self.int_data),
             fn(self.scale),
-            fn(self.zero_point),
+            fn(self.zero_point) if self.zero_point is not None else None,
             self._layout,
         )
 
@@ -134,7 +138,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                 return PlainAQTTensorImpl(
                     aten.slice.Tensor(self.int_data, dim, start, end, step),
                     self.scale.view(-1),
-                    self.zero_point.view(-1),
+                    self.zero_point.view(-1) if self.zero_point is not None else None,
                     self._layout,
                 )
             else:
@@ -148,7 +152,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         return self.int_data, self.scale, self.zero_point
 
     def get_layout(self) -> Layout:

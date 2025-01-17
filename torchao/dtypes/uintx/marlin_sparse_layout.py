@@ -227,6 +227,11 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         # Linear layers are (in_features, out_features) but the int_data that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
         q_w_24 = int_data.t()
+        # addressing the case when scale has dimension 1, happens when
+        # weight_shape[-1] == group_size == 128
+        if scale.ndim == 1:
+            scale = scale.reshape(scale.shape[0], -1)
+
         scale_t = scale.t()
 
         if not torch.cuda.get_device_capability()[0] >= 8:

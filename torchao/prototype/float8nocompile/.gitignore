@@ -1,3 +1,0 @@
-kernels/autogen/
-test/activation_checkpoint_test.py
-test/distributed_test.py

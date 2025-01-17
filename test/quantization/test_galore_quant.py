@@ -13,6 +13,7 @@ from bitsandbytes.functional import (
     dequantize_blockwise,
     quantize_blockwise,
 )
+from test_utils import skip_if_rocm
 
 from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,

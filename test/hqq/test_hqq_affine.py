@@ -1,6 +1,7 @@
 import unittest
 
 import torch
+from test_utils import skip_if_rocm
 
 from torchao.quantization import (
     MappingType,

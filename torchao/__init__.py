@@ -29,9 +29,12 @@ if not _IS_FBCODE:
         from pathlib import Path
 
         so_files = list(Path(__file__).parent.glob("_C*.so"))
-        assert len(so_files) == 1, f"Expected one _C*.so file, found {len(so_files)}"
-        torch.ops.load_library(so_files[0])
-        from . import ops
+        if len(so_files) > 0:
+            assert (
+                len(so_files) == 1
+            ), f"Expected one _C*.so file, found {len(so_files)}"
+            torch.ops.load_library(so_files[0])
+            from . import ops
 
         # The following library contains CPU kernels from torchao/experimental
         # They are built automatically by ao/setup.py if on an ARM machine.

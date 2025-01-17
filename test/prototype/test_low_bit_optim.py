@@ -43,6 +43,7 @@ try:
 except ImportError:
     lpmm = None
 
+from test_utils import skip_if_rocm
 
 _DEVICES = get_available_devices()
 

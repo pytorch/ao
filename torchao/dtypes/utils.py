@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import torch
 
@@ -87,7 +87,7 @@ class AQTTensorImpl(TorchAOBaseTensor):
     the underlying implementation of a AQT based on layout
     """
 
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Get the plain (unpacked) Tensor for the tensor impl
 
         Returns data, scale and zero_point
@@ -103,7 +103,7 @@ class AQTTensorImpl(TorchAOBaseTensor):
         cls,
         data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         """Construct a TensorImpl from data, scale, zero_point and the _layout"""

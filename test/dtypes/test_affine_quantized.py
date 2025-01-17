@@ -2,6 +2,7 @@ import tempfile
 import unittest
 
 import torch
+from test_utils import skip_if_rocm
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,

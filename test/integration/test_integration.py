@@ -25,6 +25,9 @@ from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
     AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
+    AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+    AQInt4G32WeightOnlyQuantizedLinearWeight,
+    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight2,
@@ -90,7 +93,6 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
-
 
 logger = logging.getLogger("INFO")
 
@@ -1753,6 +1755,114 @@ class TestAutoQuant(unittest.TestCase):
         # without setting min_sqnr to 60, we get around 45-50 final sqnr
         # setting min_sqnr for individual linear to be 60 allows us to achieve >= 50 final sqnr
         self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "autoquant float option requires 2.4+."
+    )
+    def test_autoquant_hp_float(self):
+        device = "cuda"
+        dtype = torch.float32
+        m, k, n = 128, 128, 128
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+        for qclass in torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST:
+            model = (
+                torch.nn.Sequential(
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(k, n, bias=True),
+                    torch.nn.ReLU(),
+                )
+                .to(device)
+                .to(dtype)
+            )
+            ref = model(example_input)
+            qtensor_class_list = [qclass]
+            torchao.autoquant(
+                model,
+                qtensor_class_list=qtensor_class_list,
+            )
+            out = model(example_input)
+            self.assertIn(
+                type(model[1].weight),
+                qtensor_class_list,
+            )
+            self.assertGreater(compute_error(out, ref), 40)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
+    )
+    @unittest.skipIf(not has_gemlite, "gemlite not available")
+    def test_autoquant_int4wo(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"int4wo is for cuda, not {device}")
+
+        m, k, n = 128, 128, 128
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+
+        for qclass in [
+            AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
+            AQInt4G32WeightOnlyQuantizedLinearWeight,
+            AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
+        ]:
+            model = (
+                torch.nn.Sequential(
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(k, n, bias=True),
+                    torch.nn.ReLU(),
+                )
+                .to(device)
+                .to(dtype)
+            )
+            ref = model(example_input)
+            qtensor_class_list = [qclass]
+            torchao.autoquant(
+                model,
+                qtensor_class_list=qtensor_class_list,
+            )
+            out = model(example_input)
+
+            self.assertIn(type(model[1].weight), qtensor_class_list)
+            self.assertGreater(compute_error(ref, out), 20)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_5, "autoquant int4 option requires 2.5+."
+    )
+    def test_autoquant_float8(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"int4wo is for cuda, not {device}")
+
+        # note: marlin sparse layout failed when scale_t has a dimension of 1d
+        m, k, n = 128, 128, 128
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+
+        for qclass in [
+            AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
+            AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
+            AQFloat8WeightOnlyQuantizedLinearWeight,
+        ]:
+            model = (
+                torch.nn.Sequential(
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(k, n, bias=True),
+                    torch.nn.ReLU(),
+                )
+                .to(device)
+                .to(dtype)
+            )
+            ref = model(example_input)
+            qtensor_class_list = [qclass]
+            torchao.autoquant(
+                model,
+                qtensor_class_list=qtensor_class_list,
+            )
+            out = model(example_input)
+
+            self.assertIn(type(model[1].weight), qtensor_class_list)
+            self.assertGreater(compute_error(ref, out), 20)
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
