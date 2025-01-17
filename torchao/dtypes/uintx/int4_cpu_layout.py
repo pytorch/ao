@@ -301,8 +301,12 @@ def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
-    assert TORCH_VERSION_AT_LEAST_2_6, f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
-    assert is_device(input_tensor.device.type, "cpu"), f"For CPU device only but got: {input_tensor.device}"
+    assert (
+        TORCH_VERSION_AT_LEAST_2_6
+    ), f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
+    assert is_device(
+        input_tensor.device.type, "cpu"
+    ), f"For CPU device only but got: {input_tensor.device}"
     assert (
         weight_tensor.block_size[0] == 1
     ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
