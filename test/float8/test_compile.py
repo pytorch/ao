@@ -469,7 +469,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
 
 
 @unittest.skipIf(
-    not is_sm_at_least_89() or not is_fbcode(),
+    not is_sm_at_least_89() or is_fbcode(),
     "CUDA with float8 support not available; or not on fbcode (the test needs be run with the latest pytorch package)",
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])

@@ -30,9 +30,9 @@ jobs:
             gpu-arch-version: "12.1"
           - name: H100
             runs-on: linux.aws.h100
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
+            gpu-arch-version: "12.4"
 
     permissions:
       id-token: write
