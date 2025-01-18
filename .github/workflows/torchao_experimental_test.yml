@@ -32,6 +32,7 @@ jobs:
 
           echo "Installing torchao"
           echo "${PWD}"
+          echo $(ls)
           USE_CPP=1 pip install .
       - name: Run tests
         run: |
