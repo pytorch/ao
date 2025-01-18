@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+from dataclasses import dataclass
 import logging
 import types
 import warnings
@@ -25,6 +26,7 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
+from torchao.core.config import ao_base_workflow_config
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -468,7 +470,10 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **k
 
 def quantize_(
     model: torch.nn.Module,
-    apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
+    # apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
+    apply_tensor_subclass: Union[
+        Callable[[torch.nn.Module], torch.nn.Module], ao_base_workflow_config
+    ],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: bool = True,
     device: Optional[torch.types.Device] = None,
@@ -530,12 +535,31 @@ def quantize_(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        apply_tensor_subclass,
-        _is_linear if filter_fn is None else filter_fn,
-        device=device,
-    )
+    if isinstance(apply_tensor_subclass, ao_base_workflow_config):
+        # new behavior
+
+        # make the variable name make sense
+        config_with_transform = apply_tensor_subclass
+
+        # for each linear in the model, apply the transform if filtering passes
+        # key difference from old is that `config_with_transform` is easily
+        # inspectable
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            config_with_transform._transform,
+            _is_linear if filter_fn is None else filter_fn,
+            device=device,
+        )
+
+    else:
+        # old behavior, for now keep for BC purposes
+        # TODO(after discussion): flesh the BC story out more
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            apply_tensor_subclass,
+            _is_linear if filter_fn is None else filter_fn,
+            device=device,
+        )
 
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -684,14 +708,10 @@ def gemlite_uintx_weight_only(
     return _get_linear_subclass_inserter(apply_fn)
 
 
-def int4_weight_only(
-    group_size=128,
-    layout=TensorCoreTiledLayout(inner_k_tiles=8),
-    use_hqq=False,
-    zero_point_domain=None,
-):
+@dataclass
+class int4_weight_only(ao_base_workflow_config):
     """
-    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
+    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
@@ -711,7 +731,28 @@ def int4_weight_only(
         `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
-    def apply_int4_weight_only_quant(weight):
+    group_size: int = 128
+    layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
+    use_hqq: bool = False
+    zero_point_domain: Optional[ZeroPointDomain] = None
+
+    def _transform(self, module: torch.nn.Module) -> torch.nn.Module:
+        """
+        Wrap weight with AQT
+
+        THIS IS NOT A PUBLIC API - any usage of this outside of torchao
+        can break at any time.
+        """
+        weight = module.weight
+
+        # for now, make these local variables to allow the rest of the function
+        # to be a direct copy-paste
+        # TODO(before land): change the references inline instead
+        group_size = self.group_size
+        layout = self.layout
+        use_hqq = self.use_hqq
+        zero_point_domain = self.zero_point_domain
+
         if weight.shape[-1] % group_size != 0:
             logger.info(
                 f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
@@ -727,7 +768,7 @@ def int4_weight_only(
         preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
         zero_point_dtype = torch.bfloat16
 
-        nonlocal zero_point_domain
+        # nonlocal zero_point_domain
         assert (
             type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
         ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
@@ -748,7 +789,7 @@ def int4_weight_only(
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
-        return to_affine_quantized_intx(
+        new_weight = to_affine_quantized_intx(
             weight,
             mapping_type,
             block_size,
@@ -762,8 +803,8 @@ def int4_weight_only(
             _layout=layout,
             use_hqq=use_hqq,
         )
-
-    return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
+        module.weight = torch.nn.Parameter(new_weight)
+        return module
 
 
 def int8_weight_only(group_size=None):
