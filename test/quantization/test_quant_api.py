@@ -762,12 +762,8 @@ class TestQuantFlow(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
-    @common_utils.parametrize(
-        "dtype", [torch.float, torch.bfloat16, torch.half]
-    )
-    @common_utils.parametrize(
-        "x_dim", [2, 3]
-    )
+    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("x_dim", [2, 3])
     def test_int4wo_cpu(self, dtype, x_dim):
         from torchao.dtypes import Int4CPULayout
 
