@@ -30,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch=="2.6.0.dev20250102" --extra-index-url "https://download.pytorch.org/whl/nightly/cpu"
           pip install -r dev-requirements.txt
-          pip install .
+          USE_CPP=1 pip install .
       - name: Run tests
         run: |
           python torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
