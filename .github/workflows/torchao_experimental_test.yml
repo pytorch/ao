@@ -28,7 +28,7 @@ jobs:
           auto-activate-base: true
       - name: Run tests
         run: |
-          PYTORCH_VERSION="2.6.0.dev20250104" sh packaging/pre_build_script.sh
+          sh packaging/pre_build_script.sh
           
           USE_CPP=1 pip install .
 
