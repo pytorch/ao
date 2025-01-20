@@ -28,7 +28,7 @@ jobs:
           activate-environment: venv
       - name: Run tests
         run: |
-          pip3 install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
-          USE_CPP=1 pip3 install .
+          pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
+          USE_CPP=1 pip install .
 
-          python3 torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
+          python torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
