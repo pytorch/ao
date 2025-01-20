@@ -495,6 +495,7 @@ class IntxWeightEmbeddingQuantizer:
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     to_packedlinearint8dynamicactivationintxweight_quantized_intx,
+    Target,
 )
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
@@ -512,10 +513,9 @@ def int8_dynamic_activation_intx_weight(
     weight_dtype: torch.dtype = torch.int4,
     granularity: Union[PerRow, PerGroup] = PerGroup(128),
     has_weight_zeros: bool = False,
-    target: str = "native",
     weight_mapping_type=MappingType.ASYMMETRIC,
     act_mapping_type=MappingType.ASYMMETRIC,
-    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),  # PlainLayout() also works, but will be slow
+    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="native"),  # PlainLayout() also works, but will be slow
 ):
     """
     Dynamically quantizes activations with 8-bits and weights with a low-bit value for linear layers.
@@ -539,19 +539,16 @@ def int8_dynamic_activation_intx_weight(
              - act_mapping_type must be MappingType.ASYMMETRIC
     """
 
-    if target == "aten":
-        if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout) or \
-                weight_dtype != torch.int4 or \
-                has_weight_zeros != True or \
-                weight_mapping_type != MappingType.SYMMETRIC:
-            raise NotImplementedError(
-                f"target 'aten' requires:\n"
-                f"- layout to be PackedLinearInt8DynamicActivationIntxWeightLayout,\n"
-                f"- has_weight_zeros to be True,\n"
-                f"- weight_dtype to be torch.int4,\n"
-                f"- weight_mapping_type to be MappingType.SYMMETRIC"
+    def is_torchao_op_skippable(layout):
+        return (
+            isinstance(layout, PlainLayout) or
+            (
+                isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout) and
+                layout.target == Target.ATEN
             )
-    elif not isinstance(layout, PlainLayout):
+    )
+
+    if not is_torchao_op_skippable(layout):
         try:
             torch.ops.torchao._pack_8bit_act_4bit_weight
         except AttributeError:
@@ -577,7 +574,7 @@ def int8_dynamic_activation_intx_weight(
         )
     bit_width = dtype_to_bit_width[weight_dtype]
     layout_arg = layout
-    propagate_bias = isinstance(layout_arg, PackedLinearInt8DynamicActivationIntxWeightLayout) and layout_arg.target=="aten"
+    propagate_bias = isinstance(layout_arg, PackedLinearInt8DynamicActivationIntxWeightLayout) and layout_arg.target == Target.ATEN
 
     def apply(weight, bias: Optional[torch.Tensor] = None):
         if isinstance(granularity, PerGroup):
@@ -612,13 +609,23 @@ def int8_dynamic_activation_intx_weight(
                 bit_width=bit_width,
                 group_size=group_size,
                 has_weight_zeros=has_weight_zeros,
-                target=target,
+                target="aten" if layout.target == Target.ATEN else "native",
             )
-            if target == "aten":
+            if layout.target == Target.ATEN:
+                if weight_dtype != torch.int4 or \
+                    has_weight_zeros != True or \
+                    weight_mapping_type != MappingType.SYMMETRIC:
+                    raise NotImplementedError(
+                        f"target 'aten' requires:\n"
+                        f"- layout to be PackedLinearInt8DynamicActivationIntxWeightLayout,\n"
+                        f"- has_weight_zeros to be True,\n"
+                        f"- weight_dtype to be torch.int4,\n"
+                        f"- weight_mapping_type to be MappingType.SYMMETRIC"
+                    )
                 assert TORCH_VERSION_AT_LEAST_2_6, f"aten target is requires torch version > 2.6.0"
                 if torch.backends.kleidiai.is_available():
                     if isinstance(granularity, PerGroup):
-                        scale_dtype = torch.bfloat16 # KleidiAI kernel requires bfloat16 scale_dtype
+                        scale_dtype = torch.bfloat16  # KleidiAI kernel requires bfloat16 scale_dtype
                 tensor_quantizer = to_packedlinearint8dynamicactivationintxweight_quantized_intx
 
         quantizer_args = [weight,
