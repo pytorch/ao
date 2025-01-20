@@ -773,9 +773,7 @@ class TestQuantFlow(TestCase):
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
-        with torch.no_grad(), torch.autocast(
-            "cpu", enabled=(dtype != torch.float), dtype=dtype
-        ):
+        with torch.no_grad():
             quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
@@ -783,6 +781,7 @@ class TestQuantFlow(TestCase):
                 *example_inputs,
             )
             assert "_weight_int4pack_mm_for_cpu" in code[0]
+            assert "aten.mm.default" not in code[0]
 
 
 class TestMultiTensorFlow(TestCase):
