@@ -294,6 +294,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
+    install_requires=["torch"],
     ext_modules=get_extensions() if use_cpp != "0" else None,
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
