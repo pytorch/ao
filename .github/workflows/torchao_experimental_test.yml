@@ -27,6 +27,7 @@ jobs:
           miniconda-version: "latest"
       - name: Run tests
         run: |
+          conda init
           conda create -n venv python=3.10 -y
           conda activate venv
           pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
