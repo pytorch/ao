@@ -21,19 +21,18 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: 3.10.11
+          python-version: 3.10
+          miniconda-version: "latest"
+          auto-activate-base: true
       - name: Run tests
         run: |
-          conda create -n venv python=3.10 -y
-          conda activate venv
           python -m pip install --upgrade pip
           pip install torch
           pip install -r dev-requirements.txt
-          pip3 list
-          python3 -c 'import torch;print(f"torch: {torch.__version__, torch.version.git_version}")'
+          pip list
+          python -c 'import torch;print(f"torch: {torch.__version__, torch.version.git_version}")'
           
           USE_CPP=1 pip install .
 
