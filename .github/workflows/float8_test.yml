@@ -5,16 +5,16 @@ on:
     branches:
       - main
       - 'gh/**'
-    paths:
+    paths-ignore:
       # do not run if only docs changed
-      - '!docs/**'
+      - 'docs/**'
   pull_request:
     branches:
       - main
       - 'gh/**'
-    paths:
+    paths-ignore:
       # do not run if only docs changed
-      - '!docs/**'
+      - 'docs/**'
 
 concurrency:
   group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
