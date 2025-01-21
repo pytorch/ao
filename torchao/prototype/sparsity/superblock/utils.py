@@ -22,7 +22,6 @@ from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
 from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
 from torchao.prototype.sparsity.superblock.supermask import (
     SupermaskLinear,
-    apply_supermask,
 )
 from torchao.quantization import int8_dynamic_activation_int8_weight, quantize_
 from torchao.sparsity import semi_sparse_weight, sparsify_
@@ -396,6 +395,7 @@ def accelerate_with_sparsity(model, args, filter_fn):
                     layout=BlockSparseLayout(blocksize=args.bsr)
                 ),
                 filter_fn,
+
             )
         else:
             assert args.bsr is not None, "BSR requires a block size"
@@ -419,20 +419,7 @@ def accelerate_with_sparsity(model, args, filter_fn):
 
 def simulate_sparsity(model, args, filter_fn):
     if args.sparsity == "bsr":
-        apply_supermask(
-            model,
-            linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.bsr,
-            conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.bsr,
-            conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.bsr,
-            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-            device=args.device,
-            verbose=False,
-            filter_fn=filter_fn,
-        )
+        pass
     elif args.sparsity == "semi_structured":
         sparse_config = []
         for name, mod in model.named_modules():

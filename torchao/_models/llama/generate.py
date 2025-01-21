@@ -804,24 +804,20 @@ def main(
 
     # standalone quantization
         if "bsr" in sparsity:
-            from torchao.prototype.sparsity.superblock.utils import (
-                accelerate_with_sparsity,
-                get_args_parser,
-                simulate_sparsity,
+            from torchao.prototype.sparsity.superblock.supermask import SupermaskLinear
+            sparsify_(
+                model,
+                lambda x: SupermaskLinear.from_linear(x, 
+                    sparsity_level=0.9,
+                    blocksize=64,
+                ),
+                filter_fn=ffn_only,
             )
 
-            superblock_args = get_args_parser(benchmark=True).parse_args([])
-            superblock_args.sparsity = "bsr"
-            superblock_args.sparsity_linear = 0.9
-            superblock_args.bsr = 64
-
-            sparsifier_or_none = simulate_sparsity(model, superblock_args, ffn_only)
-            if sparsifier_or_none is not None:
-                sparsifier_or_none.squash_mask()
-
-
-            model = model.to(device)
-            accelerate_with_sparsity(model, superblock_args, ffn_only)
+            from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
+            sparsify_(model,
+                block_sparse_weight(blocksize=64),
+                filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
