@@ -75,12 +75,7 @@ class mx_mm(torch.autograd.Function):
         input_t_mx_dim0_tmp = MXTensor.to_mx(
             input_hp_r.t().contiguous(), elem_dtype, block_size
         )
-        # print('a', input_t_mx_dim0_tmp.shape)
         input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
-        # print('b', input_t_mx_dim0.shape)
-        # TODO(next 2): debug why fp4 here leads to incorrect shapes
-        # import pdb; pdb.set_trace()
-        # print('go_dim1', grad_output_mx_dim1.shape, 'i_t_dim0', input_t_mx_dim0.shape)
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
         return grad_input, grad_weight, None, None
