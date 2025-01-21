@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.sparsity
+
+
+semi_sparse_weight
+==================
+
+.. autofunction:: semi_sparse_weight
