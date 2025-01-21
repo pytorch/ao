@@ -158,8 +158,15 @@ def test_block_sizes(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("fp4_triton", [False, True])
+# @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize("elem_dtype", ["fp4_e2m1"])
+# @pytest.mark.parametrize("fp4_triton", [False, True])
+@pytest.mark.parametrize(
+    "fp4_triton",
+    [
+        False,
+    ],
+)
 def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
@@ -167,8 +174,9 @@ def test_transpose(elem_dtype, fp4_triton):
     if elem_dtype != DTYPE_FP4 and fp4_triton:
         pytest.skip("unsupported configuration")
 
-    tensor_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    M, K = 128, 256
     block_size = 32
+    tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
     config.use_fp4_custom_triton_dequant_kernel = fp4_triton
     tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()

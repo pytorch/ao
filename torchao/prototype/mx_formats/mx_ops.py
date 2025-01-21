@@ -65,6 +65,9 @@ def mx_mm(aten_op, args, kwargs=None):
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
     a_hp = a.to_dtype(a._orig_dtype)
     b_hp = b.to_dtype(b._orig_dtype)
+    # assert memory layout we expect to be required in hardware
+    assert a_hp.is_contiguous()
+    assert b_hp.t().is_contiguous()
     res = aten_op(a_hp, b_hp)
     return res
 
@@ -77,6 +80,9 @@ def mx_addmm(aten_op, args, kwargs=None):
     assert isinstance(b, MXTensor) and isinstance(c, MXTensor)
     b_hp = b.to_dtype(b._orig_dtype)
     c_hp = c.to_dtype(c._orig_dtype)
+    # assert memory layout we expect to be required in hardware
+    assert a_hp.is_contiguous()
+    assert b_hp.t().is_contiguous()
     res = aten_op(a, b_hp, c_hp)
     return res
 
