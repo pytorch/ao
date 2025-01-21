@@ -29,6 +29,9 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
 
+    permissions:
+      id-token: write
+      contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 60

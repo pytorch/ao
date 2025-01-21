@@ -108,7 +108,6 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
-    @skip_if_rocm("ROCm development in progress")
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
