@@ -380,11 +380,11 @@ def mlp_only_with_args(
 ### Custom sparsification utils
 def apply_sparsity(model):
     for name, module in model.named_modules():
-        if isinstance(module, SupermaskLinear) and "mlp" in name:
+        if isinstance(module, SupermaskLinear) and "feed_forward" in name:
             module.sparsify_offline()
 
 
-def accelerate_with_sparsity(model, args):
+def accelerate_with_sparsity(model, args, filter_fn):
     if args.sparsity == "bsr":
         apply_sparsity(model)
         if args.quantization:
@@ -393,13 +393,13 @@ def accelerate_with_sparsity(model, args):
             quantize_(
                 model,
                 int8_dynamic_activation_int8_weight(
-                    _layout=BlockSparseLayout(blocksize=args.bsr)
+                    layout=BlockSparseLayout(blocksize=args.bsr)
                 ),
-                superblock_only,
+                filter_fn,
             )
         else:
             assert args.bsr is not None, "BSR requires a block size"
-            sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
+            quantize_(model, block_sparse_weight(blocksize=args.bsr), filter_fn)
     elif args.sparsity == "semi_structured":
         if args.quantization:
             from torchao.dtypes import SemiSparseLayout
@@ -417,7 +417,7 @@ def accelerate_with_sparsity(model, args):
             quantize_(model, int8_dynamic_activation_int8_weight(), mlp_only)
 
 
-def simulate_sparsity(model, args):
+def simulate_sparsity(model, args, filter_fn):
     if args.sparsity == "bsr":
         apply_supermask(
             model,
@@ -431,6 +431,7 @@ def simulate_sparsity(model, args):
             skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
             device=args.device,
             verbose=False,
+            filter_fn=filter_fn,
         )
     elif args.sparsity == "semi_structured":
         sparse_config = []

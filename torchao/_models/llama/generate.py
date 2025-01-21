@@ -23,7 +23,12 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
-torch.backends.cuda.enable_cudnn_sdp(True)
+from torch._inductor import config as inductorconfig
+inductorconfig.triton.unique_kernel_names = True
+# torch.backends.cuda.enable_cudnn_sdp(True)
+# torch.backends.cuda.enable_math_sdp(False)
+# torch.backends.cuda.enable_flash_sdp(False)
+# torch.backends.cuda.enable_mem_efficient_sdp(False)
 
 
 class HostEvent:
@@ -322,7 +327,7 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn 
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
@@ -797,6 +802,27 @@ def main(
             # TODO there is a bug here, need to fix
             sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
+    # standalone quantization
+        if "bsr" in sparsity:
+            from torchao.prototype.sparsity.superblock.utils import (
+                accelerate_with_sparsity,
+                get_args_parser,
+                simulate_sparsity,
+            )
+
+            superblock_args = get_args_parser(benchmark=True).parse_args([])
+            superblock_args.sparsity = "bsr"
+            superblock_args.sparsity_linear = 0.9
+            superblock_args.bsr = 64
+
+            sparsifier_or_none = simulate_sparsity(model, superblock_args, ffn_only)
+            if sparsifier_or_none is not None:
+                sparsifier_or_none.squash_mask()
+
+
+            model = model.to(device)
+            accelerate_with_sparsity(model, superblock_args, ffn_only)
+
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
     if save:
@@ -811,7 +837,7 @@ def main(
         print("Compiling Model")
         global decode_one_token, prefill
         decode_one_token = torch.compile(
-            decode_one_token, mode="reduce-overhead", fullgraph=True
+            decode_one_token, mode="reduce-overhead", fullgraph=True, dynamic=True,
         )
 
         if compile_prefill:
@@ -850,7 +876,7 @@ def main(
                 prompt = f"{B_INST} {prompt.strip()} {E_INST}"
             encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
-        if interactive and i >= 0:
+        if interactive and i >= 0 and prefill_size is None:
             buffer = []
             period_id = tokenizer.encode(".")[0]
             done_generating = False
@@ -920,7 +946,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and demo_summarize_prompt is None:
+        if not interactive and demo_summarize_prompt is None and prefill_size is None:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (
