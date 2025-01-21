@@ -358,8 +358,10 @@ void voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(void **stack,
   // here, void* is my StableIValue
   // function is going to take a stack of void*, cast them to our
   // schema values for now, and run the function and modify the void* stack
-  int64_t innerKTiles = *reinterpret_cast<int64_t *>(stack[3]);
-  int64_t group_size = *reinterpret_cast<int64_t *>(stack[2]);
+  int64_t innerKTiles = reinterpret_cast<int64_t>(stack[3]);
+  int64_t group_size = reinterpret_cast<int64_t>(stack[2]);
+  TORCH_WARN(innerKTiles);
+  TORCH_WARN(group_size);
   AtenTensorHandle scales_and_zeros_ath =
       reinterpret_cast<AtenTensorHandle>(stack[1]);
   AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
@@ -380,37 +382,49 @@ void boxed_dequantize_tensor_core_tiled_layout(const c10::OperatorHandle &op,
   // function pt1 here should take in IValues, pass a malloc'd stack into the
   // second function
   // need a translation from IValues to ATH to void*s!
-  int64_t innerKTiles = torch::jit::pop(stack).toInt();
-  int64_t group_size = torch::jit::pop(stack).toInt();
-  const at::Tensor &scales_and_zeros = torch::jit::pop(stack).toTensor();
-  AtenTensorHandle scales_and_zeros_ath =
-      torch::aot_inductor::tensor_pointer_to_tensor_handle(&scales_and_zeros);
-  const at::Tensor &packed_w = torch::jit::pop(stack).toTensor();
-  AtenTensorHandle packed_w_ath =
-      torch::aot_inductor::tensor_pointer_to_tensor_handle(&packed_w);
 
-  int64_t num_args = 4;
-  int64_t num_outputs = 1;
-  void **ministack = (void**)malloc((num_args + num_outputs) * sizeof(void *));
-  ministack[3] = reinterpret_cast<void *>(&innerKTiles);
-  ministack[2] = reinterpret_cast<void *>(&group_size);
-  ministack[1] = reinterpret_cast<void *>(scales_and_zeros_ath);
-  ministack[0] = reinterpret_cast<void *>(packed_w_ath);
+  const auto& schema = op.schema();
+  const auto num_returns = schema.returns().size();
+  const auto num_arguments = schema.arguments().size();
+  TORCH_CHECK(num_arguments==4);
+  TORCH_CHECK(num_returns==1);
+  void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
+
+  for (auto idx = 0; idx < num_arguments; idx++) {
+    TORCH_WARN(idx);
+    const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
+    if (arg.isInt()) {
+      ministack[idx] = reinterpret_cast<void *>(arg.toInt());
+    } else if (arg.isTensor()) {
+      TORCH_WARN("am tensor!")
+      const at::Tensor& tensor = arg.toTensor();
+      AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+      ministack[idx] = reinterpret_cast<void *>(ath);
+    } else {
+      TORCH_CHECK(false, "Other types of IValues not handled!");
+    }
+  }
+  TORCH_WARN("done with forloop no problems!")
 
   // second function is going to take a stack of void*, cast them to our
   // schema values for now, and run the function and modify the void* stack
-  voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_args,
-                                                    num_outputs);
+  voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_arguments,
+                                                    num_returns);
 
   // now read the output from the end of the stack and wrap that back into
   // IValue from void*?
 
   AtenTensorHandle out_ath =
-      reinterpret_cast<AtenTensorHandle>(ministack[num_args]);
-    
+      reinterpret_cast<AtenTensorHandle>(ministack[num_arguments]);
+  
   free(ministack);
+
   at::Tensor out =
       *torch::aot_inductor::tensor_handle_to_tensor_pointer(out_ath);
+
+  // now pop everything. if we pop earlier, Tensors would go out of scope
+  // before calling the function
+  torch::jit::drop(stack, num_arguments);
   torch::jit::push(stack, c10::IValue(out));
 
   // so above is our stack of IValues, but we cannot have these IValues because
@@ -486,90 +500,6 @@ at::Tensor _unpack_tensor_core_tiled_layout(const at::Tensor &packed_w,
   }
 
   return out;
-}
-
-void voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(void **stack,
-                                                       int64_t num_args,
-                                                       int64_t num_outputs) {
-  // here, void* is my StableIValue
-  // function is going to take a stack of void*, cast them to our
-  // schema values for now, and run the function and modify the void* stack
-  int64_t innerKTiles = *reinterpret_cast<int64_t *>(stack[3]);
-  int64_t group_size = *reinterpret_cast<int64_t *>(stack[2]);
-  AtenTensorHandle scales_and_zeros_ath =
-      reinterpret_cast<AtenTensorHandle>(stack[1]);
-  AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
-
-  AtenTensorHandle ath_res = _ATH_dequantize_tensor_core_tiled_layout(
-      packed_w_ath, scales_and_zeros_ath, group_size, innerKTiles);
-
-  void *out = reinterpret_cast<void *>(ath_res);
-  stack[num_args] = out;
-}
-
-// step 1: from here, call the ATH func
-// step 2: make ATH func also boxed and call it
-// step 3: move abstract code to libtorch
-void boxed_dequantize_tensor_core_tiled_layout(const c10::OperatorHandle &op,
-                                               torch::jit::Stack *stack) {
-
-  // function pt1 here should take in IValues, pass a malloc'd stack into the
-  // second function
-  // need a translation from IValues to ATH to void*s!
-  int64_t innerKTiles = torch::jit::pop(stack).toInt();
-  int64_t group_size = torch::jit::pop(stack).toInt();
-  const at::Tensor &scales_and_zeros = torch::jit::pop(stack).toTensor();
-  AtenTensorHandle scales_and_zeros_ath =
-      torch::aot_inductor::tensor_pointer_to_tensor_handle(&scales_and_zeros);
-  const at::Tensor &packed_w = torch::jit::pop(stack).toTensor();
-  AtenTensorHandle packed_w_ath =
-      torch::aot_inductor::tensor_pointer_to_tensor_handle(&packed_w);
-
-  int64_t num_args = 4;
-  int64_t num_outputs = 1;
-  void **ministack = (void**)malloc((num_args + num_outputs) * sizeof(void *));
-  ministack[3] = reinterpret_cast<void *>(&innerKTiles);
-  ministack[2] = reinterpret_cast<void *>(&group_size);
-  ministack[1] = reinterpret_cast<void *>(scales_and_zeros_ath);
-  ministack[0] = reinterpret_cast<void *>(packed_w_ath);
-
-  // second function is going to take a stack of void*, cast them to our
-  // schema values for now, and run the function and modify the void* stack
-  voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_args,
-                                                    num_outputs);
-
-  // now read the output from the end of the stack and wrap that back into
-  // IValue from void*?
-
-  AtenTensorHandle out_ath =
-      reinterpret_cast<AtenTensorHandle>(ministack[num_args]);
-    
-  free(ministack);
-  at::Tensor out =
-      *torch::aot_inductor::tensor_handle_to_tensor_pointer(out_ath);
-  torch::jit::push(stack, c10::IValue(out));
-
-  // so above is our stack of IValues, but we cannot have these IValues because
-  // they are NOT ABI stable! So we need another version of "boxed" with void*s.
-  // and that is what is going to happen below
-
-  // what the old function used to be:
-  // int64_t innerKTiles = torch::jit::pop(stack).toInt();
-  // int64_t group_size = torch::jit::pop(stack).toInt();
-  // const at::Tensor &scales_and_zeros = torch::jit::pop(stack).toTensor();
-  // const at::Tensor &packed_w = torch::jit::pop(stack).toTensor();
-
-  // AtenTensorHandle packed_w_ath =
-  //     torch::aot_inductor::tensor_pointer_to_tensor_handle(&packed_w);
-  // AtenTensorHandle scales_and_zeros_ath =
-  //     torch::aot_inductor::tensor_pointer_to_tensor_handle(&scales_and_zeros);
-
-  // AtenTensorHandle ath_res = _ATH_dequantize_tensor_core_tiled_layout(
-  //     packed_w_ath, scales_and_zeros_ath, group_size, innerKTiles);
-
-  // at::Tensor out =
-  //     *torch::aot_inductor::tensor_handle_to_tensor_pointer(ath_res);
-  // torch::jit::push(stack, c10::IValue(out));
 }
 
 
