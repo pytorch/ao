@@ -23,12 +23,6 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
-from torch._inductor import config as inductorconfig
-inductorconfig.triton.unique_kernel_names = True
-# torch.backends.cuda.enable_cudnn_sdp(True)
-# torch.backends.cuda.enable_math_sdp(False)
-# torch.backends.cuda.enable_flash_sdp(False)
-# torch.backends.cuda.enable_mem_efficient_sdp(False)
 
 
 class HostEvent:
@@ -799,11 +793,11 @@ def main(
         from torchao.sparsity import semi_sparse_weight, sparsify_
 
         if "semi" in sparsity:
-            # TODO there is a bug here, need to fix
+            # Fixed sparsity level for 2:4
             sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
-    # standalone quantization
         if "bsr" in sparsity:
+            # Apply Supermask to get sparse weights
             from torchao.prototype.sparsity.superblock.supermask import SupermaskLinear
             sparsify_(
                 model,
