@@ -3,182 +3,6 @@ Sparsity
 
 Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing how the elements are pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
-Benchmarks
-==========
-
-segment-anything-fast
-^^^^^^^^^^^^^^^^^^^^^
-
-We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
-
-Overall, we found that accelerating the MLP linear layers provied the most speedups (\ ``lin1``\ , ``lin2``\ ), while mitigating accuracy loss.
-
-Applying sparsity to the attention linear layers led to a slower model, likely due to two reasons:
-
-
-* We cannot fuse into our semi-structured sparse matmul with torch.compile.
-* The speedups we observe for sparse matmul depend on the matmul shapes, and the attention matmuls are smaller than the MLP ones.
-
-We were also are able to compose int8 dynamic quantization with 2:4 sparsity for futher speedups.
-
-We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
-
-The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and ``bfloat16`` dtype, with ``torch.compile="max_autotune"``\ :
-
-.. list-table::
-   :header-rows: 1
-
-   * - Model Type
-     - Technique
-     - img/s
-     - memory (MiB)
-     - mIoU (coco2017 val)
-     - relative speedup
-     - relative accuracy
-   * - ViT-h
-     - baseline (bfloat16, max-autotune)
-     - 22.75
-     - 15172
-     - 0.5811
-     -
-     -
-   * -
-     - int8 dynamic quant (attn + mlp)
-     - 24.91
-     - 15154
-     - 0.5822
-     - **1.09x**
-     - **100.19%**
-   * -
-     - 2:4 sparsity (mlp only)
-     - 24.81
-     - 15632
-     - 0.5672
-     - **1.10x**
-     - **97.61%**
-   * -
-     - 2:4 sparsity (attn + mlp)
-     - 24.30
-     - 13429
-     - 0.5306
-     - **1.07x**
-     - **91.31%**
-   * -
-     - int8 dynamic quant (attn)\ :raw-html-m2r:`<br>`\ int8 dynamic quant + 2:4 sparsity (mlp lin1)\ :raw-html-m2r:`<br>`\ 2:4 sparsity (mlp lin2)
-     - 26.46
-     - 14865
-     - 0.5668
-     - **1.16x**
-     - **97.54%**
-
-
-To reproduce our benchmarks please follow these `instructions </torchao/_models/sam/README.md>`_.
-
-LLama3
-^^^^^^
-
-On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our existing int4-wo implementation when using the sparse marlin kernel @Diogo-V added.
-
-.. list-table::
-   :header-rows: 1
-
-   * - Model
-     - Technique
-     - Tokens/Second
-     - Memory Bandwidth (GB/s)
-     - Peak Memory (GB)
-     - Model Size (GB)
-   * - Llama-3-8B
-     - Base (bfloat16)
-     - 95.64
-     - 1435.54
-     - 16.43
-     - 15.01
-   * -
-     - int8wo
-     - 153.03
-     - 1150.80
-     - 10.42
-     - 7.52
-   * -
-     - int4wo-64
-     - 180.80
-     - 763.33
-     - 6.88
-     - 4.22
-   * -
-     - int4wo-64-sparse-marlin
-     - 226.02
-     - 689.20
-     - 5.32
-     - 3.05
-
-
-These benchmarks were also ran on a NVIDIA-A100-80GB.
-
-Supported APIs
-==============
-
-
-.. image:: /docs/static/supported_sparsity_patterns.png
-   :target: /docs/static/supported_sparsity_patterns.png
-   :alt: support_matrix
-
-
-Sparse Marlin 2:4
-^^^^^^^^^^^^^^^^^
-
-Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity, improving performance in matrix multiplication and accumulation. Full documentation can be found `here <https://github.com/IST-DASLab/Sparse-Marlin>`_.
-
-.. code-block:: py
-
-   from torchao.quantization.quant_api import quantize_, int4_weight_only
-   from torchao.dtypes import MarlinSparseLayout
-
-   # Your FP16 model
-   model = model.cuda().half()
-   quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
-
-Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
-the necessary supporting flows in torchao.
-
-int8 dynamic quant + 2:4 sparasity
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of the scalar dequant multiplications into our cuSPARSELt sparse mm in order to remain performant.
-
-.. code-block:: py
-
-   from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
-   from torchao.dtypes import SemiSparseLayout
-
-   model = model.cuda()
-   quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
-
-2:4 sparsity
-^^^^^^^^^^^^
-
-.. code-block:: py
-
-   from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
-   from torchao.dtypes import SemiSparseLayout
-
-   model = model.cuda()
-   sparsify_(model, semi_sparse_weight())
-
-Block sparsity (prototype)
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-We offer prototype support for accelerating block sparsity with our triton kernels for bfloat16/float16 workloads.
-
-.. code-block:: py
-
-   from torchao.sparsity.sparse_api import sparsify_
-   from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
-
-   model = model.cuda()
-   sparsify_(model, block_sparse_weight())
-
 Goal
 ====
 
@@ -229,8 +53,7 @@ The handoff point between these two pieces are sparse weights stored in a dense 
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
 
-.. image:: /docs/static/pruning_ecosystem_diagram.png
-   :target: /docs/static/pruning_ecosystem_diagram.png
+.. image:: ../static/pruning_ecosystem_diagram.png
    :alt: pruning_flow
 
 
@@ -286,8 +109,7 @@ Note that this section focuses on **pruning**\ , instead of **sparse training**.
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
 
-.. image:: /docs/static/pruning_flow.png
-   :target: /docs/static/pruning_flow.png
+.. image:: ../static/pruning_flow.png
    :alt: flow
 
 
@@ -643,19 +465,16 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
      </tr>
    </table>
 
-
-*Fig 2.3: unstructured sparsity*
+ <i>Fig 2.3: unstructured sparsity</i>
 
    </td>
   </tr>
-  :raw-html-m2r:`<tr>`
-   :raw-html-m2r:`<td>`\ 2:4 Semi-Structured
+  <tr>
+   <td> 2:4 Semi-Structured
 
    </td>
-   :raw-html-m2r:`<td>`
+   <td>
 
-
-.. raw:: html
 
    <table>
      <tr>
@@ -733,18 +552,15 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
    </table>
 
 
-*Fig 2.4: 2:4 semi-structured sparsity*
+ <i>Fig 2.4: 2:4 semi-structured sparsity</i>
 
    </td>
   </tr>
-  :raw-html-m2r:`<tr>`
-   :raw-html-m2r:`<td>`\ Block Sparsity
+  <tr>
+   <td> Block Sparsity
 
    </td>
-   :raw-html-m2r:`<td>`
-
-
-.. raw:: html
+   <td>
 
    <table>
      <tr>
@@ -822,18 +638,16 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
    </table>
 
 
-*Fig 2.5: 4x4 block-wise structured sparsity*
+ <i>Fig 2.5: 4x4 block-wise structured sparsity</i>
 
    </td>
   </tr>
-  :raw-html-m2r:`<tr>`
-   :raw-html-m2r:`<td>`\ Structured Sparsity
+  <tr>
+   <td> Structured Sparsity
 
    </td>
-   :raw-html-m2r:`<td>`
+   <td>
 
-
-.. raw:: html
 
    <table>
      <tr>
@@ -909,12 +723,10 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
       </td>
      </tr>
    </table>
-
-
-*Fig 2.6: row-wise structured sparsity*
+ <i>Fig 2.6: row-wise structured sparsity</i>
 
    </td>
   </tr>
-</table>
+ </table>
 
 *Table 4.4: Description of some common sparsity patterns.*
