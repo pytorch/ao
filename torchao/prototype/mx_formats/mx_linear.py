@@ -13,7 +13,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
 @torch._dynamo.allow_in_graph
