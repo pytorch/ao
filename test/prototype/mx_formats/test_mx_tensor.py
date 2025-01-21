@@ -158,15 +158,8 @@ def test_block_sizes(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("elem_dtype", ["fp4_e2m1"])
-# @pytest.mark.parametrize("fp4_triton", [False, True])
-@pytest.mark.parametrize(
-    "fp4_triton",
-    [
-        False,
-    ],
-)
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize("fp4_triton", [False, True])
 def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
