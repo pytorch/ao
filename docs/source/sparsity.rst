@@ -391,6 +391,9 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
       <td>
 
    <table>
+   <caption style="caption-side: bottom; text-align: center;">
+        <i>Fig 2.3: unstructured sparsity</i>
+    </caption>
      <tr>
       <td>1
       </td>
@@ -465,18 +468,17 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
      </tr>
    </table>
 
- <i>Fig 2.3: unstructured sparsity</i>
 
    </td>
   </tr>
   <tr>
    <td> 2:4 Semi-Structured
-
    </td>
    <td>
-
-
    <table>
+   <caption style="caption-side: bottom; text-align: center;">
+        <i>Fig 2.4: 2:4 semi-structured sparsity</i>
+    </caption>
      <tr>
       <td>0
       </td>
@@ -550,9 +552,6 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
       </td>
      </tr>
    </table>
-
-
- <i>Fig 2.4: 2:4 semi-structured sparsity</i>
 
    </td>
   </tr>
@@ -563,6 +562,9 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
    <td>
 
    <table>
+   <caption style="caption-side: bottom; text-align: center;">
+        <i>Fig 2.5: 4x4 block-wise structured sparsity</i>
+   </caption>
      <tr>
       <td>0
       </td>
@@ -636,20 +638,17 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
       </td>
      </tr>
    </table>
-
-
- <i>Fig 2.5: 4x4 block-wise structured sparsity</i>
 
    </td>
   </tr>
   <tr>
    <td> Structured Sparsity
-
    </td>
    <td>
-
-
    <table>
+    <caption style="caption-side: bottom; text-align: center;">
+        <i>Fig 2.6: row-wise structured sparsity</i>
+    </caption>
      <tr>
       <td>1
       </td>
@@ -723,10 +722,10 @@ The specific backend hardware and its corresponding sparsity pattern, as well as
       </td>
      </tr>
    </table>
- <i>Fig 2.6: row-wise structured sparsity</i>
-
    </td>
   </tr>
  </table>
 
 *Table 4.4: Description of some common sparsity patterns.*
+
+For more information on our supported APIs and benchmaks please refer `Sparsity README <https://github.com/pytorch/ao/blob/main/torchao/sparsity/README.md>`_.
