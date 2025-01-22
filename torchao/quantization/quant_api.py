@@ -794,6 +794,7 @@ def _int4_weight_only_transform(
         use_hqq=use_hqq,
     )
     module.weight = torch.nn.Parameter(new_weight)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
