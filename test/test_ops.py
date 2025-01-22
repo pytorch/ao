@@ -40,6 +40,9 @@ from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
 )
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
+
 
 class TestOps(TestCase):
     def _create_floatx_inputs(
