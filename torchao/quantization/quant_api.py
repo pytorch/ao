@@ -262,7 +262,8 @@ def _replace_with_custom_fn_if_matches_filter(
         model = replacement_fn(model, *extra_args)
         return model
     else:
-        for name, child in model.named_children():
+        named_children_list = list(model.named_children())
+        for name, child in named_children_list:
             new_child = _replace_with_custom_fn_if_matches_filter(
                 child,
                 replacement_fn,
@@ -480,20 +481,19 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **k
 
 def quantize_(
     model: torch.nn.Module,
-    # apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
-    apply_tensor_subclass: Union[
-        Callable[[torch.nn.Module], torch.nn.Module], AOBaseWorkflowConfig
+    config: Union[
+        AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]
     ],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: bool = True,
     device: Optional[torch.types.Device] = None,
 ):
-    """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
+    """Convert the weight of linear modules in the model with `config`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
-        apply_tensor_subclass (Callable[[torch.nn.Module], torch.nn.Module]): function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor)
-        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
+        config (Union[AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
+        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
         device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.
@@ -505,7 +505,7 @@ def quantize_(
         import torch.nn as nn
         from torchao import quantize_
 
-        # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to
+        # quantize with some predefined `config` method that corresponds to
         # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
         # also customizable with arguments
         # currently options are
@@ -518,43 +518,13 @@ def quantize_(
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
         quantize_(m, int4_weight_only(group_size=32))
 
-        # 2. write your own new apply_tensor_subclass
-        # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
-        # on weight
-
-        from torchao.dtypes import to_affine_quantized_intx
-
-        # weight only uint4 asymmetric groupwise quantization
-        groupsize = 32
-        apply_weight_quant = lambda x: to_affine_quantized_intx(
-          x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
-          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
-
-        def apply_weight_quant_to_linear(linear):
-            linear.weight = torch.nn.Parameter(apply_weight_quant(linear.weight), requires_grad=False)
-            return linear
-
-        # apply to modules under block0 submodule
-        def filter_fn(module: nn.Module, fqn: str) -> bool:
-            return isinstance(module, nn.Linear)
-
-        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, apply_weight_quant_to_linear, filter_fn)
-
     """
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if isinstance(apply_tensor_subclass, AOBaseWorkflowConfig):
-        # new behavior
-
-        # make the variable name make sense
-        config = apply_tensor_subclass
+    if isinstance(config, AOBaseWorkflowConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
-
         # for each linear in the model, apply the transform if filtering passes
-        # key difference from old is that `config_with_transform` is easily
-        # inspectable
         _replace_with_custom_fn_if_matches_filter(
             model,
             handler,
@@ -564,8 +534,12 @@ def quantize_(
         )
 
     else:
-        # old behavior, for now keep for BC purposes
-        # TODO(after discussion): flesh the BC story out more
+        # old behavior, keep to avoid breaking BC
+        warnings.warn("""Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/pull/1595 for instructions on how to pass in workflow configuration instead.""")
+
+        # make the variable name make sense
+        apply_tensor_subclass = config
+
         _replace_with_custom_fn_if_matches_filter(
             model,
             apply_tensor_subclass,
@@ -773,7 +747,7 @@ def _int4_weight_only_transform(
         logger.info(
             f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
         )
-        return weight
+        return module
 
     mapping_type = MappingType.ASYMMETRIC
     block_size = (1, group_size)

@@ -8,6 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from torchao.core.config import AOBaseWorkflowConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
@@ -15,6 +16,7 @@ from torchao.quantization import (
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
+    quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.utils import (
@@ -186,7 +188,10 @@ class TestAffineQuantizedBasic(TestCase):
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-            ql = apply_quant(linear)
+            if isinstance(apply_quant, AOBaseWorkflowConfig):
+                quantize_(linear, apply_quant) 
+            else:
+                ql = apply_quant(linear)
             lp_tensor = ql.weight
             tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
             tensor_data_dict = {
