@@ -33,6 +33,7 @@ template<
     typename WarpShape,
     typename InstructionShape,
     int NumStages,
+    typename ThreadblockSwizzle,
     typename ElementA,
     typename ElementB,
     typename ElementAccumulator,
@@ -53,10 +54,6 @@ void s8s4_linear_kernel_cutlass_sm8x(
   using LayoutOutput = cutlass::layout::RowMajor;
 
   using ElementEpilogue = float;
-
-  using ThreadblockSwizzle =
-      cutlass::gemm::threadblock::ThreadblockSwizzleStreamK;
-
   constexpr auto NumEVTEpilogueStages = 1;
 
   const int m = tensor_a.size(0);
@@ -293,13 +290,15 @@ template<typename ElementA, typename ElementB, typename... Types>
 static void select_config(
     const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
     const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) { 
+    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
   const auto dprops = at::cuda::getCurrentDeviceProperties();
   const auto is_sm8x = dprops->major == 8;
 
   if (is_sm8x) {
     if constexpr (std::is_same<ElementA, int8_t>::value &&
                   std::is_same<ElementB, cutlass::int4b_t>::value) {
+      using ThreadblockSwizzle =
+        cutlass::gemm::threadblock::ThreadblockSwizzleStreamK;
       using InstructionShape = cutlass::gemm::GemmShape<16, 8, 32>;
 
       // A minimal heuristic to improve performance for small number
@@ -309,8 +308,8 @@ static void select_config(
         using WarpShape = cutlass::gemm::GemmShape<16, 32, 128>;
         constexpr auto NumStages = 6;
         s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+          ThreadblockShape, WarpShape, InstructionShape, NumStages,
+          ThreadblockSwizzle, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       } else if (tensor_a.size(0) <= 32) {
@@ -318,8 +317,8 @@ static void select_config(
         using WarpShape = cutlass::gemm::GemmShape<32, 32, 128>;
         constexpr auto NumStages = 5;
         s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+          ThreadblockShape, WarpShape, InstructionShape, NumStages,
+          ThreadblockSwizzle, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       } else {
@@ -327,8 +326,8 @@ static void select_config(
         using WarpShape = cutlass::gemm::GemmShape<64, 32, 128>;
         constexpr auto NumStages = 4;
         s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+          ThreadblockShape, WarpShape, InstructionShape, NumStages,
+          ThreadblockSwizzle, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       }
