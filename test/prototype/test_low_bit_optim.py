@@ -415,6 +415,7 @@ class TestFSDP2(FSDPTest):
         not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
