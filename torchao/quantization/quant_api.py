@@ -35,12 +35,12 @@ from torchao.dtypes import (
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
+    UintxLayout,
     to_affine_quantized_float8,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
-    UintxLayout,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
@@ -52,15 +52,15 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    is_MI300,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_MI300,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
 )
 
-from .autoquant import autoquant, AutoQuantizableLinearWeight
+from .autoquant import AutoQuantizableLinearWeight, autoquant
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
@@ -929,7 +929,6 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
         The actual matmul will be computed in original precision of the weight tensor.
 
     """
-    from torchao.dtypes import to_affine_quantized_floatx
 
     def apply_float8wo_quant(weight):
         block_size = (1, weight.shape[1])
