@@ -17,7 +17,6 @@ concurrency:
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
-
 jobs:
   test-nightly:
     strategy:
