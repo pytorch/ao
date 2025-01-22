@@ -12,28 +12,28 @@ aten = torch.ops.aten
 
 
 # quantization support
-@torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
-def bsr_to_dense(
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-) -> torch.Tensor:
-    return torch.sparse_bsr_tensor(
-        crow_indices=crow_indices, col_indices=col_indices, values=values, size=(M, K)
-    ).to_dense()
+# @torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
+# def bsr_to_dense(
+#     crow_indices: torch.Tensor,
+#     col_indices: torch.Tensor,
+#     values: torch.Tensor,
+#     M: int,
+#     K: int,
+# ) -> torch.Tensor:
+#     return torch.sparse_bsr_tensor(
+#         crow_indices=crow_indices, col_indices=col_indices, values=values, size=(M, K)
+#     ).to_dense()
 
 
-@torch.library.register_fake("blocksparse::bsr_to_dense")
-def bsr_to_dense_abstract(
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-) -> torch.Tensor:
-    return torch.empty((M, K), dtype=values.dtype, device=values.device)
+# @torch.library.register_fake("blocksparse::bsr_to_dense")
+# def bsr_to_dense_abstract(
+#     crow_indices: torch.Tensor,
+#     col_indices: torch.Tensor,
+#     values: torch.Tensor,
+#     M: int,
+#     K: int,
+# ) -> torch.Tensor:
+#     return torch.empty((M, K), dtype=values.dtype, device=values.device)
 
 
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
@@ -261,62 +261,60 @@ def block_sparse_detach(func, types, args, kwargs):
     )
 
 
-# @implements(aten.unsqueeze.default)
-# def block_sparse_unsqueeze(func, types, args, kwargs):
-#     assert len(args) == 2
-#     assert len(kwargs) == 0
-#     assert args[-1] == 2
-#     bsr = args[0]
-#     assert bsr.dim() == 2
-#     assert not bsr.requires_grad
-#     return BlockSparseTensor(bsr.shape + (1,),
-#             bsr.crow_indices(),
-#             bsr.col_indices(),
-#             bsr.values().unsqueeze(-1))
-#             # bsr.bsr_nt)
+@implements(aten.unsqueeze.default)
+def block_sparse_unsqueeze(func, types, args, kwargs):
+    assert len(args) == 2
+    assert len(kwargs) == 0
+    assert args[-1] == 2
+    bsr = args[0]
+    assert bsr.dim() == 2
+    assert not bsr.requires_grad
+    return BlockSparseTensor(bsr.shape + (1,),
+            bsr.crow_indices(),
+            bsr.col_indices(),
+            bsr.values().unsqueeze(-1))
+            # bsr.bsr_nt)
 
 
-# @implements(aten.mul.Tensor)
-# def block_sparse_mul(func, types, args, kwargs):
-#     assert len(args) == 2
-#     assert len(kwargs) == 0
-#     bsr, t = args
+@implements(aten.mul.Tensor)
+def block_sparse_mul(func, types, args, kwargs):
+    assert len(args) == 2
+    assert len(kwargs) == 0
+    bsr, t = args
 
-#     def my_mul(bsr, t):
-#         assert isinstance(bsr, BlockSparseTensor)
-#         assert isinstance(t, torch.Tensor)
-#         assert bsr.dim() == 3
-#         assert t.dim() == 3
-#         assert not bsr.requires_grad
-#         # import pdb; pdb.set_trace()
-#         assert t.size(0) == 1
-#         t_blocked = t.view(t.size(0), t.size(1) // 64, 64, 1)
-#         masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
-#         new_values = bsr.values() * masked_t
-#         # print("C")
-#         # bsr_nt = torch.nested.nested_tensor_from_jagged(new_values.detach(), bsr.crow_indices().detach()).detach()
-#         return BlockSparseTensor(bsr.shape,
-#                                  bsr.crow_indices(),
-#                                  bsr.col_indices(),
-#                                  new_values)
-#                                 #  bsr_nt)
+    def my_mul(bsr, t):
+        assert isinstance(bsr, BlockSparseTensor)
+        assert isinstance(t, torch.Tensor)
+        assert bsr.dim() == 3
+        assert t.dim() == 3
+        assert not bsr.requires_grad
+        assert t.size(0) == 1
+        t_blocked = t.view(t.size(0), t.size(1) // 64, 64, 1)
+        masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
+        new_values = bsr.values() * masked_t
+        return BlockSparseTensor(bsr.shape,
+                                 bsr.crow_indices(),
+                                 bsr.col_indices(),
+                                 new_values)
+                                #  bsr_nt)
 
-#     if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
-#         return my_mul(t, bsr)
-#     return my_mul(bsr, t)
+    if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
+        return my_mul(t, bsr)
+    return my_mul(bsr, t)
 
 
-# @implements(aten.sum.dim_IntList)
-# def block_sparse_sum(func, types, args, kwargs):
-#     bsr, dim = args
-#     assert type(dim) == list
-#     assert len(dim) == 1
-#     dim = dim[0]
-#     bsr_dim = bsr.dim()
-#     assert dim == 1
-#     # ret = bsr.bsr_nt.detach().sum(dim=1).view(bsr.shape[0], -1).sum(1, keepdim=True).detach()
-#     assert ret.dim() + 1 == bsr_dim
-#     return ret
+@implements(aten.sum.dim_IntList)
+def block_sparse_sum(func, types, args, kwargs):
+    breakpoint()
+    bsr, dim = args
+    assert type(dim) == list
+    assert len(dim) == 1
+    dim = dim[0]
+    bsr_dim = bsr.dim()
+    assert dim == 1
+    ret = bsr.values.detach().sum(dim=1).view(bsr.shape[0], -1).sum(1, keepdim=True).detach()
+    assert ret.dim() + 1 == bsr_dim
+    return ret
 
 
 @implements(aten.values.default)
@@ -337,6 +335,15 @@ def block_sparse_col_indices(func, types, args, kwargs):
 @implements(aten._nnz.default)
 def block_sparse__nnz(func, types, args, kwargs):
     return args[0].bsr_values.shape[0]
+
+@implements(aten.to_dense.default)
+def block_sparse_to_dense(func, types, args, kwargs):
+    return torch.sparse_bsr_tensor(
+        crow_indices=args[0].crow_indices,
+        col_indices=args[0].col_indices,
+        values=args[0].values,
+        size=args[0].shape,
+    ).to_dense()
 
 
 def next_power_of_two(n):
