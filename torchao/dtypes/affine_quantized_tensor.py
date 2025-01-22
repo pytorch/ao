@@ -6,18 +6,18 @@ import torch
 
 from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_floatx,
+    FP8_TYPES,
+    MappingType,
     quantize_affine,
     quantize_affine_float8,
     quantize_affine_floatx,
+    ZeroPointDomain,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
@@ -430,7 +430,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         original_shape = input_float.shape
         scale = choose_qparams_affine_float8(
             input_float,
-            target_dtype,
             target_dtype,
         )
         fp8_data = quantize_affine_float8(
