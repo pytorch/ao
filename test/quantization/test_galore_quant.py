@@ -83,7 +83,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )
-@skip_if_rocm("ROCm development in progress")
+@skip_if_rocm("ROCm enablement in progress")
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 

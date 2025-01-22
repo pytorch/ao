@@ -584,7 +584,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_per_token_linear_impl("cpu", dtype)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @skip_if_rocm("ROCm development in progress")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_per_token_linear_cuda(self):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_per_token_linear_impl("cuda", dtype)
@@ -703,7 +703,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
-    @skip_if_rocm("ROCm development in progress")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"Temporarily skipping for {device}")
@@ -723,7 +723,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
-    @skip_if_rocm("ROCm development in progress")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"Temporarily skipping for {device}")

@@ -30,7 +30,7 @@ TEST_CONFIGS = [
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize("M, N, rank, allow_tf32, fp8_fast_accum, dtype", TEST_CONFIGS)
-@skip_if_rocm("ROCm development in progress")
+@skip_if_rocm("ROCm enablement in progress")
 def test_galore_downproj(M, N, rank, allow_tf32, fp8_fast_accum, dtype):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32
     MAX_DIFF = MAX_DIFF_tf32 if allow_tf32 else MAX_DIFF_no_tf32

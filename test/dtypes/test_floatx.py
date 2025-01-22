@@ -110,6 +110,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("dtype", [torch.half, torch.bfloat16])
     @skip_if_rocm("ROCm development in progress")
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
         device = "cuda"
