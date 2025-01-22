@@ -35,11 +35,12 @@ from torchao.dtypes import (
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    UintxLayout,
+    to_affine_quantized_float8,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
+    UintxLayout,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
@@ -51,36 +52,28 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
 )
 
-from .autoquant import AutoQuantizableLinearWeight, autoquant
+from .autoquant import autoquant, AutoQuantizableLinearWeight
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,
     Int8DynActInt4WeightQuantizer,
 )
-from .granularity import (
-    PerRow,
-    PerTensor,
-)
+from .granularity import PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .qat import (
-    intx_quantization_aware_training,
-)
-from .quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
+from .qat import intx_quantization_aware_training
+from .quant_primitives import MappingType, ZeroPointDomain
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8DynamicallyQuantizedLinearWeight,
@@ -915,10 +908,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn(
+        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()"""
+    )
 
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
@@ -938,11 +933,10 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
 
     def apply_float8wo_quant(weight):
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_floatx(
+        return to_affine_quantized_float8(
             input_float=weight,
             block_size=block_size,
             target_dtype=weight_dtype,
-            scale_dtype=None,
             _layout=Float8Layout(mm_config=None),
         )
 
@@ -1016,11 +1010,10 @@ def _input_activation_quant_func_fp8(
 
     block_size = get_block_size(x.shape, activation_granularity)
     if scale is None:
-        activation = to_affine_quantized_floatx(
+        activation = to_affine_quantized_float8(
             input_float=x,
             block_size=block_size,
             target_dtype=activation_dtype,
-            scale_dtype=torch.float32,
             _layout=Float8Layout(mm_config=None),  # Config is stored on weight
         )
     else:
@@ -1102,11 +1095,10 @@ def float8_dynamic_activation_float8_weight(
             ), "PerRow quantization only works for bfloat16 precision input weight"
 
         block_size = get_block_size(weight.shape, weight_granularity)
-        quantized_weight = to_affine_quantized_floatx(
+        quantized_weight = to_affine_quantized_float8(
             input_float=weight,
             block_size=block_size,
             target_dtype=weight_dtype,
-            scale_dtype=torch.float32,
             _layout=Float8Layout(mm_config=mm_config),
         )
 
