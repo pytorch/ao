@@ -189,7 +189,7 @@ class TestAffineQuantizedBasic(TestCase):
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
             if isinstance(apply_quant, AOBaseWorkflowConfig):
-                quantize_(linear, apply_quant) 
+                quantize_(linear, apply_quant)
             else:
                 ql = apply_quant(linear)
             lp_tensor = ql.weight

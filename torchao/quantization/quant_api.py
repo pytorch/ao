@@ -481,9 +481,7 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **k
 
 def quantize_(
     model: torch.nn.Module,
-    config: Union[
-        AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]
-    ],
+    config: Union[AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: bool = True,
     device: Optional[torch.types.Device] = None,
@@ -535,7 +533,9 @@ def quantize_(
 
     else:
         # old behavior, keep to avoid breaking BC
-        warnings.warn("""Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/pull/1595 for instructions on how to pass in workflow configuration instead.""")
+        warnings.warn(
+            """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/pull/1595 for instructions on how to pass in workflow configuration instead."""
+        )
 
         # make the variable name make sense
         apply_tensor_subclass = config
