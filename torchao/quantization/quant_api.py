@@ -66,21 +66,13 @@ from .GPTQ import (
     Int8DynActInt4WeightGPTQQuantizer,
     Int8DynActInt4WeightQuantizer,
 )
-from .granularity import (
-    PerRow,
-    PerTensor,
-)
+from .granularity import PerRow, PerTensor
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .qat import (
-    intx_quantization_aware_training,
-)
-from .quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
+from .qat import intx_quantization_aware_training
+from .quant_primitives import MappingType, ZeroPointDomain
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8DynamicallyQuantizedLinearWeight,
@@ -915,10 +907,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn(
+        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()"""
+    )
 
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
