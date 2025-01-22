@@ -16,6 +16,7 @@ from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
+    to_linear_activation_quantized,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -370,6 +371,18 @@ def _is_interpolate_mode(mode):
     return False
 
 
+def _to_float16(x: torch.Tensor) -> torch.Tensor:
+    return x.to(torch.float16)
+
+
+def _to_bfloat16(x: torch.Tensor) -> torch.Tensor:
+    return x.to(torch.bfloat16)
+
+
+def _identity(x: torch.Tensor) -> torch.Tensor:
+    return x
+
+
 class AQMixin:
     """
     Tests and benchmarks the autoquantization process for the given activation matrix, weight, and bias.
@@ -610,9 +623,11 @@ class AQInt8WeightOnlyQuantizedLinearWeight3(
         return y
 
 
-class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQInt4G32WeightOnlyQuantizedLinearWeight(
+    LinearActivationQuantizedTensor, AQMixin
+):
     """
-    AutoQuantizable version of Int4WeightOnlyQuantizedLinearWeight
+    AutoQuantizable version of int4_weight_only
     """
 
     group_size: int = 32
@@ -621,20 +636,30 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
 
     @classmethod
     def from_float(cls, weight):
+        from torchao.dtypes import to_affine_quantized_intx
+
         group_size = cls.group_size
         _layout = cls.aq_layout
 
         if weight.shape[-1] % group_size != 0:
             return weight
 
+        input_quant_func = None
+
+        # NOTE: we only convert activation dtype and weight dtype here
+        # because the kernel implementation for both TensorCoreTiledLayout and MarlinSparseLayout
+        # can work with multiple bias dtypes (by converting bias to the dtype of activation)
         if (
             isinstance(_layout, TensorCoreTiledLayout)
             and weight.dtype != torch.bfloat16
         ):
-            return weight
-
-        if isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
-            return weight
+            weight = weight.to(torch.bfloat16)
+            input_quant_func = _to_bfloat16
+        elif isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
+            weight = weight.to(torch.float16)
+            input_quant_func = _to_float16
+        else:
+            input_quant_func = _identity
 
         use_hqq = True
         mapping_type = MappingType.ASYMMETRIC
@@ -653,7 +678,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
             zero_point_domain = ZeroPointDomain.INT
             use_hqq = False
 
-        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(
+        weight = to_affine_quantized_intx(
             weight,
             mapping_type,
             block_size,
@@ -666,6 +691,10 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
             zero_point_domain=zero_point_domain,
             _layout=_layout,
             use_hqq=use_hqq,
+        )
+
+        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_float(
+            weight, input_quant_func
         )
 
 
@@ -694,15 +723,18 @@ class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
     aq_layout: Layout = MarlinSparseLayout()
 
 
-class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
+    LinearActivationQuantizedTensor, AQMixin
+):
     group_size: int = 32
 
     @classmethod
     def from_float(cls, weight):
-        if weight.dtype != torch.float16:
-            return weight
-
+        from torchao.dtypes import to_affine_quantized_intx
         from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+
+        if weight.dtype != torch.float16:
+            weight = weight.to(torch.float16)
 
         bit_width = 4
         packing_bitwidth = 32
@@ -711,9 +743,12 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQM
         aqt_kwargs = get_gemlite_aqt_kwargs(
             weight, cls.group_size, bit_width, packing_bitwidth, contiguous, use_hqq
         )
-        return super(
-            AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls
-        ).from_hp_to_intx(weight, **aqt_kwargs)
+        weight = to_affine_quantized_intx(weight, **aqt_kwargs)
+        input_quant_func = _to_float16
+
+        return super(AQGemliteInt4G32WeightOnlyQuantizedLinearWeight, cls).from_float(
+            weight, input_quant_func
+        )
 
 
 class AQGemliteInt4G64WeightOnlyQuantizedLinearWeight(
@@ -755,11 +790,24 @@ class AQDefaultLinearWeight(torch.Tensor, AQMixin):
         return weight
 
 
+# TODO: remove skip_weight_conversion arg
 class Float32Tensor(TorchAOBaseTensor):
     """Tensor subclass tensor for fp32 dtype"""
 
-    def __init__(self, weight):
-        self.weight = weight.to(torch.float32)
+    @staticmethod
+    def __new__(cls, weight, skip_weight_conversion=False):
+        kwargs = {}
+        kwargs["device"] = weight.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else weight.layout
+        )
+        kwargs["dtype"] = weight.dtype
+        kwargs["requires_grad"] = False
+        shape = weight.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
+
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.float32)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -816,8 +864,8 @@ def _(func, types, args, kwargs):
 
 
 class BFloat16Tensor(Float32Tensor):
-    def __init__(self, weight):
-        self.weight = weight.to(torch.bfloat16)
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.bfloat16)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -829,10 +877,14 @@ class BFloat16Tensor(Float32Tensor):
             bias.to(_DTYPE) if bias is not None else bias,
         ).to(dtype=orig_dtype)
 
+    @classmethod
+    def from_float(cls, weight, skip_weight_conversion=False):
+        return cls(weight, skip_weight_conversion)
+
 
 class Float16Tensor(Float32Tensor):
-    def __init__(self, weight):
-        self.weight = weight.to(torch.float16)
+    def __init__(self, weight, skip_weight_conversion=False):
+        self.weight = weight if skip_weight_conversion else weight.to(torch.float16)
 
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
@@ -843,6 +895,10 @@ class Float16Tensor(Float32Tensor):
             w_qtensor.weight,
             bias.to(_DTYPE) if bias is not None else bias,
         ).to(dtype=orig_dtype)
+
+    @classmethod
+    def from_float(cls, weight, skip_weight_conversion=False):
+        return cls(weight, skip_weight_conversion)
 
 
 class AQFloat32LinearWeight(Float32Tensor, AQMixin):
@@ -903,9 +959,7 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         )
 
 
-class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
-    AQMixin, LinearActivationQuantizedTensor
-):
+class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Tensor):
     """
     AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
     """
@@ -934,12 +988,13 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
         # TODO: make this serializable
-        input_quant_func = lambda x: _input_activation_quant_func_fp8(
-            x=x,
-            activation_granularity=cls.activation_granularity,
-            activation_dtype=input_target_dtype,
-        )
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_kwargs = {
+            "activation_granularity": cls.activation_granularity,
+            "activation_dtype": input_target_dtype,
+        }
         block_size = get_weight_block_size(weight)
+
         weight = to_affine_quantized_floatx(
             input_float=weight,
             block_size=block_size,
@@ -947,10 +1002,15 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
             _layout=_layout,
             scale_dtype=torch.float32,
         )
-        weight = super(
+        weight = to_linear_activation_quantized(
+            weight, input_quant_func, quant_kwargs=input_quant_kwargs
+        )
+        # at inference time,
+        # we first convert the input, weight and bias to bfloat16, and then quantize activation
+        # and then dispatch to the quantized ops
+        return super(
             AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls
-        ).from_float(weight, input_quant_func)
-        return weight
+        ).from_float(weight, skip_weight_conversion=True)
 
 
 class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
@@ -974,15 +1034,14 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
             return x.shape
 
         target_dtype = torch.float8_e4m3fn
-
         input_target_dtype = torch.float8_e4m3fn
         _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
-        # TODO: make this serializable
-        input_quant_func = lambda x: _input_activation_quant_func_fp8(
-            x=x,
-            activation_granularity=cls.activation_granularity,
-            activation_dtype=input_target_dtype,
-        )
+        # TODO: test serializable
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_args = {
+            "activation_granularity": cls.activation_granularity,
+            "activation_dtype": input_target_dtype,
+        }
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_floatx(
             input_float=weight,
@@ -993,7 +1052,7 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
         )
         weight = super(
             AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls
-        ).from_float(weight, input_quant_func)
+        ).from_float(weight, input_quant_func, input_quant_args)
         return weight
 
 
@@ -1291,3 +1350,10 @@ def autoquant(
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals(ALL_AUTOQUANT_CLASS_LIST)
+    torch.serialization.add_safe_globals(
+        [
+            _to_float16,
+            _to_bfloat16,
+            _identity,
+        ]
+    )

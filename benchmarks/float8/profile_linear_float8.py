@@ -37,6 +37,7 @@ from utils import (
     update_triton_kernels_in_prof_chome_trace_with_torch_logs,
 )
 
+from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingType,
@@ -206,7 +207,7 @@ def profile_function(
         # by default torch.compile appends to log_file_name, so we delete it
         # if it exists
         if os.path.isfile(config.logs_file_path):
-            pathlib.Path.unlink(config.logs_file_path)
+            pathlib.Path(config.logs_file_path).unlink()
         torch._logging._init_logs(log_file_name=config.logs_file_path)
 
     activities = [ProfilerActivity.CPU]
@@ -288,6 +289,7 @@ def main(
     add_inductor_metadata_to_trace: bool = True,
     enable_sync_amax_history: bool = True,
     enable_activation_checkpointing: bool = False,
+    enable_float8_delayed_scaling_inductor_passes: bool = False,
 ):
     assert model_type in (
         "linear",
@@ -325,6 +327,12 @@ def main(
     print(
         f"enable_activation_checkpointing is set to {enable_activation_checkpointing}"
     )
+    print(
+        f"enable_float8_delayed_scaling_inductor_passes is set to {enable_float8_delayed_scaling_inductor_passes}"
+    )
+
+    if enable_float8_delayed_scaling_inductor_passes:
+        _prototype_register_float8_delayed_scaling_inductor_passes()
 
     device = "cuda"
     ref_dtype = torch.bfloat16
@@ -355,7 +363,7 @@ def main(
             1, 2048, 4096, device=device, dtype=ref_dtype
         ).requires_grad_()
     else:
-        M, K, N = 4096, 4096, 4096
+        M, K, N = 2048, 4096, 8192
         m_ref = torch.nn.Sequential(
             torch.nn.Linear(K, N, bias=False),
         )

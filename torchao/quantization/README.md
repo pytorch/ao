@@ -156,7 +156,7 @@ from torchao.quantization import quantize_, float8_weight_only
 quantize_(model, float8_weight_only())
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 #### A8W8 Float8 Dynamic Quantization with Tensorwise Scaling
 
@@ -166,7 +166,7 @@ from torchao.quantization import quantize_, float8_dynamic_activation_float8_wei
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 ### A8W8 Float8 Dynamic Quantization with Rowwise Scaling
 
@@ -176,7 +176,7 @@ from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_fl
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Per-row scaling is only supported for bfloat16 weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 #### A16W6 Floating Point WeightOnly Quantization
 
@@ -296,9 +296,9 @@ for module, name in model.named_modules():
         module.weight = nn.Parameter(to_linear_activation_quantized(module.weight, input_quant_func))
 ```
 
-#### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile` (pytorch 2.4 and before only)
-The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
-`torch.export.export` and `torch.aot_compile` with the following workaround:
+#### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile`
+
+If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before `torch.export.export` and `aot_compile`:
 ```
 from torchao.utils import unwrap_tensor_subclass
 m_unwrapped = unwrap_tensor_subclass(m)
@@ -311,10 +311,7 @@ m = torch.export.export(m_unwrapped, example_inputs).module()
 torch._export.aot_compile(m_unwrapped, example_inputs)
 ```
 
-For `torch.compile`, if you are using pytorch nightly or pytorch 2.5+, you won't need to use `unwrap_tensor_subclass` in order to be compatible with `torch.compile`,
-but if you use 2.4 or before, you'll need to use `unwrap_tensor_subclass` as well to be able to run `torch.compile` on the quantized model.
-
-Note that the workaround will not be needed after https://github.com/pytorch/pytorch/issues/129682 is fixed.
+If you are using pytorch 2.4 or before, you'll also need `unwrap_tensor_subclass` before calling `torch.compile` as well.
 
 Note that the workaround is also required for `torch.compile` with `freezing` (`torch._inductor.config.freezing=True`) until https://github.com/pytorch/pytorch/pull/136265 is fixed.
 

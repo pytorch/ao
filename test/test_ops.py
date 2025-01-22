@@ -6,7 +6,6 @@ from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
-    run_tests,
 )
 from torch.testing._internal.optests import opcheck
 
@@ -129,9 +128,16 @@ TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
 
+def make_test_id(param):
+    if isinstance(param, tuple) and len(param) == 2:  # This is a shape
+        return f"shape_{param[0]}x{param[1]}"
+    else:  # This is inner_k_tiles
+        return f"tiles_{param}"
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
-@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
+@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
     assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
@@ -149,7 +155,7 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
-@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
+@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
         "test_schema",
@@ -660,4 +666,4 @@ def test_scaled_int4_mm_cutlass(M, N, K, dtype):
 
 
 if __name__ == "__main__":
-    run_tests()
+    pytest.main([__file__])

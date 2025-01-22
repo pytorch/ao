@@ -1,7 +1,9 @@
-import fire
-from pathlib import Path
-import torch
 import json
+from pathlib import Path
+
+import fire
+import torch
+
 from torchao._models.sam2.utils.amg import rle_to_mask
 
 """
@@ -15,7 +17,7 @@ def iou(mask1, mask2):
     assert mask2.dim() == 2
     intersection = torch.logical_and(mask1, mask2)
     union = torch.logical_or(mask1, mask2)
-    return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
+    return intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2))
 
 
 def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
@@ -26,6 +28,7 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
     for k0 in ref_masks:
         assert k0 in masks, f"Expected {k0} to be in return data"
         from torchao._models.sam2.utils.amg import area_from_rle
+
         v0_area = area_from_rle(ref_masks[k0])
         v1_area = area_from_rle(masks[k0])
         v0_areas.append(v0_area)
@@ -80,11 +83,11 @@ def compare(path0, path1, strict=False, compare_folders=False):
         path0, path1 = Path(path0), Path(path1)
         assert path0.is_dir()
         assert path1.is_dir()
-        mask_files0 = [f.relative_to(path0) for f in list(path0.rglob('*.json'))]
-        mask_files1 = [f.relative_to(path1) for f in list(path1.rglob('*.json'))]
+        mask_files0 = [f.relative_to(path0) for f in list(path0.rglob("*.json"))]
+        mask_files1 = [f.relative_to(path1) for f in list(path1.rglob("*.json"))]
         assert all(m0 == m1 for (m0, m1) in zip(mask_files0, mask_files1))
-        for (m0, m1) in zip(mask_files0, mask_files1):
-            with open(path0 / m0, 'r') as f0, open(path1 / m1, 'r') as f1:
+        for m0, m1 in zip(mask_files0, mask_files1):
+            with open(path0 / m0, "r") as f0, open(path1 / m1, "r") as f1:
                 m, e, fail = compare_masks_str(f0.read(), f1.read(), strict)
                 if fail:
                     fail_count += 1
@@ -93,7 +96,7 @@ def compare(path0, path1, strict=False, compare_folders=False):
                     miou_count += 1
 
     else:
-        with open(path0, 'r') as f0, open(path1, 'r') as f1:
+        with open(path0, "r") as f0, open(path1, "r") as f1:
             for line0, line1 in zip(f0, f1):
                 m, e, fail = compare_masks_str(line0, line1, strict)
                 if fail:
@@ -106,10 +109,9 @@ def compare(path0, path1, strict=False, compare_folders=False):
 
 
 def main(path0, path1, strict=False, compare_folders=False):
-    miou_count, miou_sum, fail_count = compare(path0,
-                                               path1,
-                                               strict=strict,
-                                               compare_folders=compare_folders)
+    miou_count, miou_sum, fail_count = compare(
+        path0, path1, strict=strict, compare_folders=compare_folders
+    )
     print(f"fail_count: {fail_count} mIoU: {miou_sum / miou_count}")
 
 

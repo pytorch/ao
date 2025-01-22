@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 import torch.nn as nn
 
+from torchao.float8.config import Float8LinearConfig
 from torchao.float8.float8_linear_utils import swap_linear_layers
 from torchao.prototype.float8nocompile.float8nocompile_linear import (
     Float8LinearNoCompile,
@@ -23,8 +24,10 @@ log.addHandler(logging.NullHandler())
 def convert_to_float8_nocompile_training(
     module: nn.Module,
     *,
+    config: Float8LinearConfig = None,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
     kernel_algo: KernelAlgorithm = KernelAlgorithm.ATOMIC_MAX,
+    no_precompute_for_backward: bool = False,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Linear` in `module` with `Float8LinearNoCompile`.
@@ -39,7 +42,15 @@ def convert_to_float8_nocompile_training(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from_float = lambda m: Float8LinearNoCompile.from_float(m, kernel_algo=kernel_algo)
+    if config is None:
+        config = Float8LinearConfig()
+
+    from_float = lambda m: Float8LinearNoCompile.from_float(
+        m,
+        config=config,
+        kernel_algo=kernel_algo,
+        no_precompute_for_backward=no_precompute_for_backward,
+    )
     return swap_linear_layers(
         module,
         from_float,

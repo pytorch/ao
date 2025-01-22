@@ -1,7 +1,7 @@
 import torch
+from torchvision import models
 
 from torchao.utils import benchmark_model, profiler_runner
-from torchvision import models
 
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
@@ -11,9 +11,9 @@ model = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
 model.eval().cuda().to(torch.bfloat16)
 
 # Input tensor (batch_size, channels, height, width)
-inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda'),)
+inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device="cuda"),)
 
-model = torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode="max-autotune")
 
 # Must run with no_grad when optimizing for inference
 with torch.no_grad():
