@@ -94,6 +94,7 @@ class TestAffineQuantized(TestCase):
     @common_utils.parametrize(
         "apply_quant", get_quantization_functions(True, True, "cuda", True)
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         ql = apply_quant(linear)
@@ -171,6 +172,7 @@ class TestAffineQuantized(TestCase):
 
     @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_print_quantized_module(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         ql = apply_quant(linear)
@@ -183,6 +185,7 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:

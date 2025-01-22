@@ -28,7 +28,7 @@ from torchao.dtypes.uintx.uint4_layout import (
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
 
 
 def _apply_weight_only_uint4_quant(model):
@@ -92,6 +92,7 @@ class TestUInt4(QuantizationTestCase):
         # only test locally
         # print("x:", x[0])
 
+    @skip_if_rocm("ROCm enablement in progress")
     def test_gpu_quant(self):
         for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
             x = torch.randn(*x_shape)
@@ -104,6 +105,7 @@ class TestUInt4(QuantizationTestCase):
             # make sure it runs
             opt(x)
 
+    @skip_if_rocm("ROCm enablement in progress")
     def test_pt2e_quant(self):
         from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import (
             QuantizationConfig,
