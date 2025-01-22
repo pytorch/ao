@@ -60,8 +60,7 @@ def get_quantization_functions(
                     )
                 )
 
-    # TODO(before land): revert this back, added due to lack of cuSparseLt in my env
-    if do_sparse and False:
+    if do_sparse:
         base_functions.append(
             int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
         )
