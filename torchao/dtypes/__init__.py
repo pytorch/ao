@@ -19,8 +19,8 @@ from .uintx import (
     MarlinSparseLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    to_marlinqqq_quantized_intx,
     UintxLayout,
+    to_marlinqqq_quantized_intx,
 )
 from .utils import Layout, PlainLayout
 
