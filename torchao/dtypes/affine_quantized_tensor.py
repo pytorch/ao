@@ -6,18 +6,18 @@ import torch
 
 from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_float8,
+    FP8_TYPES,
+    MappingType,
     quantize_affine,
     quantize_affine_float8,
     quantize_affine_floatx,
+    ZeroPointDomain,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
@@ -121,16 +121,22 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
+        from torchao.dtypes.floatx import Float8Layout, FloatxTensorCoreLayout
 
-        if isinstance(self._layout, FloatxTensorCoreLayout):
-            # TODO(danielvegamyhre): I think this dequantize method will be used for both float8 and fpx.
-            # If there's no way to distinguish which it is here, we need to implement float8 and fpx sublcasses
-            # of AQT so we have separate dequantization procedures for each.
+        if isinstance(self._layout, Float8Layout):
             int_data, scale = self.tensor_impl.get_plain()
             return dequantize_affine_float8(
                 int_data,
                 scale,
+                output_dtype=output_dtype,
+            )
+        elif isinstance(self._layout, FloatxTensorCoreLayout):
+            int_data, scale = self.tensor_impl.get_plain()
+            return dequantize_affine_floatx(
+                int_data,
+                scale,
+                self._layout.ebits,
+                self._layout.mbits,
                 output_dtype=output_dtype,
             )
         else:
