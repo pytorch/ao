@@ -20,11 +20,10 @@ lib.define(
     "marlin_qqq_gemm(Tensor x, Tensor weight_marlin, Tensor s_tok, Tensor s_ch, Tensor s_group, Tensor workspace, int size_m, int size_n, int size_k) -> Tensor"
 )
 lib.define(
-    "s8s4_linear_cutlass(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
+    "rowwise_scaled_linear_cutlass_s4s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
-lib.define("int4_mm_cutlass(Tensor A, Tensor B) -> Tensor")
 lib.define(
-    "scaled_int4_mm_cutlass(Tensor A, Tensor B, Tensor row_scale, Tensor col_scale) -> Tensor"
+    "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
 
 
@@ -518,7 +517,7 @@ def _(
     return torch.empty((size_m, size_n), dtype=torch.float16, device=x.device)
 
 
-def s8s4_linear_cutlass(
+def rowwise_scaled_linear_cutlass_s8s4(
     input: Tensor,
     input_scale: Tensor,
     weight: Tensor,
@@ -526,23 +525,23 @@ def s8s4_linear_cutlass(
     bias: Tensor,
 ) -> Tensor:
     """
-    CUTLASS-based W4A8 linear operator.
+    CUTLASS-based row-wise scaled W4A8 linear operator.
     Args:
-        input: input tensor, quantized to 8-bit integer values.
+        input: quantized input tensor, in row-major layout.
         input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
-        weight: weight matrix, quantized to 4-bit integer values, in row-major layout.
+        weight: quantized weight matrix, in row-major layout.
         weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
         bias: a vector of size equal to number of rows of weight tensor, or None.
     Returns:
         output: result tensor, in row-major layout.
     """
 
-    return torch.ops.torchao.s8s4_linear_cutlass.default(
+    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s8s4.default(
         input, input_scale, weight, weight_scale, bias
     )
 
 
-@register_custom_op("torchao::s8s4_linear_cutlass")
+@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s8s4")
 def _(
     input: Tensor,
     input_scale: Tensor,
@@ -550,6 +549,8 @@ def _(
     weight_scale: Tensor,
     bias: Tensor,
 ) -> Tensor:
+    # FIXME: update this!!!
+
     # Validate dtypes.
     torch._check(
         input.dtype == torch.int8,
@@ -621,50 +622,36 @@ def _(
     )
 
 
-def int4_mm_cutlass(A: Tensor, B: Tensor) -> Tensor:
-    """
-    CUTLASS-based W4A4 matmul.
-    Args:
-        A: first INT4 tensor, packed in INT8 dtype, row-major layout.
-        B: second INT4 tensor, packed in INT8 dtype, column-major layout.
-    Returns:
-        output: result tensor, in row-major layout.
-    """
-    assert A.dtype == B.dtype == torch.int8
-    assert A.ndim == B.ndim == 2
-    assert A.shape[1] == B.shape[0]
-    assert A.is_contiguous() and B.T.is_contiguous()
-    return torch.ops.torchao.int4_mm_cutlass.default(A, B)
-
-
-@register_custom_op("torchao::int4_mm_cutlass")
-def _(A: Tensor, B: Tensor) -> Tensor:
-    return A.new_empty(A.shape[0], B.shape[1], dtype=torch.int32)
-
-
-def scaled_int4_mm_cutlass(
-    A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor
+def rowwise_scaled_linear_cutlass_s4s4(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
 ) -> Tensor:
     """
-    CUTLASS-based W4A4 scaled-matmul.
+    CUTLASS-based row-wise scaled W4A4 linear operator.
     Args:
-        A: first INT4 tensor, packed in INT8 dtype, row-major layout.
-        B: second INT4 tensor, packed in INT8 dtype, column-major layout.
-        row_scale: scaling for each output row.
-        col_scale: scaling for each output column.
+        input: quantized input tensor, in row-major layout.
+        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
+        weight: quantized weight matrix, in row-major layout.
+        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
+        bias: a vector of size equal to number of rows of weight tensor, or None.
     Returns:
         output: result tensor, in row-major layout.
     """
-    assert A.dtype == B.dtype == torch.int8
-    assert A.ndim == B.ndim == 2
-    assert A.shape[1] == B.shape[0]
-    assert A.is_contiguous() and B.T.is_contiguous()
-    assert row_scale.ndim == col_scale.ndim == 1
-    assert row_scale.dtype == col_scale.dtype
-    assert row_scale.dtype in (torch.float16, torch.bfloat16)
-    return torch.ops.torchao.scaled_int4_mm_cutlass.default(A, B, row_scale, col_scale)
+
+    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s4s4.default(
+        input, input_scale, weight, weight_scale, bias
+    )
 
 
-@register_custom_op("torchao::scaled_int4_mm_cutlass")
-def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
-    return row_scale.new_empty(A.shape[0], B.shape[1])
+@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s4s4")
+def _(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    return input_scale.new_empty(*input.shape[:-1], weight.shape[0])

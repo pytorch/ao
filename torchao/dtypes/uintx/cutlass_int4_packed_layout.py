@@ -144,14 +144,16 @@ def _linear_int8_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias
 
 
 def _linear_int8_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias):
-    from torchao.ops import s8s4_linear_cutlass
+    from torchao.ops import rowwise_scaled_linear_cutlass_s8s4
 
     weight = weight_tensor.tensor_impl.int_data
     weight_scale = weight_tensor.tensor_impl.scale
     input = input_tensor.tensor_impl.int_data
     input_scale = input_tensor.tensor_impl.scale
 
-    out = s8s4_linear_cutlass(input, input_scale, weight, weight_scale, bias)
+    out = rowwise_scaled_linear_cutlass_s8s4(
+        input, input_scale, weight, weight_scale, bias
+    )
 
     return out
 
