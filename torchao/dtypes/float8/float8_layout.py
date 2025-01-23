@@ -11,17 +11,17 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, get_out_shape, Layout
+from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.float8.inference import (
+    Float8MMConfig,
     _is_rowwise_scaled,
     addmm_float8_unwrapped_inference,
-    Float8MMConfig,
     preprocess_data,
 )
 from torchao.quantization.quant_primitives import (
+    FP8_TYPES,
     choose_qparams_affine_float8,
     dequantize_affine_float8,
-    FP8_TYPES,
     quantize_affine_float8,
 )
 from torchao.utils import _is_float8_type, fill_defaults
