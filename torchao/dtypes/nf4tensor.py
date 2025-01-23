@@ -662,10 +662,9 @@ class NF4Tensor(torch.Tensor):
     ) -> torch.Tensor:
         """Used to unpack the double quantized scalers
 
-        Args;
+        Args:
             input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format
             quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype
-                size: (n_scaler_blocks)
             scaler_block_size: Scaler block size to use for double quantization.
 
         """

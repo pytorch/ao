@@ -10,6 +10,7 @@ from .affine_quantized_tensor import (
 )
 from .floatx import (
     Float8Layout,
+    FloatxTensorCoreLayout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
@@ -52,4 +53,5 @@ __all__ = [
     "MarlinQQQLayout",
     "Int4CPULayout",
     "CutlassInt4PackedLayout",
+    "FloatxTensorCoreLayout",
 ]
