@@ -6,18 +6,17 @@ import torch
 
 from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
-    dequantize_affine_floatx,
+    FP8_TYPES,
+    MappingType,
     quantize_affine,
     quantize_affine_float8,
     quantize_affine_floatx,
+    ZeroPointDomain,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
@@ -28,8 +27,8 @@ __all__ = [
     "AffineQuantizedTensor",
     "register_layout",
     "to_affine_quantized_intx",
-    "to_affine_quantized_floatx",
     "to_affine_quantized_intx_static",
+    "to_affine_quantized_float8",
     "to_affine_quantized_floatx_static",
     "to_affine_quantized_fpx",
 ]
@@ -124,12 +123,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
         if isinstance(self._layout, FloatxTensorCoreLayout):
+            # TODO(danielvegamyhre): I think this dequantize method will be used for both float8 and fpx.
+            # If there's no way to distinguish which it is here, we need to implement float8 and fpx sublcasses
+            # of AQT so we have separate dequantization procedures for each.
             int_data, scale = self.tensor_impl.get_plain()
-            return dequantize_affine_floatx(
+            return dequantize_affine_float8(
                 int_data,
                 scale,
-                self._layout.ebits,
-                self._layout.mbits,
                 output_dtype=output_dtype,
             )
         else:
@@ -499,7 +499,6 @@ get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
-to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
 to_affine_quantized_float8 = AffineQuantizedTensor.from_hp_to_float8
 # experimental will be merged in to floatx
