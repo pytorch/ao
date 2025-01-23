@@ -321,7 +321,7 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn 
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)

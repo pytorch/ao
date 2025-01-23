@@ -6,34 +6,10 @@ from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
-# from torchao.prototype.sparsity.blocksparse._triton_ops import bsr_dense_addmm as torchao_bsr_dense_addmm
+
+from .bsr_triton_ops import bsr_dense_addmm as torchao_bsr_dense_addmm
 
 aten = torch.ops.aten
-
-
-# quantization support
-# @torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
-# def bsr_to_dense(
-#     crow_indices: torch.Tensor,
-#     col_indices: torch.Tensor,
-#     values: torch.Tensor,
-#     M: int,
-#     K: int,
-# ) -> torch.Tensor:
-#     return torch.sparse_bsr_tensor(
-#         crow_indices=crow_indices, col_indices=col_indices, values=values, size=(M, K)
-#     ).to_dense()
-
-
-# @torch.library.register_fake("blocksparse::bsr_to_dense")
-# def bsr_to_dense_abstract(
-#     crow_indices: torch.Tensor,
-#     col_indices: torch.Tensor,
-#     values: torch.Tensor,
-#     M: int,
-#     K: int,
-# ) -> torch.Tensor:
-#     return torch.empty((M, K), dtype=values.dtype, device=values.device)
 
 
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
@@ -127,10 +103,9 @@ def blocksparse_addmm(
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
     N_padded = x_padded.shape[1]
     out = x_padded.new_empty((M, N_padded))
-    bsr_dense_addmm(
+    torchao_bsr_dense_addmm(
         out,
         weight_bsr,
-        # x,
         x_padded,
         alpha=1,
         beta=0,
@@ -157,23 +132,21 @@ def blocksparse_addmm_abstract(
 
 # Subclass definition
 class BlockSparseTensor(TorchAOBaseTensor):
-    # TODO: Use NJT as a field to store max/min seqlen
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
-    # bsr_nt: Optional[torch.Tensor]
+    blocksize: int 
 
     __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"]
-    # __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "bsr_nt"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
         cls,
         shape: torch.Size,
+        blocksize: int, 
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
-        # bsr_nt: Optional[torch.Tensor],
         requires_grad: bool = False,
     ):
         if bsr_values is None:
@@ -190,7 +163,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
             "requires_grad": requires_grad,
         }
         tensor = torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-        # tensor.bsr_nt = bsr_nt
+        tensor.blocksize = blocksize
         tensor.bsr_crow_indices = bsr_crow_indices
         tensor.bsr_values = bsr_values
         tensor.bsr_col_indices = bsr_col_indices
@@ -200,54 +173,61 @@ class BlockSparseTensor(TorchAOBaseTensor):
         assert hasattr(self, "shape")
         return f"{self.__class__.__name__}(shape={self.shape})"
 
-    def __tensor_flatten__(self) -> Tuple[List[str], Tuple[torch.Size, bool]]:
+    def __tensor_flatten__(self) -> Tuple[List[str], Tuple[torch.Size, bool, int]]:
         inner_tensors = list(
             filter(lambda x: getattr(self, x) is not None, self.__slots__)
         )
-        tensor_meta = (self.shape, self.requires_grad)
+        tensor_meta = (self.shape, self.requires_grad, self.blocksize)
         return inner_tensors, tensor_meta
 
     @classmethod
     def __tensor_unflatten__(
         cls,
         inner_tensors,
-        tensor_meta: Tuple[torch.Size, bool],
+        tensor_meta: Tuple[torch.Size, bool, int],
         outer_size,
         outer_stride,
     ) -> torch.Tensor:
-        shape, requires_grad = tensor_meta
+        shape, requires_grad, blocksize = tensor_meta
         return cls(
             shape=shape,
+            blocksize=blocksize, 
             bsr_crow_indices=inner_tensors.get("bsr_crow_indices", None),
             bsr_col_indices=inner_tensors.get("bsr_col_indices", None),
             bsr_values=inner_tensors.get("bsr_values", None),
-            # bsr_nt=inner_tensors.get("bsr_nt", None),
             requires_grad=requires_grad,
         )
 
     @classmethod
     def from_dense(cls, dense_tensor, blocksize):
         bsr_tensor = dense_tensor.to_sparse_bsr(blocksize)
-        # print("A")
-        # bsr_nt = torch.nested.nested_tensor_from_jagged(bsr_tensor.values().detach(), bsr_tensor.crow_indices().detach()).detach()
         return cls(
             shape=dense_tensor.shape,
+            blocksize=blocksize, 
             bsr_crow_indices=bsr_tensor.crow_indices(),
             bsr_col_indices=bsr_tensor.col_indices(),
             bsr_values=bsr_tensor.values(),
-            # bsr_nt=bsr_nt,
             requires_grad=False,
         )
 
     def apply_fn_to_shard(self, func):
         return BlockSparseTensor(
             shape=self.shape,
+            blocksize=self.blocksize, 
             bsr_crow_indices=func(self.bsr_crow_indices),
             bsr_col_indices=func(self.bsr_col_indices),
             bsr_values=func(self.bsr_values),
-            # bsr_nt=func(self.bsr_nt),
             requires_grad=self.requires_grad,
         )
+
+
+    def dense(self):
+        return torch.sparse_bsr_tensor(
+            crow_indices=self.bsr_crow_indices,
+            col_indices=self.bsr_col_indices,
+            values=self.bsr_values,
+            size=self.shape,
+        ).to_dense()
 
 
 # Subclass op dispatch registration
@@ -270,10 +250,10 @@ def block_sparse_unsqueeze(func, types, args, kwargs):
     assert bsr.dim() == 2
     assert not bsr.requires_grad
     return BlockSparseTensor(bsr.shape + (1,),
+                             bsr.blocksize, 
             bsr.crow_indices(),
             bsr.col_indices(),
             bsr.values().unsqueeze(-1))
-            # bsr.bsr_nt)
 
 
 @implements(aten.mul.Tensor)
@@ -293,10 +273,10 @@ def block_sparse_mul(func, types, args, kwargs):
         masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
         new_values = bsr.values() * masked_t
         return BlockSparseTensor(bsr.shape,
+                                 bsr.blocksize,        
                                  bsr.crow_indices(),
                                  bsr.col_indices(),
                                  new_values)
-                                #  bsr_nt)
 
     if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
         return my_mul(t, bsr)
@@ -305,16 +285,23 @@ def block_sparse_mul(func, types, args, kwargs):
 
 @implements(aten.sum.dim_IntList)
 def block_sparse_sum(func, types, args, kwargs):
-    breakpoint()
     bsr, dim = args
     assert type(dim) == list
     assert len(dim) == 1
     dim = dim[0]
     bsr_dim = bsr.dim()
     assert dim == 1
-    ret = bsr.values.detach().sum(dim=1).view(bsr.shape[0], -1).sum(1, keepdim=True).detach()
-    assert ret.dim() + 1 == bsr_dim
-    return ret
+    out = torch.empty((bsr.shape[0], bsr.shape[2]), dtype=bsr.dtype, device=bsr.device)
+    crow_indices = bsr.crow_indices()
+    blocksize = bsr.blocksize
+
+    for i in range(crow_indices.shape[0]-1):
+        start, stop = crow_indices[i], crow_indices[i+1]
+        temp_sum = bsr.values()[start:stop]
+        temp_sum = temp_sum.sum(dim=0).sum(dim=1)
+        out[i * blocksize : (i + 1) * blocksize] = temp_sum
+    
+    return out
 
 
 @implements(aten.values.default)
@@ -335,16 +322,6 @@ def block_sparse_col_indices(func, types, args, kwargs):
 @implements(aten._nnz.default)
 def block_sparse__nnz(func, types, args, kwargs):
     return args[0].bsr_values.shape[0]
-
-@implements(aten.to_dense.default)
-def block_sparse_to_dense(func, types, args, kwargs):
-    return torch.sparse_bsr_tensor(
-        crow_indices=args[0].crow_indices,
-        col_indices=args[0].col_indices,
-        values=args[0].values,
-        size=args[0].shape,
-    ).to_dense()
-
 
 def next_power_of_two(n):
     assert n > 0
@@ -367,7 +344,6 @@ def block_sparse_linear(func, types, args, kwargs):
     # TODO: Replace this with mul + sum for the mv case similar to
     # https://github.com/pytorch/pytorch/blob/a9685767773157440c162caaf125856e04e2981f/torch/_inductor/decomposition.py#L292
     # use .to_dense to get a baseline implementation that works and then use NJT for .sum and such
-    # breakpoint()
     # if x.size(-1) == 1:
     #     # print("USING THIS")
     #     # breakpoint()
@@ -379,10 +355,10 @@ def block_sparse_linear(func, types, args, kwargs):
     #         special_ret = out_orig + bias
     #     return special_ret
     # else:
-    N_padded = max(16, next_power_of_two(N))
-    x_padded = torch.nn.functional.pad(x, (0, N_padded - N), 'constant', 0)
+    # N_padded = max(16, next_power_of_two(N))
+    # x_padded = torch.nn.functional.pad(x, (0, N_padded - N), 'constant', 0)
     out = torch.ops.blocksparse.addmm(
-        x_padded,
+        x,
         w.crow_indices(),
         w.col_indices(),
         w.values(),
@@ -390,15 +366,11 @@ def block_sparse_linear(func, types, args, kwargs):
         K,
         None,
     )
-    # import pdb; pdb.set_trace()
-    # return out.view(x_orig.size(0), -1, M)
-    out_orig = out[:, :x.size(-1)].t().reshape(x_orig.shape[:-1] + (M,))
+    # out_orig = out[:, :x.size(-1)].t().reshape(x_orig.shape[:-1] + (M,))
+    out_orig = out.t()
     if bias is None:
-        # if x.size(-1) == 1:
-        #     assert special_ret.size() == out_orig.size()
         return out_orig
-    # if x.size(-1) == 1:
-    #     assert special_ret.size() == out_orig.size()
+
     return out_orig + bias
 
 
