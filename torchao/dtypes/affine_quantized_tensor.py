@@ -29,7 +29,6 @@ __all__ = [
     "register_layout",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",
-    "to_affine_quantized_float8",
     "to_affine_quantized_floatx_static",
     "to_affine_quantized_fpx",
 ]
@@ -424,35 +423,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
         return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
 
-    @classmethod
-    def from_hp_to_float8(
-        cls,
-        input_float: torch.Tensor,
-        target_dtype: torch.dtype,
-        block_size: Tuple[int, ...],
-        _layout: Layout = PlainLayout(),
-    ):
-        assert target_dtype in FP8_TYPES, f"Unsupported dtype {target_dtype} for float8"
-        original_shape = input_float.shape
-        scale = choose_qparams_affine_float8(
-            input_float,
-            target_dtype,
-        )
-        fp8_data = quantize_affine_float8(
-            input_float,
-            scale,
-            target_dtype,
-        )
-        fp8_data = _layout.post_process(fp8_data)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(fp8_data, scale, None, _layout)
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            dtype=input_float.dtype,
-        )
-
     @property
     def _layout(self) -> Layout:
         return self.tensor_impl._layout
@@ -507,7 +477,6 @@ get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
-to_affine_quantized_float8 = AffineQuantizedTensor.from_hp_to_float8
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 

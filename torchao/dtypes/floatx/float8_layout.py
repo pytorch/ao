@@ -11,13 +11,14 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
+from torchao.dtypes.utils import AQTTensorImpl, get_out_shape, Layout
 from torchao.float8.inference import (
-    Float8MMConfig,
     _is_rowwise_scaled,
     addmm_float8_unwrapped_inference,
+    Float8MMConfig,
     preprocess_data,
 )
+from torchao.quantization.quant_primitives import dequantize_affine_float8
 from torchao.utils import _is_float8_type, fill_defaults
 
 aten = torch.ops.aten
@@ -209,6 +210,51 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         )
 
 
+class Float8Tensor(AffineQuantizedTensor):
+    """
+    Float8 quantized tensor subclass which inherits AffineQuantizedTensor class.
+    """
+
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if output_dtype is None:
+            output_dtype = self.dtype
+        int_data, scale = self.tensor_impl.get_plain()
+        return dequantize_affine_float8(
+            int_data,
+            scale,
+            output_dtype=output_dtype,
+        )
+
+    @classmethod
+    def from_hp_to_float8(
+        cls,
+        input_float: torch.Tensor,
+        target_dtype: torch.dtype,
+        block_size: Tuple[int, ...],
+        _layout: Layout = PlainLayout(),
+    ):
+        assert target_dtype in FP8_TYPES, f"Unsupported dtype {target_dtype} for float8"
+        original_shape = input_float.shape
+        scale = choose_qparams_affine_float8(
+            input_float,
+            target_dtype,
+        )
+        fp8_data = quantize_affine_float8(
+            input_float,
+            scale,
+            target_dtype,
+        )
+        fp8_data = _layout.post_process(fp8_data)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+        tensor_impl = tensor_impl_ctr(fp8_data, scale, None, _layout)
+        return cls(
+            tensor_impl,
+            block_size,
+            original_shape,
+            dtype=input_float.dtype,
+        )
+
+
 ##########################
 # Float8 Dispatch Kernels
 ##########################
@@ -311,3 +357,6 @@ def _linear_fp_act_fp8_weight_impl(
     bias: Optional[torch.Tensor],
 ):
     return torch.nn.functional.linear(input_tensor, weight_tensor.dequantize(), bias)
+
+
+to_affine_quantized_float8 = Float8Tensor.from_hp_to_float8
