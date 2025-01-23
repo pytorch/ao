@@ -11,17 +11,17 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
+from torchao.dtypes.utils import AQTTensorImpl, get_out_shape, Layout
 from torchao.float8.inference import (
-    Float8MMConfig,
     _is_rowwise_scaled,
     addmm_float8_unwrapped_inference,
+    Float8MMConfig,
     preprocess_data,
 )
 from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
     choose_qparams_affine_float8,
     dequantize_affine_float8,
+    FP8_TYPES,
     quantize_affine_float8,
 )
 from torchao.utils import _is_float8_type, fill_defaults
@@ -215,9 +215,9 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         )
 
 
-class Float8Tensor(AffineQuantizedTensor):
+class Float8QuantizedTensor(AffineQuantizedTensor):
     """
-    Float8 quantized tensor subclass which inherits AffineQuantizedTensor class.
+    Float8 quantized tensor subclass which inherits Float8QuantizedTensor class.
     """
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -266,13 +266,13 @@ class Float8Tensor(AffineQuantizedTensor):
 
 
 def _linear_fp8_act_fp8_weight_check(
-    input_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
-    weight_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
+    input_tensor: Union[torch.Tensor, "Float8QuantizedTensor"],
+    weight_tensor: Union[torch.Tensor, "Float8QuantizedTensor"],
     bias: Optional[torch.Tensor],
 ) -> bool:
-    def check_aqt(aqt: Union[torch.Tensor, AffineQuantizedTensor]) -> bool:
+    def check_aqt(aqt: Union[torch.Tensor, Float8QuantizedTensor]) -> bool:
         return (
-            isinstance(aqt, AffineQuantizedTensor)
+            isinstance(aqt, Float8QuantizedTensor)
             and isinstance(aqt._layout, Float8Layout)
             and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
@@ -292,8 +292,8 @@ def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
 
 
 def _linear_fp8_act_fp8_weight_impl(
-    input_tensor: "AffineQuantizedTensor",
-    weight_tensor: "AffineQuantizedTensor",
+    input_tensor: "Float8QuantizedTensor",
+    weight_tensor: "Float8QuantizedTensor",
     bias: Optional[torch.Tensor],
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
@@ -336,8 +336,8 @@ def _linear_fp8_act_fp8_weight_impl(
 
 
 def _linear_fp_act_fp8_weight_check(
-    input_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
-    weight_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
+    input_tensor: Union[torch.Tensor, "Float8QuantizedTensor"],
+    weight_tensor: Union[torch.Tensor, "Float8QuantizedTensor"],
     bias: Optional[torch.Tensor],
 ) -> bool:
     return (
@@ -346,7 +346,7 @@ def _linear_fp_act_fp8_weight_check(
         and input_tensor.is_floating_point()
         and
         # weight is float8 quantized affine quantized tensor
-        isinstance(weight_tensor, AffineQuantizedTensor)
+        isinstance(weight_tensor, Float8QuantizedTensor)
         and isinstance(weight_tensor._layout, Float8Layout)
         and weight_tensor.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
         and (
@@ -358,10 +358,10 @@ def _linear_fp_act_fp8_weight_check(
 
 def _linear_fp_act_fp8_weight_impl(
     input_tensor: torch.Tensor,
-    weight_tensor: "AffineQuantizedTensor",
+    weight_tensor: "Float8QuantizedTensor",
     bias: Optional[torch.Tensor],
 ):
     return torch.nn.functional.linear(input_tensor, weight_tensor.dequantize(), bias)
 
 
-to_affine_quantized_float8 = Float8Tensor.from_hp_to_float8
+to_affine_quantized_float8 = Float8QuantizedTensor.from_hp_to_float8
