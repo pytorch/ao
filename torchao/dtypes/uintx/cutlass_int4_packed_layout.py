@@ -176,19 +176,15 @@ def _linear_int4_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias
 
 
 def _linear_int4_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias):
-    from torchao.ops import scaled_int4_mm_cutlass
+    from torchao.ops import rowwise_scaled_linear_cutlass_s4s4
 
     weight = weight_tensor.tensor_impl.int_data
     weight_scale = weight_tensor.tensor_impl.scale
     input = input_tensor.tensor_impl.int_data
     input_scale = input_tensor.tensor_impl.scale
 
-    batch_dims = input_tensor.shape[:-1]
-    input = input.view(-1, input.shape[-1])
-    input_scale = input_scale.view(-1)
-    out = scaled_int4_mm_cutlass(input, weight.T, input_scale, weight_scale)
-    if bias is not None:
-        out = out + bias
-    out = out.view(*batch_dims, out.shape[-1])
+    out = rowwise_scaled_linear_cutlass_s4s4(
+        input, input_scale, weight, weight_scale, bias
+    )
 
     return out
