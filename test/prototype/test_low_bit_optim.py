@@ -25,7 +25,7 @@ from torchao.prototype.low_bit_optim.quant_utils import (
 )
 from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
-from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
+from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8, quantize_fp8
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -42,6 +42,10 @@ try:
 except ImportError:
     lpmm = None
 
+try:
+    import coat
+except ImportError:
+    coat = None
 
 _DEVICES = get_available_devices()
 
@@ -152,6 +156,76 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
+    @parametrize(
+        "optim_name",
+        ["AdamFp8", "AdamWFp8"],
+    )
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("device", _DEVICES)
+    def test_optim_fp8_coat_smoke(self, optim_name, dtype, device):
+        if device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        model = nn.Sequential(nn.Linear(32, 4096), nn.ReLU(), nn.Linear(4096, 4096))
+        model.to(device=device, dtype=dtype)
+
+        optim = getattr(low_bit_optim, optim_name)(
+            model.parameters(), dynamic_range_expansion=True
+        )
+
+        x = torch.randn(4, 32, device=device, dtype=dtype)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
+        # test serialization. also test the case CUDA optim loads CPU state dict
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(optim.state_dict(), f.name)
+            state_dict = torch.load(f.name, map_location="cpu")
+
+        model2 = copy.deepcopy(model)
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device, dtype=dtype)
+
+            model(x).sum().backward()
+            optim.step()
+            optim.zero_grad()
+
+            model2(x).sum().backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
+    @parametrize("device", _DEVICES)
+    @parametrize("dynamic_range_expansion", [False, True])
+    @parametrize("backend", ["eager", "aot_eager", "inductor"])
+    def test_quantize_fp8_with_compile(self, device, dynamic_range_expansion, backend):
+
+        if device == "cpu"  and not TORCH_VERSION_AT_LEAST_2_5:
+            pytest.skip("fill_cpu not implemented for Float8_e4m3fn for torch<2.5")
+        if device == "cuda" and not TORCH_VERSION_AT_LEAST_2_4:
+            pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+        
+        torch.manual_seed(42)
+        block_size = 128
+        x = torch.randn(32, 1024, device=device)
+        expected = quantize_fp8(x, block_size, dynamic_range_expansion)
+        with torch._dynamo.utils.disable_cache_limit():
+            actual = torch.compile(quantize_fp8, fullgraph=True, dynamic=False, backend=backend)(x, block_size, dynamic_range_expansion)
+        
+        torch.testing.assert_close(expected[0].float(), actual[0].float(), rtol=1e-5, atol=1e-5)    
+    
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
@@ -198,6 +272,51 @@ class TestOptim(TestCase):
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
         optim2 = getattr(low_bit_optim, optim_name)(
             model2.parameters(), block_size=block_size
+        )
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+
+            loss1 = model1(x).sum()
+            loss1.backward()
+            optim1.step()
+            optim1.zero_grad()
+
+            loss2 = model2(x).sum()
+            loss2.backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
+
+    @pytest.mark.skipif(coat is None, reason="Coat is not available")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason="Coat float8 Adam only works for CUDA",
+    )
+    @parametrize("optim_name", ["AdamWFp8"])
+    def test_optim_float8_correctness(self, optim_name):
+        
+        from coat.activation.models._fp8_quantization_config import QuantizationConfig
+        from coat.optimizer.fp8_adamw import CoatAdamW
+        
+        torch.manual_seed(42)
+        device = "cuda"
+        
+
+        model1 = nn.Sequential(nn.Linear(32, 4096), nn.ReLU(), nn.Linear(4096, 4096))
+        model1.to(device)
+        model2 = copy.deepcopy(model1)
+
+        # Official CoatOptim only supports 128
+        block_size = 128 
+        coat_args = QuantizationConfig(first_order_expansion="true", second_order_expansion="true")
+        
+
+        optim1 = CoatAdamW(coat_args, model1.parameters())
+        optim2 = getattr(low_bit_optim, optim_name)(
+            model2.parameters(), block_size=block_size, dynamic_range_expansion=True
         )
 
         for _ in range(2):
