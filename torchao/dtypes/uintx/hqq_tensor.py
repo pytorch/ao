@@ -1,13 +1,12 @@
-from torchao.quantization.quant_primitives import (
-    choose_qparams_and_quantize_affine_hqq
-)
 import logging
 import math
 from typing import Optional, Tuple
 
 import torch
 
-
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+)
 from torchao.dtypes.utils import (
     Layout,
     PlainLayout,
@@ -16,9 +15,6 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_and_quantize_affine_hqq,
-)
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +26,6 @@ __all__ = [
 
 
 class HQQTensor(AffineQuantizedTensor):
-
     @classmethod
     def from_hp_to_intx(
         cls,
@@ -54,9 +49,7 @@ class HQQTensor(AffineQuantizedTensor):
         axis = 1 if (block_size[0] == 1) else 0
         group_size = max(block_size)
         compute_dtype = (
-            zero_point_dtype
-            if (zero_point_dtype is not None)
-            else input_float.dtype
+            zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
         )
         device = input_float.device
         from torchao.dtypes.uintx import TensorCoreTiledLayout
@@ -69,9 +62,7 @@ class HQQTensor(AffineQuantizedTensor):
             compute_dtype=compute_dtype,
             device=device,
             verbose=False,
-            raw_output=not isinstance(
-                _layout, (TensorCoreTiledLayout, PlainLayout)
-            ),
+            raw_output=not isinstance(_layout, (TensorCoreTiledLayout, PlainLayout)),
             # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
             # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
             # zero is preserved.
@@ -80,5 +71,6 @@ class HQQTensor(AffineQuantizedTensor):
             # TODO change PlainLayout to use raw_output.
         )
         data = data.to(target_dtype)
+
 
 to_hqq_quantized_intx = HQQTensor.from_hp_to_intx

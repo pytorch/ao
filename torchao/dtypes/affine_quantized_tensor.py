@@ -14,7 +14,6 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
-    choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     quantize_affine,
 )

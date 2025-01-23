@@ -39,8 +39,8 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-    to_marlinqqq_quantized_intx,
     to_hqq_quantized_intx,
+    to_marlinqqq_quantized_intx,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig

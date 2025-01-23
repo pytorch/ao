@@ -4,6 +4,9 @@ from .block_sparse_layout import (
 from .cutlass_int4_packed_layout import (
     CutlassInt4PackedLayout,
 )
+from .hqq_tensor import (
+    to_hqq_quantized_intx,
+)
 from .int4_cpu_layout import (
     Int4CPULayout,
 )
@@ -23,9 +26,6 @@ from .tensor_core_tiled_layout import (
 )
 from .uintx_layout import (
     UintxLayout,
-)
-from .hqq_tensor import (
-    to_hqq_quantized_intx,
 )
 
 __all__ = [

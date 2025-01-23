@@ -22,8 +22,8 @@ from .uintx import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
-    to_marlinqqq_quantized_intx,
     to_hqq_quantized_intx,
+    to_marlinqqq_quantized_intx,
 )
 from .utils import (
     Layout,
