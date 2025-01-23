@@ -3,9 +3,7 @@ import logging
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-)
+from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor
 from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_check,
     _linear_fp8_act_fp8_weight_impl,
@@ -52,9 +50,7 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_impl,
 )
 from torchao.quantization.quant_primitives import dequantize_affine
-from torchao.utils import (
-    fill_defaults,
-)
+from torchao.utils import fill_defaults
 
 logger = logging.getLogger(__name__)
 

@@ -1,16 +1,13 @@
 from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
-    to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     # experimental, will be merged into floatx in the future
     to_affine_quantized_fpx,
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
-from .floatx import (
-    Float8Layout,
-)
+from .floatx import Float8Layout, Float8QuantizedTensor, to_affine_quantized_float8
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     BlockSparseLayout,
@@ -24,20 +21,18 @@ from .uintx import (
     UintxLayout,
     to_marlinqqq_quantized_intx,
 )
-from .utils import (
-    Layout,
-    PlainLayout,
-)
+from .utils import Layout, PlainLayout
 
 __all__ = [
     "NF4Tensor",
     "to_nf4",
     "AffineQuantizedTensor",
+    "Float8QuantizedTensor",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_fpx",
-    "to_affine_quantized_floatx",
     "to_affine_quantized_floatx_static",
+    "to_affine_quantized_float8",
     "to_marlinqqq_quantized_intx",
     "Layout",
     "PlainLayout",

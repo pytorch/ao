@@ -10,13 +10,10 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
-    choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
-    dequantize_affine_floatx,
     quantize_affine,
-    quantize_affine_float8,
     quantize_affine_floatx,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
@@ -28,7 +25,6 @@ __all__ = [
     "AffineQuantizedTensor",
     "register_layout",
     "to_affine_quantized_intx",
-    "to_affine_quantized_floatx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_floatx_static",
     "to_affine_quantized_fpx",
@@ -121,40 +117,28 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
+        data, scale, zero_point = self.tensor_impl.get_plain()
+        dq = dequantize_affine(
+            data,
+            self.block_size,
+            scale,
+            zero_point,
+            data.dtype,
+            self.quant_min,
+            self.quant_max,
+            self.zero_point_domain,
+            output_dtype=output_dtype,
+        )
+        from torchao.dtypes.uintx import TensorCoreTiledLayout
 
-        if isinstance(self._layout, FloatxTensorCoreLayout):
-            int_data, scale = self.tensor_impl.get_plain()
-            return dequantize_affine_floatx(
-                int_data,
-                scale,
-                self._layout.ebits,
-                self._layout.mbits,
-                output_dtype=output_dtype,
-            )
-        else:
-            data, scale, zero_point = self.tensor_impl.get_plain()
-            dq = dequantize_affine(
-                data,
-                self.block_size,
-                scale,
-                zero_point,
-                data.dtype,
-                self.quant_min,
-                self.quant_max,
-                self.zero_point_domain,
-                output_dtype=output_dtype,
-            )
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
-
-            if isinstance(self._layout, TensorCoreTiledLayout):
-                # need to return to original shape if tensor was padded
-                # in preprocessing
-                # TODO: we could add an API for this if there are more use cases
-                # (e.g. dequant_post_process) in TensorImpl or Layout
-                for dim, dim_size in enumerate(self.shape):
-                    dq = dq.narrow(dim, 0, dim_size)
-            return dq
+        if isinstance(self._layout, TensorCoreTiledLayout):
+            # need to return to original shape if tensor was padded
+            # in preprocessing
+            # TODO: we could add an API for this if there are more use cases
+            # (e.g. dequant_post_process) in TensorImpl or Layout
+            for dim, dim_size in enumerate(self.shape):
+                dq = dq.narrow(dim, 0, dim_size)
+        return dq
 
     def __tensor_flatten__(self):
         return ["tensor_impl"], [
@@ -272,7 +256,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             # Note: output will be uint8 tensor for sub byte tensors for now
 
         data = _layout.post_process(data)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
             tensor_impl,
@@ -417,36 +401,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
         return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
 
-    @classmethod
-    def from_hp_to_float8(
-        cls,
-        input_float: torch.Tensor,
-        target_dtype: torch.dtype,
-        block_size: Tuple[int, ...],
-        _layout: Layout = PlainLayout(),
-    ):
-        assert target_dtype in FP8_TYPES, f"Unsupported dtype {target_dtype} for float8"
-        original_shape = input_float.shape
-        scale = choose_qparams_affine_float8(
-            input_float,
-            target_dtype,
-            target_dtype,
-        )
-        fp8_data = quantize_affine_float8(
-            input_float,
-            scale,
-            target_dtype,
-        )
-        fp8_data = _layout.post_process(fp8_data)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(fp8_data, scale, None, _layout)
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            dtype=input_float.dtype,
-        )
-
     @property
     def _layout(self) -> Layout:
         return self.tensor_impl._layout
@@ -500,9 +454,7 @@ get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
-to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
-to_affine_quantized_float8 = AffineQuantizedTensor.from_hp_to_float8
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
