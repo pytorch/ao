@@ -251,10 +251,7 @@ def codebook_weight_only(
     )
 
 
-
 import logging
-
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
 logger = logging.getLogger(__name__)
 
@@ -262,12 +259,14 @@ logger = logging.getLogger(__name__)
 
 _CODEBOOK_QLINEAR_DISPATCH_TABLE = {}
 
+
 def register_codebook_quantized_linear_dispatch(dispatch_condition, impl):
     """
     Register a dispatch for codebook-based quantized linear op with a (condition, impl) pair.
     Both must accept (input, weight, bias).
     """
     _CODEBOOK_QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
+
 
 def deregister_codebook_quantized_linear_dispatch(dispatch_condition):
     if dispatch_condition in _CODEBOOK_QLINEAR_DISPATCH_TABLE:
@@ -277,14 +276,19 @@ def deregister_codebook_quantized_linear_dispatch(dispatch_condition):
             f"Attempting to deregister non-existent codebook dispatch condition: {dispatch_condition}"
         )
 
+
 class CodebookLinearNotImplementedError(NotImplementedError):
     """Thin wrapper around NotImplementedError to make codebook errors more explicit."""
+
     pass
 
+
 @staticmethod
-def _codebook_linear_op(input_tensor: torch.Tensor,
-                        weight_tensor: CodebookQuantizedTensor,
-                        bias: torch.Tensor):
+def _codebook_linear_op(
+    input_tensor: torch.Tensor,
+    weight_tensor: CodebookQuantizedTensor,
+    bias: torch.Tensor,
+):
     """
     Tries each (dispatch_condition, impl) in the codebook quantized linear dispatch table.
     Raises if no specialized path is found.
@@ -296,8 +300,10 @@ def _codebook_linear_op(input_tensor: torch.Tensor,
         "No specialized codebook dispatch found for quantized linear op."
     )
 
+
 # Attach the _codebook_linear_op to the CodebookQuantizedTensor class
 CodebookQuantizedTensor._codebook_linear_op = _codebook_linear_op
+
 
 def adapt_codebook_1x16(cqt):
     """
@@ -309,50 +315,55 @@ def adapt_codebook_1x16(cqt):
     """
     # We expect codebook.shape == [codebook_size, 1, 16].
     # AQLM requires shape [num_codebooks=1, codebook_size, out_group_size=1, in_group_size=16].
-    codebooks_aqlm = cqt.codebook.unsqueeze(0) #.contiguous()
+    codebooks_aqlm = cqt.codebook.unsqueeze(0)  # .contiguous()
 
     # AQLM expects codes.shape == [num_out_groups, num_in_groups, num_codebooks].
     # `cqt.codes` is [out_groups, in_groups], we just add the last dim:
-    codes_aqlm = cqt.codes.unsqueeze(-1) #.contiguous()
+    codes_aqlm = cqt.codes.unsqueeze(-1)  # .contiguous()
 
     # AQLM expects scales.shape == [num_out_groups, 1, 1, 1].
     # `cqt.scales` is [num_out_groups, num_scale_groups=1, 1] do:
-    scales_aqlm = cqt.scales.unsqueeze(-1) #.contiguous()
+    scales_aqlm = cqt.scales.unsqueeze(-1)  # .contiguous()
 
     return codebooks_aqlm, codes_aqlm, scales_aqlm
 
-def _linear_aqlm_code1x16_check(
-    input_tensor: torch.Tensor,
-    weight_tensor: torch.Tensor,
-    bias: torch.Tensor
-) -> bool:
 
+def _linear_aqlm_code1x16_check(
+    input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
+) -> bool:
     # don't need adapt_codebook_1x16 and other reshaping if refactored to follow AQLM data representation
     codebook_size, out_group_size, in_group_size = weight_tensor.codebook.shape
-    num_codebooks = 1 # right now this is hardcoded, won't be if supporting AQLM
+    num_codebooks = 1  # right now this is hardcoded, won't be if supporting AQLM
 
     return (
         isinstance(weight_tensor, CodebookQuantizedTensor)
-        and (weight_tensor.codebook.device.type, num_codebooks, codebook_size, out_group_size) == (
+        and (
+            weight_tensor.codebook.device.type,
+            num_codebooks,
+            codebook_size,
+            out_group_size,
+        )
+        == (
             "cuda",
             1,
             65536,
             1,
-        ) 
+        )
         and in_group_size in [8, 16]
     )
+
 
 def _linear_aqlm_code1x16_impl(
     input_tensor: torch.Tensor,
     weight_tensor: CodebookQuantizedTensor,
-    bias: torch.Tensor
+    bias: torch.Tensor,
 ) -> torch.Tensor:
     """
     Codebook linear implementation using the `code1x16_matmat_dequant` op.
     """
 
     codebook, codes, scales = adapt_codebook_1x16(weight_tensor)
-    from torchao.ops import code1x16_matmat, code1x16_matmat_dequant
+    from torchao.ops import code1x16_matmat
 
     return code1x16_matmat(
         input=input_tensor,
@@ -362,13 +373,14 @@ def _linear_aqlm_code1x16_impl(
         bias=bias,
     )
 
+
 register_codebook_quantized_linear_dispatch(
-    _linear_aqlm_code1x16_check,
-    _linear_aqlm_code1x16_impl
+    _linear_aqlm_code1x16_check, _linear_aqlm_code1x16_impl
 )
 
 
 implements = CodebookQuantizedTensor.implements
+
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):

@@ -31,6 +31,7 @@ lib.define(
     "code1x16_matmat_dequant(Tensor input, Tensor codes, Tensor codebooks, Tensor scales, Tensor? bias=None) -> Tensor"
 )
 
+
 def register_custom_op(name):
     def decorator(func):
         if TORCH_VERSION_AT_LEAST_2_4:
@@ -623,6 +624,7 @@ def _(
         device=input.device,
     )
 
+
 def code1x16_matmat(
     input: Tensor,
     codes: Tensor,
@@ -643,7 +645,10 @@ def code1x16_matmat(
     Returns:
         Tensor: Output tensor after the matrix multiplication.
     """
-    return torch.ops.torchao.code1x16_matmat.default(input, codes, codebooks, scales, bias)
+    return torch.ops.torchao.code1x16_matmat.default(
+        input, codes, codebooks, scales, bias
+    )
+
 
 @register_custom_op("torchao::code1x16_matmat")
 def _(
@@ -653,33 +658,25 @@ def _(
     scales: Tensor,
     bias: Optional[Tensor] = None,
 ) -> Tensor:
-
     num_out_groups, num_in_groups, num_codebooks = codes.shape
     num_codebooks, codebook_size, out_group_size, in_group_size = codebooks.shape
 
+    torch._check(input.is_cuda, lambda: "input is not on GPU")
+    torch._check(codebooks.is_cuda, lambda: "codebooks is not on GPU")
     torch._check(
-        input.is_cuda, 
-        lambda: "input is not on GPU"
+        num_codebooks == 1, lambda: f"num_codebooks must equat 1, got {num_codebooks}"
     )
     torch._check(
-        codebooks.is_cuda, 
-        lambda: "codebooks is not on GPU"
-    )
-    torch._check(
-        num_codebooks == 1,
-        lambda: f"num_codebooks must equat 1, got {num_codebooks}"
-    )
-    torch._check(
-        codebook_size == 65536, 
-        lambda: f"codebook_size must equal 65536, got {codebook_size}"
+        codebook_size == 65536,
+        lambda: f"codebook_size must equal 65536, got {codebook_size}",
     )
     torch._check(
         out_group_size == 1,
-        lambda: f"out_group_size must equal 1, got {out_group_size}"
+        lambda: f"out_group_size must equal 1, got {out_group_size}",
     )
     torch._check(
         in_group_size in [8, 16],
-        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}"
+        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}",
     )
 
     # Validate dimensions
@@ -689,21 +686,22 @@ def _(
 
     torch._check(
         input_features == in_features,
-        lambda: f"Input features ({input_features}) do not match the expected size ({in_features})."
+        lambda: f"Input features ({input_features}) do not match the expected size ({in_features}).",
     )
     torch._check(
         scales.size(0) == out_features,
-        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features})."
+        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features}).",
     )
     if bias is not None:
         torch._check(
             bias.size(0) == out_features,
-            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features})."
+            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features}).",
         )
 
     # Compute output shape
     output_shape = input.shape[:-1] + (out_features,)
     return input.new_empty(output_shape)
+
 
 def code1x16_matmat_dequant(
     input: Tensor,
@@ -725,7 +723,10 @@ def code1x16_matmat_dequant(
     Returns:
         Tensor: Output tensor after dequantization and matrix multiplication.
     """
-    return torch.ops.torchao.code1x16_matmat_dequant.default(input, codes, codebooks, scales, bias)
+    return torch.ops.torchao.code1x16_matmat_dequant.default(
+        input, codes, codebooks, scales, bias
+    )
+
 
 @register_custom_op("torchao::code1x16_matmat_dequant")
 def _(
@@ -735,33 +736,25 @@ def _(
     scales: Tensor,
     bias: Optional[Tensor] = None,
 ) -> Tensor:
-
     num_out_groups, num_in_groups, num_codebooks = codes.shape
     num_codebooks, codebook_size, out_group_size, in_group_size = codebooks.shape
 
+    torch._check(input.is_cuda, lambda: "input is not on GPU")
+    torch._check(codebooks.is_cuda, lambda: "codebooks is not on GPU")
     torch._check(
-        input.is_cuda, 
-        lambda: "input is not on GPU"
+        num_codebooks == 1, lambda: f"num_codebooks must equat 1, got {num_codebooks}"
     )
     torch._check(
-        codebooks.is_cuda, 
-        lambda: "codebooks is not on GPU"
-    )
-    torch._check(
-        num_codebooks == 1,
-        lambda: f"num_codebooks must equat 1, got {num_codebooks}"
-    )
-    torch._check(
-        codebook_size == 65536, 
-        lambda: f"codebook_size must equal 65536, got {codebook_size}"
+        codebook_size == 65536,
+        lambda: f"codebook_size must equal 65536, got {codebook_size}",
     )
     torch._check(
         out_group_size == 1,
-        lambda: f"out_group_size must equal 1, got {out_group_size}"
+        lambda: f"out_group_size must equal 1, got {out_group_size}",
     )
     torch._check(
         in_group_size in [8, 16],
-        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}"
+        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}",
     )
 
     # Validate dimensions
@@ -771,18 +764,18 @@ def _(
 
     torch._check(
         input_features == in_features,
-        lambda: f"Input features ({input_features}) do not match the expected size ({in_features})."
+        lambda: f"Input features ({input_features}) do not match the expected size ({in_features}).",
     )
     torch._check(
         scales.size(0) == out_features,
-        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features})."
+        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features}).",
     )
     if bias is not None:
         torch._check(
             bias.size(0) == out_features,
-            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features})."
+            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features}).",
         )
-        
+
     # Compute output shape
     output_shape = input.shape[:-1] + (out_features,)
     return input.new_empty(output_shape)
