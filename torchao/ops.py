@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from torch import Tensor
 
@@ -22,7 +24,12 @@ lib.define(
 lib.define(
     "s8s4_linear_cutlass(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
-
+lib.define(
+    "code1x16_matmat(Tensor input, Tensor codes, Tensor codebooks, Tensor scales, Tensor? bias=None) -> Tensor"
+)
+lib.define(
+    "code1x16_matmat_dequant(Tensor input, Tensor codes, Tensor codebooks, Tensor scales, Tensor? bias=None) -> Tensor"
+)
 
 def register_custom_op(name):
     def decorator(func):
@@ -615,3 +622,167 @@ def _(
         dtype=input_scale.dtype,
         device=input.device,
     )
+
+def code1x16_matmat(
+    input: Tensor,
+    codes: Tensor,
+    codebooks: Tensor,
+    scales: Tensor,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+    """
+    Performs a matrix multiplication using codebooks and codes (quantized weights).
+
+    Args:
+        input (Tensor): Input tensor of shape `(..., in_features)`.
+        codes (Tensor): Codes tensor of shape `(num_out_groups=out_features, num_in_groups=in_features//in_group_size, num_codebooks=1)`
+        codebooks (Tensor): Codebooks tensor of shape `(num_codebooks=1, codebook_size=2**16, out_group_size=1, in_group_size)`
+        scales (Tensor): Scales tensor of shape `(num_out_groups, 1, 1, 1)`
+        bias (Optional[Tensor]): Optional bias tensor of shape `[out_features]`.
+
+    Returns:
+        Tensor: Output tensor after the matrix multiplication.
+    """
+    return torch.ops.torchao.code1x16_matmat.default(input, codes, codebooks, scales, bias)
+
+@register_custom_op("torchao::code1x16_matmat")
+def _(
+    input: Tensor,
+    codes: Tensor,
+    codebooks: Tensor,
+    scales: Tensor,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+
+    num_out_groups, num_in_groups, num_codebooks = codes.shape
+    num_codebooks, codebook_size, out_group_size, in_group_size = codebooks.shape
+
+    torch._check(
+        input.is_cuda, 
+        lambda: "input is not on GPU"
+    )
+    torch._check(
+        codebooks.is_cuda, 
+        lambda: "codebooks is not on GPU"
+    )
+    torch._check(
+        num_codebooks == 1,
+        lambda: f"num_codebooks must equat 1, got {num_codebooks}"
+    )
+    torch._check(
+        codebook_size == 65536, 
+        lambda: f"codebook_size must equal 65536, got {codebook_size}"
+    )
+    torch._check(
+        out_group_size == 1,
+        lambda: f"out_group_size must equal 1, got {out_group_size}"
+    )
+    torch._check(
+        in_group_size in [8, 16],
+        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}"
+    )
+
+    # Validate dimensions
+    input_features = input.size(-1)
+    in_features = num_in_groups * in_group_size
+    out_features = num_out_groups
+
+    torch._check(
+        input_features == in_features,
+        lambda: f"Input features ({input_features}) do not match the expected size ({in_features})."
+    )
+    torch._check(
+        scales.size(0) == out_features,
+        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features})."
+    )
+    if bias is not None:
+        torch._check(
+            bias.size(0) == out_features,
+            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features})."
+        )
+
+    # Compute output shape
+    output_shape = input.shape[:-1] + (out_features,)
+    return input.new_empty(output_shape)
+
+def code1x16_matmat_dequant(
+    input: Tensor,
+    codes: Tensor,
+    codebooks: Tensor,
+    scales: Tensor,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+    """
+    Dequantizes and performs a matrix multiplication using codebooks and codes.
+
+    Args:
+        input (Tensor): Input tensor of shape `(..., in_features)`.
+        codes (Tensor): Codes tensor of shape `(num_out_groups=out_features, num_in_groups=in_features//in_group_size)`
+        codebooks (Tensor): Codebooks tensor of shape `(num_codebooks=1, codebook_size=2**16, out_group_size=1, in_group_size)`
+        scales (Tensor): Scales tensor of shape `(num_out_groups, 1, 1, 1)`
+        bias (Optional[Tensor]): Optional bias tensor of shape `[out_features]`.
+
+    Returns:
+        Tensor: Output tensor after dequantization and matrix multiplication.
+    """
+    return torch.ops.torchao.code1x16_matmat_dequant.default(input, codes, codebooks, scales, bias)
+
+@register_custom_op("torchao::code1x16_matmat_dequant")
+def _(
+    input: Tensor,
+    codes: Tensor,
+    codebooks: Tensor,
+    scales: Tensor,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+
+    num_out_groups, num_in_groups, num_codebooks = codes.shape
+    num_codebooks, codebook_size, out_group_size, in_group_size = codebooks.shape
+
+    torch._check(
+        input.is_cuda, 
+        lambda: "input is not on GPU"
+    )
+    torch._check(
+        codebooks.is_cuda, 
+        lambda: "codebooks is not on GPU"
+    )
+    torch._check(
+        num_codebooks == 1,
+        lambda: f"num_codebooks must equat 1, got {num_codebooks}"
+    )
+    torch._check(
+        codebook_size == 65536, 
+        lambda: f"codebook_size must equal 65536, got {codebook_size}"
+    )
+    torch._check(
+        out_group_size == 1,
+        lambda: f"out_group_size must equal 1, got {out_group_size}"
+    )
+    torch._check(
+        in_group_size in [8, 16],
+        lambda: f"in_group_size must equal 8 or 16, got {in_group_size}"
+    )
+
+    # Validate dimensions
+    input_features = input.size(-1)
+    in_features = num_in_groups * in_group_size
+    out_features = num_out_groups
+
+    torch._check(
+        input_features == in_features,
+        lambda: f"Input features ({input_features}) do not match the expected size ({in_features})."
+    )
+    torch._check(
+        scales.size(0) == out_features,
+        lambda: f"Scales tensor size ({scales.size(0)}) does not match the number of output features ({out_features})."
+    )
+    if bias is not None:
+        torch._check(
+            bias.size(0) == out_features,
+            lambda: f"Bias tensor size ({bias.size(0)}) does not match the number of output features ({out_features})."
+        )
+        
+    # Compute output shape
+    output_shape = input.shape[:-1] + (out_features,)
+    return input.new_empty(output_shape)

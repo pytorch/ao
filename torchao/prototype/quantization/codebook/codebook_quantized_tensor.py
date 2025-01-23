@@ -28,6 +28,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
          corresponds to a block in the original tensor. Shape is `(codebook_size, out_block_size, in_block_size)`.
       block_size (Tuple[int, ...]): Granularity of quantization, specifying the dimensions of tensor
          blocks that share the same quantization parameters.
+      scales (torch.Tensor): Scaling factors for each scale block.
       shape (torch.Size): Shape of the original high-precision tensor.
       dtype (torch.dtype): dtype of the original high-precision tensor.
     """
@@ -138,6 +139,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             input_tensor (torch.Tensor): The input floating-point tensor to quantize.
             block_size (Tuple[int, ...]): The size of the blocks for which codes are assigned.
             code_dtype (torch.dtype): The dtype of the codes.
+            scale_block_size (int): The size of the blocks that share a scale.
             chunk_size (int): The chunk size to use during quantization (to control memory usage).
         """
 
@@ -187,24 +189,6 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             dtype=self.dtype,
         )
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = {}
-
-        if func in CODEBOOK_TORCH_FUNCTIONS:
-            return CODEBOOK_TORCH_FUNCTIONS[func](*args, **kwargs)
-
-        if any(isinstance(arg, cls) for arg in args):
-            # Dequantize all instances of CodebookQuantizedTensor in args
-            new_args = tuple(
-                arg.dequantize() if isinstance(arg, cls) else arg for arg in args
-            )
-
-            return func(*new_args, **kwargs)
-        else:
-            return NotImplemented
-
     def detach(self):
         """
         Returns a new `CodebookQuantizedTensor`.
@@ -231,27 +215,6 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
     def dtype(self):
         # Hacky way to avoid recursion with __torch_function__
         return self._dtype
-
-
-CODEBOOK_TORCH_FUNCTIONS = {}
-
-
-def implements_torch_function(torch_function):
-    def decorator(func):
-        CODEBOOK_TORCH_FUNCTIONS[torch_function] = func
-        return func
-
-    return decorator
-
-
-@implements_torch_function(torch.Tensor.detach)
-def function_detach(tensor, *args, **kwargs):
-    return tensor.detach()
-
-
-@implements_torch_function(torch.Tensor.requires_grad_)
-def function_requires_grad_(tensor, *args, **kwargs):
-    return tensor.requires_grad_(*args, **kwargs)
 
 
 def codebook_weight_only(
@@ -286,3 +249,147 @@ def codebook_weight_only(
     return _get_linear_subclass_inserter(
         apply_codebook_quantization, scale_block_size=scale_block_size
     )
+
+
+
+import logging
+
+from torch.utils._python_dispatch import return_and_correct_aliasing
+
+logger = logging.getLogger(__name__)
+
+# aten = torch.ops.aten
+
+_CODEBOOK_QLINEAR_DISPATCH_TABLE = {}
+
+def register_codebook_quantized_linear_dispatch(dispatch_condition, impl):
+    """
+    Register a dispatch for codebook-based quantized linear op with a (condition, impl) pair.
+    Both must accept (input, weight, bias).
+    """
+    _CODEBOOK_QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
+
+def deregister_codebook_quantized_linear_dispatch(dispatch_condition):
+    if dispatch_condition in _CODEBOOK_QLINEAR_DISPATCH_TABLE:
+        del _CODEBOOK_QLINEAR_DISPATCH_TABLE[dispatch_condition]
+    else:
+        logger.warning(
+            f"Attempting to deregister non-existent codebook dispatch condition: {dispatch_condition}"
+        )
+
+class CodebookLinearNotImplementedError(NotImplementedError):
+    """Thin wrapper around NotImplementedError to make codebook errors more explicit."""
+    pass
+
+@staticmethod
+def _codebook_linear_op(input_tensor: torch.Tensor,
+                        weight_tensor: CodebookQuantizedTensor,
+                        bias: torch.Tensor):
+    """
+    Tries each (dispatch_condition, impl) in the codebook quantized linear dispatch table.
+    Raises if no specialized path is found.
+    """
+    for condition, impl in _CODEBOOK_QLINEAR_DISPATCH_TABLE.items():
+        if condition(input_tensor, weight_tensor, bias):
+            return impl(input_tensor, weight_tensor, bias)
+    raise CodebookLinearNotImplementedError(
+        "No specialized codebook dispatch found for quantized linear op."
+    )
+
+# Attach the _codebook_linear_op to the CodebookQuantizedTensor class
+CodebookQuantizedTensor._codebook_linear_op = _codebook_linear_op
+
+def adapt_codebook_1x16(cqt):
+    """
+    Given a CodebookQuantizedTensor `cqt` with block_size=(1, 16),
+    reshape codebook, codes, scales into the layout needed by AQLM’s 1x16 kernel.
+
+    Returns:
+        codebooks_aqlm, codes_aqlm, scales_aqlm
+    """
+    # We expect codebook.shape == [codebook_size, 1, 16].
+    # AQLM requires shape [num_codebooks=1, codebook_size, out_group_size=1, in_group_size=16].
+    codebooks_aqlm = cqt.codebook.unsqueeze(0) #.contiguous()
+
+    # AQLM expects codes.shape == [num_out_groups, num_in_groups, num_codebooks].
+    # `cqt.codes` is [out_groups, in_groups], we just add the last dim:
+    codes_aqlm = cqt.codes.unsqueeze(-1) #.contiguous()
+
+    # AQLM expects scales.shape == [num_out_groups, 1, 1, 1].
+    # `cqt.scales` is [num_out_groups, num_scale_groups=1, 1] do:
+    scales_aqlm = cqt.scales.unsqueeze(-1) #.contiguous()
+
+    return codebooks_aqlm, codes_aqlm, scales_aqlm
+
+def _linear_aqlm_code1x16_check(
+    input_tensor: torch.Tensor,
+    weight_tensor: torch.Tensor,
+    bias: torch.Tensor
+) -> bool:
+
+    # don't need adapt_codebook_1x16 and other reshaping if refactored to follow AQLM data representation
+    codebook_size, out_group_size, in_group_size = weight_tensor.codebook.shape
+    num_codebooks = 1 # right now this is hardcoded, won't be if supporting AQLM
+
+    return (
+        isinstance(weight_tensor, CodebookQuantizedTensor)
+        and (weight_tensor.codebook.device.type, num_codebooks, codebook_size, out_group_size) == (
+            "cuda",
+            1,
+            65536,
+            1,
+        ) 
+        and in_group_size in [8, 16]
+    )
+
+def _linear_aqlm_code1x16_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: CodebookQuantizedTensor,
+    bias: torch.Tensor
+) -> torch.Tensor:
+    """
+    Codebook linear implementation using the `code1x16_matmat_dequant` op.
+    """
+
+    codebook, codes, scales = adapt_codebook_1x16(weight_tensor)
+    from torchao.ops import code1x16_matmat, code1x16_matmat_dequant
+
+    return code1x16_matmat(
+        input=input_tensor,
+        codes=codes,
+        codebooks=codebook,
+        scales=scales,
+        bias=bias,
+    )
+
+register_codebook_quantized_linear_dispatch(
+    _linear_aqlm_code1x16_check,
+    _linear_aqlm_code1x16_impl
+)
+
+
+implements = CodebookQuantizedTensor.implements
+
+@implements([torch.nn.functional.linear, aten.linear.default])
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor, bias = (
+        args[0],
+        args[1],
+        args[2] if len(args) > 2 else None,
+    )
+    if not input_tensor.is_floating_point():
+        raise NotImplementedError(
+            f"{func} is not implemented for non floating point input"
+        )
+
+    # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
+    # is not picked up by any of the dispatch paths in `_codebook_linear_op`, this allows us to
+    # make the branches easier to understand in `_codebook_linear_op`
+    try:
+        return weight_tensor._codebook_linear_op(input_tensor, weight_tensor, bias)
+    except CodebookLinearNotImplementedError:
+        if isinstance(input_tensor, CodebookQuantizedTensor):
+            input_tensor = input_tensor.dequantize()
+        if isinstance(weight_tensor, CodebookQuantizedTensor):
+            weight_tensor = weight_tensor.dequantize()
+        return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
