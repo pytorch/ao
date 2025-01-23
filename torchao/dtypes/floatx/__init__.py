@@ -1,10 +1,10 @@
 from .float8_layout import (
+    Float8Layout,
+    Float8QuantizedTensor,
     _linear_fp8_act_fp8_weight_check,
     _linear_fp8_act_fp8_weight_impl,
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
-    Float8Layout,
-    Float8QuantizedTensor,
     to_affine_quantized_float8,
 )
 from .floatx_tensor_core_layout import (
@@ -12,7 +12,6 @@ from .floatx_tensor_core_layout import (
     from_scaled_tc_floatx,
     to_scaled_tc_floatx,
 )
-
 
 __all__ = [
     "FloatxTensorCoreLayout",
