@@ -573,6 +573,35 @@ class TorchAOBaseTensor(torch.Tensor):
         }
         return kwargs
 
+    def __tensor_flatten__(self):
+        return ["tensor_impl"], [
+            self.block_size,
+            self.shape,
+            self.quant_min,
+            self.quant_max,
+            self.zero_point_domain,
+            self.dtype,
+        ]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        tensor_impl = tensor_data_dict["tensor_impl"]
+        block_size, shape, quant_min, quant_max, zero_point_domain, dtype = (
+            tensor_attributes
+        )
+        return cls(
+            tensor_impl,
+            block_size,
+            shape if outer_size is None else outer_size,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+            dtype=dtype,
+            strides=outer_stride,
+        )
+
 
 def fill_defaults(args, n, defaults_tail):
     """
