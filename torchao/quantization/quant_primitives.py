@@ -1346,7 +1346,7 @@ def quantize_affine_float8(
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
     """
     # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
-    # upcasted to `float32` to multiply with the scale
+    # upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.
     # In order to match numerics between eager and compile, we upcast manually here.
     tensor_scaled = tensor.to(torch.float32) * scale
     max_value = torch.finfo(float8_dtype).max
@@ -1361,13 +1361,16 @@ def dequantize_affine_float8(
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
-    Dequantizes the float8 tensor to float32 tensor.
+    Dequantizes the float8 tensor to high precision tensor.
 
     Args:
         tensor (torch.Tensor): Input float8 tensor to be dequantized.
         scale (torch.Tensor): Scaling factor for the dequantization.
         output_dtype (torch.dtype): Data type of the output tensor (e.g., torch.float32).
     """
+    # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
+    # upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.
+    # In order to match numerics between eager and compile, we upcast manually here.
     fp8_tensor = tensor.to(torch.float32)
     hp_tensor = fp8_tensor / scale
     return hp_tensor.to(output_dtype)
