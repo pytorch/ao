@@ -65,7 +65,8 @@ def main(args):
     ).eval()
 
     # Fake sparsity necessary for BSR, since we find based on SuperBlock
-    sparsifier_or_none = simulate_sparsity(model, args)
+    # sparsifier_or_none = simulate_sparsity(model, args)
+    sparsifier_or_none = None
     if sparsifier_or_none is not None:
         sparsifier_or_none.squash_mask()
 

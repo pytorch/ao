@@ -815,11 +815,36 @@ def bsr_dense_addmm_meta(
         else:
             # see [Computing optimal kernel parameters] in
             # _triton_ops_meta.py for ways to avoid this warning
-            # message
-            warn_once(
-                "bsr_dense_addmm uses non-optimal triton kernel parameters"
-                f" for {M=} {K=} {N=} {Ms=}, {Ks=} {beta=} {alpha=} {dtype=} {out_dtype=}"
+            # from ._triton_ops_meta import optimize_bsr_dense_addmm
+            # optimize_bsr_dense_addmm(
+            #     M,
+            #     K,
+            #     16,
+            #     64,
+            #     64,
+            #     beta=beta,
+            #     alpha=alpha,
+            #     sparsity=sparsity,
+            #     dtype=dtype,
+            #     opname="bsr_dense_addmm",
+            #     verbose=True,
+            # )
+            # get padded key
+            padded_key = (M, K, 16, Ms, Ks, beta == 0, beta == 1, alpha == 1)
+            meta = get_meta(
+                "bsr_dense_addmm",
+                padded_key,
+                device_name,
+                version=(_version, version_dtype, sparsity),
             )
+            # breakpoint()
+            # return meta
+            # message
+            # breakpoint()
+            # warn_once(
+            #     "bsr_dense_addmm uses non-optimal triton kernel parameters"
+            #     f" for {M=} {K=} {N=} {Ms=}, {Ks=} {beta=} {alpha=} {dtype=} {out_dtype=}"
+            # )
 
     SPLIT_N = SPLIT_N or max(N // Ms, 1)
     GROUP_SIZE_ROW = GROUP_SIZE_ROW or 4
@@ -2474,7 +2499,7 @@ if has_triton():
             # find which row of dense needs to get loaded
             # for multiplication with values_block.
             dense_row_idx = tl.load(col_index_nnz_ptr)
-            offsets = tl.arange(0, 16)[None, :]
+            offsets = tl.arange(0, PADDED_BLOCKSIZE_COL)[None, :]
             dense_block = tl.load(
                 dense_block_ptrs + dense_tiled_row_stride * dense_row_idx,
                 mask=offsets < BLOCKSIZE_COL,

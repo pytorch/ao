@@ -23,6 +23,7 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+torch.backends.cuda.enable_cudnn_sdp(True)
 
 
 class HostEvent:
@@ -812,6 +813,22 @@ def main(
             sparsify_(model,
                 block_sparse_weight(blocksize=64),
                 filter_fn=ffn_only)
+            
+            # from torchao.prototype.sparsity.superblock._triton_ops_meta import optimize_bsr_dense_addmm
+            # for M, K, N in [(14336, 4096, 8192), (4096, 14336, 8192)]:
+            #     optimize_bsr_dense_addmm(
+            #         M,
+            #         K,
+            #         N,
+            #         64,
+            #         64,
+            #         beta=0,
+            #         alpha=1,
+            #         sparsity=0.9,
+            #         dtype=torch.bfloat16,
+            #         opname="bsr_dense_addmm",
+            #         verbose=True,
+            #     )
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 

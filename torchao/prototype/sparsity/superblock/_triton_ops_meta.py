@@ -753,7 +753,7 @@ def optimize_bsr_dense_addmm(
     verbose=False,
     opname=None,
 ):
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
     bsr = create_blocked_tensor(
         0, m, k, (bm, bk), sparsity, dtype, device
     ).to_sparse_bsr((bm, bk))
@@ -802,6 +802,8 @@ def main(op="scatter_mm", force=False, dtype=torch.float16, verbose=True):
     ]
     sizes3_lst = [3 * sz for sz in [64, 128] + sizes_lst if sz <= 2048]
     shapes_lst = [(sz, sz) for sz in sizes_lst[:-4] + sizes3_lst]
+
+    shapes_lst=[]
     shapes_lst.extend([(3072, 768), (768, 3072)])
     shapes_lst.extend([(5120, 1280), (1280, 5120)])
     if dtype is torch.int8:
@@ -809,7 +811,7 @@ def main(op="scatter_mm", force=False, dtype=torch.float16, verbose=True):
         blocksize_lst = [(32, 32), (64, 64), (128, 128), (256, 256)]
     else:
         blocksize_lst = [(16, 16), (32, 32), (64, 64), (128, 128)]
-    sparsity_lst = [0.5, 0.7, 0.3][:1]
+    sparsity_lst = [0.9][:1]
     for sparsity in sparsity_lst:
         print(f"{op, dtype, sparsity=}")
         try:
@@ -826,21 +828,6 @@ def main(op="scatter_mm", force=False, dtype=torch.float16, verbose=True):
                     if M == K and N == 50432:
                         continue
                     print(f"{M, K, N, (BM, BK)=}")
-                    for alpha, beta in [(1, 1), (1, 0)]:
-                        optimize_bsr_dense_addmm(
-                            M,
-                            K,
-                            N,
-                            BM,
-                            BK,
-                            beta=beta,
-                            alpha=alpha,
-                            force=force,
-                            sparsity=sparsity,
-                            dtype=dtype,
-                            verbose=verbose,
-                            opname=op,
-                        )
                 else:
                     raise NotImplementedError(op)
         except KeyboardInterrupt:
@@ -7748,9 +7735,17 @@ _operation_device_version_data: dict[Any, dict] = {
 }
 
 if __name__ == "__main__":
-    for dtype in [torch.int8]:
-        for op in ["_int_bsr_dense_addmm"]:
-            main(op=op, force=False, dtype=dtype)
-    for dtype in [torch.float16, torch.bfloat16, torch.float32, torch.int8]:
-        for op in ["bsr_dense_addmm"]:
-            main(op=op, force=False, dtype=dtype)
+    for M, K, N in [(14336, 4096, 16), (4096, 14336, 16), (14336, 4096, 16), (4096, 14336, 16)]:
+        optimize_bsr_dense_addmm(
+            M,
+            K,
+            N,
+            64,
+            64,
+            beta=0,
+            alpha=1,
+            sparsity=0.9,
+            dtype=torch.bfloat16,
+            opname="bsr_dense_addmm",
+            verbose=True,
+        )
