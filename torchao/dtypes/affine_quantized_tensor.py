@@ -6,18 +6,18 @@ import torch
 
 from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_floatx,
+    FP8_TYPES,
+    MappingType,
     quantize_affine,
     quantize_affine_float8,
     quantize_affine_floatx,
+    ZeroPointDomain,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
@@ -426,6 +426,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout = PlainLayout(),
     ):
         assert target_dtype in FP8_TYPES, f"Unsupported dtype {target_dtype} for float8"
+
+        # to avoid circular dependency
+        from torchao.dtypes.floatx import Float8AQTTensorImpl
+
         original_shape = input_float.shape
         scale = choose_qparams_affine_float8(
             input_float,
@@ -438,8 +442,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             target_dtype,
         )
         fp8_data = _layout.post_process(fp8_data)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(fp8_data, scale, None, _layout)
+        tensor_impl = Float8AQTTensorImpl(fp8_data, scale, None, _layout)
         return cls(
             tensor_impl,
             block_size,
