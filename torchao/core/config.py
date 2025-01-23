@@ -1,13 +1,10 @@
 import abc
 
 
-# directory location for this might need more polish
-class AOBaseWorkflowConfig(abc.ABC):
+class AOBaseConfig(abc.ABC):
     """
     If a workflow config inherits from this then `quantize_` knows
-    what to do with it.
-
-    TODO write a better docblock.
+    how to a apply it to a model.
     """
 
     pass

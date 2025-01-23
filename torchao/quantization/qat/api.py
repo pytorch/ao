@@ -9,10 +9,7 @@ from typing import Any, List, Optional, Union
 
 import torch
 
-from torchao.core.config import AOBaseWorkflowConfig
-from torchao.quantization._transform_module import (
-    register_quantize_module_handler,
-)
+from torchao.core.config import AOBaseConfig
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
@@ -25,6 +22,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     TorchAODType,
     ZeroPointDomain,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
 )
 from torchao.quantization.unified import TwoStepQuantizer
 
@@ -244,7 +244,7 @@ class FakeQuantizeConfig:
 
 
 @dataclass
-class IntXQuantizationAwareTrainingConfig(AOBaseWorkflowConfig):
+class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     activation_config: Optional[FakeQuantizeConfig] = None
     weight_config: Optional[FakeQuantizeConfig] = None
 
@@ -308,7 +308,7 @@ def _intx_quantization_aware_training_transform(
         raise ValueError("Module of type '%s' does not have QAT support" % type(mod))
 
 
-class FromIntXQuantizationAwareTrainingConfig(AOBaseWorkflowConfig):
+class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
     Object that knows how to convert a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`

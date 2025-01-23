@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.core.config import AOBaseWorkflowConfig
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
@@ -23,6 +23,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_sm_at_least_89,
+)
+
+is_cusparselt_available = (
+    hasattr(torch.backends, "cusparselt") and torch.backends.cusparselt.is_available()
 )
 
 
@@ -94,11 +98,12 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
-        "apply_quant", get_quantization_functions(True, True, "cuda", True)
+        "apply_quant",
+        get_quantization_functions(is_cusparselt_available, True, "cuda", True),
     )
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        if isinstance(apply_quant, AOBaseWorkflowConfig):
+        if isinstance(apply_quant, AOBaseConfig):
             quantize_(linear, apply_quant)
             ql = linear
         else:
@@ -175,12 +180,14 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(is_cusparselt_available, True)
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_print_quantized_module(self, apply_quant):
         print(apply_quant)
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        if isinstance(apply_quant, AOBaseWorkflowConfig):
+        if isinstance(apply_quant, AOBaseConfig):
             quantize_(linear, apply_quant)
             ql = linear
         else:
@@ -198,7 +205,7 @@ class TestAffineQuantizedBasic(TestCase):
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-            if isinstance(apply_quant, AOBaseWorkflowConfig):
+            if isinstance(apply_quant, AOBaseConfig):
                 quantize_(linear, apply_quant)
             else:
                 ql = apply_quant(linear)

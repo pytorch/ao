@@ -26,7 +26,7 @@ import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
-from torchao.core.config import AOBaseWorkflowConfig
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -45,14 +45,14 @@ from torchao.dtypes import (
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
-from torchao.quantization._transform_module import (
-    _QUANTIZE_CONFIG_HANDLER,
-    register_quantize_module_handler,
-)
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
+from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
+    register_quantize_module_handler,
+)
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
@@ -481,7 +481,7 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **k
 
 def quantize_(
     model: torch.nn.Module,
-    config: Union[AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]],
+    config: Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: bool = True,
     device: Optional[torch.types.Device] = None,
@@ -490,7 +490,7 @@ def quantize_(
 
     Args:
         model (torch.nn.Module): input model
-        config (Union[AOBaseWorkflowConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
+        config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
@@ -520,7 +520,7 @@ def quantize_(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if isinstance(config, AOBaseWorkflowConfig):
+    if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
         _replace_with_custom_fn_if_matches_filter(
@@ -695,7 +695,7 @@ def gemlite_uintx_weight_only(
 
 
 @dataclass
-class Int4WeightOnlyConfig(AOBaseWorkflowConfig):
+class Int4WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
