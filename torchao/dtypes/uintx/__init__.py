@@ -24,6 +24,9 @@ from .tensor_core_tiled_layout import (
 from .uintx_layout import (
     UintxLayout,
 )
+from .hqq_tensor import (
+    to_hqq_quantized_intx,
+)
 
 __all__ = [
     "UintxLayout",
@@ -36,4 +39,5 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "CutlassInt4PackedLayout",
+    "to_hqq_quantized_intx",
 ]

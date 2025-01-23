@@ -40,6 +40,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
+    to_hqq_quantized_intx,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
@@ -747,6 +748,19 @@ def int4_weight_only(
             assert (
                 group_size == 128 or group_size == weight.shape[-1]
             ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
+
+        if use_hqq:
+            return to_hqq_quantized_intx(
+                weight,
+                mapping_type,
+                block_size,
+                target_dtype,
+                quant_min,
+                quant_max,
+                zero_point_dtype=zero_point_dtype,
+                zero_point_domain=zero_point_domain,
+                _layout=layout,
+            )
 
         return to_affine_quantized_intx(
             weight,

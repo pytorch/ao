@@ -23,6 +23,7 @@ from .uintx import (
     TensorCoreTiledLayout,
     UintxLayout,
     to_marlinqqq_quantized_intx,
+    to_hqq_quantized_intx,
 )
 from .utils import (
     Layout,
@@ -52,4 +53,5 @@ __all__ = [
     "MarlinQQQLayout",
     "Int4CPULayout",
     "CutlassInt4PackedLayout",
+    "to_hqq_quantized_intx",
 ]

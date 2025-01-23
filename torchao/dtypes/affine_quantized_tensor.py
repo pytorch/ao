@@ -194,71 +194,34 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
-        if use_hqq:
-            assert (
-                zero_point_domain == ZeroPointDomain.FLOAT
-                and mapping_type == MappingType.ASYMMETRIC
-                and quant_min == 0
-            ), "Invalid input parameters for HQQ quantization."
-            nbits = int(math.log2(quant_max + 1))
-            axis = 1 if (block_size[0] == 1) else 0
-            group_size = max(block_size)
-            compute_dtype = (
-                zero_point_dtype
-                if (zero_point_dtype is not None)
-                else input_float.dtype
-            )
-            device = input_float.device
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
-
-            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
-                input_float,
-                nbits=nbits,
-                group_size=group_size,
-                axis=axis,
-                compute_dtype=compute_dtype,
-                device=device,
-                verbose=False,
-                raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
-                ),
-                # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
-                # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
-                # zero is preserved.
-                # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
-                # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
-                # TODO change PlainLayout to use raw_output.
-            )
-            data = data.to(target_dtype)
-        else:
-            scale, zero_point = choose_qparams_affine(
-                input_float,
-                mapping_type,
-                block_size,
-                target_dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype,
-                zero_point_dtype,
-                preserve_zero,
-                zero_point_domain,
-            )
-            # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
-            # TODO should probably consolidate ZeroPointDomain.NONE and None
-            if zero_point_domain is None or zero_point_domain == ZeroPointDomain.NONE:
-                zero_point = None
-            data = quantize_affine(
-                input_float,
-                block_size,
-                scale,
-                zero_point,
-                target_dtype,
-                quant_min,
-                quant_max,
-                zero_point_domain,
-            )
-            # Note: output will be uint8 tensor for sub byte tensors for now
+        scale, zero_point = choose_qparams_affine(
+            input_float,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+        # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
+        # TODO should probably consolidate ZeroPointDomain.NONE and None
+        if zero_point_domain is None or zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
+        data = quantize_affine(
+            input_float,
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
+        # Note: output will be uint8 tensor for sub byte tensors for now
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
