@@ -37,7 +37,6 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
     UintxLayout,
     to_affine_quantized_float8,
-    to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
@@ -1148,11 +1147,10 @@ def float8_static_activation_float8_weight(
         if not _fp8_mm_compat(weight):
             return weight
         block_size = get_block_size(weight.shape, weight_granularity)
-        quantized_weight = to_affine_quantized_floatx(
+        quantized_weight = to_affine_quantized_float8(
             input_float=weight,
             block_size=block_size,
             target_dtype=weight_dtype,
-            scale_dtype=torch.float32,
             _layout=Float8Layout(mm_config=mm_config),
         )
 

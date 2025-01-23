@@ -18,10 +18,7 @@ from torchao.quantization.linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
+from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.quantization.utils import (
     compute_error,
     quantize_activation_per_token_absmax,
@@ -34,10 +31,7 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-from .granularity import (
-    PerRow,
-    PerTensor,
-)
+from .granularity import PerRow, PerTensor
 from .subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -969,7 +963,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Ten
     @classmethod
     def from_float(cls, weight):
         # avoid circular dep
-        from torchao.dtypes import to_affine_quantized_floatx
+        from torchao.dtypes import to_affine_quantized_float8
         from torchao.quantization.quant_api import _input_activation_quant_func_fp8
 
         # weight settings
@@ -995,12 +989,11 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, BFloat16Ten
         }
         block_size = get_weight_block_size(weight)
 
-        weight = to_affine_quantized_floatx(
+        weight = to_affine_quantized_float8(
             input_float=weight,
             block_size=block_size,
             target_dtype=target_dtype,
             _layout=_layout,
-            scale_dtype=torch.float32,
         )
         weight = to_linear_activation_quantized(
             weight, input_quant_func, quant_kwargs=input_quant_kwargs
@@ -1025,7 +1018,7 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
     @classmethod
     def from_float(cls, weight):
         # avoid circular dep
-        from torchao.dtypes import to_affine_quantized_floatx
+        from torchao.dtypes import to_affine_quantized_float8
         from torchao.quantization.quant_api import _input_activation_quant_func_fp8
 
         # weight settings
@@ -1043,12 +1036,11 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
             "activation_dtype": input_target_dtype,
         }
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_floatx(
+        weight = to_affine_quantized_float8(
             input_float=weight,
             block_size=block_size,
             target_dtype=target_dtype,
             _layout=_layout,
-            scale_dtype=torch.float32,
         )
         weight = super(
             AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls
