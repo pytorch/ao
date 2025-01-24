@@ -1,6 +1,7 @@
 import copy
 import logging
 import unittest
+import math
 
 import torch
 from torch import nn
@@ -64,7 +65,35 @@ class TestBlockSparseWeight(common_utils.TestCase):
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
 
+class TestSupermask(common_utils.TestCase):
+
+    @common_utils.parametrize("sparsity_level", [0.25, 0.5])
+    @common_utils.parametrize("blocksize", [2, 4, 8])
+    def test_supermask(self, sparsity_level, blocksize):
+        input = torch.randn((1, 16)).half().cuda()
+        model = (
+            nn.Sequential(
+                nn.Linear(16, 16, bias=False),
+            )
+            .half()
+            .cuda()
+            .eval()
+        )
+
+        from torchao.sparsity import SupermaskLinear
+
+        M, N = model[0].weight.shape
+        sparsify_(model, lambda x: SupermaskLinear.from_linear(x, sparsity_level=sparsity_level, blocksize=blocksize))
+        weight_bsr = model[0].weight.to_sparse_bsr(blocksize=blocksize)
+
+        nnz = weight_bsr._nnz() 
+        expected = round((M // blocksize) * (N // blocksize) * (1 - sparsity_level))
+        assert nnz == expected, f"Expected {expected} nonzeros, got {nnz}"
+
+
 common_utils.instantiate_parametrized_tests(TestBlockSparseWeight)
+common_utils.instantiate_parametrized_tests(TestSupermask)
+
 
 if __name__ == "__main__":
     unittest.main()

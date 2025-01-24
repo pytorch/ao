@@ -65,8 +65,7 @@ def main(args):
     ).eval()
 
     # Fake sparsity necessary for BSR, since we find based on SuperBlock
-    # sparsifier_or_none = simulate_sparsity(model, args)
-    sparsifier_or_none = None
+    sparsifier_or_none = simulate_sparsity(model, args)
     if sparsifier_or_none is not None:
         sparsifier_or_none.squash_mask()
 
@@ -82,6 +81,9 @@ def main(args):
     # With quantization, we must use cuSPARSELt to fuse one of the scalar matmuls.
     # Otherwise, we observe the CUTLASS kernels to be faster, so we use those instead.
     accelerate_with_sparsity(model, args)
+    if "bsr" in args.sparsity:
+        sparsify_(model, block_sparse_weight(blocksize=args.blocksize))
+    elif "semi-structured" in args.sparsityk
 
     # compile
     model = torch.compile(model, mode="max-autotune", fullgraph=True)

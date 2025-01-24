@@ -379,7 +379,7 @@ def mlp_only_with_args(
 ### Custom sparsification utils
 def apply_sparsity(model):
     for name, module in model.named_modules():
-        if isinstance(module, SupermaskLinear) and "feed_forward" in name:
+        if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
 
 
