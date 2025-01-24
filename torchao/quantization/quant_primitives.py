@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -16,11 +16,11 @@ from torchao.prototype.custom_fp_utils import (
     _n_ones,
 )
 from torchao.utils import (
+    _is_float8_type,
+    _register_custom_op,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    _is_float8_type,
-    _register_custom_op,
 )
 
 __all__ = [
@@ -1322,9 +1322,6 @@ def choose_qparams_affine_float8(
     max_val_pos = torch.max(-min_val_neg, max_val_pos)
     scale = max_val_pos / (float(quant_max - quant_min) / 2)
     return scale.to(dtype=torch.float32)
-
-    # max_val_pos = torch.max(-min_val_neg, max_val_pos)
-    # scale = max_val_pos / (float(quant_max - quant_min) / 2)
 
 
 def quantize_affine_float8(
