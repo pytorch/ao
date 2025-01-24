@@ -187,6 +187,7 @@ class TestOptim(TestCase):
         not torch.cuda.is_available(),
         reason="bitsandbytes 8-bit Adam only works for CUDA",
     )
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
