@@ -810,6 +810,13 @@ def main(
                 ),
                 filter_fn=ffn_only,
             )
+            print(model)
+            sparsify_(
+                model,
+                SupermaskLinear.to_linear,
+                filter_fn=ffn_only,
+            )
+            print(model)
 
             # Accelerate with triton bsr kernels
             sparsify_(model,

@@ -6,13 +6,11 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
 
-# from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm
-
-from .bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
+from torchao.kernel.bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
 
 aten = torch.ops.aten
 
-
+# custom op definition
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(
     crow_indices: torch.Tensor,
@@ -320,10 +318,6 @@ def block_sparse_col_indices(func, types, args, kwargs):
 def block_sparse__nnz(func, types, args, kwargs):
     return args[0].bsr_values.shape[0]
 
-def next_power_of_two(n):
-    assert n > 0
-    return 2 ** (n.bit_length())
-
 
 @implements(torch.nn.functional.linear)
 def block_sparse_linear(func, types, args, kwargs):
@@ -346,9 +340,3 @@ def block_sparse_linear(func, types, args, kwargs):
         return out_orig
 
     return out_orig + bias
-
-
-def block_sparse_weight(blocksize=64):
-    return _get_linear_subclass_inserter(
-        partial(BlockSparseTensor.from_dense, blocksize=blocksize)
-    )

@@ -4,15 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int8_semi_sparse_weight,
-)
-from .blocksparse import block_sparse_weight
 from .supermask import SupermaskLinear
 
 from .sparse_api import (
     apply_fake_sparsity,
     semi_sparse_weight,
+    block_sparse_weight,
     sparsify_,
 )
 from .utils import PerChannelNormObserver  # noqa: F403
@@ -26,5 +23,4 @@ __all__ = [
     "sparsify_",
     "semi_sparse_weight",
     "block_sparse_weight",
-    "int8_dynamic_activation_int8_semi_sparse_weight",
 ]
