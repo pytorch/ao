@@ -801,6 +801,7 @@ def main(
             from torchao.sparsity import SupermaskLinear, block_sparse_weight
             # parse "bsr-0.9-64"
             _, sparsity_level, blocksize = sparsity.split("-")
+            sparsity_level, blocksize = float(sparsity_level), int(blocksize)
             sparsify_(
                 model,
                 lambda x: SupermaskLinear.from_linear(x, 
