@@ -9,16 +9,21 @@
 import unittest
 
 import torch
+from parameterized import parameterized
 
 from torchao.dtypes.utils import is_device
+from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
+    choose_qparams_affine_float8,
     dequantize_affine,
+    dequantize_affine_float8,
     fake_quantize_affine,
     fake_quantize_affine_cachemask,
+    MappingType,
     quantize_affine,
+    quantize_affine_float8,
+    ZeroPointDomain,
 )
 
 # TODO: remove test for utils?
@@ -29,11 +34,11 @@ from torchao.quantization.utils import (
     quantize_activation_per_token_absmax,
 )
 from torchao.utils import (
+    is_fbcode,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    is_fbcode,
 )
 
 _SEED = 1234
@@ -837,6 +842,58 @@ class TestQuantPrimitives(unittest.TestCase):
         expected_mask = torch.full(input.shape, True)
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
+
+    @parameterized.expand(
+        [
+            (
+                torch.float32,
+                torch.float8_e4m3fn,
+            ),
+        ]
+    )
+    def test_float8_quant_primitives(self, hp_dtype, float8_dtype):
+        input = torch.randn(10, 10)
+
+        # float8 quantization primitives
+        scale = choose_qparams_affine_float8(input, float8_dtype)
+        quantized = quantize_affine_float8(input, scale, float8_dtype)
+        dequantized = dequantize_affine_float8(quantized, scale, hp_dtype)
+
+        # reference implementation using generic primitives
+        expected_scale, _ = choose_qparams_affine(
+            input,
+            MappingType.SYMMETRIC,
+            input.shape,
+            float8_dtype,
+            eps=float8_eps,  # use same EPS as float8 training
+            scale_dtype=torch.float32,
+            quant_min=torch.finfo(float8_dtype).min,
+            quant_max=torch.finfo(float8_dtype).max,
+        )
+        expected_quantized = quantize_affine(
+            input,
+            input.shape,
+            scale,
+            output_dtype=float8_dtype,
+            quant_min=torch.finfo(float8_dtype).min,
+            quant_max=torch.finfo(float8_dtype).max,
+            zero_point=None,
+            zero_point_domain=None,
+        )
+        expected_dequantized = dequantize_affine(
+            expected_quantized,
+            input.shape,
+            scale,
+            input_dtype=float8_dtype,
+            quant_min=torch.finfo(float8_dtype).min,
+            quant_max=torch.finfo(float8_dtype).max,
+            zero_point=None,
+            zero_point_domain=None,
+        )
+
+        self.assertTrue(torch.equal(expected_scale, scale))
+        torch.testing.assert_close(expected_quantized, quantized)
+        torch.testing.assert_close(expected_dequantized, dequantized)
 
 
 if __name__ == "__main__":
