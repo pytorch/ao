@@ -5,26 +5,22 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from enum import auto, Enum
+from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from torchao.float8.float8_utils import (
-    ScalingGranularity,
-    tensor_to_scale as tensor_to_float8_scale,
-)
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
     _n_ones,
 )
 from torchao.utils import (
-    _is_float8_type,
-    _register_custom_op,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    _is_float8_type,
+    _register_custom_op,
 )
 
 __all__ = [
