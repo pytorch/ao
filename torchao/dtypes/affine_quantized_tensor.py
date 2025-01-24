@@ -299,7 +299,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
     ):
-        """Create an Integer AffineQuantizedTensor from a high precision tensor using static parameters."""
+        """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype not in FP8_TYPES:
             assert (
                 zero_point_domain is not None
@@ -377,7 +377,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         _layout: Layout,
     ):
-        """Create a Float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
+        """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype in FP8_TYPES:
             return cls.from_hp_to_intx_static(
                 input_float=input_float,
@@ -474,7 +474,7 @@ register_layout = AffineQuantizedTensor.register_layout
 get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
 
-to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx 
+to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
