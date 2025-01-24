@@ -4,13 +4,13 @@ from .affine_quantized_tensor import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     # experimental, will be merged into floatx in the future
-    to_affine_quantized_fpx,
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
 from .floatx import (
     Float8Layout,
     FloatxTensorCoreLayout,
+    to_affine_quantized_fpx,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
