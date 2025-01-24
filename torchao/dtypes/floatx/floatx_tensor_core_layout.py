@@ -11,7 +11,6 @@ from torch.utils._python_dispatch import (
 
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
-    get_tensor_impl_constructor,
     register_layout,
 )
 from torchao.dtypes.utils import (
@@ -22,11 +21,6 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
     _n_ones,
-)
-from torchao.quantization.quant_primitives import (
-    choose_qparams_affine_floatx,
-    dequantize_affine_floatx,
-    quantize_affine_floatx,
 )
 
 aten = torch.ops.aten
@@ -464,54 +458,6 @@ class FloatxTensorCoreLayout(Layout):
     mbits: int
 
 
-class FloatxTensor(AffineQuantizedTensor):
-    """
-    Floatx quantized tensor subclass which inherits AffineQuantizedTensor class. It uses floating-point format defined by ebits (exponent bits) and mbits (mantissa bits) and supports float1 - float7 tensor types.
-    For details about float8 tensor type, please refer to https://github.com/pytorch/ao/blob/main/torchao/dtypes/floatx/float8_layout.py.
-
-    To see what happens during choose_qparams_and_quantize_affine_fpx, quantization and dequantization for floatx quantization,
-    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
-    and check the two quant primitive ops: choose_qparams_affine_floatx, quantize_affine_floatx and dequantize_affine_floatx.
-    """
-
-    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        if output_dtype is None:
-            output_dtype = self.dtype
-        int_data, scale = self.tensor_impl.get_plain()
-        return dequantize_affine_floatx(
-            int_data,
-            scale,
-            self._layout.ebits,
-            self._layout.mbits,
-            output_dtype=output_dtype,
-        )
-
-    @classmethod
-    def from_hp_to_floatx(
-        cls,
-        input_float: torch.Tensor,
-        _layout: Layout,
-    ):
-        assert isinstance(
-            _layout, FloatxTensorCoreLayout
-        ), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-        # per axis quantization, where axis = 1
-        block_size = list(input_float.shape)
-        block_size[1] = 1
-
-        ebits, mbits = _layout.ebits, _layout.mbits
-        # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
-        floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
-
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
-        return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
-
-
 @register_layout(FloatxTensorCoreLayout)
 class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
     """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
@@ -713,6 +659,3 @@ def _linear_f16_bf16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
         out += bias
 
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
-
-
-to_affine_quantized_fpx = FloatxTensor.from_hp_to_floatx
