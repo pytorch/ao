@@ -662,10 +662,9 @@ class NF4Tensor(torch.Tensor):
     ) -> torch.Tensor:
         """Used to unpack the double quantized scalers
 
-        Args;
+        Args:
             input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format
             quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype
-                size: (n_scaler_blocks)
             scaler_block_size: Scaler block size to use for double quantization.
 
         """
@@ -953,6 +952,7 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
+    """Convert a given tensor to normalized float 4-bit tensor."""
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
 
 
