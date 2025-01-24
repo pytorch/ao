@@ -761,6 +761,28 @@ class TestQuantFlow(TestCase):
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
 
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
+    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("x_dim", [2, 3])
+    def test_int4wo_cpu(self, dtype, x_dim):
+        from torchao.dtypes import Int4CPULayout
+
+        device = "cpu"
+        m = ToyLinearModel().eval().to(dtype).to(device)
+        example_inputs = m.example_inputs(dtype=dtype, device=device)
+        if x_dim == 3:
+            example_inputs = (example_inputs[0].unsqueeze(0),)
+
+        with torch.no_grad():
+            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            # ensure the expected op is in the code
+            _, code = torch._inductor.utils.run_and_get_code(
+                torch.compile(m, fullgraph=True, dynamic=True),
+                *example_inputs,
+            )
+            assert "_weight_int4pack_mm_for_cpu" in code[0]
+            assert "aten.mm.default" not in code[0]
+
 
 class TestMultiTensorFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
