@@ -5,15 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
 from torchao.float8.float8_utils import (
     ScalingGranularity,
-)
-from torchao.float8.float8_utils import (
     tensor_to_scale as tensor_to_float8_scale,
 )
 from torchao.prototype.custom_fp_utils import (
@@ -22,11 +20,11 @@ from torchao.prototype.custom_fp_utils import (
     _n_ones,
 )
 from torchao.utils import (
+    _is_float8_type,
+    _register_custom_op,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    _is_float8_type,
-    _register_custom_op,
 )
 
 __all__ = [
@@ -1321,15 +1319,16 @@ def choose_qparams_affine_float8(
         tensor (torch.Tensor): Input tensor to be quantized.
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
     """
-    # NOTE: quantization primitives are hardcoded to use axiswise granularity w/ axis=1 right now:
-    # https://github.com/pytorch/ao/blob/5d1444bdef6df15eb89c4c5716ede1c5f8677798/torchao/dtypes/affine_quantized_tensor.py#L416
-    scale = tensor_to_float8_scale(
-        tensor,
-        float8_dtype,
-        scaling_granularity=ScalingGranularity.AXISWISE,
-        axiswise_dim=1,
-    )
-    return scale
+    # only tensorwise scaling is supported for now:
+    quant_min, quant_max = torch.finfo(float8_dtype).min, torch.finfo(float8_dtype).max
+    min_val_neg = torch.min(tensor)
+    max_val_pos = torch.max(tensor)
+    max_val_pos = torch.max(-min_val_neg, max_val_pos)
+    scale = max_val_pos / (float(quant_max - quant_min) / 2)
+    return scale.to(dtype=torch.float32)
+
+    # max_val_pos = torch.max(-min_val_neg, max_val_pos)
+    # scale = max_val_pos / (float(quant_max - quant_min) / 2)
 
 
 def quantize_affine_float8(
@@ -1348,7 +1347,7 @@ def quantize_affine_float8(
     # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
     # upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.
     # In order to match numerics between eager and compile, we upcast manually here.
-    tensor_scaled = tensor.to(torch.float32) * scale
+    tensor_scaled = tensor.to(torch.float32) / scale
     max_value = torch.finfo(float8_dtype).max
     tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
     fp8_tensor = tensor_clamped.to(float8_dtype)
@@ -1372,5 +1371,5 @@ def dequantize_affine_float8(
     # upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.
     # In order to match numerics between eager and compile, we upcast manually here.
     fp8_tensor = tensor.to(torch.float32)
-    hp_tensor = fp8_tensor / scale
+    hp_tensor = fp8_tensor * scale
     return hp_tensor.to(output_dtype)
