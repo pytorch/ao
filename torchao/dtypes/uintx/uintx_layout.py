@@ -209,6 +209,17 @@ to_uintx = UintxTensor.from_uint8
 
 @dataclass(frozen=True)
 class UintxLayout(Layout):
+    """A layout class for Uintx tensors, which are tensors with elements packed into
+    smaller bit-widths than the standard 8-bit byte. This layout is used to define
+    how the data is stored and processed in UintxTensor objects.
+
+    Attributes:
+        dtype (torch.dtype): The data type of the tensor elements, which determines
+                             the bit-width used for packing.
+        pack_dim (int): The dimension along which the data is packed. Default is -1,
+                        which indicates the last dimension.
+    """
+
     dtype: torch.dtype
     pack_dim: int = -1
 
