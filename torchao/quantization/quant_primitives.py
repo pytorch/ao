@@ -1306,7 +1306,7 @@ def dequantize_affine_floatx(
 
 
 def choose_qparams_affine_float8(
-    tensor: torch.Tensor, float8_dtype: torch.dtype
+    tensor: torch.Tensor, float8_dtype: torch.dtype = torch.float8_e4m3fn,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -1327,7 +1327,7 @@ def choose_qparams_affine_float8(
 def quantize_affine_float8(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    float8_dtype: torch.dtype,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
 ) -> torch.Tensor:
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.

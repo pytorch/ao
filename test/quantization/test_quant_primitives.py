@@ -14,16 +14,16 @@ from parameterized import parameterized
 from torchao.dtypes.utils import is_device
 from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     dequantize_affine,
     dequantize_affine_float8,
     fake_quantize_affine,
     fake_quantize_affine_cachemask,
+    MappingType,
     quantize_affine,
     quantize_affine_float8,
+    ZeroPointDomain,
 )
 
 # TODO: remove test for utils?
@@ -34,11 +34,11 @@ from torchao.quantization.utils import (
     quantize_activation_per_token_absmax,
 )
 from torchao.utils import (
+    is_fbcode,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    is_fbcode,
 )
 
 _SEED = 1234
@@ -849,15 +849,27 @@ class TestQuantPrimitives(unittest.TestCase):
                 torch.float32,
                 torch.float8_e4m3fn,
             ),
+            (
+                torch.float32,
+                torch.float8_e5m2,
+            ),
+            (
+                torch.bfloat16,
+                torch.float8_e4m3fn,
+            ),
+            (
+                torch.bfloat16,
+                torch.float8_e5m2,
+            ),
         ]
     )
     def test_float8_quant_primitives(self, hp_dtype, float8_dtype):
         input = torch.randn(10, 10)
 
         # float8 quantization primitives
-        scale = choose_qparams_affine_float8(input, float8_dtype)
-        quantized = quantize_affine_float8(input, scale, float8_dtype)
-        dequantized = dequantize_affine_float8(quantized, scale, hp_dtype)
+        scale = choose_qparams_affine_float8(input, float8_dtype=float8_dtype)
+        quantized = quantize_affine_float8(input, scale, float8_dtype=float8_dtype)
+        dequantized = dequantize_affine_float8(quantized, scale, output_dtype=hp_dtype)
 
         # reference implementation using generic primitives
         expected_scale, _ = choose_qparams_affine(
@@ -885,6 +897,7 @@ class TestQuantPrimitives(unittest.TestCase):
             input.shape,
             scale,
             input_dtype=float8_dtype,
+            output_dtype=hp_dtype,
             quant_min=torch.finfo(float8_dtype).min,
             quant_max=torch.finfo(float8_dtype).max,
             zero_point=None,
