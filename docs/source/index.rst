@@ -37,3 +37,5 @@ for an overall introduction to the library and recent highlight and updates.
    :caption: Tutorials
 
    serialization
+   subclass_basic
+   subclass_advanced
