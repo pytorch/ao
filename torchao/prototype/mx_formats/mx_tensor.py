@@ -54,7 +54,7 @@ from torchao.prototype.mx_formats.custom_cast import (
     unpack_uint4,
 )
 
-# TODO(before land): read from somewhere else?
+# TODO(later): read from somewhere else?
 SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
 EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
