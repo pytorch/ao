@@ -9,6 +9,7 @@ sentencepiece # for gpt-fast tokenizer
 expecttest
 
 # For prototype features and benchmarks
+triton # needed for bitsandbytes
 bitsandbytes # needed for testing triton quant / dequant ops for 8-bit optimizers
 matplotlib
 pandas
