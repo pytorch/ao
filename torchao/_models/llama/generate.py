@@ -798,20 +798,21 @@ def main(
             sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
         if "bsr" in sparsity:
-            # Apply Supermask to get sparse weights
-            from torchao.sparsity.supermask import SupermaskLinear
+            from torchao.sparsity import SupermaskLinear, block_sparse_weight
+            # parse "bsr-0.9-64"
+            _, sparsity_level, blocksize = sparsity.split("-")
             sparsify_(
                 model,
                 lambda x: SupermaskLinear.from_linear(x, 
-                    sparsity_level=0.9,
-                    blocksize=64,
+                    sparsity_level=sparsity_level,
+                    blocksize=blocksize,
                 ),
                 filter_fn=ffn_only,
             )
 
-            from torchao.sparsity.blocksparse import block_sparse_weight
+            # Accelerate with triton bsr kernels
             sparsify_(model,
-                block_sparse_weight(blocksize=64),
+                block_sparse_weight(blocksize=blocksize),
                 filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
