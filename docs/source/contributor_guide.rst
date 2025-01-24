@@ -1,4 +1,4 @@
-torchao Contributor Guide
+Contributor Guide
 -------------------------
 
 .. toctree::
