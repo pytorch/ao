@@ -401,6 +401,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         _layout: Layout,
     ):
+        """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
         assert isinstance(
