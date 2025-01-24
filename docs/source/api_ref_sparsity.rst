@@ -10,9 +10,9 @@ torchao.sparsity
     :toctree: generated/
     :nosignatures:
 
-    WandaSparsifier
-    PerChannelNormObserver
-    apply_fake_sparsity
     sparsify_
     semi_sparse_weight
     int8_dynamic_activation_int8_semi_sparse_weight
+    apply_fake_sparsity
+    WandaSparsifier
+    PerChannelNormObserver
