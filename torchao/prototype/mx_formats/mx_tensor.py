@@ -314,6 +314,10 @@ class MXTensor(torch.Tensor):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
             # set the tensor size to what it would be without 2x4 packing
+            # Note: `is_contiguous` is going to return True for a tensor of size
+            # (M, 1) regardless or the order of dims, so this logic is currently
+            # broken for tensors of size (M, 1) or (1, M). Leaving broken until
+            # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
                 data_bits.is_contiguous(),
@@ -321,6 +325,9 @@ class MXTensor(torch.Tensor):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             new_size,
+            strides=data_bits.stride(),
+            storage_offset=data_bits.storage_offset(),
+            layout=data_bits.layout,
             dtype=orig_dtype,
             device=data_bits.device,
         )
