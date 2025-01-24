@@ -11,6 +11,7 @@ from .floatx import (
     Float8Layout,
     FloatxTensorCoreLayout,
     to_affine_quantized_fpx,
+    FloatxTensor,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (

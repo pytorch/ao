@@ -19,6 +19,7 @@ Layouts and Tensor Subclasses
     SemiSparseLayout
     TensorCoreTiledLayout
     Float8Layout
+    FloatxTensor
     FloatxTensorCoreLayout
     MarlinSparseLayout
     BlockSparseLayout

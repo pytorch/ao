@@ -379,34 +379,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static"
             )
 
-    @classmethod
-    def from_hp_to_fpx(
-        cls,
-        input_float: torch.Tensor,
-        _layout: Layout,
-    ):
-        """Convert a high precision tensor to a floatx (float1-float7) quantized tensor."""
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
-
-        assert isinstance(
-            _layout, FloatxTensorCoreLayout
-        ), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-        # per axis quantization, where axis = 1
-        block_size = list(input_float.shape)
-        block_size[1] = 1
-
-        ebits, mbits = _layout.ebits, _layout.mbits
-        # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
-        floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
-
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
-        return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
-
     @property
     def _layout(self) -> Layout:
         return self.tensor_impl._layout
