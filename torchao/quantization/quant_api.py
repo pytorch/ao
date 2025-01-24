@@ -777,7 +777,9 @@ def int4_weight_only(
         quant_max = 15
         eps = 1e-6
         preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
-        zero_point_dtype = torch.bfloat16
+        zero_point_dtype = (
+            weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
+        )
 
         nonlocal zero_point_domain
         assert (
