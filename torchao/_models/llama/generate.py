@@ -799,7 +799,7 @@ def main(
 
         if "bsr" in sparsity:
             # Apply Supermask to get sparse weights
-            from torchao.prototype.sparsity.superblock.supermask import SupermaskLinear
+            from torchao.sparsity.supermask import SupermaskLinear
             sparsify_(
                 model,
                 lambda x: SupermaskLinear.from_linear(x, 
@@ -809,26 +809,10 @@ def main(
                 filter_fn=ffn_only,
             )
 
-            from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
+            from torchao.sparsity.blocksparse import block_sparse_weight
             sparsify_(model,
                 block_sparse_weight(blocksize=64),
                 filter_fn=ffn_only)
-            
-            # from torchao.prototype.sparsity.superblock._triton_ops_meta import optimize_bsr_dense_addmm
-            # for M, K, N in [(14336, 4096, 8192), (4096, 14336, 8192)]:
-            #     optimize_bsr_dense_addmm(
-            #         M,
-            #         K,
-            #         N,
-            #         64,
-            #         64,
-            #         beta=0,
-            #         alpha=1,
-            #         sparsity=0.9,
-            #         dtype=torch.bfloat16,
-            #         opname="bsr_dense_addmm",
-            #         verbose=True,
-            #     )
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
