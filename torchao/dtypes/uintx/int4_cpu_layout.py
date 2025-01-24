@@ -2,10 +2,17 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
-from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch.utils._python_dispatch import (
+    is_traceable_wrapper_subclass,
+    return_and_correct_aliasing,
+)
 
-from torchao.dtypes.affine_quantized_tensor import register_layout
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -127,7 +134,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
-        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
+        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):
@@ -232,7 +239,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         groupsize = int(original_shape[1] / scale.shape[-2])
         block_size = (1, groupsize)
         device = self.device
-        original_dtype = torch.bfloat16
+        original_dtype = self.scale_and_zero.dtype
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
@@ -262,3 +269,74 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
 
     def get_layout(self) -> Layout:
         return self._layout
+
+
+def _aqt_is_uint4(aqt):
+    """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
+    return (
+        aqt.tensor_impl.dtype == torch.uint8
+        and aqt.quant_min == 0
+        and aqt.quant_max == 15
+    )
+
+
+def _is_float(dtype):
+    return dtype in (torch.float, torch.half, torch.bfloat16)
+
+
+def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
+    return (
+        TORCH_VERSION_AT_LEAST_2_6
+        and is_device(input_tensor.device.type, "cpu")
+        and is_device(weight_tensor.device.type, "cpu")
+        and (bias is None or is_device(bias.device.type, "cpu"))
+        and not is_traceable_wrapper_subclass(input_tensor)
+        and _is_float(input_tensor.dtype)
+        and isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_uint4(weight_tensor)
+        and _is_float(weight_tensor.dtype)
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT
+        and isinstance(weight_tensor._layout, Int4CPULayout)
+    )
+
+
+def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
+    assert (
+        TORCH_VERSION_AT_LEAST_2_6
+    ), f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
+    assert is_device(
+        input_tensor.device.type, "cpu"
+    ), f"For CPU device only but got: {input_tensor.device}"
+    assert (
+        weight_tensor.block_size[0] == 1
+    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+        f"need input_tensor shape: {input_tensor.shape} final"
+        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+    )
+
+    act_mat = input_tensor
+    packed_weight = weight_tensor.tensor_impl.packed_weight
+    scale_and_zero = weight_tensor.tensor_impl.scale_and_zero
+
+    orig_act_size = act_mat.size()
+    orig_dtype = act_mat.dtype
+
+    # reshape to 2D
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1])
+
+    # groupwise int4 quantization
+    groupsize = weight_tensor.block_size[1]
+    y = torch.ops.aten._weight_int4pack_mm_for_cpu(
+        act_mat.contiguous(), packed_weight, groupsize, scale_and_zero
+    )
+
+    # remove out_feature padding
+    orig_out_features = weight_tensor.shape[-2]
+    y = y[:, :orig_out_features]
+    y = y.reshape(*orig_act_size[:-1], orig_out_features)
+
+    if bias is not None:
+        y += bias
+    return y.to(orig_dtype)
