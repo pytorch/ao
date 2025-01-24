@@ -2,12 +2,11 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
-from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_dense_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
 
-from .bsr_triton_ops import bsr_dense_addmm as torchao_bsr_dense_addmm
+from .bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
 
 aten = torch.ops.aten
 
@@ -103,15 +102,13 @@ def blocksparse_addmm(
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
     N_padded = x_padded.shape[1]
     out = x_padded.new_empty((M, N_padded))
-    torchao_bsr_dense_addmm(
+    bsr_dense_addmm(
         out,
         weight_bsr,
         x_padded,
         alpha=1,
         beta=0,
         out=out,
-        # left_alpha=left_alpha,
-        # right_alpha=right_alpha,
     )
     return out
 
