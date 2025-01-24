@@ -150,7 +150,54 @@ class SupermaskLinear(nn.Linear):
             module_new.sparsify_offline()
         return module_new
 
-    @classmethod
-    def to_linear(cls):
-        pass
-    
+
+def apply_supermask(
+    model,
+    linear_sparsity=0.0,
+    linear_sp_tilesize=1,
+    skip_last_layer_sparsity=False,
+    skip_first_transformer_sparsity=False,
+    device="cuda",
+    verbose=False,
+):
+    sparsified_modules = {}
+
+    for n, m in model.named_modules():
+        # check conditions for skipping sparsity
+        if skip_last_layer_sparsity and n == "heads.head":
+            continue
+        if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in n:
+            continue
+
+        if linear_sparsity != 0.0 and isinstance(m, torch.nn.Linear):
+            new_m = SupermaskLinear(
+                linear_sparsity,
+                False,
+                False,
+                None,
+                None,
+                None,
+                m.in_features,
+                m.out_features,
+                bias=m.bias is not None,
+                device=device,
+                tile_size=linear_sp_tilesize,
+            )
+            new_m.weight.data.copy_(m.weight.data)
+            if m.bias is not None:
+                new_m.bias.data.copy_(m.bias.data)
+            sparsified_modules[n] = new_m
+            continue
+
+    # add modules to model
+    for k, v in sparsified_modules.items():
+        sm_name, ch_name = k.rsplit(".", 1)
+        sm = model.get_submodule(sm_name)
+        sm.add_module(ch_name, v)
+
+        if verbose:
+            print(
+                f'sparsified module "{k}" with sparsity={v.sparsity}, tile size={v.tile_size}'
+            )
+
+    return model
