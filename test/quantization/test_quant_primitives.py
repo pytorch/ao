@@ -14,16 +14,16 @@ from parameterized import parameterized
 from torchao.dtypes.utils import is_device
 from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
     dequantize_affine,
     dequantize_affine_float8,
     fake_quantize_affine,
     fake_quantize_affine_cachemask,
-    MappingType,
     quantize_affine,
     quantize_affine_float8,
-    ZeroPointDomain,
 )
 
 # TODO: remove test for utils?
@@ -34,11 +34,11 @@ from torchao.quantization.utils import (
     quantize_activation_per_token_absmax,
 )
 from torchao.utils import (
-    is_fbcode,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
 )
 
 _SEED = 1234
