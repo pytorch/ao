@@ -39,9 +39,8 @@ __all__ = [
 # Tensor Subclass Definition #
 ##############################
 class AffineQuantizedTensor(TorchAOBaseTensor):
-    """
-    Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
-       quantized_tensor = float_tensor / scale + zero_point
+    """Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
+    quantized_tensor = float_tensor / scale + zero_point
 
     To see what happens during choose_qparams, quantization and dequantization for affine quantization,
     please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
@@ -51,21 +50,18 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     regardless of the internal representation's type or orientation.
 
     fields:
-      tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,
-         e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device
-         and operator/kernel
-      block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-         e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-      shape (torch.Size): the shape for the original high precision Tensor
-      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
-        if zero_point is in integer domain, zero point is added to the quantized integer value during
-        quantization
-        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-        value during quantization
-        default is ZeroPointDomain.INT
-      dtype: dtype for original high precision tensor, e.g. torch.float32
+        - tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,
+            e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device and operator/kernel
+        - block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+            e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+        - shape (torch.Size): the shape for the original high precision Tensor
+        - quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
+        - quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
+        - zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+            if zero_point is in integer domain, zero point is added to the quantized integer value during quantization
+            if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized) value during quantization
+            default is ZeroPointDomain.INT
+        - dtype: dtype for original high precision tensor, e.g. torch.float32
     """
 
     @staticmethod
@@ -202,6 +198,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
     ):
+        """Convert a high precision tensor to an integer affine quantized tensor."""
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
@@ -297,6 +294,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
     ):
+        """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype not in FP8_TYPES:
             assert (
                 zero_point_domain is not None
@@ -343,6 +341,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout,
         scale_dtype: Optional[torch.dtype] = None,
     ):
+        """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
             return cls.from_hp_to_intx(
                 input_float=input_float,
@@ -373,6 +372,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         _layout: Layout,
     ):
+        """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype in FP8_TYPES:
             return cls.from_hp_to_intx_static(
                 input_float=input_float,
@@ -396,6 +396,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         _layout: Layout,
     ):
+        """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
         assert isinstance(
