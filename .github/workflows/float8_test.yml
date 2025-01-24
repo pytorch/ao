@@ -30,7 +30,7 @@ jobs:
             gpu-arch-version: "12.4"
           - name: H100
             runs-on: linux.aws.h100
-            torch-spec: '--pre torch==2.6.0 --index-url https://download.pytorch.org/whl/nightly/cu124'
+            torch-spec: '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
 
