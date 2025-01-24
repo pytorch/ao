@@ -6,6 +6,8 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
 
+# from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm
+
 from .bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
 
 aten = torch.ops.aten
@@ -68,8 +70,6 @@ def blocksparse_linear(
     bias: torch.Tensor,
 ) -> torch.Tensor:
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
-    # TODO: Change this to call into Triton kernel directly like int_addmm
-    # This way we know we must be on the hot path
     return torch.nn.functional.linear(A, weight_bsr, bias)
 
 
@@ -327,33 +327,11 @@ def next_power_of_two(n):
 
 @implements(torch.nn.functional.linear)
 def block_sparse_linear(func, types, args, kwargs):
-    # linear(x, w^t)
-    # linear(w, x^t)^t
     x_orig, w, bias = args
-    # # TODO: Change this to do padding to make sure blocksparse.linear works
-    # return torch.ops.blocksparse.linear(
-    #     x, w.crow_indices(), w.col_indices(), w.values(), w.shape[0], w.shape[1], bias
-    # )
     x = x_orig.reshape(-1, x_orig.size(-1)).t()
     M = w.shape[0]
     K = w.shape[1]
     N = x.shape[1]
-    # TODO: Replace this with mul + sum for the mv case similar to
-    # https://github.com/pytorch/pytorch/blob/a9685767773157440c162caaf125856e04e2981f/torch/_inductor/decomposition.py#L292
-    # use .to_dense to get a baseline implementation that works and then use NJT for .sum and such
-    # if x.size(-1) == 1:
-    #     # print("USING THIS")
-    #     # breakpoint()
-    #     out = (torch.mul(w.unsqueeze(2), x.unsqueeze(0))).sum(dim=1)
-    #     out_orig = out.t().reshape(x_orig.shape[:-1] + (M,))
-    #     if bias is None:
-    #         special_ret = out_orig
-    #     else:
-    #         special_ret = out_orig + bias
-    #     return special_ret
-    # else:
-    # N_padded = max(16, next_power_of_two(N))
-    # x_padded = torch.nn.functional.pad(x, (0, N_padded - N), 'constant', 0)
     out = torch.ops.blocksparse.addmm(
         x,
         w.crow_indices(),
@@ -363,7 +341,6 @@ def block_sparse_linear(func, types, args, kwargs):
         K,
         None,
     )
-    # out_orig = out[:, :x.size(-1)].t().reshape(x_orig.shape[:-1] + (M,))
     out_orig = out.t()
     if bias is None:
         return out_orig

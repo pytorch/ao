@@ -822,17 +822,16 @@ if has_triton():
         )
 
         output_acc_block = tl.zeros((BLOCKSIZE_ROW, PADDED_BLOCKSIZE_COL), dtype=acc_dtype)
-
+        # offsets = tl.arange(0, PADDED_BLOCKSIZE_COL)[None, :]
         for _ in range(row_nnz):
             values_block = tl.load(values_block_ptrs)
 
             # find which row of dense needs to get loaded
             # for multiplication with values_block.
             dense_row_idx = tl.load(col_index_nnz_ptr)
-            offsets = tl.arange(0, PADDED_BLOCKSIZE_COL)[None, :]
             dense_block = tl.load(
                 dense_block_ptrs + dense_tiled_row_stride * dense_row_idx,
-                mask=offsets < BLOCKSIZE_COL,
+                mask=col_block_arange[None, :] < BLOCKSIZE_COL,
             )
 
             # do block mm
@@ -884,7 +883,7 @@ if has_triton():
                 output_acc_block += beta * tl.load(input_ptrs)
 
         # write back the result
-        tl.store(output_ptrs, output_acc_block.to(output_ptr.dtype.element_ty))
+        tl.store(output_ptrs, output_acc_block.to(output_ptr.dtype.element_ty), mask=col_block_arange[None, :]< BLOCKSIZE_COL)
 
 else:
     _bsr_strided_addmm_kernel = None  # type: ignore[assignment]

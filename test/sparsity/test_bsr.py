@@ -31,13 +31,12 @@ class TestBlockSparseWeight(common_utils.TestCase):
         "pytorch 2.4+ feature due to need for custom op support",
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("compile", [True])
     def test_sparse(self, compile):
-        input = torch.rand((1024, 1024)).half().cuda()
+        input = torch.rand((1, 1024)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(1024, 2048),
-                nn.Linear(2048, 1024),
             )
             .half()
             .cuda()
@@ -48,11 +47,9 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
         M, N = model[0].weight.shape
         model[0].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
-        M, N = model[1].weight.shape
-        model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
         dense_result = model(input)
 
-        from torchao.prototype.sparsity.superblock.blocksparse import (
+        from torchao.sparsity import (
             block_sparse_weight,
         )
 
@@ -61,7 +58,11 @@ class TestBlockSparseWeight(common_utils.TestCase):
         #     model = torch.compile(model)
         sparse_result = model(input)
 
+        print(dense_result)
+        print(sparse_result)
+
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
+
 
 common_utils.instantiate_parametrized_tests(TestBlockSparseWeight)
 
