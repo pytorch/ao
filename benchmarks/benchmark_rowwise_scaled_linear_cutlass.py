@@ -13,9 +13,7 @@ def get_problem(m: int, n: int, k: int, A_nbits: int, B_nbits: int):
     assert A_nbits in (4, 8) and B_nbits in (4, 8)
 
     dev = torch.device("cuda")
-    A = torch.randint(
-        -128, 127, (m, k * A_nbits // 8), dtype=torch.int8, device=dev
-    )
+    A = torch.randint(-128, 127, (m, k * A_nbits // 8), dtype=torch.int8, device=dev)
     A_scale = torch.randn((m,), dtype=torch.half, device=dev)
     B = torch.randint(
         -128, 127, size=(n, k * B_nbits // 8), dtype=torch.int8, device=dev
@@ -30,7 +28,9 @@ def benchmark(m: int, k: int, n: int):
     dev = torch.device("cuda")
     A_ref = torch.randn((m, k), dtype=torch.half, device=dev)
     B_ref = torch.randn((n, k), dtype=torch.half, device=dev)
-    fp16_time = benchmark_torch_function_in_microseconds(torch.nn.functional.linear, A_ref, B_ref)
+    fp16_time = benchmark_torch_function_in_microseconds(
+        torch.nn.functional.linear, A_ref, B_ref
+    )
 
     A, A_scale, B, B_scale, C = get_problem(m, n, k, 8, 4)
     rowwise_scaled_linear_cutlass_s8s4_time = benchmark_torch_function_in_microseconds(
