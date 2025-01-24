@@ -464,7 +464,8 @@ class FloatxTensorCoreLayout(Layout):
 
 class FloatxTensor(AffineQuantizedTensor):
     """
-    Floatx quantized tensor subclass which inherits AffineQuantizedTensor class.
+    Floatx quantized tensor subclass which inherits AffineQuantizedTensor class. It uses floating-point format defined by ebits (exponent bits) and mbits (mantissa bits) and supports float1 - float7 tensor types.
+    For details about float8 tensor type, please refer to https://github.com/pytorch/ao/blob/main/torchao/dtypes/floatx/float8_layout.py.
 
     To see what happens during choose_qparams_and_quantize_affine_fpx, quantization and dequantization for floatx quantization,
     please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
