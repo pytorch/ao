@@ -29,6 +29,8 @@ def _aqt_is_int4(aqt):
 
 @dataclass(frozen=True)
 class CutlassInt4PackedLayout(Layout):
+    """Layout class for int4 packed layout for affine quantized tensor, used by cutlass kernels _linear_int8_act_int4_weight."""
+
     pass
 
 

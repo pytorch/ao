@@ -35,7 +35,7 @@ class Layout:
     data representations and behaviors for tensors. It is used in conjunction with TensorImpl
     classes to represent custom data layouts and how tensors interact with different operators.
     """
-    
+
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         return input
 
@@ -60,11 +60,11 @@ class Layout:
 
 @dataclass(frozen=True)
 class PlainLayout(Layout):
-    """
-    PlainLayout is the most basic layout class, inheriting from the Layout base class.
+    """PlainLayout is the most basic layout class, inheriting from the Layout base class.
     It does not add any additional metadata or processing steps to the tensor.
     Typically, this layout is used as the default when no specific layout is required.
     """
+
     pass
 
 

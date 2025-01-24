@@ -97,9 +97,10 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayout(Layout):
-    """
-    inner_k_tiles is an internal argument for packing function of tensor core tiled layout
-    that can affect the performance of the matmul kernel
+    """TensorCoreTiledLayout is a layout class for handling tensor core tiled layouts in affine quantized tensors. It provides methods for pre-processing and post-processing tensors to fit the required layout for efficient computation on tensor cores.
+
+    Attributes:
+        inner_k_tiles (int): An internal argument for the packing function of tensor core tiled layout that can affect the performance of the matmul kernel. Defaults to 8.
     """
 
     inner_k_tiles: int = 8
@@ -155,8 +156,7 @@ class TensorCoreTiledLayout(Layout):
 
 @register_layout(TensorCoreTiledLayout)
 class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
-    """
-    TensorImpl for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
+    """TensorImpl for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm`
 
     It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of
