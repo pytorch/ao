@@ -18,6 +18,7 @@ from torchao.prototype.galore.kernels import (
     triton_dequant_blockwise,
     triton_quantize_blockwise,
 )
+from torchao.utils import skip_if_rocm
 
 SEED = 0
 torch.manual_seed(SEED)
@@ -82,6 +83,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 

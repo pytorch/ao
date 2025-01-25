@@ -27,6 +27,9 @@ S8S4_LINEAR_CUTLASS_TEST_PARAMS = list(
     )
 )
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
