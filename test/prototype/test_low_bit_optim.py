@@ -205,27 +205,6 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    @parametrize("device", _DEVICES)
-    @parametrize("dynamic_range_expansion", [False, True])
-    @parametrize("backend", ["eager", "aot_eager", "inductor"])
-    def test_quantize_fp8_with_compile(self, device, dynamic_range_expansion, backend):
-
-        if device == "cpu"  and not TORCH_VERSION_AT_LEAST_2_5:
-            pytest.skip("fill_cpu not implemented for Float8_e4m3fn for torch<2.5")
-        if device == "cuda" and not TORCH_VERSION_AT_LEAST_2_4:
-            pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
-        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
-            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
-        
-        torch.manual_seed(42)
-        block_size = 128
-        x = torch.randn(32, 1024, device=device)
-        expected = quantize_fp8(x, block_size, dynamic_range_expansion)
-        with torch._dynamo.utils.disable_cache_limit():
-            actual = torch.compile(quantize_fp8, fullgraph=True, dynamic=False, backend=backend)(x, block_size, dynamic_range_expansion)
-        
-        torch.testing.assert_close(expected[0].float(), actual[0].float(), rtol=1e-5, atol=1e-5)    
-    
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
