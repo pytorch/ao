@@ -9,6 +9,7 @@ from torch.distributed.tensor.parallel import (
 )
 
 from torchao.float8.config import ScalingType, e4m3_dtype
+from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
@@ -46,12 +47,13 @@ class Float8ColwiseParallel(ColwiseParallel):
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
 
-        input_tensor = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-        )  # DTensor(Float8Tensor)
+        if not tensor_already_casted_to_fp8(input_tensor):
+            input_tensor = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+            )  # DTensor(Float8Tensor)
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
@@ -104,12 +106,13 @@ class Float8RowwiseParallel(RowwiseParallel):
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
 
-        input_tensor = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-        )  # DTensor(Float8Tensor)
+        if not tensor_already_casted_to_fp8(input_tensor):
+            input_tensor = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+            )  # DTensor(Float8Tensor)
 
         if input_layouts != desired_input_layouts:
             input_tensor = input_tensor.redistribute(

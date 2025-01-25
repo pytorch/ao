@@ -17,9 +17,9 @@ from bench_utils import (
 )
 from triton.testing import do_bench
 
+from torchao.prototype.common.profiling_tools import pivot_df
 from torchao.prototype.dora.kernels.matmul import triton_mm
 from torchao.prototype.dora.kernels.smallk import triton_mm_small_k
-from torchao.prototype.common.profiling_tools import pivot_df
 
 
 def run_colnorm_bench(args):

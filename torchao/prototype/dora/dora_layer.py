@@ -3,9 +3,6 @@ import logging
 import bitsandbytes as bnb
 import torch
 import torch.nn as nn
-from bitsandbytes.nn import Linear4bit
-from hqq.core.quantize import BaseQuantizeConfig, HQQBackend, HQQLinear
-
 from prototypes.dora.kernels.matmul import triton_mm
 from prototypes.dora.kernels.smallk import triton_mm_small_k
 
@@ -190,5 +187,3 @@ class BNBDoRALinear(DoRALinear):
 class HQQDoRALinear(DoRALinear):
     def dequantize(self):
         return self.base_layer.dequantize()
-
-

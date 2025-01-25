@@ -11,14 +11,16 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
-
 import torch
 import torch.utils.benchmark as benchmark
+from tqdm import tqdm
+from utils import get_name_to_shapes_iter
+
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
-    ScalingType,
+    CastConfig,
+    Float8LinearConfig,
     ScalingGranularity,
+    ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -26,8 +28,6 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_tensor import ScaledMMConfig
-from utils import get_name_to_shapes_iter
-from tqdm import tqdm
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N
@@ -105,7 +105,7 @@ def main(
     fast_accum_filter: Optional[bool] = None,
     shape_name_filter: Optional[str] = None,
     *,
-    shape_gen_name: str = 'llama',
+    shape_gen_name: str = "llama",
     M: Optional[int] = None,
     K: Optional[int] = None,
     N: Optional[int] = None,
@@ -123,35 +123,35 @@ def main(
     scaling_granularity = ScalingGranularity(scaling_granularity)
 
     if scaling_type_input is ScalingType.STATIC:
-        cast_config_input=CastConfig(
+        cast_config_input = CastConfig(
             scaling_type=scaling_type_input,
             static_scale=torch.tensor([1.0], device="cuda"),
             scaling_granularity=scaling_granularity,
         )
     else:
-        cast_config_input=CastConfig(
+        cast_config_input = CastConfig(
             scaling_type=scaling_type_input,
             scaling_granularity=scaling_granularity,
         )
     if scaling_type_weight is ScalingType.STATIC:
-        cast_config_weight=CastConfig(
+        cast_config_weight = CastConfig(
             scaling_type=scaling_type_weight,
             static_scale=torch.tensor([1.0], device="cuda"),
             scaling_granularity=scaling_granularity,
         )
     else:
-        cast_config_weight=CastConfig(
+        cast_config_weight = CastConfig(
             scaling_type=scaling_type_weight,
             scaling_granularity=scaling_granularity,
         )
     if scaling_type_grad_output is ScalingType.STATIC:
-        cast_config_grad_output=CastConfig(
+        cast_config_grad_output = CastConfig(
             scaling_type=scaling_type_grad_output,
             static_scale=torch.tensor([1.0], device="cuda"),
             scaling_granularity=scaling_granularity,
         )
     else:
-        cast_config_grad_output=CastConfig(
+        cast_config_grad_output = CastConfig(
             scaling_type=scaling_type_grad_output,
             scaling_granularity=scaling_granularity,
         )
@@ -169,7 +169,6 @@ def main(
     else:
         use_fast_accum = [True, False]
     if shape_name_filter is not None:
-        k = shape_name_filter
         name_to_shapes = ((k, v) for (k, v) in name_to_shapes if k == shape_name_filter)
     experiment_list: List[Experiment] = []
     dtype = torch.bfloat16
@@ -336,11 +335,11 @@ def invoke_main() -> None:
     if args.shape_gen_name is not None:
         kwargs["shape_gen_name"] = args.shape_gen_name
     if args.M is not None:
-        kwargs["M"] = args.M,
+        kwargs["M"] = (args.M,)
     if args.K is not None:
-        kwargs["K"] = args.K,
+        kwargs["K"] = (args.K,)
     if args.N is not None:
-        kwargs["N"] = args.N,
+        kwargs["N"] = (args.N,)
     if args.scaling_type_input is not None:
         kwargs["scaling_type_input"] = args.scaling_type_input
     if args.scaling_type_weight is not None:

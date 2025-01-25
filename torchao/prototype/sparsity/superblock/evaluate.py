@@ -7,7 +7,6 @@ import torchvision
 from torchao.prototype.sparsity.superblock.train import evaluate, load_data
 from torchao.prototype.sparsity.superblock.utils import (
     accelerate_with_sparsity,
-    apply_sparsity,
     get_args_parser,
     init_distributed_mode,
     simulate_sparsity,

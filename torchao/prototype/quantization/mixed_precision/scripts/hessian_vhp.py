@@ -1,17 +1,17 @@
-import torch
-import torchvision.models as models
+import random
+
 import numpy as np
-import os
-from tqdm import tqdm
+import torch
 import transformers
 from datasets import load_dataset
-import random
+from torch.autograd.functional import vhp
 from torch.nn.attention import SDPBackend, sdpa_kernel
-from torch.autograd.functional import hvp, vhp
+from tqdm import tqdm
 
 
 def group_product(xs, ys):
     return [torch.sum(x * y) for (x, y) in zip(xs, ys)]
+
 
 def get_wikitext2(nsamples, seed, seqlen, tokenizer):
     traindata = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="train")
@@ -31,6 +31,7 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer):
         trainloader.append((inp, tar))
     return trainloader, testenc.input_ids
 
+
 # utilities to make nn.Module functional
 def del_attr(obj, names):
     if len(names) == 1:
@@ -38,21 +39,25 @@ def del_attr(obj, names):
     else:
         del_attr(getattr(obj, names[0]), names[1:])
 
+
 def set_attr(obj, names, val):
     if len(names) == 1:
         setattr(obj, names[0], val)
     else:
         set_attr(getattr(obj, names[0]), names[1:], val)
 
+
 def make_functional(mod, layer_id):
     orig_params = tuple(mod.parameters())
     # remove all the parameters in the model
-    selected_params=[]
-    selected_params_names=[]
+    selected_params = []
+    selected_params_names = []
 
     names = []
     for name, p in list(mod.named_parameters()):
-        if name.startswith("model.layers."+str(layer_id)+".self_attn.") or name.startswith("model.layers."+str(layer_id)+".mlp."):
+        if name.startswith(
+            "model.layers." + str(layer_id) + ".self_attn."
+        ) or name.startswith("model.layers." + str(layer_id) + ".mlp."):
             selected_params.append(p)
             selected_params_names.append(name)
         del_attr(mod, name.split("."))
@@ -60,14 +65,14 @@ def make_functional(mod, layer_id):
     return orig_params, names, selected_params, selected_params_names
 
 
-
 def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
-
     # use the functional model to load the weights back
     def load_weights(mod, names, params, selected_params, selected_params_names):
         for name, p in zip(names, params):
-            if name.startswith("model.layers."+str(layer_id)+".self_attn.") or name.startswith("model.layers."+str(layer_id)+".mlp."):
-                idx=selected_params_names.index(name)
+            if name.startswith(
+                "model.layers." + str(layer_id) + ".self_attn."
+            ) or name.startswith("model.layers." + str(layer_id) + ".mlp."):
+                idx = selected_params_names.index(name)
                 set_attr(mod, name.split("."), selected_params[idx])
             else:
                 set_attr(mod, name.split("."), p)
@@ -88,9 +93,10 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
 
     # to avoid aten::_scaled_dot_product_flash_attention_backward not implemented error
     with sdpa_kernel(SDPBackend.MATH):
-
         # have been tested models Llama-3-8B, Llama-2-7B, Mistral-7B, and stories110M
-        model = transformers.AutoModelForCausalLM.from_pretrained(checkpoint, torch_dtype=torch.bfloat16)
+        model = transformers.AutoModelForCausalLM.from_pretrained(
+            checkpoint, torch_dtype=torch.bfloat16
+        )
         tokenizer = transformers.AutoTokenizer.from_pretrained(checkpoint)
         model = model.to(device)
         model.eval()
@@ -98,24 +104,26 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
         criterion = torch.nn.CrossEntropyLoss()
 
         # load calibration dataset
-        seed = 0
-        trainloader, testloader = get_wikitext2(128, 0, 2048, tokenizer)
+        trainloader, _ = get_wikitext2(128, 0, 2048, tokenizer)
 
         # make the model functional
-        params, names, selected_params, selected_params_names = make_functional(model, layer_id)
+        params, names, selected_params, selected_params_names = make_functional(
+            model, layer_id
+        )
 
         # make params regular Tensors instead of nn.Parameter
         params = tuple(p.detach() for p in params)
 
         # set requires_grad to True for the selected parameters
-        selected_params_tuple = tuple(p.detach().requires_grad_() for p in selected_params)
+        selected_params_tuple = tuple(
+            p.detach().requires_grad_() for p in selected_params
+        )
 
         trace_history = []
-        vhv_c_history=[]
+        vhv_c_history = []
 
         for iteration in range(max_iter):
-
-            print("iteration: ",iteration)
+            print("iteration: ", iteration)
 
             # generate Rademacher random variables
             v = [torch.randint_like(p, high=2) for p in selected_params_tuple]
@@ -133,10 +141,11 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
                 # get vector-Hessian product
                 _, vH = vhp(f, selected_params_tuple, tuple(v))
 
-                if i==0:
-                    TvH = [torch.zeros(p.size()).to(device) for p in selected_params_tuple]
+                if i == 0:
+                    TvH = [
+                        torch.zeros(p.size()).to(device) for p in selected_params_tuple
+                    ]
                 TvH = [TvH1 + vH1 + 0.0 for TvH1, vH1 in zip(TvH, vH)]
-
 
             TvH = [TvH1 / float(nsamples) for TvH1 in TvH]
             # get vHv
@@ -152,14 +161,39 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
         print("trace_history,", trace_history)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Calculate layer-wised Hessian trace leveraging torch's vhp function.")
+
+    parser = argparse.ArgumentParser(
+        description="Calculate layer-wised Hessian trace leveraging torch's vhp function."
+    )
     # TODO: make it a for loop for all the layer_ids to automatically calculate the Hessian trace for all the layers of a model
-    parser.add_argument('--layer_id', type=int, default=0, help='Which layer to compute the Hessian trace')
-    parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
-    parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
-    parser.add_argument('--max_iter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
-    parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset')
+    parser.add_argument(
+        "--layer_id",
+        type=int,
+        default=0,
+        help="Which layer to compute the Hessian trace",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="/tmp/Meta-Llama-3-8B",
+        help="Path to load model",
+    )
+    parser.add_argument(
+        "--max_seqlen", type=int, default=2048, help="Max sequence length"
+    )
+    parser.add_argument(
+        "--max_iter",
+        type=int,
+        default=100,
+        help="The number of iterations to calculate Hessian trace",
+    )
+    parser.add_argument(
+        "--nsamples",
+        type=int,
+        default=128,
+        help="The number of samples in calibration dataset",
+    )
     args = parser.parse_args()
     main(args.layer_id, args.checkpoint, args.max_seqlen, args.max_iter, args.nsamples)

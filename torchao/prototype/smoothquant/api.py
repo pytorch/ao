@@ -1,28 +1,29 @@
+from typing import Dict, Optional
+
 import torch
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+
 from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
+from torchao.prototype.smoothquant.core import (
+    SmoothQuantObservedLinear,
+    SmoothQuantObserver,
+)
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
 )
+from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.utils import _get_per_token_block_size
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
-from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.utils import _get_per_token_block_size
-from torchao.prototype.smoothquant.core import(
-    SmoothQuantObserver,
-    SmoothQuantObservedLinear,
-)
-from typing import Dict, Optional
 
 
 def insert_smooth_quant_observer_(
-        model: torch.nn.Module,
-        alpha: Optional[float] = 0.5,
-        quant_mode: str = "dynamic"):
+    model: torch.nn.Module, alpha: Optional[float] = 0.5, quant_mode: str = "dynamic"
+):
     """
     Inserts SmoothQuantObserver into Linear layers of a given model.
 
@@ -45,7 +46,8 @@ def insert_smooth_quant_observer_(
             quant_mode,
             quant_min=quant_min,
             quant_max=quant_max,
-            eps=eps)
+            eps=eps,
+        )
         return SmoothQuantObservedLinear.from_float(layer, observer)
 
     _replace_with_custom_fn_if_matches_filter(model, replace_with_observer, _is_linear)
@@ -58,6 +60,7 @@ def _observed_linear_subclass_inserter(constructor):
     Args:
         constructor: the function which applies quantization to the observed linear layer
     """
+
     def insert_subclass(observed_linear):
         # creates the new linear layer using constructor
         linear = torch.nn.Linear(
@@ -65,25 +68,29 @@ def _observed_linear_subclass_inserter(constructor):
             observed_linear.out_features,
             observed_linear.bias is not None,
             device=observed_linear.weight.device,
-            dtype=observed_linear.weight.dtype
+            dtype=observed_linear.weight.dtype,
         )
-        linear.weight = torch.nn.Parameter(constructor(observed_linear), requires_grad=False)
+        linear.weight = torch.nn.Parameter(
+            constructor(observed_linear), requires_grad=False
+        )
         linear.bias = observed_linear.bias
         return linear
 
     return insert_subclass
 
 
-def save_smooth_quant_recipe(model: torch.nn.Module, save_path: str) -> Dict[str, torch.Tensor]:
+def save_smooth_quant_recipe(
+    model: torch.nn.Module, save_path: str
+) -> Dict[str, torch.Tensor]:
     """
     Save smoothing_factors, act_scales, and wei_scales for each SmoothQuantObservedLinear layer in the model.
     """
     result = {}
 
-    def recurse(module: torch.nn.Module, name: str = ''):
+    def recurse(module: torch.nn.Module, name: str = ""):
         for child_name, child in module.named_children():
             full_name = f"{name}.{child_name}" if name else child_name
-            
+
             # Apply the analysis function to this layer
             if isinstance(child, SmoothQuantObservedLinear):
                 smoothing_factor, act_scales, wei_scales = child.obs.calculate_qparams()
@@ -99,10 +106,12 @@ def save_smooth_quant_recipe(model: torch.nn.Module, save_path: str) -> Dict[str
     torch.save(result, save_path)
 
 
-def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=None) -> torch.nn.Module:
+def load_smooth_quant_recipe(
+    model: torch.nn.Module, recipe_path: str, device=None
+) -> torch.nn.Module:
     recipe = torch.load(recipe_path, weights_only=True)
 
-    def recurse(module: torch.nn.Module, name: str = ''):
+    def recurse(module: torch.nn.Module, name: str = ""):
         if isinstance(module, SmoothQuantObservedLinear):
             smoothing_factor = recipe.get(name + ".smoothing_factor", None)
             act_scales = recipe.get(name + ".act_scales", None)
@@ -131,20 +140,29 @@ class _ActQuantizer:
 
     def dynamic_quantize(self, input):
         return to_affine_quantized_intx(
-            input, MappingType.SYMMETRIC, _get_per_token_block_size(input), self.target_dtype, self.quant_min
+            input,
+            MappingType.SYMMETRIC,
+            _get_per_token_block_size(input),
+            self.target_dtype,
+            self.quant_min,
         )
 
     def static_quantize(self, input, scale, zero_point):
         return to_affine_quantized_intx_static(
-            input, scale, zero_point, list(input.shape), self.target_dtype, self.quant_min
+            input,
+            scale,
+            zero_point,
+            list(input.shape),
+            self.target_dtype,
+            self.quant_min,
         )
 
 
 def smooth_quant(
-        smoothing_factor: Optional[torch.Tensor] = None,
-        act_scales: Optional[torch.Tensor] = None,
-        wei_scales: Optional[torch.Tensor] = None
-    ):
+    smoothing_factor: Optional[torch.Tensor] = None,
+    act_scales: Optional[torch.Tensor] = None,
+    wei_scales: Optional[torch.Tensor] = None,
+):
     """
     Quantizes linear layers when passed into quantize_()
 
@@ -176,7 +194,9 @@ def smooth_quant(
 
         if x_scale is None:
             # dynamic quant
-            qw = to_linear_activation_quantized(qw, _ActQuantizer(target_dtype).dynamic_quantize)
+            qw = to_linear_activation_quantized(
+                qw, _ActQuantizer(target_dtype).dynamic_quantize
+            )
         else:
             # static quant
             x_zero_point = torch.zeros_like(x_scale, dtype=torch.int64)
@@ -184,6 +204,8 @@ def smooth_quant(
                 qw, _ActQuantizer(target_dtype).static_quantize, x_scale, x_zero_point
             )
 
-        return to_weight_tensor_with_linear_activation_scale_metadata(qw, factor.to(qw.dtype))
+        return to_weight_tensor_with_linear_activation_scale_metadata(
+            qw, factor.to(qw.dtype)
+        )
 
     return _observed_linear_subclass_inserter(quantize_weight)

@@ -3,7 +3,6 @@
 import datetime
 import glob
 import os
-import sys
 import time
 import warnings
 
@@ -13,10 +12,10 @@ import torchvision
 import utils
 from torch import nn
 from torch.utils.data.dataloader import default_collate
-
-from torchao.prototype.sparsity.superblock.utils import simulate_sparsity
 from torchvision.transforms.functional import InterpolationMode
 from utils import RASampler
+
+from torchao.prototype.sparsity.superblock.utils import simulate_sparsity
 
 
 def train_one_epoch(

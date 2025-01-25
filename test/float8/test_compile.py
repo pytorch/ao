@@ -7,6 +7,7 @@ import copy
 import random
 import sys
 import unittest
+from dataclasses import replace
 from io import StringIO
 
 import pytest
@@ -25,6 +26,7 @@ import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
+from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
@@ -51,6 +53,7 @@ from torchao.float8.float8_tensor import (
 from torchao.float8.float8_utils import config_has_stateful_scaling
 from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.utils import is_fbcode
 
 
 def _test_compile_base(
@@ -463,6 +466,71 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)
+
+
+@unittest.skipIf(
+    not is_sm_at_least_89() or not is_fbcode(),
+    "CUDA with float8 support not available; or not on fbcode (the test needs be run with the latest pytorch package)",
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+def test_delayed_scaling_pattern_replacement(dtype: torch.dtype):
+    from torch._inductor import config as inductor_config
+    from torch._inductor import metrics
+
+    inductor_config.loop_ordering_after_fusion = True
+
+    def clear_all():
+        metrics.reset()
+        from torch._inductor.fx_passes.post_grad import (
+            pass_patterns as post_grad_patterns_all,
+        )
+
+        post_grad_patterns_all[1].clear()
+        post_grad_patterns_all[1].seen_patterns.clear()
+
+    def compile_and_run_single_layer():
+        random.seed(0)
+        torch.manual_seed(0)
+        x_shape = (2048, 3072)
+        linear_dtype = dtype
+
+        x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype).requires_grad_()
+        m_ref = nn.Linear(3072, 2048, bias=True, device="cuda", dtype=linear_dtype)
+
+        config = get_test_float8_linear_config(
+            ScalingType.DELAYED,
+            ScalingType.DELAYED,
+            ScalingType.DELAYED,
+            False,
+        )
+
+        config = replace(config, enable_amax_init=False)
+
+        m_fp8 = StatefulFloat8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
+
+        m_fp8 = torch.compile(m_fp8, backend="inductor", fullgraph=True)
+        m_ref = torch.compile(m_ref, backend="inductor", fullgraph=True)
+
+        y_fp8 = m_fp8(x)
+        y_fp8.sum().backward()
+
+        return m_fp8.weight.grad
+
+    clear_all()
+    ref_output = compile_and_run_single_layer()
+    ref_count_kernel = metrics.generated_kernel_count
+
+    clear_all()
+    _prototype_register_float8_delayed_scaling_inductor_passes()
+    new_output = compile_and_run_single_layer()
+    new_count_kernel = metrics.generated_kernel_count
+
+    torch.equal(ref_output, new_output)
+    # With the pattern replacement workaround, amax reduction kernels for the 3 tensors (weight, activation, gradient) are fused.
+    assert ref_count_kernel == new_count_kernel + 3
 
 
 if __name__ == "__main__":

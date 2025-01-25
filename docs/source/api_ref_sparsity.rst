@@ -12,7 +12,7 @@ torchao.sparsity
 
     WandaSparsifier
     PerChannelNormObserver
-    apply_sparse_semi_structured
     apply_fake_sparsity
-
-
+    sparsify_
+    semi_sparse_weight
+    int8_dynamic_activation_int8_semi_sparse_weight

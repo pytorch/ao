@@ -1,7 +1,11 @@
 import torch
 import triton
 import triton.language as tl
-from torchao.prototype.common.triton.matmul_perf_model import early_config_prune, estimate_matmul_time
+
+from torchao.prototype.common.triton.matmul_perf_model import (
+    early_config_prune,
+    estimate_matmul_time,
+)
 
 from .custom_autotune import Config, autotune, heuristics
 
@@ -330,7 +334,6 @@ def triton_mm_launcher(
     output_dtype=None,
     kernel=matmul,
 ):
-
     device = a.device
     # handle non-contiguous inputs if necessary
     # a = grad

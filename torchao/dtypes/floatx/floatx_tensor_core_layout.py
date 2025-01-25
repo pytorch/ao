@@ -450,7 +450,9 @@ _SPLIT_K_MAP = [
 # quantization api integrations
 @dataclass(frozen=True)
 class FloatxTensorCoreLayout(Layout):
-    """Layout type for FloatxTensorCoreAQTTensorImpl"""
+    """FloatxTensorCoreLayout is a data class that defines the layout for a tensor with a specific number of exponent bits (ebits) and mantissa bits (mbits).
+    This layout is used in the context of quantization and packing of tensors optimized for TensorCore operations.
+    """
 
     ebits: int
     mbits: int

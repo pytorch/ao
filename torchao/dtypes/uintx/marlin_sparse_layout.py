@@ -71,6 +71,17 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
 
 @dataclass(frozen=True)
 class MarlinSparseLayout(Layout):
+    """MarlinSparseLayout is a layout class for handling sparse tensor formats
+    specifically designed for the Marlin sparse kernel. This layout is used
+    to optimize the storage and computation of affine quantized tensors with
+    2:4 sparsity patterns.
+
+    The layout ensures that the tensor data is pre-processed and stored in a
+    format that is compatible with the Marlin sparse kernel operations. It
+    provides methods for preprocessing input tensors and managing the layout
+    of quantized tensors.
+    """
+
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         """Preprocess the input tensor to be in the correct format for the Marlin sparse kernel.
             - 1º: the input tensor is transposed since the linear layer keeps the weights in a transposed format
@@ -227,6 +238,11 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         # Linear layers are (in_features, out_features) but the int_data that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
         q_w_24 = int_data.t()
+        # addressing the case when scale has dimension 1, happens when
+        # weight_shape[-1] == group_size == 128
+        if scale.ndim == 1:
+            scale = scale.reshape(scale.shape[0], -1)
+
         scale_t = scale.t()
 
         if not torch.cuda.get_device_capability()[0] >= 8:

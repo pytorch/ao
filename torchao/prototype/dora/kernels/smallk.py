@@ -5,12 +5,13 @@ from enum import Enum, StrEnum, unique
 import torch
 import triton
 import triton.language as tl
-from torchao.prototype.common.triton.matmul  import (
+from triton.runtime import driver
+
+from torchao.prototype.common.triton.matmul import (
     estimate_matmul_time,
     get_configs_io_bound,
     get_higher_dtype,
 )
-from triton.runtime import driver
 
 from .custom_autotune import Config, autotune
 
@@ -180,7 +181,6 @@ def small_k_early_config_prune(configs, named_args, **kwargs):
     capability = torch.cuda.get_device_capability()
     # BLOCK_M, BLOCK_N, BLOCK_K, SPLIT_K, num_warps, num_stages
     dtsize = named_args["A"].element_size()
-    dtype = named_args["A"].dtype
 
     # 1. make sure we have enough smem
     pruned_configs = []

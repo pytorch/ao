@@ -52,13 +52,10 @@ if TORCH_VERSION_AT_LEAST_2_2:
         ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
         device_cpu = "cpu" in [mat2.device.type, input.device.type]
         # with input.shape = [i,j] and mat2.shape = [j,k]
-        i_is_strictly_greater_than_16 = input.shape[0] > 16
         j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] > 0)
         k_is_nonzero_multiple_of_8 = (mat2.shape[1] % 8 == 0) and (mat2.shape[1] > 0)
         bad_dimensions_for_cublas = not (
-            i_is_strictly_greater_than_16
-            and j_is_nonzero_multiple_of_8
-            and k_is_nonzero_multiple_of_8
+            j_is_nonzero_multiple_of_8 and k_is_nonzero_multiple_of_8
         )
 
         if device_cpu or bad_dimensions_for_cublas:

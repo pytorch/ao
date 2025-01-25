@@ -25,6 +25,12 @@ aten = torch.ops.aten
 
 @dataclass(frozen=True)
 class Float8Layout(Layout):
+    """Represents the layout configuration for Float8 affine quantized tensors.
+
+    Attributes:
+        mm_config (Optional[Float8MMConfig]): Configuration for matrix multiplication operations involving Float8 tensors. If None, default settings are used.
+    """
+
     mm_config: Optional[Float8MMConfig] = None
 
 

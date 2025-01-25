@@ -8,9 +8,7 @@ __all__ = ["BaseScheduler"]
 
 
 class BaseScheduler:
-
     def __init__(self, sparsifier, last_epoch=-1, verbose=False):
-
         # Attach sparsifier
         if not isinstance(sparsifier, BaseSparsifier):
             raise TypeError(
@@ -136,7 +134,6 @@ class BaseScheduler:
         self._step_count += 1
 
         class _enable_get_sl_call:
-
             def __init__(self, o):
                 self.o = o
 

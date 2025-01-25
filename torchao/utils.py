@@ -27,6 +27,7 @@ __all__ = [
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
     "TORCH_VERSION_AT_LEAST_2_6",
+    "TORCH_VERSION_AT_LEAST_2_7",
     # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
@@ -367,6 +368,7 @@ def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 
+TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
 TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
 TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")

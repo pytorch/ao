@@ -23,7 +23,12 @@ from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
 from torchao import quantize_
-from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs, RMSNorm
+from torchao._models.llama.model import (
+    ModelArgs,
+    RMSNorm,
+    Transformer,
+    transformer_configs,
+)
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
     bitnet_training,
@@ -75,9 +80,13 @@ def get_tinystories():
 
         tokens_list = []
         chunk_size = 10_000
-        for i in tqdm(range(0, len(stories), chunk_size), desc="Tokenizing TinyStories"):
+        for i in tqdm(
+            range(0, len(stories), chunk_size), desc="Tokenizing TinyStories"
+        ):
             chunk = stories[i : min(i + chunk_size, len(stories))]
-            tokens_list.extend(tokenizer.Encode(chunk, add_bos=True, add_eos=True, num_threads=4))
+            tokens_list.extend(
+                tokenizer.Encode(chunk, add_bos=True, add_eos=True, num_threads=4)
+            )
 
         total_size = sum(len(x) for x in tokens_list)
         mmap_tokens = np.memmap(save_path, dtype=np.uint16, mode="w+", shape=total_size)
@@ -155,13 +164,21 @@ if __name__ == "__main__":
     # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
     # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
-        quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(
+            model, int8_weight_only_quantized_training(), set_inductor_config=False
+        )
 
     elif args.quantize == "int8_mixed_precision":
-        quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
+        quantize_(
+            model.layers, int8_mixed_precision_training(), set_inductor_config=False
+        )
 
     elif args.quantize == "int8_mixed_precision_module_swap":
-        quantize_(model.layers, int8_mixed_precision_training(module_swap=True), set_inductor_config=False)
+        quantize_(
+            model.layers,
+            int8_mixed_precision_training(module_swap=True),
+            set_inductor_config=False,
+        )
 
     elif args.quantize == "bitnet":
         quantize_(model.layers, bitnet_training(), set_inductor_config=False)
@@ -195,8 +212,14 @@ if __name__ == "__main__":
 
     while step < args.n_steps:
         # randomly select a continuous chunk, then reshape it
-        idx = torch.randint(0, data.shape[0] - args.batch_size * args.seq_len, (1,)).item()
-        batch = data[idx : idx + args.batch_size * args.seq_len].view(args.batch_size, args.seq_len).long()
+        idx = torch.randint(
+            0, data.shape[0] - args.batch_size * args.seq_len, (1,)
+        ).item()
+        batch = (
+            data[idx : idx + args.batch_size * args.seq_len]
+            .view(args.batch_size, args.seq_len)
+            .long()
+        )
 
         with torch.autocast("cuda", torch.bfloat16, enabled=args.bf16_amp):
             loss = _get_loss(model, batch)
@@ -220,7 +243,10 @@ if __name__ == "__main__":
 
         if step % args.log_interval == 0:
             time1 = time.time()
-            log_dict = dict(tokens_per_second=(args.log_interval * args.batch_size * args.seq_len) / (time1 - time0))
+            log_dict = dict(
+                tokens_per_second=(args.log_interval * args.batch_size * args.seq_len)
+                / (time1 - time0)
+            )
             time0 = time1
             run.log(log_dict, step=step)
 

@@ -5,22 +5,20 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
+
 from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
     quantize_,
 )
-
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_5,
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
 )
-
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -28,7 +26,6 @@ logging.basicConfig(
 
 
 class TestSemiStructuredSparse(common_utils.TestCase):
-
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skip("Temporarily skipping to unpin nightlies")
@@ -57,7 +54,6 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
 
 class TestQuantSemiSparse(common_utils.TestCase):
-
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [False])
@@ -182,9 +178,6 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
             .to(torch.bfloat16)
             .cuda()
             .eval()
-        )
-        from torchao.prototype.sparsity.superblock.blocksparse import (
-            blocksparse_int_addmm,
         )
         from torchao.sparsity.utils import create_block_sparse_tensor
 

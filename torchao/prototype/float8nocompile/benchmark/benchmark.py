@@ -9,6 +9,7 @@ from tabulate import tabulate
 from torch import nn
 from torch._inductor.utils import do_bench_using_profiling
 from torch.nn import functional as F
+from tqdm import tqdm
 
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
@@ -17,7 +18,6 @@ from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
 from torchao.prototype.float8nocompile.kernels.fp8_dynamic_tensorwise import (
     KernelAlgorithm,
 )
-from tqdm import tqdm
 
 device = torch.device("cuda")
 

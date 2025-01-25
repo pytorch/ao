@@ -9,7 +9,6 @@ from functools import wraps
 from typing import (
     Any,
     Callable,
-    cast,
     Dict,
     Iterator,
     List,
@@ -17,6 +16,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
 
 T = TypeVar("T")
@@ -45,7 +45,7 @@ def fuzzy_list_to_dict(items: List[Tuple[str, str]]) -> Dict[str, List[str]]:
 
 
 def _check_output(items: List[str], encoding: str = "utf-8") -> str:
-    from subprocess import CalledProcessError, check_output, STDOUT
+    from subprocess import STDOUT, CalledProcessError, check_output
 
     try:
         return check_output(items, stderr=STDOUT).decode(encoding)

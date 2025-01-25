@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Union
+from typing import Any, Callable, List, Optional, Union
 
 import torch
 
@@ -242,7 +242,7 @@ class FakeQuantizeConfig:
 def intx_quantization_aware_training(
     activation_config: Optional[FakeQuantizeConfig] = None,
     weight_config: Optional[FakeQuantizeConfig] = None,
-) -> torch.nn.Module:
+) -> Callable:
     """
     Return a function that applies fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
@@ -293,6 +293,42 @@ def intx_quantization_aware_training(
             )
 
     return _insert_fake_quantize
+
+
+def from_intx_quantization_aware_training() -> Callable:
+    """
+    Return a function that converts a model with fake quantized modules,
+    such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
+    and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
+    back to model with the original, corresponding modules without
+    fake quantization. This should be used with
+    :func:`~torchao.quantization.quant_api.quantize_`.
+
+    Example usage::
+
+        from torchao.quantization import quantize_
+        quantize_(
+            model_with_fake_quantized_linears,
+            from_intx_quantization_aware_training(),
+        )
+    """
+
+    def _remove_fake_quantize(mod: torch.nn.Module):
+        """
+        If the given module is a fake quantized module, return the original
+        corresponding version of the module without fake quantization.
+        """
+        from .embedding import FakeQuantizedEmbedding
+        from .linear import FakeQuantizedLinear
+
+        if isinstance(mod, FakeQuantizedLinear):
+            return mod.to_linear()
+        elif isinstance(mod, FakeQuantizedEmbedding):
+            return mod.to_embedding()
+        else:
+            return mod
+
+    return _remove_fake_quantize
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):

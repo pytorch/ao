@@ -1,5 +1,5 @@
 try:
-    import hqq
+    import hqq  # noqa: F401
     import triton
 
     if int(triton.__version__.split(".")[0]) < 3:
@@ -54,10 +54,16 @@ def bench_custom_kernel(
     return t
 
 
-def bench_hqq(x, hqq_linear: HQQLinear | HQQLinearTorchWeightOnlyInt4, transposed=False, tinygemm=False):
+def bench_hqq(
+    x,
+    hqq_linear: HQQLinear | HQQLinearTorchWeightOnlyInt4,
+    transposed=False,
+    tinygemm=False,
+):
     def reference_fn():
         W_dq = hqq_linear.dequantize()
         _ = x @ W_dq.T if not transposed else x @ W_dq
+
     fn = reference_fn if not tinygemm else lambda: hqq_linear(x)
 
     t = do_bench(fn)
@@ -138,9 +144,9 @@ SHAPES = [
     [1024, 4096, 4096],
 ]
 
-DTYPES = [torch.bfloat16] #[torch.float16, torch.bfloat16]
+DTYPES = [torch.bfloat16]  # [torch.float16, torch.bfloat16]
 GROUP_SIZES = [128]
-TRANSPOSED = [True] #[False, True]
+TRANSPOSED = [True]  # [False, True]
 
 HEADERS = [
     "M",

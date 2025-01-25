@@ -3,13 +3,11 @@
 import json
 import os
 import warnings
-
 from dataclasses import dataclass
-from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-
 
 GITHUB_API_URL = "https://api.github.com"
 

@@ -80,8 +80,10 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
-        aqt = input_quant_func(input_tensor, **quant_kwargs)
-        return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
+        quantized_tensor = input_quant_func(input_tensor, **quant_kwargs)
+        return torch.nn.functional.linear(
+            quantized_tensor, original_weight_tensor, bias
+        )
 
     @classmethod
     def from_float(

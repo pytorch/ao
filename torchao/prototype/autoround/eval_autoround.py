@@ -42,7 +42,7 @@ def run_evaluation(model, tokenizer, tasks, compile=False, batch_size=4):
         from lm_eval.evaluator import evaluate
         from lm_eval.models.huggingface import HFLM
         from lm_eval.tasks import get_task_dict
-    except ImportError as e:
+    except ImportError:
         print(
             """
     Error: The 'lm_eval' module was not found.
@@ -70,7 +70,7 @@ def bench_accuracy(model, tokenizer, tasks, msg=""):
         from torchao.prototype.autoround.hf_eval_utils import run_evaluation
 
         torch.cuda.empty_cache()
-        res = run_evaluation(model, tokenizer, tasks=tasks)
+        run_evaluation(model, tokenizer, tasks=tasks)
         torch.cuda.empty_cache()
 
 

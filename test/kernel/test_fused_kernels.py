@@ -4,7 +4,7 @@ import pytest
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:
-    import triton
+    import triton  # noqa: F401
 except ImportError:
     pytest.skip("triton is not installed", allow_module_level=True)
 

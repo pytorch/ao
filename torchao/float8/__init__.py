@@ -23,6 +23,9 @@ from torchao.float8.float8_tensor import (
     ScaledMMConfig,
 )
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
+from torchao.float8.inductor_utils import (
+    _prototype_register_float8_delayed_scaling_inductor_passes,
+)
 from torchao.float8.inference import Float8MMConfig
 from torchao.float8.stateful_float8_linear import WeightWithDelayedFloat8CastTensor
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -54,5 +57,6 @@ __all__ = [
     "linear_requires_sync",
     "sync_float8_amax_and_scale_history",
     "precompute_float8_dynamic_scale_for_fsdp",
+    "_prototype_register_float8_delayed_scaling_inductor_passes",
     # note: Float8Tensor and Float8Linear are not public APIs
 ]

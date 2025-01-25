@@ -9,8 +9,8 @@ import torch.distributed as dist
 import torch.nn.functional as F
 import torch.utils._pytree as pytree
 from torch import Tensor, nn
-from torch.utils._triton import has_triton
 from torch.distributed._tensor import DTensor
+from torch.utils._triton import has_triton
 
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
@@ -21,11 +21,12 @@ if has_triton():
     from .int8_mm import scaled_int8_mm
 
 else:
-
     # This is less performant than the explicit hand-written Triton kernel, though things might
     # change in the future.
     # Multiplying col_scale first is faster than the other way round.
-    def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+    def scaled_int8_mm(
+        A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor
+    ) -> Tensor:
         return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 
@@ -55,8 +56,14 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
             return ["_data"], []
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["_data"], tensor_data_dict.get("_precomputed_scale", None), *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            tensor_data_dict["_data"],
+            tensor_data_dict.get("_precomputed_scale", None),
+            *tensor_attributes,
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(data={self._data})"
@@ -153,7 +160,8 @@ def precompute_bitnet_scale_for_fsdp(module: nn.Module):
     bitnet_params = [
         p
         for p in module.parameters()
-        if isinstance(p, DTensor) and isinstance(p._local_tensor, BitNetTrainingLinearWeight)
+        if isinstance(p, DTensor)
+        and isinstance(p._local_tensor, BitNetTrainingLinearWeight)
     ]
     if len(bitnet_params) == 0:
         return
@@ -169,7 +177,12 @@ def precompute_bitnet_scale_for_fsdp(module: nn.Module):
 
 class _BitNetTrainingLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: BitNetTrainingLinearWeight, bias: Optional[Tensor] = None):
+    def forward(
+        ctx,
+        input: Tensor,
+        weight: BitNetTrainingLinearWeight,
+        bias: Optional[Tensor] = None,
+    ):
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
 
@@ -186,7 +199,9 @@ class _BitNetTrainingLinear(torch.autograd.Function):
         ctx.save_for_backward(input_i8, row_scale, weight_i8, tensor_scale)
 
         # use int8 tensor cores
-        out = scaled_int8_mm(input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale)
+        out = scaled_int8_mm(
+            input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale
+        )
         out = out.view(*batch_dims, weight.shape[0])
 
         out = out + bias if bias is not None else out
@@ -218,7 +233,9 @@ class _BitNetTrainingLinear(torch.autograd.Function):
 
 
 def bitnet_training():
-    return _get_linear_subclass_inserter(BitNetTrainingLinearWeight, allow_requires_grad=True)
+    return _get_linear_subclass_inserter(
+        BitNetTrainingLinearWeight, allow_requires_grad=True
+    )
 
 
 def _pack_i2_in_i8(x: Tensor):
@@ -227,7 +244,9 @@ def _pack_i2_in_i8(x: Tensor):
     # thus, we have to mask out the 2 least significant bits (right-most) before bit-shift.
     # e.g. 1111 1111 (value=-1) -> 0000 0011 -> 0011 0000
 
-    x0 = x[:, ::4] << 6  # don't need to mask this number because we shift it to the left-most
+    x0 = (
+        x[:, ::4] << 6
+    )  # don't need to mask this number because we shift it to the left-most
     x1 = (x[:, 1::4] & 0b11) << 4
     x2 = (x[:, 2::4] & 0b11) << 2
     x3 = x[:, 3::4] & 0b11
@@ -237,7 +256,9 @@ def _pack_i2_in_i8(x: Tensor):
 def _unpack_i2_in_i8(x: Tensor):
     # NOTE: this is signed integer, so left-shift then right-shift will perform sign extension correctly
     # e.g. aa10bbcc -> 10bbcc00 -> 11111110
-    return torch.stack([x >> 6, x << 2 >> 6, x << 4 >> 6, x << 6 >> 6], dim=-1).view(x.shape[0], -1)
+    return torch.stack([x >> 6, x << 2 >> 6, x << 4 >> 6, x << 6 >> 6], dim=-1).view(
+        x.shape[0], -1
+    )
 
 
 # currently this class mainly serves as a container for quantized FSDP2 all-gather,
@@ -266,8 +287,12 @@ class BitNetPacked2bitLinearWeight(TorchAOBaseTensor):
         return ["int_data", "scale"], []
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(data={self.dequantize()})"
@@ -306,7 +331,12 @@ def _(func, types, args, kwargs):
 
 class _BitNetPacked2bitLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: BitNetPacked2bitLinearWeight, bias: Optional[Tensor] = None):
+    def forward(
+        ctx,
+        input: Tensor,
+        weight: BitNetPacked2bitLinearWeight,
+        bias: Optional[Tensor] = None,
+    ):
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
 
@@ -320,7 +350,9 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
         # use int8 tensor cores
         # NOTE: is doing dequant inside matmul faster when M is large?
         weight_i8 = _unpack_i2_in_i8(weight_i2)
-        out = scaled_int8_mm(input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale)
+        out = scaled_int8_mm(
+            input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale
+        )
         out = out.view(*batch_dims, weight.shape[0])
 
         out = out + bias if bias is not None else out

@@ -27,6 +27,12 @@ aten = torch.ops.aten
 
 @dataclass(frozen=True)
 class BlockSparseLayout(Layout):
+    """BlockSparseLayout is a data class that represents the layout of a block sparse matrix.
+
+    Attributes:
+        blocksize (int): The size of the blocks in the sparse matrix. Default is 64.
+    """
+
     blocksize: int = 64
 
 

@@ -16,7 +16,6 @@ logger = logging.getLogger(__file__)
 
 
 class Autotuner(KernelInterface):
-
     def __init__(
         self,
         fn,
@@ -187,15 +186,15 @@ class Autotuner(KernelInterface):
                     f.write(
                         f" ==== Autotune Results ====\nKernel name: {self.kernel_name}\nArgs: {self.arg_names}\nKeys: {self._get_key_combination(args)}\n"
                     )
-                    f.write(f"\nPruned configs:\n")
+                    f.write("\nPruned configs:\n")
                     for cfg in pruned_configs:
                         f.write(f"{cfg}\n")
-                    f.write(f"Timings:\n")
+                    f.write("Timings:\n")
                     for cfg, timing in sorted_timings.items():
                         f.write(f"{cfg} {timing} \n")
                     f.write(f"Best config: {self.cache[key]}\n")
             config = self.cache[key]
-            logger.debug(f"\nAutotune: Cache hit! Running best config...")
+            logger.debug("\nAutotune: Cache hit! Running best config...")
         else:
             config = self.configs[0]
         self.best_config = config
@@ -357,7 +356,6 @@ def autotune(
 
 
 class Heuristics(KernelInterface):
-
     def __init__(self, fn, arg_names, values) -> None:
         self.fn = fn
         self.values = values

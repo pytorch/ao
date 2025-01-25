@@ -12,7 +12,20 @@
 import torch
 
 from torchao.ops import lib
-from torchao.prototype.spinquant._hadamard_matrices import get_had172, get_had156, get_had140, get_had108, get_had60, get_had52, get_had36, get_had28, get_had44, get_had40, get_had20, get_had12
+from torchao.prototype.spinquant._hadamard_matrices import (
+    get_had12,
+    get_had20,
+    get_had28,
+    get_had36,
+    get_had40,
+    get_had44,
+    get_had52,
+    get_had60,
+    get_had108,
+    get_had140,
+    get_had156,
+    get_had172,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 try:
@@ -25,10 +38,11 @@ try:
             return matmul_hadU_slow(X, hadK, K)
 
 except ImportError:
-
-    print("NOTE: Using slow Hadamard transform for SpinQuant. "
-          "For better performance on GPU, install `fast_hadamard_transform`: "
-          "`pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git`")
+    print(
+        "NOTE: Using slow Hadamard transform for SpinQuant. "
+        "For better performance on GPU, install `fast_hadamard_transform`: "
+        "`pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git`"
+    )
 
     def matmul_hadU(X, hadK, K):
         return matmul_hadU_slow(X, hadK, K)
@@ -41,6 +55,7 @@ def register_custom_op_impl(name):
         else:
             lib.define("hadamard_transform(Tensor x, float scale = 0.0) -> Tensor")
             return torch.library.impl(f"{name}", "cuda")(func)
+
     return decorator
 
 
@@ -50,6 +65,7 @@ def register_custom_op_abstract(name):
             return torch.library.register_fake(f"{name}")(func)
         else:
             return torch.library.impl_abstract(f"{name}")(func)
+
     return decorator
 
 
@@ -73,7 +89,9 @@ def hadamard_transform(x: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
 
 @register_custom_op_abstract("torchao::hadamard_transform")
 def _(x: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
-    torch._check(x.dim() >= 1, lambda: f"input should be at least a 1D tensor, got {x.dim()}D")
+    torch._check(
+        x.dim() >= 1, lambda: f"input should be at least a 1D tensor, got {x.dim()}D"
+    )
     return torch.empty_like(x)
 
 
@@ -189,9 +207,15 @@ def matmul_hadU_slow(X, hadK, K):
 def matmul_hadU_fast(X, hadK, K):
     n = X.shape[-1]
     if K == 1:
-        return torch.ops.torchao.hadamard_transform.default(X.contiguous()) / torch.tensor(n).sqrt()
+        return (
+            torch.ops.torchao.hadamard_transform.default(X.contiguous())
+            / torch.tensor(n).sqrt()
+        )
     input = X.view(-1, K, n // K)
-    input = torch.ops.torchao.hadamard_transform.default(input.contiguous()) / torch.tensor(n).sqrt()
+    input = (
+        torch.ops.torchao.hadamard_transform.default(input.contiguous())
+        / torch.tensor(n).sqrt()
+    )
     input = hadK.to(input.device).to(input.dtype) @ input
     return input.reshape(X.shape)
 

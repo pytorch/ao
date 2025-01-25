@@ -8,10 +8,9 @@ import warnings
 from typing import Callable, Iterable, Tuple
 
 import torch
+from bitsandbytes.optim.optimizer import Optimizer2State
 from torch import nn
 from torch.optim import Optimizer
-
-from bitsandbytes.optim.optimizer import Optimizer2State
 
 
 class GaLoreProjector:
@@ -26,7 +25,6 @@ class GaLoreProjector:
         self.proj_type = proj_type
 
     def project(self, full_rank_grad, iter):
-
         if self.proj_type == "std":
             if full_rank_grad.shape[0] >= full_rank_grad.shape[1]:
                 if self.ortho_matrix is None or iter % self.update_proj_gap == 0:
@@ -78,7 +76,6 @@ class GaLoreProjector:
         return low_rank_grad
 
     def project_back(self, low_rank_grad):
-
         if self.proj_type == "std":
             if low_rank_grad.shape[0] >= low_rank_grad.shape[1]:
                 full_rank_grad = torch.matmul(low_rank_grad, self.ortho_matrix)
@@ -333,8 +330,6 @@ class AdamW8bit(Optimizer2State):
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
-
-        overflows = []
 
         if not self.initialized:
             self.check_overrides()

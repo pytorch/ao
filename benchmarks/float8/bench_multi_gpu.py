@@ -8,19 +8,18 @@ import os
 from typing import Callable
 
 import fire
-
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     sync_float8_amax_and_scale_history,
 )
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
 
 torch.manual_seed(0)
 

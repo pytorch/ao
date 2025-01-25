@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import Int4CPULayout, SemiSparseLayout
+from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
     int4_weight_only,
@@ -21,6 +21,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_sm_at_least_89,
+)
+
+is_cusparselt_available = (
+    hasattr(torch.backends, "cusparselt") and torch.backends.cusparselt.is_available()
 )
 
 
@@ -48,6 +52,15 @@ def get_quantization_functions(
                 )
         else:
             base_functions.append(int4_weight_only(group_size=32))
+            if device == "cuda":
+                base_functions.append(
+                    int8_dynamic_activation_int4_weight(
+                        group_size=None,
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=CutlassInt4PackedLayout(),
+                    )
+                )
 
     if do_sparse:
         base_functions.append(
@@ -82,7 +95,8 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
-        "apply_quant", get_quantization_functions(True, True, "cuda", True)
+        "apply_quant",
+        get_quantization_functions(is_cusparselt_available, True, "cuda", True),
     )
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
@@ -159,7 +173,9 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(is_cusparselt_available, True)
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_print_quantized_module(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")

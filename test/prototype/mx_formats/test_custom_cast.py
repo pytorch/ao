@@ -5,11 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import pytest
-
 import torch
+from torch.utils._triton import has_triton
 
 import torchao.prototype.mx_formats.config as config
-from torch.utils._triton import has_triton
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -18,20 +17,18 @@ from torchao.prototype.mx_formats.constants import (
     F6_E2M3_EXP_BIAS,
     F6_E3M2_EXP_BIAS,
 )
-
 from torchao.prototype.mx_formats.custom_cast import (
-    f32_to_f4_unpacked,
-    f32_to_f6_e2m3_unpacked,
-    f32_to_f6_e3m2_unpacked,
     f4_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
+    f32_to_f4_unpacked,
+    f32_to_f6_e2m3_unpacked,
+    f32_to_f6_e3m2_unpacked,
     get_bits,
     pack_uint4,
     triton_f4_to_bf16,
     unpack_uint4,
 )
-
 from torchao.prototype.mx_formats.fp_format_spec import (
     _assert_equals,
     dtype_to_interesting_values,
@@ -42,10 +39,8 @@ from torchao.prototype.mx_formats.fp_format_spec import (
     sem_bits_to_sem_vals,
     sem_vals_to_f32,
 )
-
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
 
 torch.manual_seed(0)
 
@@ -128,9 +123,7 @@ def test_float4_e2m1_table():
         is_denorm = e_enc == "00" and m_enc == "1"
         # get exponent and mantissa
         exp_bias = F4_E2M1_EXP_BIAS
-        fp32 = _sem_enc_to_fp32_val(
-            s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias
-        )  # noqa: E501
+        fp32 = _sem_enc_to_fp32_val(s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias)  # noqa: E501
         assert abs(fp32_ref - fp32) < 1e-12
 
 
@@ -148,9 +141,7 @@ def test_float6_e3m2_table():
         is_denorm = e_enc == "000" and m_enc != "00"
         # get exponent and mantissa
         exp_bias = F6_E3M2_EXP_BIAS
-        fp32 = _sem_enc_to_fp32_val(
-            s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias
-        )  # noqa: E501
+        fp32 = _sem_enc_to_fp32_val(s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias)  # noqa: E501
         assert abs(fp32_ref - fp32) < 1e-12
 
 
@@ -168,9 +159,7 @@ def test_float6_e2m3_table():
         is_denorm = e_enc == "00" and m_enc != "000"
         # get exponent and mantissa
         exp_bias = F6_E2M3_EXP_BIAS
-        fp32 = _sem_enc_to_fp32_val(
-            s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias
-        )  # noqa: E501
+        fp32 = _sem_enc_to_fp32_val(s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias)  # noqa: E501
         assert abs(fp32_ref - fp32) < 1e-12
 
 
@@ -392,18 +381,23 @@ def test_fp6_values(dtype_name):
     "device",
     [
         "cpu",
-        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")),
-    ]
+        pytest.param(
+            "cuda",
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="CUDA not available"
+            ),
+        ),
+    ],
 )
 @pytest.mark.parametrize(
     "f32_val,f6_e3m2_enc",
     [
-        (29.0,   0b011111),  # normal round down
-        (26.0,   0b011110),  # normal round to nearest even
+        (29.0, 0b011111),  # normal round down
+        (26.0, 0b011110),  # normal round to nearest even
         (0.1251, 0b000010),  # subnormal round down
         (0.0314, 0b000001),  # subnormal round up
-        (0.03,   0b000000),  # underflow
-    ]
+        (0.03, 0b000000),  # underflow
+    ],
 )
 def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
     f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(f32_val, device=device))

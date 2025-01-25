@@ -21,6 +21,7 @@ lm_eval
 diskcache
 pycocotools
 tqdm
+importlib_metadata
 
 # Custom CUDA Extensions
 ninja

@@ -34,7 +34,7 @@ jobs:
         PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
         echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       if: github.event_name == 'workflow_dispatch'
       with:
         fetch-depth: 0
@@ -47,7 +47,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       if: github.event_name != 'workflow_dispatch'
       with:
         fetch-depth: 0

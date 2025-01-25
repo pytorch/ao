@@ -266,6 +266,7 @@ def main(
         "checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"
     ),
     quantization: Optional[str] = None,
+    min_sqnr: Optional[float] = None,
     sparsity: Optional[str] = None,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
@@ -434,6 +435,18 @@ def main(
                 ]
             ), f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size))
+        elif "int8adq-int4w-symm" in quantization:
+            from torchao.dtypes import CutlassInt4PackedLayout
+
+            quantize_(
+                model,
+                int8_dynamic_activation_int4_weight(
+                    group_size=None,
+                    mapping_type=MappingType.SYMMETRIC,
+                    act_mapping_type=MappingType.SYMMETRIC,
+                    layout=CutlassInt4PackedLayout(),
+                ),
+            )
         if "marlin" in quantization:
             if "qqq" in quantization:
                 from torchao.dtypes import MarlinQQQLayout
@@ -530,31 +543,22 @@ def main(
             from torchao.experimental.quant_api import (
                 int8_dynamic_activation_intx_weight,
             )
+            from torchao.quantization.granularity import PerGroup
 
             assert (
                 precision == torch.float32
-            ), "int8_dynamic_activation_intx_weight requires fp32 precision"
-
-            # Build kernels in temp location, and load them in torch
-            # This requires an ARM CPU
-            from torchao.experimental.temp_build import temp_build_and_load_torchao_ops
-
-            temp_build_and_load_torchao_ops(
-                cmake_lists_path=os.path.dirname(os.path.realpath(__file__))
-                + "/../../experimental"
-            )
+            ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
 
             # Quantize model
             _quant_args = quantization.split("-")
-            nbit = int(_quant_args[1])
-            assert nbit >= 1 and nbit <= 8, "nbits must be 1 to 8"
-            group_size = int(_quant_args[2])
+            weight_dtype = getattr(torch, f"int{_quant_args[1]}")
+            granularity = PerGroup(int(_quant_args[2]))
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
                 int8_dynamic_activation_intx_weight(
-                    group_size=group_size,
-                    nbit=nbit,
+                    weight_dtype=weight_dtype,
+                    granularity=granularity,
                     has_weight_zeros=has_weight_zeros,
                 ),
             )
@@ -694,6 +698,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-float8" == quantization:
                 model = autoquant(
@@ -701,6 +706,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-fp" == quantization:
                 model = autoquant(
@@ -708,6 +714,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-sparse" == quantization:
                 model = autoquant(
@@ -715,6 +722,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-gemlite-int4" == quantization:
                 import os
@@ -730,6 +738,7 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             elif "autoquant-all" == quantization:
                 try:
@@ -749,9 +758,12 @@ def main(
                     manual=True,
                     qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
                     example_input=inputs,
+                    min_sqnr=min_sqnr,
                 )
             else:
-                model = autoquant(model, manual=True, example_input=inputs)
+                model = autoquant(
+                    model, manual=True, example_input=inputs, min_sqnr=min_sqnr
+                )
 
             generate(
                 model,
@@ -1003,12 +1015,42 @@ def main(
         f.close()
 
     if output_json_path:
-        headers = ["name", "dtype", "device", "arch", "metric", "actual", "target"]
+        headers = [
+            "name",
+            "dtype",
+            "min_sqnr",
+            "compile",
+            "device",
+            "arch",
+            "metric",
+            "actual",
+            "target",
+        ]
         name = checkpoint_path.parent.name
         arch = get_arch_name()
         dtype = quantization or "noquant"
-        memory_result = [name, dtype, device, arch, "mem/s", bandwidth, None]
-        performance_result = [name, dtype, device, arch, "tok/s", tokpersec, None]
+        memory_result = [
+            name,
+            dtype,
+            min_sqnr,
+            compile,
+            device,
+            arch,
+            "mem/s",
+            bandwidth,
+            None,
+        ]
+        performance_result = [
+            name,
+            dtype,
+            min_sqnr,
+            compile,
+            device,
+            arch,
+            "tok/s",
+            tokpersec,
+            None,
+        ]
         write_json_result = (
             write_json_result_local if output_json_local else write_json_result_ossci
         )
@@ -1058,7 +1100,15 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, int8adq-int4w-symm"
+        ),
+    )
+    parser.add_argument(
+        "--min_sqnr",
+        type=float,
+        default=None,
+        help=(
+            "min sqnr for quantizing v.s. not quantizing a layer, used in autoquant options",
         ),
     )
     parser.add_argument(
@@ -1136,6 +1186,7 @@ if __name__ == "__main__":
         args.temperature,
         args.checkpoint_path,
         args.quantization,
+        args.min_sqnr,
         args.sparsity,
         args.kv_cache_quantization,
         args.cache_size,

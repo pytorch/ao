@@ -1,24 +1,25 @@
+import tempfile
 from copy import deepcopy
+
 import pytest
 import torch
-import tempfile
-from torchao.quantization import quantize_
-from torchao.utils import (
-  TORCH_VERSION_AT_LEAST_2_2,
-  TORCH_VERSION_AT_LEAST_2_4,
-  TORCH_VERSION_AT_LEAST_2_5,
-)
-from torchao.quantization.utils import (
-  dynamically_quantize_per_channel,
-  dequantize_per_channel,
-)
+
 from torchao.prototype.smoothquant import (
-    insert_smooth_quant_observer_,
-    smooth_quant,
     SmoothQuantObservedLinear,
+    insert_smooth_quant_observer_,
+    load_smooth_quant_recipe,
     save_smooth_quant_recipe,
-    load_smooth_quant_recipe
+    smooth_quant,
 )
+from torchao.quantization import quantize_
+from torchao.quantization.utils import (
+    dequantize_per_channel,
+    dynamically_quantize_per_channel,
+)
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+)
+
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
@@ -27,8 +28,15 @@ class ToyLinearModel(torch.nn.Module):
         self.linear2 = torch.nn.Linear(n, k, bias=False)
         self.linear3 = torch.nn.Linear(k, 1, bias=False)
 
-    def example_inputs(self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"):
-        return [torch.randn(1, sequence_length, self.linear1.in_features, dtype=dtype, device=device) for j in range(batch_size)]
+    def example_inputs(
+        self, batch_size, sequence_length=10, dtype=torch.bfloat16, device="cuda"
+    ):
+        return [
+            torch.randn(
+                1, sequence_length, self.linear1.in_features, dtype=dtype, device=device
+            )
+            for j in range(batch_size)
+        ]
 
     def forward(self, x):
         x = self.linear1(x)
@@ -48,6 +56,7 @@ idtypes = (torch.float, torch.bfloat16, torch.half)
 if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
     torch._dynamo.config.cache_size_limit = 128
+
 
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)
@@ -84,9 +93,13 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         b = m_ref.fc.bias if bias else None
         x_abs_max_per_ic = torch.abs(data).max(dim=0).values
         w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
-        smoothing_factor = 1 if alpha is None else (
-            torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
-            w_abs_max_per_ic, 1 - alpha)
+        smoothing_factor = (
+            1
+            if alpha is None
+            else (
+                torch.pow(x_abs_max_per_ic, alpha)
+                / torch.pow(w_abs_max_per_ic, 1 - alpha)
+            )
         )
         act = data / smoothing_factor
         wei = weight * smoothing_factor
@@ -99,9 +112,13 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             act_min, act_max = torch.aminmax(act.float())
             max_val_pos = torch.max(-act_min, act_max)
             act_scale = max_val_pos / 127.0
-            fq_act = torch.quantize_per_tensor(
-                act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
-            ).dequantize().to(idtype)
+            fq_act = (
+                torch.quantize_per_tensor(
+                    act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
+                )
+                .dequantize()
+                .to(idtype)
+            )
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
         else:
             # activation is quantized per-row (batch * sequence_length)
@@ -112,9 +129,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
 
         # BFloat16 and Float16 have larger errors
-        atol = 0.1 if idtype == torch.float else (
-            0.2 if idtype == torch.half else 0.3
-        )
+        atol = 0.1 if idtype == torch.float else (0.2 if idtype == torch.half else 0.3)
         assert torch.allclose(out, out_ref.to(idtype), atol=atol)
 
 
@@ -132,7 +147,12 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
     m_save_load = deepcopy(m)
 
-    dataset = m.example_inputs(dataset_size, sequence_length=sequence_length, dtype=original_dtype, device=device)
+    dataset = m.example_inputs(
+        dataset_size,
+        sequence_length=sequence_length,
+        dtype=original_dtype,
+        device=device,
+    )
     calibration_data = dataset[:n_calib_examples]
 
     # calibrate
@@ -159,7 +179,7 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     out = torch.cat(out_list)
     save_load_out_list = [m_save_load(data.squeeze(0)) for data in dataset]
     save_load_out = torch.cat(save_load_out_list)
-    
+
     assert out is not None
     assert save_load_out is not None
     assert torch.allclose(out, save_load_out)

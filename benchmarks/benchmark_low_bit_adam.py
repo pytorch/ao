@@ -31,11 +31,11 @@ import torch
 import torch.nn.functional as F
 import wandb
 from torch.utils.data import DataLoader
-from torchao.utils import get_available_devices
 from torchvision.transforms import v2
 from tqdm import tqdm
 
 from torchao.prototype import low_bit_optim
+from torchao.utils import get_available_devices
 
 _DEVICE = get_available_devices()[-1]
 assert _DEVICE in ["cuda", "xpu"], "Benchmark currently only supports CUDA & XPU(BF16)"
@@ -157,7 +157,7 @@ def evaluate_model(model, args):
     all_labels = []
     all_preds = []
 
-    for batch in tqdm(val_dloader, dynamic_ncols=True, desc=f"Evaluating"):
+    for batch in tqdm(val_dloader, dynamic_ncols=True, desc="Evaluating"):
         all_labels.append(batch["label"].clone())
         if args.full_bf16:
             batch["image"] = batch["image"].bfloat16()

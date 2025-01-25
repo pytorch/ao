@@ -2,8 +2,9 @@ import unittest
 from unittest.mock import patch
 
 import torch
-from torchao.utils import torch_version_at_least
-from torchao.utils import TorchAOBaseTensor
+
+from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+
 
 class TestTorchVersionAtLeast(unittest.TestCase):
     def test_torch_version_at_least(self):
@@ -19,14 +20,17 @@ class TestTorchVersionAtLeast(unittest.TestCase):
         ]
 
         for torch_version, compare_version, expected_result in test_cases:
-            with patch('torch.__version__', torch_version):
+            with patch("torch.__version__", torch_version):
                 result = torch_version_at_least(compare_version)
 
-                self.assertEqual(result, expected_result, f"Failed for torch.__version__={torch_version}, comparing with {compare_version}")
+                self.assertEqual(
+                    result,
+                    expected_result,
+                    f"Failed for torch.__version__={torch_version}, comparing with {compare_version}",
+                )
 
 
 class TestTorchAOBaseTensor(unittest.TestCase):
-
     def test_print_arg_types(self):
         class MyTensor(TorchAOBaseTensor):
             def __new__(cls, data):
@@ -36,11 +40,10 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             def __init__(self, data):
                 self.data = data
 
-
         l = torch.nn.Linear(10, 10)
         with self.assertRaisesRegex(NotImplementedError, "arg_types"):
             l.weight = torch.nn.Parameter(MyTensor(l.weight))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

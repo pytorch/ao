@@ -1,11 +1,10 @@
 """GitHub Label Utilities."""
 
 import json
-
 from functools import lru_cache
-from typing import Any, List, Tuple, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
-from github_utils import gh_fetch_url_and_headers, GitHubComment
+from github_utils import GitHubComment, gh_fetch_url_and_headers
 
 # TODO: this is a temp workaround to avoid circular dependencies,
 #       and should be removed once GitHubPR is refactored out of trymerge script.

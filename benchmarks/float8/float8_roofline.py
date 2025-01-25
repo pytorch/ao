@@ -7,11 +7,11 @@
 """
 This is a script to estimate the benefit from converting a `torch.nn.Linear`
 layer to float8, by estimating the difference in e2e GPU kernel time between:
-1. bf16 gemms in fwd and bwd, and 
+1. bf16 gemms in fwd and bwd, and
 2. float8 gemms in fwd and bwd, and float8 overhead
 
 The gemm times are estimated either from direct measurements via benchmarks,
-or with a roofline estimation based on TOPS and peak compute bandwidth of an 
+or with a roofline estimation based on TOPS and peak compute bandwidth of an
 NVIDIA H100.
 
 The float8 overhead times are estimated by counting memory reads and writes
@@ -39,38 +39,35 @@ preceding op. Note that this is not always true in practice.
 5. assume no float8 all-gather (TODO model it)
 """
 
-import csv
 import copy
 import json
 import os
-import time
 from typing import Optional
 
 import fire
 import pandas as pd
 import sympy
-import tqdm
-
 import torch
 import torch.utils.benchmark as benchmark
-from torch.profiler import profile, ProfilerActivity, record_function
-
+import tqdm
+from torch.profiler import ProfilerActivity, profile
 from utils import (
-    get_name_to_shapes_iter, 
-    get_gpu_kernel_gemm_time_s, 
+    get_gpu_kernel_gemm_time_s,
+    get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
 )
-from torchao.float8.roofline_utils import (
-    get_gemm_time_sympy,
-    get_float8_mem_sympy,
-)
+
 from torchao.float8 import (
-    convert_to_float8_training,
-    Float8LinearConfig, 
-    ScalingType, 
     CastConfig,
+    Float8LinearConfig,
+    ScalingType,
+    convert_to_float8_training,
 )
-from torchao.float8.config import recipe_name_to_linear_config, Float8LinearRecipeName
+from torchao.float8.config import Float8LinearRecipeName, recipe_name_to_linear_config
+from torchao.float8.roofline_utils import (
+    get_float8_mem_sympy,
+    get_gemm_time_sympy,
+)
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -85,6 +82,8 @@ class LNLinearSigmoid(torch.nn.Module):
         x = self.fc(x)
         x = self.sigmoid(x)
         return x
+
+
 # TODO(next): hook this up
 
 
@@ -103,7 +102,7 @@ def get_gpu_kernel_time(m, x):
     # warm up
     for _ in range(2):
         m(x).sum().backward()
-    
+
     # capture a profiling run
     activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
     n_iter = 5
@@ -114,18 +113,19 @@ def get_gpu_kernel_time(m, x):
     # get the gpu kernel time and aggregate it
     num_leaf_tensors = 1 + len(list(m.parameters()))
     ref_times = profiler_output_to_filtered_time_by_kernel_name(
-        prof, n_iter, num_leaf_tensors)
+        prof, n_iter, num_leaf_tensors
+    )
     total_time_s = sum(v for v in ref_times.values()) / 1e6 / n_iter
     return total_time_s
 
-def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
 
+def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
     # Note: this is definitely not the best way to build a cache,
     # but it will do for now.
     if cache_filename is not None:
         if os.path.isfile(cache_filename):
             # cache already exists, use it
-            with open(cache_filename, 'r') as f:
+            with open(cache_filename, "r") as f:
                 cache = json.load(f)
         else:
             # cache does not exist yet, create it
@@ -136,7 +136,7 @@ def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
     if key in cache:
         return cache[key]
 
-    device = torch.device('cuda')
+    device = torch.device("cuda")
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -154,6 +154,7 @@ def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
         return torch._scaled_mm(
             A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
         )
+
     f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
 
     scale_a = torch.ones(M, 1, device=device)
@@ -164,10 +165,11 @@ def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
     # save to cache if needed
     if cache_filename is not None:
         cache[key] = [bf16_time_s, f8_time_s, f8_axs_time_s]
-        with open(cache_filename, 'w') as f:
+        with open(cache_filename, "w") as f:
             json.dump(cache, f)
 
     return bf16_time_s, f8_time_s, f8_axs_time_s
+
 
 def run(
     outfile: str,
@@ -190,37 +192,47 @@ def run(
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
     """
 
-    print(f'gemm_time_strategy: {gemm_time_strategy}')
-    print(f'shape_gen_name: {shape_gen_name}')
+    print(f"gemm_time_strategy: {gemm_time_strategy}")
+    print(f"shape_gen_name: {shape_gen_name}")
 
-    assert gemm_time_strategy in ("benchmarks", "roofline"), \
-        "`gemm_time_strategy` must be 'benchmarks' or 'roofline'"
+    assert gemm_time_strategy in (
+        "benchmarks",
+        "roofline",
+    ), "`gemm_time_strategy` must be 'benchmarks' or 'roofline'"
 
-    M, K, N = sympy.symbols('M K N')
+    M, K, N = sympy.symbols("M K N")
 
     fp8_mem_time_sympy_dyn_limit = get_float8_mem_sympy(
-        M, K, N,
+        M,
+        K,
+        N,
         model_torch_compile_limitations=True,
         scaling_type_input="dynamic",
         scaling_type_weight="dynamic",
         scaling_type_grad_output="dynamic",
     )
     fp8_mem_time_sympy_dyn_nolimit = get_float8_mem_sympy(
-        M, K, N,
+        M,
+        K,
+        N,
         model_torch_compile_limitations=False,
         scaling_type_input="dynamic",
         scaling_type_weight="dynamic",
         scaling_type_grad_output="dynamic",
     )
     fp8_mem_time_sympy_del_limit = get_float8_mem_sympy(
-        M, K, N,
+        M,
+        K,
+        N,
         model_torch_compile_limitations=True,
         scaling_type_input="delayed",
         scaling_type_weight="delayed",
         scaling_type_grad_output="delayed",
     )
     fp8_mem_time_sympy_del_nolimit = get_float8_mem_sympy(
-        M, K, N,
+        M,
+        K,
+        N,
         model_torch_compile_limitations=False,
         scaling_type_input="delayed",
         scaling_type_weight="delayed",
@@ -229,28 +241,39 @@ def run(
 
     if gemm_time_strategy == "roofline":
         bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16)
-        print('bf16_gemm_time_sympy', bf16_gemm_time_sympy)
+        print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
         fp8_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.float8_e4m3fn)
-        print('fp8_gemm_time_sympy', fp8_gemm_time_sympy)
+        print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
         print()
     else:
         print()
 
     headers = [
-        'fwd_M', 'fwd_K', 'fwd_N', 
+        "fwd_M",
+        "fwd_K",
+        "fwd_N",
         # gemm microbenchmarks
-        'bf16_gemm_s', 'fp8_gemm_s', 'fp8_axs_gemm_time_s',
+        "bf16_gemm_s",
+        "fp8_gemm_s",
+        "fp8_axs_gemm_time_s",
         # roofline memory overhead estimates
-        'fp8_oh_dyn_limit', 'fp8_oh_dyn_nolimit',
-        'fp8_oh_del_limit', 'fp8_oh_del_nolimit',
+        "fp8_oh_dyn_limit",
+        "fp8_oh_dyn_nolimit",
+        "fp8_oh_del_limit",
+        "fp8_oh_del_nolimit",
         # actual e2e measurements
-        'bf16_s', 'fp8_dyn_s', 'fp8_del_s', 'fp8_dyn_axs_s', 
+        "bf16_s",
+        "fp8_dyn_s",
+        "fp8_del_s",
+        "fp8_dyn_axs_s",
         # 'fp8_lw_s',
-        'fp8_dyn_sp', 'fp8_del_sp', 'fp8_dyn_axs_sp', 
+        "fp8_dyn_sp",
+        "fp8_del_sp",
+        "fp8_dyn_axs_sp",
         # 'fp8_lw_sp',
     ]
     results = []
-    
+
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, None, None, None)
 
     for idx, (name, (M_val, K_val, N_val)) in enumerate(tqdm.tqdm(name_to_shapes)):
@@ -258,31 +281,47 @@ def run(
             break
 
         if gemm_time_strategy == "benchmarks":
-            bf16_g1, f8_g1, f8_g1_axs = get_gemm_times(M_val, K_val, N_val, True, gemm_cache_filename)
-            bf16_g2, f8_g2, f8_g2_axs = get_gemm_times(M_val, N_val, K_val, False, gemm_cache_filename)
-            bf16_g3, f8_g3, f8_g3_axs = get_gemm_times(K_val, M_val, N_val, False, gemm_cache_filename)
+            bf16_g1, f8_g1, f8_g1_axs = get_gemm_times(
+                M_val, K_val, N_val, True, gemm_cache_filename
+            )
+            bf16_g2, f8_g2, f8_g2_axs = get_gemm_times(
+                M_val, N_val, K_val, False, gemm_cache_filename
+            )
+            bf16_g3, f8_g3, f8_g3_axs = get_gemm_times(
+                K_val, M_val, N_val, False, gemm_cache_filename
+            )
             bf16_time_val = bf16_g1 + bf16_g2 + bf16_g3
             fp8_gemm_time_s = f8_g1 + f8_g2 + f8_g3
             fp8_axs_gemm_time_s = f8_g1_axs + f8_g2_axs + f8_g3_axs
         else:
             assert gemm_time_strategy == "roofline", "unsupported"
-            bf16_time_val = bf16_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-            fp8_gemm_time_s = fp8_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            bf16_time_val = (
+                bf16_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            )
+            fp8_gemm_time_s = (
+                fp8_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            )
             # for now, assume axiswise gemm is similar to tensorwise
-            fp8_axs_gemm_time_s = fp8_gemm_time_s  
+            fp8_axs_gemm_time_s = fp8_gemm_time_s
 
-        fp8_mem_time_dyn_limit_s = \
+        fp8_mem_time_dyn_limit_s = (
             fp8_mem_time_sympy_dyn_limit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-        fp8_mem_time_dyn_nolimit_s = \
+        )
+        fp8_mem_time_dyn_nolimit_s = (
             fp8_mem_time_sympy_dyn_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-        fp8_mem_time_del_limit_s = \
+        )
+        fp8_mem_time_del_limit_s = (
             fp8_mem_time_sympy_del_limit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-        fp8_mem_time_del_nolimit_s = \
+        )
+        fp8_mem_time_del_nolimit_s = (
             fp8_mem_time_sympy_del_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+        )
 
         # create the model
         m_orig = LNLinearSigmoid(K_val, N_val).cuda().bfloat16()
-        x = torch.randn(M_val, K_val, dtype=torch.bfloat16, device="cuda").requires_grad_()
+        x = torch.randn(
+            M_val, K_val, dtype=torch.bfloat16, device="cuda"
+        ).requires_grad_()
 
         # get the bf16 gpu kernel time
         torch._dynamo.reset()
@@ -324,29 +363,38 @@ def run(
         # m_fp8_lw = torch.compile(m_fp8_lw)
         # fp8_lw_time_actual_s = get_gpu_kernel_time(m_fp8_lw, x)
 
-        results.append([
-            M_val, K_val, N_val, 
-            # gemm microbenchmarks
-            bf16_time_val, fp8_gemm_time_s, fp8_axs_gemm_time_s,
-            # roofline overhead estimates
-            fp8_mem_time_dyn_limit_s,
-            fp8_mem_time_dyn_nolimit_s,
-            fp8_mem_time_del_limit_s,
-            fp8_mem_time_del_nolimit_s,
-            # e2e numbers
-            bf16_time_actual_s, fp8_dyn_time_actual_s, fp8_del_time_actual_s,
-            fp8_dyn_axs_time_actual_s, 
-            # fp8_lw_time_actual_s,
-            bf16_time_actual_s / fp8_dyn_time_actual_s,
-            bf16_time_actual_s / fp8_del_time_actual_s,
-            bf16_time_actual_s / fp8_dyn_axs_time_actual_s,
-            # bf16_time_actual_s / fp8_lw_time_actual_s,
-        ])
+        results.append(
+            [
+                M_val,
+                K_val,
+                N_val,
+                # gemm microbenchmarks
+                bf16_time_val,
+                fp8_gemm_time_s,
+                fp8_axs_gemm_time_s,
+                # roofline overhead estimates
+                fp8_mem_time_dyn_limit_s,
+                fp8_mem_time_dyn_nolimit_s,
+                fp8_mem_time_del_limit_s,
+                fp8_mem_time_del_nolimit_s,
+                # e2e numbers
+                bf16_time_actual_s,
+                fp8_dyn_time_actual_s,
+                fp8_del_time_actual_s,
+                fp8_dyn_axs_time_actual_s,
+                # fp8_lw_time_actual_s,
+                bf16_time_actual_s / fp8_dyn_time_actual_s,
+                bf16_time_actual_s / fp8_del_time_actual_s,
+                bf16_time_actual_s / fp8_dyn_axs_time_actual_s,
+                # bf16_time_actual_s / fp8_lw_time_actual_s,
+            ]
+        )
 
     df = pd.DataFrame(results, columns=headers)
     print(df)
     df.to_csv(outfile)
-    print('done')
+    print("done")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     fire.Fire(run)

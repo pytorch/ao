@@ -8,11 +8,12 @@ or rely on https://github.com/pytorch/executorch/tree/main/examples/models/llama
 This can also support exporting the model to other platforms like ONNX as well.
 """
 
-from typing import List, Optional
+from typing import List
 
 import torch
-import torchao
 from my_dtype_tensor_subclass import MyDTypeTensor
+
+import torchao
 from torchao.quantization.quant_primitives import dequantize_affine
 from torchao.utils import _register_custom_op
 
@@ -61,7 +62,6 @@ def _(func, types, args, kwargs):
 
 
 def main():
-    group_size = 64
     m = torch.nn.Sequential(torch.nn.Embedding(4096, 128))
     input = torch.randint(0, 4096, (1, 6))
 

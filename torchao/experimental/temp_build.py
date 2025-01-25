@@ -7,10 +7,13 @@
 import glob
 import subprocess
 import tempfile
+
 import torch
+
 
 def cmake_build_torchao_ops(cmake_lists_path, temp_build_dir):
     from distutils.sysconfig import get_python_lib
+
     print("Building torchao ops for ATen target")
     cmake_prefix_path = get_python_lib()
     subprocess.run(
@@ -32,6 +35,7 @@ def cmake_build_torchao_ops(cmake_lists_path, temp_build_dir):
             "--config Release",
         ]
     )
+
 
 def temp_build_and_load_torchao_ops(cmake_lists_path):
     temp_build_dir = tempfile.TemporaryDirectory()

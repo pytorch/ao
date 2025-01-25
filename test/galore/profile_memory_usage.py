@@ -163,7 +163,7 @@ def run(args, file_prefix):
     if args.torch_profiler:
         print(f"Finished profiling, outputs saved to {args.output_dir}/{file_prefix}*")
     else:
-        print(f"Finished profiling")
+        print("Finished profiling")
 
 
 if __name__ == "__main__":

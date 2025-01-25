@@ -186,10 +186,10 @@ class Autotuner(KernelInterface):
                     f.write(
                         f" ==== Autotune Results ====\nKernel name: {self.kernel_name}\nArgs: {self.arg_names}\nKeys: {self._get_key_combination(args)}\n"
                     )
-                    f.write(f"\nPruned configs:\n")
+                    f.write("\nPruned configs:\n")
                     for cfg in pruned_configs:
                         f.write(f"{cfg}\n")
-                    f.write(f"Timings:\n")
+                    f.write("Timings:\n")
                     for cfg, timing in sorted_timings.items():
                         f.write(f"{cfg} {timing} \n")
                     f.write(f"Best config: {self.cache[key]}\n")

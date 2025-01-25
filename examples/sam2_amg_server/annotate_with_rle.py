@@ -1,20 +1,20 @@
-from pathlib import Path
-from tqdm import tqdm
 import json
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+
 import fire
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import ndimage
-import matplotlib.pyplot as plt
-from datetime import datetime
-from server import file_bytes_to_image_tensor
-from server import show_anns
-from server import model_type_to_paths
-from server import MODEL_TYPES_TO_MODEL
-from server import masks_to_rle_dict
-from server import max_memory_allocated
-from io import BytesIO
-from torchao._models.sam2.utils.amg import rle_to_mask
-from torchao._models.sam2.utils.amg import area_from_rle
+from server import (
+    MODEL_TYPES_TO_MODEL,
+    file_bytes_to_image_tensor,
+    show_anns,
+)
+from tqdm import tqdm
+
+from torchao._models.sam2.utils.amg import area_from_rle, rle_to_mask
 
 
 def timestamped_print(*args, **kwargs):
@@ -60,7 +60,7 @@ def _get_center_point(mask):
     # TODO(future): approximate better by adding more directions
     distances_to_check_deg = [0, 90, 180, 270]
 
-    global_min_max_distance = float('-inf')
+    global_min_max_distance = float("-inf")
     global_coords = None
     # For now, terminate early to speed up the calculation as long as
     # the point sample is gooe enough. This sacrifices the quality of point
@@ -99,8 +99,9 @@ def _get_center_point(mask):
                     # RIGHT
                     cur_col_idx = col_idx
 
-                    while cur_col_idx <= mask.shape[1] - 1 and \
-                            mask[row_idx, cur_col_idx]:
+                    while (
+                        cur_col_idx <= mask.shape[1] - 1 and mask[row_idx, cur_col_idx]
+                    ):
                         cur_col_idx += 1
                     cur_col_idx -= 1
                     distance = cur_col_idx - col_idx
@@ -109,8 +110,9 @@ def _get_center_point(mask):
                 elif direction == 180:
                     # DOWN
                     cur_row_idx = row_idx
-                    while cur_row_idx <= mask.shape[0] - 1 and \
-                            mask[cur_row_idx, col_idx]:
+                    while (
+                        cur_row_idx <= mask.shape[0] - 1 and mask[cur_row_idx, col_idx]
+                    ):
                         cur_row_idx = cur_row_idx + 1
                     cur_row_idx -= 1
                     distance = cur_row_idx - row_idx
@@ -194,9 +196,7 @@ def main(
     ]
     for p in rle_json_paths:
         if not p.exists():
-            raise ValueError(
-                f"Expected mask {p} to exist."
-            )
+            raise ValueError(f"Expected mask {p} to exist.")
 
     # Output path validation
     if not Path(output_folder).is_dir():
@@ -212,9 +212,7 @@ def main(
         )
 
     output_json_paths = [
-        Path(output_folder)
-        / Path(filename.parent)
-        / Path(filename.stem + "_meta.json")
+        Path(output_folder) / Path(filename.parent) / Path(filename.stem + "_meta.json")
         for filename in filenames
     ]
     if not overwrite and any(p.exists() for p in output_json_paths):
@@ -222,8 +220,20 @@ def main(
             "Output json path already exists, but --overwrite was not specified."
         )
 
-    for input_path, filename, output_image_path, rle_json_path, output_json_path in tqdm(
-        zip(input_paths, filenames, output_image_paths, rle_json_paths, output_json_paths),
+    for (
+        input_path,
+        filename,
+        output_image_path,
+        rle_json_path,
+        output_json_path,
+    ) in tqdm(
+        zip(
+            input_paths,
+            filenames,
+            output_image_paths,
+            rle_json_paths,
+            output_json_paths,
+        ),
         total=len(input_paths),
     ):
         input_bytes = bytearray(open(input_path, "rb").read())
@@ -234,9 +244,11 @@ def main(
             rle_dict = json.load(file)
             masks = {}
             for key in rle_dict:
-                masks[key] = {'segmentation': rle_dict[key],
-                              'area': area_from_rle(rle_dict[key]),
-                              'center_point': _get_center_point(rle_to_mask(rle_dict[key]))}
+                masks[key] = {
+                    "segmentation": rle_dict[key],
+                    "area": area_from_rle(rle_dict[key]),
+                    "center_point": _get_center_point(rle_to_mask(rle_dict[key])),
+                }
 
         if verbose:
             timestamped_print(
@@ -253,10 +265,18 @@ def main(
         plt.axis("off")
         plt.tight_layout()
 
-        points = np.array([mask['center_point'] for mask in masks.values()])
+        points = np.array([mask["center_point"] for mask in masks.values()])
         ax = plt.gca()
         marker_size = 375
-        ax.scatter(points[:, 0], points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+        ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            color="green",
+            marker="*",
+            s=marker_size,
+            edgecolor="white",
+            linewidth=1.25,
+        )
 
         buf = BytesIO()
         plt.savefig(buf, format=output_format)
@@ -271,7 +291,7 @@ def main(
 
         # Back to RLE representation
         for key in masks:
-            masks[key]['segmentation'] = rle_dict[key]
+            masks[key]["segmentation"] = rle_dict[key]
 
         if verbose:
             timestamped_print(f"Storing meta under {output_json_path}")

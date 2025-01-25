@@ -1,19 +1,18 @@
-
-#mobicham's tinygemm hqq eval script
+# mobicham's tinygemm hqq eval script
 import torch
 
 device = "cuda"
 
 
-import torch, copy
-from torch import nn, Tensor
-
-from hqq.core.quantize import *
-from hqq.core.utils import *
+import copy
 
 import torch.nn.functional as F
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
+from hqq.core.quantize import Quantizer
+from hqq.core.utils import *  # noqa: F401, F403
+from torch import Tensor, nn
+
 from torchao.dtypes.utils import is_device
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
 
 
 class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
