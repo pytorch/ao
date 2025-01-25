@@ -21,6 +21,8 @@ from torchao.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_impl,
 )
 from torchao.dtypes.uintx.cutlass_int4_packed_layout import (
+    _linear_int4_act_int4_weight_cutlass_check,
+    _linear_int4_act_int4_weight_cutlass_impl,
     _linear_int8_act_int4_weight_cutlass_check,
     _linear_int8_act_int4_weight_cutlass_impl,
 )
@@ -154,6 +156,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_cutlass_check,
             _linear_int8_act_int4_weight_cutlass_impl,
+        ),
+        (
+            _linear_int4_act_int4_weight_cutlass_check,
+            _linear_int4_act_int4_weight_cutlass_impl,
         ),
         (
             _linear_fp_act_uint4_weight_cpu_check,
