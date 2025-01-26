@@ -319,7 +319,7 @@ static void select_config(
       if (tensor_a.size(0) <= 16) {
         using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<16, 32, 256>;
-        constexpr auto NumStages = 6;
+        constexpr auto NumStages = 5;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
           ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
             NumStages, ElementA, ElementB, Types...>(
@@ -328,15 +328,24 @@ static void select_config(
       } else if (tensor_a.size(0) <= 32) {
         using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<32, 32, 256>;
-        constexpr auto NumStages = 5;
+        constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
           ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
             NumStages, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
-      } else {
+      } else if (tensor_a.size(0) <= 128) {
         using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<64, 32, 256>;
+        constexpr auto NumStages = 4;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+            tensor_d);
+      } else {
+        using ThreadblockShape = cutlass::gemm::GemmShape<128, 256, 128>;
+        using WarpShape = cutlass::gemm::GemmShape<64, 64, 128>;
         constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
           ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
