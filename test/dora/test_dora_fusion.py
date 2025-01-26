@@ -170,5 +170,9 @@ class TestDoraMatmulCompile(common_utils.TestCase):
         check(D_ref, D_compiled, dtype)
 
 
+common_utils.instantiate_parametrized_tests(TestDoraColumnNorm)
+common_utils.instantiate_parametrized_tests(TestDoraMatmul)
+common_utils.instantiate_parametrized_tests(TestDoraMatmulCompile)
+
 if __name__ == "__main__":
     run_tests()
