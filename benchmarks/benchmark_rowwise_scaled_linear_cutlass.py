@@ -1,12 +1,12 @@
 import pandas as pd
 import torch
 from tqdm import tqdm
+from triton.testing import do_bench
 
 from torchao.ops import (
     rowwise_scaled_linear_cutlass_s4s4,
     rowwise_scaled_linear_cutlass_s8s4,
 )
-from triton.testing import do_bench
 
 
 def benchmark_microseconds(f, *args):
