@@ -24,15 +24,16 @@ aten = torch.ops.aten
 
 @dataclass(frozen=True)
 class Int4CPULayout(Layout):
-    """Only for PyTorch version at least 2.6"""
+    """Layout class for int4 CPU layout for affine quantized tensor, used by tinygemm kernels `_weight_int4pack_mm_for_cpu`.
+    Only for PyTorch version at least 2.6
+    """
 
     pass
 
 
 @register_layout(Int4CPULayout)
 class Int4CPUAQTTensorImpl(AQTTensorImpl):
-    """
-    TensorImpl for int4 CPU layout for affine quantized tensor, this is for int4 only,
+    """TensorImpl for int4 CPU layout for affine quantized tensor, this is for int4 only,
     used by tinygemm kernels `_weight_int4pack_mm_for_cpu`
     It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 2-d tensor of
     dimension: [n][k / 2] (uint8 dtype)
