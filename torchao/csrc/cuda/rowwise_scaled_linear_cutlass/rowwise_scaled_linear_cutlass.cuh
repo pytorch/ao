@@ -311,18 +311,39 @@ static void select_config(
   if (is_sm8x) {
     if constexpr (std::is_same<ElementA, cutlass::int4b_t>::value &&
                   std::is_same<ElementB, cutlass::int4b_t>::value) {
-      // TODO: add some tuning
-      using ThreadblockShape = cutlass::gemm::GemmShape<128, 256, 128>;
-      using WarpShape = cutlass::gemm::GemmShape<64, 64, 128>;
       using InstructionShape = cutlass::gemm::GemmShape<16, 8, 64>;
       using ThreadblockSwizzle =
-          cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<1>;
-      constexpr auto NumStages = 3;
-      rowwise_scaled_linear_kernel_cutlass_sm8x<
-        ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-          NumStages, ElementA, ElementB, Types...>(
-            tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+        cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<1>;
+
+      // some basic tuning
+      if (tensor_a.size(0) <= 16) {
+        using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<16, 32, 256>;
+        constexpr auto NumStages = 6;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+              tensor_d);
+      } else if (tensor_a.size(0) <= 32) {
+        using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<32, 32, 256>;
+        constexpr auto NumStages = 5;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+              tensor_d);
+      } else {
+        using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<64, 32, 256>;
+        constexpr auto NumStages = 4;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
             tensor_d);
+      }
       return;
     } else if constexpr (std::is_same<ElementA, int8_t>::value &&
                   std::is_same<ElementB, cutlass::int4b_t>::value) {
