@@ -39,6 +39,9 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "choose_qparams_affine_float8",
+    "quantize_affine_float8",
+    "dequantize_affine_float8",
 ]
 
 
@@ -1304,3 +1307,67 @@ def dequantize_affine_floatx(
     tensor = tensor * scale.float().view(-1, 1)
     tensor = tensor.to(dtype=output_dtype)
     return tensor
+
+
+def choose_qparams_affine_float8(
+    tensor: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    """
+    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
+
+    Args:
+        tensor (torch.Tensor): Input tensor to be quantized.
+        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
+    """
+    # only tensorwise scaling is supported for now:
+    quant_min, quant_max = torch.finfo(float8_dtype).min, torch.finfo(float8_dtype).max
+    min_val_neg = torch.min(tensor)
+    max_val_pos = torch.max(tensor)
+    max_val_pos = torch.max(-min_val_neg, max_val_pos)
+    scale = max_val_pos / (float(quant_max - quant_min) / 2)
+    return scale.to(dtype=torch.float32)
+
+
+def quantize_affine_float8(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
+) -> torch.Tensor:
+    """
+    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
+
+    Args:
+        tensor (torch.Tensor): Input tensor to be quantized.
+        scale (torch.Tensor): Scaling factor for the quantization.
+        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
+    """
+    # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
+    # upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.
+    # In order to match numerics between eager and compile, we upcast manually here.
+    tensor_scaled = tensor.to(torch.float32) / scale
+    max_value = torch.finfo(float8_dtype).max
+    tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
+    fp8_tensor = tensor_clamped.to(float8_dtype)
+    return fp8_tensor
+
+
+def dequantize_affine_float8(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Dequantizes the float8 tensor to high precision tensor.
+
+    Args:
+        tensor (torch.Tensor): Input float8 tensor to be dequantized.
+        scale (torch.Tensor): Scaling factor for the dequantization.
+        output_dtype (torch.dtype): Data type of the output tensor (e.g., torch.float32).
+    """
+    # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
+    # upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.
+    # In order to match numerics between eager and compile, we upcast manually here.
+    fp8_tensor = tensor.to(torch.float32)
+    hp_tensor = fp8_tensor * scale
+    return hp_tensor.to(output_dtype)

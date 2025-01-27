@@ -66,6 +66,13 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(
 
 @dataclass(frozen=True)
 class SemiSparseLayout(Layout):
+    """SemiSparseLayout is a layout class for handling semi-structured sparse
+    matrices in affine quantized tensors. This layout is specifically designed
+    to work with the 2:4 sparsity pattern, where two out of every four elements
+    are pruned to zero. This class provides methods for preprocessing input
+    tensors to conform to this sparsity pattern.
+    """
+
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         # prune to 2:4 if not already
         temp = input.detach()

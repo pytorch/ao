@@ -156,7 +156,7 @@ from torchao.quantization import quantize_, float8_weight_only
 quantize_(model, float8_weight_only())
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 #### A8W8 Float8 Dynamic Quantization with Tensorwise Scaling
 
@@ -166,7 +166,7 @@ from torchao.quantization import quantize_, float8_dynamic_activation_float8_wei
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 ### A8W8 Float8 Dynamic Quantization with Rowwise Scaling
 
@@ -176,7 +176,7 @@ from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_fl
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
 ```
 
-This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+Per-row scaling is only supported for bfloat16 weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 #### A16W6 Floating Point WeightOnly Quantization
 

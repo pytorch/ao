@@ -29,8 +29,7 @@ aten = torch.ops.aten
 
 
 class MarlinQQQTensor(AffineQuantizedTensor):
-    """
-    MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
+    """MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
 
     To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
     please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
@@ -58,6 +57,7 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Optional[Layout] = None,
     ):
+        """Converts a floating point tensor to a Marlin QQQ quantized tensor."""
         if zero_point_domain is None:
             raise ValueError("Please use ZeroPointDomain.NONE instead of None")
         original_shape = input_float.shape
@@ -83,6 +83,8 @@ class MarlinQQQTensor(AffineQuantizedTensor):
 
 @dataclass(frozen=True)
 class MarlinQQQLayout(Layout):
+    """MarlinQQQLayout is a layout class for Marlin QQQ quantization."""
+
     pass
 
 
