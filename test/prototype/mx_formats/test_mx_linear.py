@@ -247,7 +247,8 @@ def test_filter_fn():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher"
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
 )
 def test_scaled_mm_mxfp8():
     # hello world
@@ -264,13 +265,11 @@ def test_scaled_mm_mxfp8():
         .t()
     )
     a_scales = torch.randint(
-        128, ((M * K) // BLOCK_SIZE,), device="cuda", dtype=torch.uint8
-    ).view(M, K // BLOCK_SIZE)
-    b_scales = (
-        torch.randint(128, ((K * N) // BLOCK_SIZE,), device="cuda", dtype=torch.uint8)
-        .view(N, K // BLOCK_SIZE)
-        .t()
+        128, (M, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
     )
+    b_scales = torch.randint(
+        128, (K // BLOCK_SIZE, N), device="cuda", dtype=torch.uint8
+    ).t()
     out = torch._scaled_mm(
         a,
         b,
@@ -289,7 +288,8 @@ def test_scaled_mm_mxfp8():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher"
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
 )
 def test_scaled_mm_nvfp4():
     # hello world
@@ -297,22 +297,14 @@ def test_scaled_mm_nvfp4():
 
     M, K, N = 8192, 4096, 8192
     BLOCK_SIZE = 16
-    a = torch.randint(128, ((M * K) // 2,), device="cuda", dtype=torch.uint8).view(
-        M, K // 2
-    )
-    b = (
-        torch.randint(128, ((K * N) // 2,), device="cuda", dtype=torch.uint8)
-        .view(N, K // 2)
-        .t()
-    )
+    a = torch.randint(128, (M, K // 2), device="cuda", dtype=torch.uint8)
+    b = torch.randint(128, (N, K // 2), device="cuda", dtype=torch.uint8).t()
     a_scales = torch.randint(
-        128, ((M * K) // BLOCK_SIZE,), device="cuda", dtype=torch.uint8
-    ).view(M, K // BLOCK_SIZE)
-    b_scales = (
-        torch.randint(128, ((K * N) // BLOCK_SIZE,), device="cuda", dtype=torch.uint8)
-        .view(N, K // BLOCK_SIZE)
-        .t()
+        128, (M, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
     )
+    b_scales = torch.randint(
+        128, (N, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
+    ).t()
     out = torch._scaled_mm(
         a,
         b,
