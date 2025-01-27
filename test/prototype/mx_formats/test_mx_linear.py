@@ -245,6 +245,10 @@ def test_filter_fn():
     assert type(m2[1]) == torch.nn.Linear
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher"
+)
 def test_scaled_mm_mxfp8():
     # hello world
     # next: basic numerics
@@ -283,6 +287,10 @@ def test_scaled_mm_mxfp8():
     print(out)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher"
+)
 def test_scaled_mm_nvfp4():
     # hello world
     # next: basic numerics
