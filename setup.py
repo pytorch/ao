@@ -16,6 +16,7 @@ current_date = datetime.now().strftime("%Y%m%d")
 
 PY3_9_HEXCODE = "0x03090000"
 
+
 def get_git_commit_id():
     try:
         return (
@@ -217,20 +218,22 @@ def get_extensions():
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
             "-t=0",
-        ]
+        ],
     }
 
     if not IS_WINDOWS:
-        extra_compile_args["cxx"].extend([
-            "-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"])
+        extra_compile_args["cxx"].extend(
+            ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
-        extra_compile_args["cxx"].extend([
-            "/O2" if not debug_mode else "/Od", "/permissive-"])
+        extra_compile_args["cxx"].extend(
+            ["/O2" if not debug_mode else "/Od", "/permissive-"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
