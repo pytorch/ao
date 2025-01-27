@@ -251,24 +251,23 @@ def test_filter_fn():
     reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
 )
 def test_scaled_mm_mxfp8():
-    # hello world
-    # next: basic numerics
+    # basic numerics with all scales 1.0
+    # next: other scale values
 
-    M, K, N = 8192, 4096, 8192
+    # M, K, N = 8192, 4096, 8192
+    M, K, N = 128, 128, 128
     BLOCK_SIZE = 32
-    a = torch.randint(128, (M, K), device="cuda", dtype=torch.uint8).view(
-        torch.float8_e4m3fn
+    a = torch.eye(M, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn)
+    b = torch.eye(M, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn).t()
+
+    # 127 is 1.0 in e8m0
+    scale_val = 127
+
+    a_scales = torch.full(
+        (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
     )
-    b = (
-        torch.randint(128, (N, K), device="cuda", dtype=torch.uint8)
-        .view(torch.float8_e4m3fn)
-        .t()
-    )
-    a_scales = torch.randint(
-        128, (M, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
-    )
-    b_scales = torch.randint(
-        128, (K // BLOCK_SIZE, N), device="cuda", dtype=torch.uint8
+    b_scales = torch.full(
+        (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
     ).t()
     out = torch._scaled_mm(
         a,
@@ -283,6 +282,8 @@ def test_scaled_mm_mxfp8():
         None,
         DataType.E8M0,
     )
+
+    # [[1, 0, ...], ..., [0, ..., 1]] - correct
     print(out)
 
 
