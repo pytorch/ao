@@ -321,6 +321,8 @@ def quantize_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+    elif zero_point_domain is None and zero_point is not None:
+        raise ValueError("zero_point should be None when zero_point_domain is NONE")
     return _quantize_affine(
         input,
         block_size,
@@ -475,6 +477,8 @@ def dequantize_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+    elif zero_point_domain is None and zero_point is not None:
+        raise ValueError("zero_point should be None when zero_point_domain is NONE")
     return _dequantize_affine(
         input,
         block_size,
@@ -621,6 +625,8 @@ def fake_quantize_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+    elif zero_point_domain is None and zero_point is not None:
+        raise ValueError("zero_point should be None when zero_point_domain is NONE")
     (_, fq) = _do_fake_quantize_affine(
         input,
         block_size,
@@ -665,6 +671,8 @@ def fake_quantize_affine_cachemask(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+    elif zero_point_domain is None and zero_point is not None:
+        raise ValueError("zero_point should be None when zero_point_domain is NONE")
     (q, dq) = _do_fake_quantize_affine(
         input,
         block_size,
