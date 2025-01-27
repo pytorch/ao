@@ -303,7 +303,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
         if zero_point_domain is None:
             raise ValueError("please use ZeroPointDomain.NONE instead of None")
-        elif zero_point_domain is None and zero_point is not None:
+        elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
         if target_dtype not in FP8_TYPES:
             assert (
