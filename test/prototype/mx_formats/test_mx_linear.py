@@ -339,7 +339,7 @@ def test_scaled_mm_mxfp8_mxtensor():
 
     # ones_scale = torch.full((M, K // BLOCK_SIZE), 127, dtype=torch.uint8, device="cuda")
 
-    out_ref = a_fp32 @ b_fp32
+    out_ref = a_fp32 @ b_fp32.t()
     print('baseline', out_ref)
 
     out_mx_emulated = a_mx @ b_mx
