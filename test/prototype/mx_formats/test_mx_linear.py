@@ -269,6 +269,7 @@ def test_scaled_mm_mxfp8():
     b_scales = torch.full(
         (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
     ).t()
+    # b_scales[0][0] = 128
     out = torch._scaled_mm(
         a,
         b,
@@ -284,7 +285,7 @@ def test_scaled_mm_mxfp8():
     )
 
     # [[1, 0, ...], ..., [0, ..., 1]] - correct
-    torch.set_printoptions(profile="full", linewidth=320)
+    torch.set_printoptions(profile="full", linewidth=280)
     print(out)
     print(torch.max(out))
 
@@ -348,6 +349,19 @@ def test_scaled_mm_mx_reconstruct_scale_layout():
     for scale_row in range(M):
         for scale_col in range(K // BLOCK_SIZE):
 
+            a_scales = torch.full(
+                (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+            b_scales = torch.full(
+                # (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
+                (N, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+
+            # TODO: it looks like blockwise scales are switched in cuBLAS? 
+            # a_scales[scale_row][scale_col] = scale_val + 1
+            # incrementing scale of b looks like it's actually affecting scaling of a
+            b_scales[scale_row][scale_col] = scale_val + 1
+
             # We test every BLOCK_SIZE to deduce which of the blocks is
             # responsible for the scale value. Note that this isn't the most
             # efficient way to test, but I'm optimizing for dev time here.
@@ -357,19 +371,6 @@ def test_scaled_mm_mx_reconstruct_scale_layout():
                 # set a single one inside the block
                 b[0][block_idx * BLOCK_SIZE] = 1
                 b = b.to(torch.float8_e4m3fn).t()
-
-                a_scales = torch.full(
-                    (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
-                )
-                b_scales = torch.full(
-                    # (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
-                    (N, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
-                )
-
-                # TODO: it looks like blockwise scales are switched in cuBLAS? 
-                # a_scales[scale_row][scale_col] = scale_val + 1
-                # incrementing scale of b looks like it's actually affecting scaling of a
-                b_scales[scale_row][scale_col] = scale_val + 1
 
                 out = torch._scaled_mm(
                     a,
@@ -385,6 +386,7 @@ def test_scaled_mm_mx_reconstruct_scale_layout():
                     DataType.E8M0,
                 )
 
+                # print(scale_row, scale_col, block_idx)
                 # torch.set_printoptions(profile="full", linewidth=320)
                 # print(out)
                 # print(torch.max(out, keepdim=True))
@@ -394,6 +396,8 @@ def test_scaled_mm_mx_reconstruct_scale_layout():
                     max_flat_index = torch.argmax(out).item()
                     max_row = max_flat_index // M
                     max_col = max_flat_index % M
+                    assert max_col == 0
+                    assert max_val == 2.0
                     print('scale_coords', scale_row, scale_col, 'block_idx', block_idx, 'max_coords', max_row, max_col, 'max_val', max_val)
 
             # break
