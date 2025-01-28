@@ -1,4 +1,5 @@
 import argparse
+from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 import torch
@@ -11,7 +12,7 @@ from torchao.sparsity.utils import (
     create_block_sparse_tensor,
     create_semi_structured_tensor,
 )
-from torchao.utils import benchmark_model
+import torch.utils.benchmark as benchmark
 
 from torchao.sparsity.blocksparse import BlockSparseTensor
 
@@ -28,6 +29,17 @@ torch.set_printoptions(
 def benchmark_model_with_warmup(func, x, N_WARMUP=3):
     benchmark_model(func, N_WARMUP, device_type="cuda")
     return benchmark_model(func, 10, device_type="cuda")
+
+def benchmark_torch_function_in_microseconds(func: Callable, *args, **kwargs) -> float:
+    # warmup
+    for _ in range(1):
+        func(*args, **kwargs)
+    # t0 = benchmark.Timer(
+    #     stmt="func(*args, **kwargs)",
+    #     globals={"args": args, "kwargs": kwargs, "func": func},
+    # )
+    # return t0.adaptive_autorange(min_run_time=0.1).median * 1e6
+    return 1
 
 
 def run_gpu_sparse_benchmark(m, k, n, args):
@@ -69,11 +81,11 @@ def run_gpu_sparse_benchmark(m, k, n, args):
 
             # can't use lambda
             @torch.compile(mode="max-autotune")
-            def dense_func(x, A, b):
+            def dense_func(x):
                 return F.linear(x, A, b)
 
             @torch.compile(mode="max-autotune")
-            def sparse_func(x, A_sparse, b):
+            def sparse_func(x):
                 return F.linear(x, A_sparse, b)
 
         elif args.eval_fn == "mm":
@@ -107,27 +119,17 @@ def run_gpu_sparse_benchmark(m, k, n, args):
         else:
             raise ValueError(f"Unknown eval_fn: {args.eval_fn}")
 
-
+        # print(x)
+        # print(A)
+        # print(A_sparse.crow_indices())
+        # print(A_sparse.col_indices())
+        # print(A_sparse.values())
         dense_time, sparse_time = 0, 0
+        dense_time_c, sparse_time_c = 1, 1
 
         #WARMUP
-        benchmark_model(
-            dense_func, 3, args=(x, A, b), device_type="cuda"
-        )
-
-        dense_time_c = benchmark_model(
-            dense_func, 10, args=(x, A, b), device_type="cuda"
-        )
-
-
-        # WARMUP
-        benchmark_model(
-            sparse_func, 3, args=(x, A_sparse, b), device_type="cuda"
-        )
-
-        sparse_time_c = benchmark_model(
-            sparse_func, 10, args=(x, A_sparse, b), device_type="cuda"
-        )
+        # dense_time_c = benchmark_torch_function_in_microseconds(dense_func, x)
+        sparse_time_c = benchmark_torch_function_in_microseconds(sparse_func, x)
 
         return {
             "test_function": args.eval_fn,
@@ -212,8 +214,10 @@ if __name__ == "__main__":
         )
     elif args.mode == "llama3-8b-w":
         mm_shapes = [
-            (4096, 11008, 16),
-            (11008, 4096, 16),
+            # (32, 32, 16),
+            (4096, 14336, 1),
+            # (14336, 4096, 1),
+            # (11008, 4096, 16),
             # (16, 4096, 4096),
             # (4096, 4096, 11008),
             # (4096, 4096, 4096),

@@ -10,6 +10,7 @@ from torchao.kernel.bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
 
 aten = torch.ops.aten
 
+
 # custom op definition
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(
@@ -91,6 +92,7 @@ def blocksparse_addmm(
     x_padded: torch.Tensor,
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
+    row_indices: torch.Tensor,
     values: torch.Tensor,
     M: int,
     K: int,
@@ -103,6 +105,7 @@ def blocksparse_addmm(
     bsr_dense_addmm(
         out,
         weight_bsr,
+        row_indices, 
         x_padded,
         alpha=1,
         beta=0,
@@ -116,6 +119,7 @@ def blocksparse_addmm_abstract(
     x_padded: torch.Tensor,
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
+    row_indices: torch.Tensor,
     values: torch.Tensor,
     M: int,
     K: int,
@@ -129,10 +133,11 @@ def blocksparse_addmm_abstract(
 class BlockSparseTensor(TorchAOBaseTensor):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
+    bsr_row_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
     blocksize: int 
 
-    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"]
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_row_indices", "bsr_values"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
@@ -141,6 +146,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
         blocksize: int, 
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
+        bsr_row_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
         requires_grad: bool = False,
     ):
@@ -162,6 +168,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
         tensor.bsr_crow_indices = bsr_crow_indices
         tensor.bsr_values = bsr_values
         tensor.bsr_col_indices = bsr_col_indices
+        tensor.bsr_row_indices = bsr_row_indices
         return tensor
 
     def __repr__(self) -> str:  # type: ignore[override]
@@ -189,18 +196,22 @@ class BlockSparseTensor(TorchAOBaseTensor):
             blocksize=blocksize, 
             bsr_crow_indices=inner_tensors.get("bsr_crow_indices", None),
             bsr_col_indices=inner_tensors.get("bsr_col_indices", None),
+            bsr_row_indices=inner_tensors.get("bsr_row_indices", None),
             bsr_values=inner_tensors.get("bsr_values", None),
             requires_grad=requires_grad,
         )
 
+
     @classmethod
     def from_dense(cls, dense_tensor, blocksize):
         bsr_tensor = dense_tensor.to_sparse_bsr(blocksize)
+        bsr_tensor_t = dense_tensor.t().contiguous().to_sparse_bsr(blocksize)
         return cls(
             shape=dense_tensor.shape,
             blocksize=blocksize, 
             bsr_crow_indices=bsr_tensor.crow_indices(),
             bsr_col_indices=bsr_tensor.col_indices(),
+            bsr_row_indices=bsr_tensor_t.col_indices(),
             bsr_values=bsr_tensor.values(),
             requires_grad=False,
         )
@@ -211,6 +222,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
             blocksize=self.blocksize, 
             bsr_crow_indices=func(self.bsr_crow_indices),
             bsr_col_indices=func(self.bsr_col_indices),
+            bsr_row_indices=func(self.bsr_row_indices),
             bsr_values=func(self.bsr_values),
             requires_grad=self.requires_grad,
         )
@@ -313,6 +325,9 @@ def block_sparse_crow_indices(func, types, args, kwargs):
 def block_sparse_col_indices(func, types, args, kwargs):
     return args[0].bsr_col_indices.detach()
 
+@implements(aten.row_indices.default)
+def block_sparse_col_indices(func, types, args, kwargs):
+    return args[0].bsr_row_indices.detach()
 
 @implements(aten._nnz.default)
 def block_sparse__nnz(func, types, args, kwargs):
@@ -330,6 +345,7 @@ def block_sparse_linear(func, types, args, kwargs):
         x,
         w.crow_indices(),
         w.col_indices(),
+        w.row_indices(),
         w.values(),
         M,
         K,
