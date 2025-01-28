@@ -25,6 +25,9 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
+from transformer_nuggets.mx.to_blocked import (
+    to_blocked,
+)
 
 torch.manual_seed(2)
 
@@ -265,6 +268,16 @@ def test_to_blocked():
     print(_to_blocked_single(scales))
     # looks right!
 
+def test_to_blocked_manual_v2():
+    scales = torch.arange(128 * 4 * 2).reshape(128 * 2, 4) / 4
+    torch.set_printoptions(profile="full", linewidth=280)
+    print('orig')
+    print(scales)
+    print('blocked')
+    print(to_blocked(scales))
+    # looks right!
+    
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
@@ -324,49 +337,58 @@ def test_scaled_mm_mxfp8_mxtensor():
     # * baseline SQNR vs both experiments is ~27
     # * SQNR between experiment 1 and 2 is ~155 (near perfect match)
 
-    # M, K, N = 8192, 4096, 8192
-    M, K, N = 128, 128, 128
-    BLOCK_SIZE = 32
-    a_fp32 = torch.randn(M, K, device="cuda", dtype=torch.float32)
-    b_fp32 = torch.randn(N, K, device="cuda", dtype=torch.float32).t().contiguous()
-
-    a_mx = MXTensor.to_mx(a_fp32, torch.float8_e4m3fn, BLOCK_SIZE)
-    b_mx = MXTensor.to_mx(b_fp32, torch.float8_e4m3fn, BLOCK_SIZE).t()
-    a_s0 = a_mx._scale_e8m0.reshape(M, -1)
-    a_s1 = _to_blocked_single(a_s0)
-    b_s0 = b_mx._scale_e8m0.reshape(N, -1)
-    b_s1 = _to_blocked_single(b_s0)
-
-    # ones_scale = torch.full((M, K // BLOCK_SIZE), 127, dtype=torch.uint8, device="cuda")
-
-    out_ref = a_fp32 @ b_fp32.t()
-    print('baseline', out_ref)
-
-    out_mx_emulated = a_mx @ b_mx
-    print('mx_emulated', out_mx_emulated)
-
-    out_mx_real = torch._scaled_mm(
-        a_mx._data,
-        b_mx._data,
-        # a_scales is really b_scales, and vice versa. Probably switched in cuBLAS kernel?
-        _to_blocked_single(b_mx._scale_e8m0.reshape(N, -1)),
-        _to_blocked_single(a_mx._scale_e8m0.reshape(M, -1)),
-        None,
-        None,
-        torch.float32,
-        False,
-        None,
-        None,
-        DataType.E8M0,
+    print()
+    shapes_to_try = (
+        (128, 128, 128),
+        (128, 256, 512),
+        (256, 512, 128),
+        (512, 128, 256),
+        (4096, 4096, 4096),
+        (4096, 8192, 16384),
+        (8192, 16384, 4096),
+        (16384, 4096, 8192),
     )
-    print('mx_real', out_mx_real)
+    for M, K, N in shapes_to_try:
+        print('MKN', M, K, N)
+        BLOCK_SIZE = 32
+        a_fp32 = torch.randn(M, K, device="cuda", dtype=torch.float32)
+        b_fp32 = torch.randn(N, K, device="cuda", dtype=torch.float32)
 
-    sqnr_baseline_to_emulated_mx = compute_error(out_ref, out_mx_emulated)
-    sqnr_baseline_to_real_mx = compute_error(out_ref, out_mx_real)
-    sqnr_emulated_mx_to_real_mx = compute_error(out_mx_emulated, out_mx_real)
-    print('sqnr baseline -> emulated_mx', sqnr_baseline_to_emulated_mx)
-    print('sqnr baseline -> real_mx', sqnr_baseline_to_real_mx)
-    print('sqnr emulated_mx -> real_mx', sqnr_emulated_mx_to_real_mx)
+        a_mx = MXTensor.to_mx(a_fp32, torch.float8_e4m3fn, BLOCK_SIZE)
+        b_mx = MXTensor.to_mx(b_fp32, torch.float8_e4m3fn, BLOCK_SIZE).t()
+        a_s0 = a_mx._scale_e8m0.reshape(M, -1)
+        a_s1 = to_blocked(a_s0)
+        b_s0 = b_mx._scale_e8m0.reshape(N, -1)
+        b_s1 = to_blocked(b_s0)
+
+        out_ref = a_fp32 @ b_fp32.t()
+        # print('baseline', out_ref)
+
+        out_mx_emulated = a_mx @ b_mx
+        # print('mx_emulated', out_mx_emulated)
+
+        out_mx_real = torch._scaled_mm(
+            a_mx._data,
+            b_mx._data,
+            # a_scales is really b_scales, and vice versa. Probably switched in cuBLAS kernel?
+            b_s1,
+            a_s1,
+            None,
+            None,
+            torch.float32,
+            False,
+            None,
+            None,
+            DataType.E8M0,
+        )
+        # print('mx_real', out_mx_real)
+
+        sqnr_baseline_to_emulated_mx = compute_error(out_ref, out_mx_emulated)
+        sqnr_baseline_to_real_mx = compute_error(out_ref, out_mx_real)
+        sqnr_emulated_mx_to_real_mx = compute_error(out_mx_emulated, out_mx_real)
+        print('sqnr baseline -> emulated_mx', sqnr_baseline_to_emulated_mx)
+        print('sqnr baseline -> real_mx', sqnr_baseline_to_real_mx)
+        print('sqnr emulated_mx -> real_mx', sqnr_emulated_mx_to_real_mx)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
