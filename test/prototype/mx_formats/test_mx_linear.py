@@ -321,8 +321,8 @@ def test_scaled_mm_mxfp8_mxtensor():
     # experiment 2: real MX gemm
 
     # results so far:
-    # * experiment 1 is very close to experiment 2
-    # * experiments 1 and 2 are far from baseline (lol!)
+    # * baseline SQNR vs both experiments is ~27
+    # * SQNR between experiment 1 and 2 is ~155 (near perfect match)
 
     # M, K, N = 8192, 4096, 8192
     M, K, N = 128, 128, 128
