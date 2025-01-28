@@ -18,6 +18,7 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -244,13 +245,33 @@ def test_filter_fn():
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
 
+# copy-pasted from https://github.com/drisspg/transformer_nuggets/blob/12bf63d334900d57958f839f273f5bca78a8f4a1/transformer_nuggets/mx/to_blocked.py#L54C1-L62C76 
+# and modified to return 128x4 instead of 32x16
+def _to_blocked_single(scales: torch.Tensor) -> torch.Tensor:
+    """Assume that we have a 128x4 block of scales in K Major order
+
+    To see more information on the individual tile layout:
+    https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+    """
+    assert scales.shape == (128, 4)
+    scales_tiled = scales.view(4, 32, 4)  # view as 4 - (32, 4) tiles
+    return scales_tiled.transpose(0, 1).reshape(128, 4).contiguous()  # Interleave tiles
+
+def test_to_blocked():
+    scales = torch.arange(128 * 4).reshape(128, 4) / 4
+    print('orig')
+    print(scales)
+    print('blocked')
+    print(_to_blocked_single(scales))
+    # looks right!
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not is_sm_at_least_100(),
     reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
 )
-def test_scaled_mm_mxfp8():
+def test_scaled_mm_mxfp8_scales_one():
     # basic numerics with all scales 1.0
     # next: other scale values
 
@@ -288,6 +309,64 @@ def test_scaled_mm_mxfp8():
     torch.set_printoptions(profile="full", linewidth=280)
     print(out)
     print(torch.max(out))
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_mxfp8_mxtensor():
+    # baseline 1: fp32
+    # experiment 1: emulated MX from MXTensor
+    # experiment 2: real MX gemm
+
+    # results so far:
+    # * experiment 1 is very close to experiment 2
+    # * experiments 1 and 2 are far from baseline (lol!)
+
+    # M, K, N = 8192, 4096, 8192
+    M, K, N = 128, 128, 128
+    BLOCK_SIZE = 32
+    a_fp32 = torch.randn(M, K, device="cuda", dtype=torch.float32)
+    b_fp32 = torch.randn(N, K, device="cuda", dtype=torch.float32).t().contiguous()
+
+    a_mx = MXTensor.to_mx(a_fp32, torch.float8_e4m3fn, BLOCK_SIZE)
+    b_mx = MXTensor.to_mx(b_fp32, torch.float8_e4m3fn, BLOCK_SIZE).t()
+    a_s0 = a_mx._scale_e8m0.reshape(M, -1)
+    a_s1 = _to_blocked_single(a_s0)
+    b_s0 = b_mx._scale_e8m0.reshape(N, -1)
+    b_s1 = _to_blocked_single(b_s0)
+
+    # ones_scale = torch.full((M, K // BLOCK_SIZE), 127, dtype=torch.uint8, device="cuda")
+
+    out_ref = a_fp32 @ b_fp32
+    print('baseline', out_ref)
+
+    out_mx_emulated = a_mx @ b_mx
+    print('mx_emulated', out_mx_emulated)
+
+    out_mx_real = torch._scaled_mm(
+        a_mx._data,
+        b_mx._data,
+        # a_scales is really b_scales, and vice versa. Probably switched in cuBLAS kernel?
+        _to_blocked_single(b_mx._scale_e8m0.reshape(N, -1)),
+        _to_blocked_single(a_mx._scale_e8m0.reshape(M, -1)),
+        None,
+        None,
+        torch.float32,
+        False,
+        None,
+        None,
+        DataType.E8M0,
+    )
+    print('mx_real', out_mx_real)
+
+    sqnr_baseline_to_emulated_mx = compute_error(out_ref, out_mx_emulated)
+    sqnr_baseline_to_real_mx = compute_error(out_ref, out_mx_real)
+    sqnr_emulated_mx_to_real_mx = compute_error(out_mx_emulated, out_mx_real)
+    print('sqnr baseline -> emulated_mx', sqnr_baseline_to_emulated_mx)
+    print('sqnr baseline -> real_mx', sqnr_baseline_to_real_mx)
+    print('sqnr emulated_mx -> real_mx', sqnr_emulated_mx_to_real_mx)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
