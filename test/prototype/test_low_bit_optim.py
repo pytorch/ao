@@ -43,6 +43,8 @@ try:
 except ImportError:
     lpmm = None
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 _DEVICES = get_available_devices()
 
