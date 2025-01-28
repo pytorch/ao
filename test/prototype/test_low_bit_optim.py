@@ -527,6 +527,7 @@ class TestFSDP2(FSDPTest):
         not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_uneven_shard(self):
         in_dim = 512
         out_dim = _FSDP_WORLD_SIZE * 16 + 1
