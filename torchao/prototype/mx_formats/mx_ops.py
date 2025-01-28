@@ -27,6 +27,9 @@ from torchao.prototype.mx_formats.mx_tensor import (  # noqa: E501
     MXTensor,
     tensor_size_hp_to_fp4x2,
 )
+from transformer_nuggets.mx.to_blocked import (
+    to_blocked,
+)
 
 aten = torch.ops.aten
 
@@ -63,13 +66,39 @@ def mx_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
-    a_hp = a.to_dtype(a._orig_dtype)
-    b_hp = b.to_dtype(b._orig_dtype)
-    # assert memory layout we expect to be required in hardware
-    assert a_hp.is_contiguous()
-    assert b_hp.t().is_contiguous()
-    res = aten_op(a_hp, b_hp)
-    return res
+
+    if a._data.dtype is torch.float8_e4m3fn and b._data.dtype is torch.float8_e4m3fn:
+
+        assert a._block_size == 32 and b._block_size == 32
+
+        a_s0 = a._scale_e8m0.reshape(a._data.shape[0], -1)
+        a_s1 = to_blocked(a_s0)
+        b_s0 = b._scale_e8m0.reshape(b._data.shape[1], -1)
+        b_s1 = to_blocked(b_s0)
+        out_mx_real = torch._scaled_mm(
+            a._data,
+            b._data,
+            # a_scales is really b_scales, and vice versa. Probably switched in cuBLAS kernel?
+            b_s1,
+            a_s1,
+            None,
+            None,
+            a._orig_dtype,
+            False,
+            None,
+            None,
+            1,  # DataType.E8M0
+        )
+        return out_mx_real
+
+    else:
+        a_hp = a.to_dtype(a._orig_dtype)
+        b_hp = b.to_dtype(b._orig_dtype)
+        # assert memory layout we expect to be required in hardware
+        assert a_hp.is_contiguous()
+        assert b_hp.t().is_contiguous()
+        res = aten_op(a_hp, b_hp)
+        return res
 
 
 @implements([aten.t.default])

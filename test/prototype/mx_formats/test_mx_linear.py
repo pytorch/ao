@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+from enum import IntEnum
 
 import pytest
 import torch
@@ -17,17 +18,29 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
+from transformer_nuggets.mx.to_blocked import (
+    to_blocked,
+)
 
 torch.manual_seed(2)
 
 if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
+
+# not for land, https://www.internalfb.com/phabricator/paste/view/P1717686991
+class DataType(IntEnum):
+    DEFAULT = 0
+    E8M0 = 1
+    FP4 = 2
+    UFP8 = 3
 
 
 # source: https://stackoverflow.com/a/22638709
@@ -43,19 +56,19 @@ def run_around_tests():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
+@pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
     """
     grad_shape = list(input_shape)
-    grad_shape[-1] = 6
+    grad_shape[-1] = 128
 
     m = nn.Sequential(
-        nn.Linear(8, 6, bias=bias, device="cuda"),
+        nn.Linear(256, 128, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
-    block_size = 2
+    block_size = 32
     swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
@@ -234,3 +247,402 @@ def test_filter_fn():
     swap_linear_with_mx_inference_linear(m2, torch.float8_e4m3fn, 32, filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
+
+# copy-pasted from https://github.com/drisspg/transformer_nuggets/blob/12bf63d334900d57958f839f273f5bca78a8f4a1/transformer_nuggets/mx/to_blocked.py#L54C1-L62C76 
+# and modified to return 128x4 instead of 32x16
+def _to_blocked_single(scales: torch.Tensor) -> torch.Tensor:
+    """Assume that we have a 128x4 block of scales in K Major order
+
+    To see more information on the individual tile layout:
+    https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+    """
+    assert scales.shape == (128, 4)
+    scales_tiled = scales.view(4, 32, 4)  # view as 4 - (32, 4) tiles
+    return scales_tiled.transpose(0, 1).reshape(128, 4).contiguous()  # Interleave tiles
+
+def test_to_blocked():
+    scales = torch.arange(128 * 4).reshape(128, 4) / 4
+    print('orig')
+    print(scales)
+    print('blocked')
+    print(_to_blocked_single(scales))
+    # looks right!
+
+def test_to_blocked_manual_v2():
+    scales = torch.arange(128 * 4 * 2).reshape(128 * 2, 4) / 4
+    torch.set_printoptions(profile="full", linewidth=280)
+    print('orig')
+    print(scales)
+    print('blocked')
+    print(to_blocked(scales))
+    # looks right!
+    
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_mxfp8_scales_one():
+    # basic numerics with all scales 1.0
+    # next: other scale values
+
+    # M, K, N = 8192, 4096, 8192
+    M, K, N = 128, 128, 128
+    BLOCK_SIZE = 32
+    a = torch.ones(M, K, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn)
+    b = torch.ones(N, K, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn).t()
+
+    # 127 is 1.0 in e8m0
+    scale_val = 127
+
+    a_scales = torch.full(
+        (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+    )
+    b_scales = torch.full(
+        (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
+    ).t()
+    # b_scales[0][0] = 128
+    out = torch._scaled_mm(
+        a,
+        b,
+        a_scales,
+        b_scales,
+        None,
+        None,
+        torch.bfloat16,
+        False,
+        None,
+        None,
+        DataType.E8M0,
+    )
+
+    # [[1, 0, ...], ..., [0, ..., 1]] - correct
+    torch.set_printoptions(profile="full", linewidth=280)
+    print(out)
+    print(torch.max(out))
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_mxfp8_mxtensor():
+    # baseline 1: fp32
+    # experiment 1: emulated MX from MXTensor
+    # experiment 2: real MX gemm
+
+    # results so far:
+    # * baseline SQNR vs both experiments is ~27
+    # * SQNR between experiment 1 and 2 is ~155 (near perfect match)
+
+    print()
+    shapes_to_try = (
+        (128, 128, 128),
+        (128, 256, 512),
+        (256, 512, 128),
+        (512, 128, 256),
+        (4096, 4096, 4096),
+        (4096, 8192, 16384),
+        (8192, 16384, 4096),
+        (16384, 4096, 8192),
+    )
+    for M, K, N in shapes_to_try:
+        print('MKN', M, K, N)
+        BLOCK_SIZE = 32
+        a_fp32 = torch.randn(M, K, device="cuda", dtype=torch.float32)
+        b_fp32 = torch.randn(N, K, device="cuda", dtype=torch.float32)
+
+        a_mx = MXTensor.to_mx(a_fp32, torch.float8_e4m3fn, BLOCK_SIZE)
+        b_mx = MXTensor.to_mx(b_fp32, torch.float8_e4m3fn, BLOCK_SIZE).t()
+        a_s0 = a_mx._scale_e8m0.reshape(M, -1)
+        a_s1 = to_blocked(a_s0)
+        b_s0 = b_mx._scale_e8m0.reshape(N, -1)
+        b_s1 = to_blocked(b_s0)
+
+        out_ref = a_fp32 @ b_fp32.t()
+        # print('baseline', out_ref)
+
+        out_mx_emulated = a_mx @ b_mx
+        # print('mx_emulated', out_mx_emulated)
+
+        out_mx_real = torch._scaled_mm(
+            a_mx._data,
+            b_mx._data,
+            # a_scales is really b_scales, and vice versa. Probably switched in cuBLAS kernel?
+            b_s1,
+            a_s1,
+            None,
+            None,
+            torch.float32,
+            False,
+            None,
+            None,
+            DataType.E8M0,
+        )
+        # print('mx_real', out_mx_real)
+
+        sqnr_baseline_to_emulated_mx = compute_error(out_ref, out_mx_emulated)
+        sqnr_baseline_to_real_mx = compute_error(out_ref, out_mx_real)
+        sqnr_emulated_mx_to_real_mx = compute_error(out_mx_emulated, out_mx_real)
+        print('sqnr baseline -> emulated_mx', sqnr_baseline_to_emulated_mx)
+        print('sqnr baseline -> real_mx', sqnr_baseline_to_real_mx)
+        print('sqnr emulated_mx -> real_mx', sqnr_emulated_mx_to_real_mx)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_mx_reconstruct_scale_a_layout():
+    # brute force the expected layout format
+    # basic numerics with all scales 1.0
+    # next: other scale values
+
+    # M, K, N = 8192, 4096, 8192
+    M, K, N = 128, 128, 128
+    BLOCK_SIZE = 32
+    a = torch.ones(M, K, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn)
+
+    # 127 is 1.0 in e8m0
+    scale_val = 127
+
+    print()
+
+    # Probe torch._scaled_mm to deduce the actual layout used for the scale
+    # arguments. Specifically, here is what the code below would do if we had
+    # A and B as 4x4 matrices with MX block size 2. All matrices are shown in float32
+    # format, not their actual storage format, to demonstrate the algorithm.
+    #
+    # A matrix - set to all-ones
+    #
+    # A =   1111
+    #       1111
+    #       1111
+    #       1111
+    #
+    # B matrix variants - all-zeros, except a single one for each mx block in the first column
+    #
+    # B_0 = 1000   B_1 = 0000
+    #       0000         0000
+    #       0000         1000
+    #       0000         0000
+    #
+    # A scale - starts as a matrix of all-ones
+    #
+    # A_s = 11
+    #       11
+    #       11
+    #       11
+    #
+    # for each row in rows of A:
+    #   for each ol in cols of A:
+    #     initialize A to all-ones
+    #     set A[row][col] = 2.0
+    #     for each B in [Bs]:
+    #       C = torch._scaled_mm(A, B, A_s, B_s, ...)
+    #       if max(C) > 1.0:
+    #         the scale incremented in A_s was corresponding to the current block
+
+    for scale_row in range(M):
+        for scale_col in range(K // BLOCK_SIZE):
+
+            a_scales = torch.full(
+                (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+            b_scales = torch.full(
+                # (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
+                (N, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+
+            # TODO: it looks like blockwise scales are switched in cuBLAS? 
+            # incrementing scale of b looks like it's actually affecting scaling of a
+            b_scales[scale_row][scale_col] = scale_val + 1
+
+            # We test every BLOCK_SIZE to deduce which of the blocks is
+            # responsible for the scale value. Note that this isn't the most
+            # efficient way to test, but I'm optimizing for dev time here.
+            for block_idx in range(K // BLOCK_SIZE):
+
+                b = torch.zeros(N, K, device="cuda", dtype=torch.float32)
+                # set a single one inside the block
+                b[0][block_idx * BLOCK_SIZE] = 1
+                b = b.to(torch.float8_e4m3fn).t()
+
+                out = torch._scaled_mm(
+                    a,
+                    b,
+                    a_scales,
+                    b_scales,
+                    None,
+                    None,
+                    torch.bfloat16,
+                    False,
+                    None,
+                    None,
+                    DataType.E8M0,
+                )
+
+                # print(scale_row, scale_col, block_idx)
+                # torch.set_printoptions(profile="full", linewidth=320)
+                # print(out)
+                # print(torch.max(out, keepdim=True))
+
+                max_val = torch.max(out).item()
+                if max_val > 1:
+                    max_flat_index = torch.argmax(out).item()
+                    max_row = max_flat_index // M
+                    max_col = max_flat_index % M
+                    assert max_col == 0
+                    assert max_val == 2.0
+                    print('scale_coords', scale_row, scale_col, 'block_idx', block_idx, 'max_coords', max_row, max_col, 'max_val', max_val)
+
+            # break
+        # break
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_mx_reconstruct_scale_b_layout():
+    # brute force the expected layout format
+    # basic numerics with all scales 1.0
+    # next: other scale values
+
+    # M, K, N = 8192, 4096, 8192
+    M, K, N = 128, 128, 128
+    BLOCK_SIZE = 32
+    b = torch.ones(M, K, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn).t()
+
+    # 127 is 1.0 in e8m0
+    scale_val = 127
+
+    print()
+
+    # Probe torch._scaled_mm to deduce the actual layout used for the scale
+    # arguments. Specifically, here is what the code below would do if we had
+    # A and B as 4x4 matrices with MX block size 2. All matrices are shown in float32
+    # format, not their actual storage format, to demonstrate the algorithm.
+    #
+    # A matrix variants - all-zeros, except a single one for each mx block in the first row
+    #
+    # A_0 = 1000   A_1 = 0010
+    #       0000         0000
+    #       0000         0000
+    #       0000         0000
+    #
+    # B matrix - set to all-ones
+    #
+    # B =   1111
+    #       1111
+    #       1111
+    #       1111
+    #
+    # B scale - starts as a matrix of all-ones
+    #
+    # B_s = 11
+    #       11
+    #       11
+    #       11
+    #
+    # for each row in rows of B:
+    #   for each col in cols of B:
+    #     initialize B to all-ones
+    #     set B[row][col] = 2.0
+    #     for each A in [As]:
+    #       C = torch._scaled_mm(A, B, A_s, B_s, ...)
+    #       if max(C) > 1.0:
+    #         the scale incremented in B_s was corresponding to the current block
+
+    for scale_row in range(M):
+        for scale_col in range(K // BLOCK_SIZE):
+
+            a_scales = torch.full(
+                (M, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+            b_scales = torch.full(
+                # (K // BLOCK_SIZE, N), scale_val, device="cuda", dtype=torch.uint8
+                (N, K // BLOCK_SIZE), scale_val, device="cuda", dtype=torch.uint8
+            )
+
+            # TODO: it looks like blockwise scales are switched in cuBLAS? 
+            # incrementing scale of a looks like it's actually affecting scaling of b
+            a_scales[scale_row][scale_col] = scale_val + 1
+
+            # We test every BLOCK_SIZE to deduce which of the blocks is
+            # responsible for the scale value. Note that this isn't the most
+            # efficient way to test, but I'm optimizing for dev time here.
+            for block_idx in range(K // BLOCK_SIZE):
+
+                a = torch.zeros(M, K, device="cuda", dtype=torch.float32)
+                # set a single one inside the block
+                a[0][block_idx * BLOCK_SIZE] = 1
+                a = a.to(torch.float8_e4m3fn)
+
+                out = torch._scaled_mm(
+                    a,
+                    b,
+                    a_scales,
+                    b_scales,
+                    None,
+                    None,
+                    torch.bfloat16,
+                    False,
+                    None,
+                    None,
+                    DataType.E8M0,
+                )
+
+                # print(scale_row, scale_col, block_idx)
+                # torch.set_printoptions(profile="full", linewidth=320)
+                # print(out)
+                # print(torch.max(out, keepdim=True))
+
+                max_val = torch.max(out).item()
+                if max_val > 1:
+                    max_flat_index = torch.argmax(out).item()
+                    max_row = max_flat_index // M
+                    max_col = max_flat_index % M
+                    assert max_row == 0
+                    assert max_val == 2.0
+                    print('scale_coords', scale_row, scale_col, 'block_idx', block_idx, 'max_coords', max_row, max_col, 'max_val', max_val)
+
+            # break
+        # break
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="blockwise torch._scaled_mm requires CUDA 10.0 or higher",
+)
+def test_scaled_mm_nvfp4():
+    # hello world
+    # next: basic numerics
+
+    M, K, N = 8192, 4096, 8192
+    BLOCK_SIZE = 16
+    a = torch.randint(128, (M, K // 2), device="cuda", dtype=torch.uint8)
+    b = torch.randint(128, (N, K // 2), device="cuda", dtype=torch.uint8).t()
+    a_scales = torch.randint(
+        128, (M, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
+    )
+    b_scales = torch.randint(
+        128, (N, K // BLOCK_SIZE), device="cuda", dtype=torch.uint8
+    ).t()
+    out = torch._scaled_mm(
+        a,
+        b,
+        a_scales,
+        b_scales,
+        None,
+        None,
+        torch.bfloat16,
+        False,
+        DataType.FP4,
+        DataType.FP4,
+        DataType.UFP8,
+    )
+    print(out)
