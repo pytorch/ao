@@ -33,9 +33,6 @@ jobs:
       - name: Install requirements
         run: |
           conda activate venv
-          conda info
-          echo "WHICH_PIP: $(which pip)"
-          echo "WHICH_PYTHON: $(which python)"
           pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
           pip install numpy
           USE_CPP=1 pip install .
