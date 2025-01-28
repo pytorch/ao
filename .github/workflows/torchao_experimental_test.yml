@@ -30,6 +30,7 @@ jobs:
           python-version: "3.10"
           miniconda-version: "latest"
           activate-environment: venv
+      - name: Install requirements
       - run: |
           conda activate venv
           conda info
