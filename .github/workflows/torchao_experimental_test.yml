@@ -40,5 +40,6 @@ jobs:
           pip install numpy
           USE_CPP=1 pip install .
       - name: Run tests
+      - run: |
           conda activate venv
           python torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
