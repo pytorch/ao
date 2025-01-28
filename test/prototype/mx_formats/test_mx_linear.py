@@ -56,19 +56,19 @@ def run_around_tests():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
+@pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
     """
     grad_shape = list(input_shape)
-    grad_shape[-1] = 6
+    grad_shape[-1] = 128
 
     m = nn.Sequential(
-        nn.Linear(8, 6, bias=bias, device="cuda"),
+        nn.Linear(256, 128, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
-    block_size = 2
+    block_size = 32
     swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
