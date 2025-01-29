@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import tempfile
 import unittest
 
 import torch
@@ -116,7 +115,6 @@ class TestQDQLayout(unittest.TestCase):
         )
         eager_results = model(activations)
 
-        unwrapped_model = copy.deepcopy(model)
         unwrap_tensor_subclass(model)
 
         print("Exporting quantized model")

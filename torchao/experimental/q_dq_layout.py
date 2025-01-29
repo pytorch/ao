@@ -24,9 +24,6 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-import torch
-
-from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import PlainLayout
 
 

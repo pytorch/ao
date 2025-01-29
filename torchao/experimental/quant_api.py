@@ -501,10 +501,10 @@ from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import (
-    _get_linear_subclass_inserter,
     MappingType,
-    to_affine_quantized_intx,
     ZeroPointDomain,
+    _get_linear_subclass_inserter,
+    to_affine_quantized_intx,
 )
 from torchao.quantization.utils import _get_per_token_block_size
 
@@ -597,8 +597,8 @@ def int8_dynamic_activation_intx_weight(
         quant_max = (1 << (bit_width - 1)) - 1
 
         if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            assert weight.device == torch.device(
-                "cpu"
+            assert (
+                weight.device == torch.device("cpu")
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
             assert (
                 weight.dtype == torch.float32
@@ -606,9 +606,7 @@ def int8_dynamic_activation_intx_weight(
             assert (
                 act_mapping_type == MappingType.ASYMMETRIC
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-            assert (
-                not layout.has_params_set()
-            ), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
+            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
             layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
                 bit_width=bit_width,
                 group_size=group_size,
