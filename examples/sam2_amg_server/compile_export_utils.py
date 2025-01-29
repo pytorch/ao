@@ -48,7 +48,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
         boxes: Optional[torch.Tensor] = None,
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
-        img_idx: int = -1,
     ):
         assert high_res_feats[0].size() == (self.batch_size, 32, 256, 256)
         assert high_res_feats[1].size() == (self.batch_size, 64, 128, 128)
@@ -73,7 +72,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
         assert boxes is None
         assert mask_input is None
         assert multimask_output
-        assert img_idx == -1
         if self.predictor is None:
             assert self.aoti_compiled_model is not None
             return self.aoti_compiled_model(
@@ -85,7 +83,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
                 boxes=boxes,
                 mask_input=mask_input,
                 multimask_output=multimask_output,
-                img_idx=img_idx,
             )
         return self.predictor._predict_masks(
             high_res_feats,
@@ -96,7 +93,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
             boxes=boxes,
             mask_input=mask_input,
             multimask_output=multimask_output,
-            img_idx=img_idx,
         )
 
 
@@ -176,9 +172,6 @@ def export_model(
         overwrite=overwrite,
     )
 
-    print(f"{task_type} cannot export _predict_masks")
-    return
-
     if task_type in ["sps"]:
         example_input_high_res_feats = [
             torch.randn(
@@ -239,7 +232,6 @@ def export_model(
             "boxes": None,
             "mask_input": None,
             "multimask_output": True,
-            "img_idx": -1,
         }
 
         sam2_image_predict_masks = SAM2ImagePredictor_predict_masks(
@@ -300,9 +292,6 @@ def load_exported_model(
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
-
-    print(f"End load image encoder. Took {time.time() - t0}s")
-    return mask_generator
 
     if task_type in ["amg", "mps"]:
         return mask_generator

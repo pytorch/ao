@@ -21,6 +21,19 @@ from torch.autograd.profiler import record_function
 from tqdm import tqdm
 
 
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        record_shapes=True,
+    ) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
+
+
 def latencies_statistics(data):
     # Convert the list to a NumPy array
     data_array = np.array(data)
@@ -343,9 +356,15 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
             else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
                 from torchvision.transforms import ToTensor
+                from torchvision.transforms import v2
 
-                if not baseline:
+                if baseline:
                     image_tensor = ToTensor()(image_tensor)
+                else:
+                    image_tensor = torch.from_numpy(image_tensor)
+                    image_tensor = image_tensor.permute((2, 0, 1))
+                    image_tensor = image_tensor.cuda()
+                    image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
             image_tensors.append(image_tensor)
     return image_tensors
 
