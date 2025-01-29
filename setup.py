@@ -218,6 +218,7 @@ def get_extensions():
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
             "-t=0",
+             "-std=c++20"
         ],
     }
 
@@ -243,13 +244,16 @@ def get_extensions():
     use_cutlass = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
+
+    if use_cutlass:
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
-    if use_cutlass:
+        cutlass_tools_include_dir = os.path.join(cutlass_dir, "tools", "util", "include")
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
                 "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
             ]
         )
 
