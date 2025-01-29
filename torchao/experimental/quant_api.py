@@ -14,10 +14,8 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
+from torchao.experimental.q_dq_layout import QDQLayout
+from torchao.quantization.granularity import PerGroup, PerRow
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -494,10 +492,10 @@ from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import (
-    MappingType,
-    ZeroPointDomain,
     _get_linear_subclass_inserter,
+    MappingType,
     to_affine_quantized_intx,
+    ZeroPointDomain,
 )
 from torchao.quantization.utils import _get_per_token_block_size
 
@@ -570,8 +568,8 @@ def int8_dynamic_activation_intx_weight(
 
         layout = layout_arg
         if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            assert (
-                weight.device == torch.device("cpu")
+            assert weight.device == torch.device(
+                "cpu"
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
             assert (
                 weight.dtype == torch.float32
@@ -579,7 +577,9 @@ def int8_dynamic_activation_intx_weight(
             assert (
                 act_mapping_type == MappingType.ASYMMETRIC
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
+            assert (
+                not layout.has_params_set()
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
             layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
                 bit_width=bit_width,
                 group_size=group_size,
@@ -598,15 +598,21 @@ def int8_dynamic_activation_intx_weight(
             eps=torch.finfo(torch.float32).eps,
             zero_point_dtype=torch.int8,
             preserve_zero=has_weight_zeros,
-            zero_point_domain=ZeroPointDomain.INT
-            if has_weight_zeros
-            else ZeroPointDomain.NONE,
+            zero_point_domain=(
+                ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+            ),
             _layout=layout,
         )
 
         # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
         # with the kernel and it should not be applied separately
-        if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+        if not any(
+            isinstance(layout, layout_class)
+            for layout_class in [
+                QDQLayout,
+                PackedLinearInt8DynamicActivationIntxWeightLayout,
+            ]
+        ):
             activation_quant_func = lambda x: to_affine_quantized_intx(
                 x,
                 mapping_type=act_mapping_type,
