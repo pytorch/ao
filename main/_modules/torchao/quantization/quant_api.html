@@ -287,7 +287,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -313,12 +313,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -329,6 +330,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -793,7 +796,7 @@
 <span class="sd">            eps=torch.finfo(torch.float32).eps,</span>
 <span class="sd">            scale_dtype=torch.float,</span>
 <span class="sd">            zero_point_dtype=torch.int,</span>
-<span class="sd">            zero_point_domain=None,</span>
+<span class="sd">            zero_point_domain=ZeroPointDomain.NONE,</span>
 <span class="sd">        )</span>
 
 <span class="sd">        # Create a linear module</span>
@@ -1094,7 +1097,7 @@
     <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
     <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span>
     <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
@@ -1131,13 +1134,15 @@
         <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
         <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
-        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4CPULayout</span><span class="p">)</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="p">)</span>
 
         <span class="k">nonlocal</span> <span class="n">zero_point_domain</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
         <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="c1"># the first value is the default one</span>
             <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
         <span class="k">else</span><span class="p">:</span>
@@ -1281,6 +1286,7 @@
 
         <span class="c1"># weight settings</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="n">weight_zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
             <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
@@ -1307,6 +1313,7 @@
             <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
             <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
             <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
+            <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">weight_zero_point_domain</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>

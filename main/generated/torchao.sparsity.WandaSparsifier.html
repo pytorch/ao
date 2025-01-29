@@ -290,7 +290,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -316,12 +316,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -332,6 +333,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -431,7 +434,7 @@ of the input activation norm and the weight magnitude.</p>
 </dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.sparsity.WandaSparsifier.prepare">
-<span class="sig-name descname"><span class="pre">prepare</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.5)"><span class="pre">Module</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/torchao/sparsity/wanda.html#WandaSparsifier.prepare"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.sparsity.WandaSparsifier.prepare" title="Permalink to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">prepare</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.6)"><span class="pre">Module</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/torchao/sparsity/wanda.html#WandaSparsifier.prepare"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.sparsity.WandaSparsifier.prepare" title="Permalink to this definition">¶</a></dt>
 <dd><p>Prepares a model, by adding the parametrizations.</p>
 <p>Note:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">The</span> <span class="n">model</span> <span class="ow">is</span> <span class="n">modified</span> <span class="n">inplace</span><span class="o">.</span> <span class="n">If</span> <span class="n">you</span> <span class="n">need</span> <span class="n">to</span> <span class="n">preserve</span> <span class="n">the</span> <span class="n">original</span>
@@ -505,7 +508,7 @@ to save in the <cite>sparse_params</cite></p></li>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.sparsity.WandaSparsifier.update_mask">
-<span class="sig-name descname"><span class="pre">update_mask</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.5)"><span class="pre">Module</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">tensor_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparsity_level</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/torchao/sparsity/wanda.html#WandaSparsifier.update_mask"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.sparsity.WandaSparsifier.update_mask" title="Permalink to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">update_mask</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.6)"><span class="pre">Module</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">tensor_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparsity_level</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/torchao/sparsity/wanda.html#WandaSparsifier.update_mask"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.sparsity.WandaSparsifier.update_mask" title="Permalink to this definition">¶</a></dt>
 <dd><p>Pruning function for WandaSparsifier</p>
 <p>The activation statistics is retrieved first in the <cite>act_per_input</cite> variable.
 Then the Wanda pruning metric is computed. The weight matrix is then pruned

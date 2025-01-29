@@ -7,11 +7,10 @@
 <head>
   <meta name="robots" content="noindex">
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
-
+  
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Getting Started &mdash; torchao main documentation</title>
+  <title>torchao.dtypes.uintx.semi_sparse_layout &mdash; torchao main documentation</title>
   
 
   
@@ -27,21 +26,19 @@
 
   
 
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
-  <link rel="stylesheet" href="_static/sg_gallery.css" type="text/css" />
-  <link rel="stylesheet" href="_static/sg_gallery-binder.css" type="text/css" />
-  <link rel="stylesheet" href="_static/sg_gallery-dataframe.css" type="text/css" />
-  <link rel="stylesheet" href="_static/sg_gallery-rendered-html.css" type="text/css" />
-  <link rel="stylesheet" href="_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
-  <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
-    <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Sparsity" href="sparsity.html" />
-    <link rel="prev" title="Welcome to the torchao Documentation" href="index.html" />
+  <link rel="stylesheet" href="../../../../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../../../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="../../../../_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -52,16 +49,16 @@
   
 
   
-  <script src="_static/js/modernizr.min.js"></script>
+  <script src="../../../../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -290,7 +287,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -299,7 +296,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -315,23 +312,26 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">torchao.dtypes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_ref_sparsity.html">torchao.sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api_ref_sparsity.html">torchao.sparsity</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -364,7 +364,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="index.html">
+        <a href="../../../../index.html">
           
             Docs
           
@@ -372,14 +372,12 @@
       </li>
 
         
-      <li>Getting Started</li>
+          <li><a href="../../../index.html">Module code</a> &gt;</li>
+        
+      <li>torchao.dtypes.uintx.semi_sparse_layout</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
-        
-            
-            <a href="_sources/getting-started.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
-          
         
       </li>
     
@@ -408,25 +406,136 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="getting-started">
-<h1>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this heading">¶</a></h1>
-<p>TBA</p>
-</section>
+  <h1>Source code for torchao.dtypes.uintx.semi_sparse_layout</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils._python_dispatch</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">return_and_correct_aliasing</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.affine_quantized_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
+    <span class="n">register_layout</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.plain_layout</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">PlainAQTTensorImpl</span><span class="p">,</span>
+    <span class="n">_aqt_is_int8_reduced_range</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Layout</span><span class="p">,</span> <span class="n">PlainLayout</span>
+
+<span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int8_act_int8_weight_semi_structured_sparse_check</span><span class="p">(</span>
+    <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span>
+<span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="n">_aqt_is_int8_reduced_range</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">is_cuda</span>
+        <span class="ow">and</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">PlainLayout</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">SemiSparseLayout</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int8_act_int8_weight_semi_structured_sparse_impl</span><span class="p">(</span>
+    <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span>
+<span class="p">):</span>
+    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals_int8</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="c1"># must pad</span>
+    <span class="n">row</span><span class="p">,</span> <span class="n">col</span> <span class="o">=</span> <span class="n">tmp</span><span class="o">.</span><span class="n">shape</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torch.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseSemiStructuredTensorCUSPARSELT</span>
+
+    <span class="n">tmp_padded</span> <span class="o">=</span> <span class="n">SparseSemiStructuredTensorCUSPARSELT</span><span class="o">.</span><span class="n">_pad_dense_input</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span>
+    <span class="c1"># we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm</span>
+    <span class="n">y_dot_bf16_w_scales_fused</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_sparse_mm</span><span class="p">(</span>
+        <span class="n">w_vals_int8</span><span class="p">,</span>
+        <span class="n">tmp_padded</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span>
+        <span class="n">alpha</span><span class="o">=</span><span class="n">w_scales</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="n">out_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">t</span><span class="p">()[:</span><span class="n">row</span><span class="p">,</span> <span class="p">:]</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="p">(</span><span class="n">y_dot_bf16_w_scales_fused</span> <span class="o">*</span> <span class="n">x_scales</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+        <span class="o">*</span><span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">y_dot_bf16_w_scales_fused</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">output_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="c1"># TODO: waiting for jesse&#39;s test/fix</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
+    <span class="k">return</span> <span class="n">y</span>
+
+
+<div class="viewcode-block" id="SemiSparseLayout"><a class="viewcode-back" href="../../../../generated/torchao.dtypes.SemiSparseLayout.html#torchao.dtypes.SemiSparseLayout">[docs]</a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SemiSparseLayout</span><span class="p">(</span><span class="n">Layout</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;SemiSparseLayout is a layout class for handling semi-structured sparse</span>
+<span class="sd">    matrices in affine quantized tensors. This layout is specifically designed</span>
+<span class="sd">    to work with the 2:4 sparsity pattern, where two out of every four elements</span>
+<span class="sd">    are pruned to zero. This class provides methods for preprocessing input</span>
+<span class="sd">    tensors to conform to this sparsity pattern.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pre_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># prune to 2:4 if not already</span>
+        <span class="n">temp</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="n">pruning_inds</span> <span class="o">=</span> <span class="n">temp</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)[:,</span> <span class="p">:</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">temp</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">scatter_</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">pruning_inds</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">temp</span></div>
+
+
+<span class="nd">@register_layout</span><span class="p">(</span><span class="n">SemiSparseLayout</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SemiSparseAQTTensorImpl</span><span class="p">(</span><span class="n">PlainAQTTensorImpl</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TensorImpl for semi_sparse_cusparselt layout for affine quantized tensor</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;SparseAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Currently we don&#39;t have cuSPARSELt expansion routines, so we matmul by</span>
+        <span class="c1"># the identity matrix to get the original dense matrix. This is slow though.</span>
+        <span class="n">cols</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mi">16</span> <span class="o">//</span> <span class="p">(</span><span class="mi">10</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">int_data_expanded</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_sparse_mm</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">int_data_expanded</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_plain</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_layout</span><span class="p">,</span> <span class="n">SemiSparseLayout</span><span class="p">)</span>
+        <span class="n">int_data_compressed</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_compress</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data_compressed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
+</pre></div>
 
              </article>
              
             </div>
             <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="sparsity.html" class="btn btn-neutral float-right" title="Sparsity" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
-      
-      
-        <a href="index.html" class="btn btn-neutral" title="Welcome to the torchao Documentation" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
-      
-    </div>
   
 
   
@@ -455,10 +564,7 @@
         <div class="pytorch-content-right" id="pytorch-content-right">
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
-              <ul>
-<li><a class="reference internal" href="#">Getting Started</a></li>
-</ul>
-
+              
             </div>
           </div>
         </div>
@@ -471,23 +577,23 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
-         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-         <script src="_static/jquery.js"></script>
-         <script src="_static/underscore.js"></script>
-         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-         <script src="_static/doctools.js"></script>
-         <script src="_static/clipboard.min.js"></script>
-         <script src="_static/copybutton.js"></script>
-         <script src="_static/design-tabs.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../../../../" src="../../../../_static/documentation_options.js"></script>
+         <script data-url_root="../../../../" id="documentation_options" src="../../../../_static/documentation_options.js"></script>
+         <script src="../../../../_static/jquery.js"></script>
+         <script src="../../../../_static/underscore.js"></script>
+         <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="../../../../_static/doctools.js"></script>
+         <script src="../../../../_static/clipboard.min.js"></script>
+         <script src="../../../../_static/copybutton.js"></script>
+         <script src="../../../../_static/design-tabs.js"></script>
      
 
   
 
-  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../../../../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../../../../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="_static/js/theme.js"></script>
+  <script type="text/javascript" src="../../../../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -615,7 +721,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="_static/images/pytorch-x.svg">
+    <img class="close-button" src="../../../../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -766,7 +872,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../../../../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {

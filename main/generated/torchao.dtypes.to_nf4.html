@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="to_affine_quantized_intx" href="torchao.dtypes.to_affine_quantized_intx.html" />
-    <link rel="prev" title="torchao.dtypes" href="../api_ref_dtypes.html" />
+    <link rel="next" title="torchao.quantization" href="../api_ref_quantization.html" />
+    <link rel="prev" title="to_marlinqqq_quantized_intx" href="torchao.dtypes.to_marlinqqq_quantized_intx.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -290,7 +290,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -316,12 +316,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -332,6 +333,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -415,7 +418,8 @@
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.dtypes.to_nf4">
 <span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">to_nf4</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">64</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaler_block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">256</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/dtypes/nf4tensor.html#to_nf4"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.to_nf4" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Convert a given tensor to normalized float 4-bit tensor.</p>
+</dd></dl>
 
 </section>
 
@@ -427,10 +431,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.dtypes.to_affine_quantized_intx.html" class="btn btn-neutral float-right" title="to_affine_quantized_intx" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../api_ref_quantization.html" class="btn btn-neutral float-right" title="torchao.quantization" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="../api_ref_dtypes.html" class="btn btn-neutral" title="torchao.dtypes" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.dtypes.to_marlinqqq_quantized_intx.html" class="btn btn-neutral" title="to_marlinqqq_quantized_intx" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   

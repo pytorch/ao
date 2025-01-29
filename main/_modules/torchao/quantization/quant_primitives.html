@@ -287,7 +287,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -313,12 +313,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -329,6 +330,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -445,6 +448,9 @@
     <span class="s2">&quot;MappingType&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ZeroPointDomain&quot;</span><span class="p">,</span>
     <span class="s2">&quot;TorchAODType&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;choose_qparams_affine_float8&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantize_affine_float8&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dequantize_affine_float8&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -687,7 +693,7 @@
     <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
     <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">quant_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Args:</span>
@@ -722,6 +728,10 @@
 <span class="sd">    Output:</span>
 <span class="sd">      quantized tensor with requested dtype</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">_quantize_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
@@ -730,7 +740,7 @@
         <span class="n">output_dtype</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
     <span class="p">)</span></div>
 
 
@@ -743,7 +753,7 @@
     <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
     <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">quant_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;op definition that has compatible signatures with custom op library</span>
 
@@ -766,6 +776,7 @@
         <span class="n">zero_point</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">output_dtype</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="p">,</span>
     <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 
@@ -777,7 +788,8 @@
     <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
     <span class="n">quant_min</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
     <span class="n">quant_max</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
-    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+    <span class="n">quant_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    The op does the following:</span>
@@ -821,13 +833,12 @@
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
-        <span class="n">quant</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)),</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
-    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># This case handles quantization for float8 we expect no zero point and no zero point domain</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is None&quot;</span>
-        <span class="n">quant</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">reciprocal</span><span class="p">(),</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">quant_dtype</span><span class="p">):</span>
+            <span class="n">quant</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">reciprocal</span><span class="p">(),</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">quant</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)),</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span>
+            <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
         <span class="n">mid_point</span> <span class="o">=</span> <span class="p">(</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
@@ -873,6 +884,10 @@
 <span class="sd">    Output:</span>
 <span class="sd">      dequantized Tensor, with requested dtype or fp32</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">_dequantize_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
@@ -881,7 +896,7 @@
         <span class="n">input_dtype</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
         <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
     <span class="p">)</span></div>
 
@@ -970,16 +985,6 @@
         <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
         <span class="n">dequant</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
         <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span> <span class="o">*</span> <span class="n">scale</span>
-    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># This case handles dequantization for float8 we expect no zero point and no zero point domain</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is None&quot;</span>
-        <span class="k">assert</span> <span class="n">_is_float8_type</span><span class="p">(</span>
-            <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;dequantiztion with no zero point domain is only supported with FP8 types, got </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="n">dequant</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
-        <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span> <span class="o">*</span> <span class="n">scale</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
@@ -1027,6 +1032,10 @@
 <span class="sd">        value during quantization</span>
 <span class="sd">        default is ZeroPointDomain.INT</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
     <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">fq</span><span class="p">)</span> <span class="o">=</span> <span class="n">_do_fake_quantize_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
@@ -1069,6 +1078,10 @@
 <span class="sd">      )</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
     <span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">dq</span><span class="p">)</span> <span class="o">=</span> <span class="n">_do_fake_quantize_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">,</span>
@@ -1106,6 +1119,7 @@
         <span class="n">zero_point</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">quant_dtype</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">dq</span> <span class="o">=</span> <span class="n">_dequantize_affine_no_dtype_check</span><span class="p">(</span>
@@ -1133,7 +1147,7 @@
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">zero_point_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">preserve_zero</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Args:</span>
@@ -1167,6 +1181,8 @@
 <span class="sd">    Output:</span>
 <span class="sd">        Tuple of scales and zero_points Tensor with requested dtype</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">_choose_qparams_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
@@ -1178,7 +1194,7 @@
         <span class="n">scale_dtype</span><span class="p">,</span>
         <span class="n">zero_point_dtype</span><span class="p">,</span>
         <span class="n">preserve_zero</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
     <span class="p">)</span></div>
 
 
@@ -1194,7 +1210,7 @@
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">zero_point_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">preserve_zero</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`</span>
 <span class="sd">    operator that pass in min_val and max_val directly instead of deriving these from a single input.</span>
@@ -1206,6 +1222,8 @@
 <span class="sd">      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val</span>
 <span class="sd">      and then scale/zero_point, we pass in min_val/max_val directly</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">_choose_qparams_affine</span><span class="p">(</span>
         <span class="kc">None</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
@@ -1217,7 +1235,7 @@
         <span class="n">scale_dtype</span><span class="p">,</span>
         <span class="n">zero_point_dtype</span><span class="p">,</span>
         <span class="n">preserve_zero</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span> <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
         <span class="n">min_val</span><span class="p">,</span>
         <span class="n">max_val</span><span class="p">,</span>
     <span class="p">)</span></div>
@@ -1324,17 +1342,17 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="s2">&quot;preserve_zero == False is not supported for symmetric quantization&quot;</span>
             <span class="p">)</span>
-        <span class="k">if</span> <span class="p">(</span>
-            <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-            <span class="ow">and</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
-        <span class="p">):</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
             <span class="c1"># TODO INT should not be a valid ZeroPointDomain for symmetric quantization since</span>
             <span class="c1"># symmetric quant doesn&#39;t have a zero_point</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="s2">&quot;zero_point_domain should be ZeroPointDomain.INT or ZeroPointDomain.NONE for symmetric quantization&quot;</span>
             <span class="p">)</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full_like</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">int</span><span class="p">((</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">))</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span>
-        <span class="n">zero_point</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full_like</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">int</span><span class="p">((</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">))</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="o">.</span><span class="n">name</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_val_pos</span> <span class="o">-</span> <span class="n">min_val_neg</span><span class="p">)</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span>
@@ -1706,6 +1724,70 @@
     <span class="n">tensor</span> <span class="o">=</span> <span class="n">tensor</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">float</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="n">tensor</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">tensor</span></div>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_affine_float8</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        tensor (torch.Tensor): Input tensor to be quantized.</span>
+<span class="sd">        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># only tensorwise scaling is supported for now:</span>
+    <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
+    <span class="n">min_val_neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span>
+    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span>
+    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="o">-</span><span class="n">min_val_neg</span><span class="p">,</span> <span class="n">max_val_pos</span><span class="p">)</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">max_val_pos</span> <span class="o">/</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine_float8</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        tensor (torch.Tensor): Input tensor to be quantized.</span>
+<span class="sd">        scale (torch.Tensor): Scaling factor for the quantization.</span>
+<span class="sd">        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Note: when the line below is compiled with `torch.compile`, `tensor` is automatically</span>
+    <span class="c1"># upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.</span>
+    <span class="c1"># In order to match numerics between eager and compile, we upcast manually here.</span>
+    <span class="n">tensor_scaled</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">/</span> <span class="n">scale</span>
+    <span class="n">max_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
+    <span class="n">tensor_clamped</span> <span class="o">=</span> <span class="n">tensor_scaled</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">min</span><span class="o">=-</span><span class="n">max_value</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="n">max_value</span><span class="p">)</span>
+    <span class="n">fp8_tensor</span> <span class="o">=</span> <span class="n">tensor_clamped</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">fp8_tensor</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_float8</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Dequantizes the float8 tensor to high precision tensor.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        tensor (torch.Tensor): Input float8 tensor to be dequantized.</span>
+<span class="sd">        scale (torch.Tensor): Scaling factor for the dequantization.</span>
+<span class="sd">        output_dtype (torch.dtype): Data type of the output tensor (e.g., torch.float32).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Note: when the line below is compiled with `torch.compile`, `tensor` is automatically</span>
+    <span class="c1"># upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.</span>
+    <span class="c1"># In order to match numerics between eager and compile, we upcast manually here.</span>
+    <span class="n">fp8_tensor</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">hp_tensor</span> <span class="o">=</span> <span class="n">fp8_tensor</span> <span class="o">*</span> <span class="n">scale</span>
+    <span class="k">return</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 </pre></div>
 
              </article>

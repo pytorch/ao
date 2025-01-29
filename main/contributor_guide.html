@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>torchao Contributor Guide &mdash; torchao main documentation</title>
+  <title>Contributor Guide &mdash; torchao main documentation</title>
   
 
   
@@ -41,7 +41,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="torchao.dtypes" href="api_ref_dtypes.html" />
-    <link rel="prev" title="Sparsity" href="sparsity.html" />
+    <link rel="prev" title="Sparsity Overview" href="sparsity.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -290,7 +290,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -316,12 +316,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -332,6 +333,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -372,7 +375,7 @@
       </li>
 
         
-      <li>torchao Contributor Guide</li>
+      <li>Contributor Guide</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
@@ -408,8 +411,8 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="torchao-contributor-guide">
-<h1>torchao Contributor Guide<a class="headerlink" href="#torchao-contributor-guide" title="Permalink to this heading">¶</a></h1>
+  <section id="contributor-guide">
+<h1>Contributor Guide<a class="headerlink" href="#contributor-guide" title="Permalink to this heading">¶</a></h1>
 <div class="toctree-wrapper compound">
 </div>
 <section id="objective">
@@ -516,7 +519,7 @@ implementations when running the same operator, e.g. transpose, quantized_linear
 <h3>Quantization Algorithms/Flows<a class="headerlink" href="#quantization-algorithms-flows" title="Permalink to this heading">¶</a></h3>
 <p>On the top of the stack will be the final quantization algorithms and quantization flows. Traditionally we have weight only quantization, dynamic quantization and static quantization, but now we are also seeing more types of quantization coming up.</p>
 <p>For demonstration purposes, let’s say after previous step we have <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> and <code class="docutils literal notranslate"><span class="pre">to_affine_quantized</span></code> factory function defined. For simplicity, let’s say <code class="docutils literal notranslate"><span class="pre">to_affine_quantized</span></code> takes a high precision floating point Tensor and a target_dtype (e.g. torch.int8) and converts it to an <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> with corresponding dtype.</p>
-<p>Note: below are all for explaining the concepts, more detailed introduction for utils and examples we provide can be found in <code class="docutils literal notranslate"><span class="pre">Tensor</span> <span class="pre">Subclass</span> <span class="pre">Developer</span> <span class="pre">Guide</span></code> section.</p>
+<p>Note: below are all for explaining the concepts, more detailed introduction for utils and examples we provide can be found in the <a class="reference external" href="subclass_basic.html">Writing Your Own Tensor Subclass</a> tutorial.</p>
 <section id="weight-only-quantization">
 <h4>Weight Only Quantization<a class="headerlink" href="#weight-only-quantization" title="Permalink to this heading">¶</a></h4>
 <dl class="simple">
@@ -642,255 +645,6 @@ wint4 weight only quantization <a class="reference external" href="https://githu
 <h4>During Save/Load<a class="headerlink" href="#during-save-load" title="Permalink to this heading">¶</a></h4>
 <p>Since <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code> weight is still a <code class="docutils literal notranslate"><span class="pre">torch.Tensor</span></code>, save/load works the same way as the original high precision floating point model. See the <a class="reference external" href="https://pytorch.org/ao/stable/serialization.html">serialization doc</a> for more details.</p>
 </section>
-</section>
-</section>
-<section id="tensor-subclass-developer-guide">
-<h2>Tensor Subclass Developer Guide<a class="headerlink" href="#tensor-subclass-developer-guide" title="Permalink to this heading">¶</a></h2>
-<p>We have covered high level overview and how everything is connected together in the previous section, this section will focus on Tensor Subclasses, which is the main extension point we rely on to provide flexibility of supporting inference, training and fine tuning with low precision Tensors and composability with torch.compile, autograd, distributed primitives in these scenarios.</p>
-<section id="prerequisites">
-<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this heading">¶</a></h3>
-<p>Some externally available resources for tensor subclasses:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="pytorch.org/docs/stable/notes/extending.html#subclassing-torch-tensor">tensor subclass doc</a></p></li>
-<li><p><a class="reference external" href="https://podcasts.apple.com/us/podcast/tensor-subclasses-and-pt2/id1566080008?i=1000646728968">Edward’s podcast about tensor subclasses</a></p></li>
-<li><p><a class="reference external" href="https://github.com/albanD/subclass_zoo">Tensor subclass zoo</a></p></li>
-</ul>
-</section>
-<section id="why-tensor-subclass">
-<h3>Why Tensor Subclass?<a class="headerlink" href="#why-tensor-subclass" title="Permalink to this heading">¶</a></h3>
-<p>There are multiple ways people can implement quantization techniques or new dtypes, main motivation for us to recommend the tensor subclass based approach are three things:
-(1). It’s natural for quantization to be modeled as a dtype conversion, so implementing it with tensor subclass means we are not introducing new concepts but reusing existing concepts like dtype, layout that already exists in pytorch core
-(2). Since tensor subclass intercepts computation at torch function or aten ops level, as long as the same function/operator is used, we will be able to quantize the model. This allows the model that’s using variants of native modules (e.g. a slightly modified version of nn.Linear) to still be compatible with quantization
-(3). Tensor subclass is also the approach adopted by other techniques like sparsity and distributed, so implementing quantization or dtype conversion with tensor subclass would make it easier for it to be composable with these techniques</p>
-</section>
-<section id="example-code-for-a-new-dtype">
-<h3>Example Code for a new DType<a class="headerlink" href="#example-code-for-a-new-dtype" title="Permalink to this heading">¶</a></h3>
-<p>Please feel free to start with <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_dtype_tensor_subclass.py">tutorial</a> for a end to end working example that combines everything we talked about together and come back to the doc for clarifications and documentations.</p>
-</section>
-<section id="basic-structure">
-<h3>Basic Structure<a class="headerlink" href="#basic-structure" title="Permalink to this heading">¶</a></h3>
-<p>A tensor subclass needs to define a few basic methods: <code class="docutils literal notranslate"><span class="pre">__new__</span></code>, <code class="docutils literal notranslate"><span class="pre">__init__</span></code>, <code class="docutils literal notranslate"><span class="pre">__tensor_flatten__</span></code>, <code class="docutils literal notranslate"><span class="pre">__tensor_unflatten__</span></code>
-and also dispatch functions for torch functions <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> and aten ops <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code>.</p>
-<dl>
-<dt>Here is an example of basic structure::</dt><dd><p># check out docs in <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/utils.py#L437">https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/utils.py#L437</a>
-from torchao.utils import TorchAOBaseTensor</p>
-<dl>
-<dt>class MyDTypeLayout(TorchAOBaseTensor):</dt><dd><p># see tutorial code for details
-pass</p>
-</dd>
-<dt>class MyDtypeTensor(TorchAOBaseTensor):</dt><dd><blockquote>
-<div><p>“””We need to define <cite>__new__</cite> for constructing a new tensor subclass instance and <cite>__init__</cite> for initialize
-the instance. There is no requirement on what the argument list should look like here, only requirement is
-that <cite>__new__</cite> must return a Tensor instance with <cite>torch.Tensor._make_wrapper_subclass(cls, shape, …)</cite> call
-“””
-&#64;staticmethod
-def __new__(</p>
-<blockquote>
-<div><p>cls,
-tensor_impl: MyDTypeLayout,
-shape: torch.Size,
-dtype: Optional[torch.dtype] = None,</p>
-</div></blockquote>
-<dl class="simple">
-<dt>):</dt><dd><p>…
-return torch.Tensor._make_wrapper_subclass(cls, shape, <a href="#id1"><span class="problematic" id="id2">**</span></a>kwargs)  # type: ignore[attr-defined]</p>
-</dd>
-<dt>def __init__(</dt><dd><p>self,
-tensor_impl: MyDTypeLayout,
-shape: torch.Size, …</p>
-</dd>
-<dt>):</dt><dd><p>self.tensor_impl = tensor_impl</p>
-</dd>
-</dl>
-<p>“””<cite>__tensor_flatten__</cite> and <cite>__tensor_unflatten__</cite> are used to desugar the tensor into native Tensors/attributes and
-reconstruct the tensor subclass instance from the desugared tensor and attributes, these are required to define
-a Tensor subclass for torch.compile support
-“””
-def __tensor_flatten__(self):</p>
-<blockquote>
-<div><p>return [“tensor_impl”], [self.shape]</p>
-</div></blockquote>
-<p>“””see <a class="reference external" href="https://github.com/pytorch/pytorch/blob/3bc2004f9123a32f381ef64202252d59109507f3/torch/utils/_python_dispatch.py#L289">https://github.com/pytorch/pytorch/blob/3bc2004f9123a32f381ef64202252d59109507f3/torch/utils/_python_dispatch.py#L289</a> for documentations for outer_size and outer_stride
-“””
-&#64;classmethod
-def __tensor_unflatten__(</p>
-<blockquote>
-<div><p>cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride</p>
-</div></blockquote>
-<dl>
-<dt>):</dt><dd><dl>
-<dt>tensor_impl = tensor_data_dict[“tensor_impl”]</dt><dd><p>shape, = tensor_attributes
-return cls(</p>
-<blockquote>
-<div><p>tensor_impl,
-shape if outer_size is None else outer_size,</p>
-</div></blockquote>
-<p>)</p>
-</dd>
-</dl>
-</dd>
-</dl>
-<p>“””classmethod that converts from a floating point Tensor (fp32/fp16/bf16) to the current dtype
-“””</p>
-</div></blockquote>
-<dl>
-<dt>&#64;classmethod</dt><dd><dl class="simple">
-<dt>def from_float(</dt><dd><p>cls,
-input_float: torch.Tensor,</p>
-</dd>
-<dt>):</dt><dd><p>mapping_type = MappingType.SYMMETRIC
-block_size = input_float.shape
-dtype = torch.int16
-scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
-int_data = (input_float / scale).to(torch.int8)
-tensor_impl = MyDTypeLayout.from_plain(int_data, scale)
-return cls(tensor_impl, input_float.shape)</p>
-</dd>
-</dl>
-<p>“””[Optional] see docs for <cite>Layout/Packing</cite> under <cite>Quantized Tensors</cite> section to understand what layout_type is
-“””
-&#64;property
-def _layout(self) -&gt; LayoutType:</p>
-<blockquote>
-<div><p>return self.tensor_impl._layout</p>
-</div></blockquote>
-<p>“””There are two entry points that we can modify the behavior of a pytorch op: torch_function and torch_dispatch:</p>
-<p>__torch_function__: will be called whenever a torch level function is called on the Tensor object, for example: torch.nn.functional.linear,
-tensor.detach, tensor.reshape, tensor.t etc.</p>
-<p>__torch_dispatch__: will be called in the C++ dispatcher, when an aten operator is called on the Tensor object, for example:
-aten.mm, aten.addmm, aten.detach.default, aten.t.default etc.
-you can checkout <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/utils.py#L361-L389">https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/utils.py#L361-L389</a> to understand what <cite>__torch_function__</cite> and <cite>__torch_dispatch__</cite> are doing, but with <cite>TorchAoBaseTensor</cite> user can use
-some helper functions directly (see next section)</p>
-</dd>
-</dl>
-</dd>
-</dl>
-</dd>
-</dl>
-</section>
-<section id="operator-support">
-<h3>Operator Support<a class="headerlink" href="#operator-support" title="Permalink to this heading">¶</a></h3>
-<p>There are two types of operator support, torch function and aten ops. For torch functions (e.g. <code class="docutils literal notranslate"><span class="pre">torch.nn.functional.linear</span></code>), we’ll need to overwrite <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> callback in the Tensor subclass, for aten ops (e.g. <code class="docutils literal notranslate"><span class="pre">torch.ops.aten.mm</span></code>), we’ll need to overwrite <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> callback function.</p>
-<dl>
-<dt>For a new dtype, we’d like people to define the following decorator::</dt><dd><p>if your dtype class is inherited from <cite>torchao.utils.TorchAoBaseTensor</cite>, you can do:</p>
-<p>implements = my_dtype_tensor_cls.implements</p>
-</dd>
-<dt>And we can implement the operator dispatch with the following::</dt><dd><p># Example for torch_function dispatch for torch.nn.functional.linear
-def _quantized_linear_op(input_tensor, weight_tensor, bias):</p>
-<blockquote>
-<div><dl class="simple">
-<dt>if isinstance(input_tensor, MyDtypeTensor):</dt><dd><p>input_tensor = input_tensor.dequantize()</p>
-</dd>
-<dt>if isinstance(weight_tensor, MyDtypeTensor):</dt><dd><p>weight_tensor = weight_tensor.dequantize()</p>
-</dd>
-</dl>
-<p>return torch.nn.functional.linear(input_tensor, weight_tensor, bias)</p>
-</div></blockquote>
-<p>&#64;implements(torch.nn.functional.linear)
-def _(<a href="#id3"><span class="problematic" id="id4">*</span></a>args, <a href="#id5"><span class="problematic" id="id6">**</span></a>kwargs):</p>
-<blockquote>
-<div><dl class="simple">
-<dt>input_tensor, weight_tensor, bias = (</dt><dd><p>args[0],
-args[1],
-args[2] if len(args) &gt; 2 else None,</p>
-</dd>
-</dl>
-<p>)
-# using try/except here so that we can have a general fallback when input_tensor/weight_tensor
-# is not picked up by any of the dispatch paths in <cite>_quantized_linear_op</cite>, this allows us to
-# make the branches easier to understand in <cite>_quantized_linear_op</cite>
-try:</p>
-<blockquote>
-<div><p>return _quantized_linear_op(input_tensor, weight_tensor, bias)</p>
-</div></blockquote>
-<dl>
-<dt>except NotImplementedError:</dt><dd><dl class="simple">
-<dt>if isinstance(input_tensor, MyDtypeTensor):</dt><dd><p>input_tensor = input_tensor.dequantize()</p>
-</dd>
-<dt>if isinstance(weight_tensor, MyDtypeTensor):</dt><dd><p>weight_tensor = weight_tensor.dequantize()</p>
-</dd>
-</dl>
-<p>return torch.nn.functional.linear(input_tensor, weight_tensor, bias)</p>
-</dd>
-</dl>
-</div></blockquote>
-<p># Example for aten op dispatch for aten.detach.default
-&#64;implements(aten.detach.default)
-def _(func, <a href="#id7"><span class="problematic" id="id8">*</span></a>args, <a href="#id9"><span class="problematic" id="id10">**</span></a>kwargs):</p>
-<blockquote>
-<div><p># <cite>return_and_correct_aliasing</cite> should be used by wrapper tensor <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> subclasses that would like to
-# work with torch.compile. It ensures that the subclass properly implements the aliasing behavior of every op,
-# which is needed for correctness in AOTAutograd.</p>
-<p># <cite>_apply_fn_to_data</cite> just applies the function to the tensor data in <cite>args[0]</cite>, <cite>args[0]</cite> is a tensor subclass
-# of <cite>my_dtype</cite>
-return return_and_correct_aliasing(</p>
-<blockquote>
-<div><p>func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)</p>
-</div></blockquote>
-<p>)</p>
-</div></blockquote>
-</dd>
-</dl>
-<p>What ops do we need to overwrite? This depends on the model we are trying to quantize, commonly overwritten ops are:
-<code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code>: <code class="docutils literal notranslate"><span class="pre">torch.nn.functional.linear</span></code>
-<code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code>: <code class="docutils literal notranslate"><span class="pre">torch.ops.aten.addmm.default</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.ops.aten.mm.default</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.ops.aten.detach.default</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.ops.aten.t.default</span></code></p>
-<dl>
-<dt>You can also find the ops that can be overwritten in <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> or <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> with the following code, and you can start with a model that you want to optimize, start with just overwriting the important ops like linear, and gradually expand the coverage until the test runs and you get the expected optimized generated code (see Optimized Operators section for more details)::</dt><dd><dl class="simple">
-<dt>class M(torch.nn.Module):</dt><dd><dl class="simple">
-<dt>def __init__(self) -&gt; None:</dt><dd><p>super().__init__()
-self.linear = torch.nn.Linear(10, 10)</p>
-</dd>
-<dt>def forward(self, x: torch.Tensor) -&gt; torch.Tensor:</dt><dd><p>return self.linear(x) + x</p>
-</dd>
-</dl>
-</dd>
-</dl>
-<p>from torch.overrides import TorchFunctionMode
-class TorchFunctionLoggingMode(TorchFunctionMode):</p>
-<blockquote>
-<div><dl>
-<dt>def __torch_function__(cls, func, types, args=(), kwargs=None):</dt><dd><dl class="simple">
-<dt>if kwargs is None:</dt><dd><p>kwargs = {}</p>
-</dd>
-</dl>
-<p>print(f”TORCH_FUNC={str(func)}”)
-return func(<a href="#id11"><span class="problematic" id="id12">*</span></a>args, <a href="#id13"><span class="problematic" id="id14">**</span></a>kwargs)</p>
-</dd>
-</dl>
-</div></blockquote>
-<dl class="simple">
-<dt>with TorchFunctionLoggingMode():</dt><dd><p>m(<a href="#id15"><span class="problematic" id="id16">*</span></a>example_inputs)</p>
-</dd>
-</dl>
-<p>## Example output
-# TORCH_FUNC=&lt;built-in function linear&gt;
-# TORCH_FUNC=&lt;method ‘add’ of ‘torch._C.TensorBase’ objects&gt;</p>
-<p>from torch.utils._python_dispatch import TorchDispatchMode
-class TorchDispatchLoggingMode(TorchDispatchMode):</p>
-<blockquote>
-<div><dl>
-<dt>def __torch_dispatch__(cls, func, types, args=(), kwargs=None):</dt><dd><dl class="simple">
-<dt>if kwargs is None:</dt><dd><p>kwargs = {}</p>
-</dd>
-</dl>
-<p>print(f”ATEN_FUNC={str(func)}”)
-return func(<a href="#id17"><span class="problematic" id="id18">*</span></a>args, <a href="#id19"><span class="problematic" id="id20">**</span></a>kwargs)</p>
-</dd>
-</dl>
-</div></blockquote>
-<dl class="simple">
-<dt>with TorchDispatchLoggingMode():</dt><dd><p>m(<a href="#id21"><span class="problematic" id="id22">*</span></a>example_inputs)</p>
-</dd>
-</dl>
-<p>## Example output
-# ATEN_FUNC=aten.t.default
-# ATEN_FUNC=aten.addmm.default
-# ATEN_FUNC=aten.add.Tensor</p>
-<p># or a more polished logging for torch_dispatch (aten) ops: <a class="reference external" href="https://github.com/albanD/subclass_zoo/blob/main/logging_mode.py">https://github.com/albanD/subclass_zoo/blob/main/logging_mode.py</a></p>
-</dd>
-</dl>
-<p>Alternatively, you can run a test example (e.g. use your quantized model with tensor parallelism, FSDP etc.) and discover the missing ops and add them until the test passes.</p>
-<p>We are still working on a table that talks about for each feature what are the operators that need to be supported.</p>
 </section>
 <section id="adding-efficient-kernels">
 <h3>Adding Efficient Kernels<a class="headerlink" href="#adding-efficient-kernels" title="Permalink to this heading">¶</a></h3>
@@ -1025,7 +779,7 @@ TORCH_FUNC=&lt;method ‘add’ of ‘torch._C.TensorBase’ objects&gt; args[0]
         <a href="api_ref_dtypes.html" class="btn btn-neutral float-right" title="torchao.dtypes" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="sparsity.html" class="btn btn-neutral" title="Sparsity" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="sparsity.html" class="btn btn-neutral" title="Sparsity Overview" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -1057,7 +811,7 @@ TORCH_FUNC=&lt;method ‘add’ of ‘torch._C.TensorBase’ objects&gt; args[0]
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">torchao Contributor Guide</a><ul>
+<li><a class="reference internal" href="#">Contributor Guide</a><ul>
 <li><a class="reference internal" href="#objective">Objective</a></li>
 <li><a class="reference internal" href="#torchao-stack-overview">torchao Stack Overview</a><ul>
 <li><a class="reference internal" href="#basic-dtypes">Basic DTypes</a><ul>
@@ -1104,14 +858,6 @@ TORCH_FUNC=&lt;method ‘add’ of ‘torch._C.TensorBase’ objects&gt; args[0]
 <li><a class="reference internal" href="#during-save-load">During Save/Load</a></li>
 </ul>
 </li>
-</ul>
-</li>
-<li><a class="reference internal" href="#tensor-subclass-developer-guide">Tensor Subclass Developer Guide</a><ul>
-<li><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
-<li><a class="reference internal" href="#why-tensor-subclass">Why Tensor Subclass?</a></li>
-<li><a class="reference internal" href="#example-code-for-a-new-dtype">Example Code for a new DType</a></li>
-<li><a class="reference internal" href="#basic-structure">Basic Structure</a></li>
-<li><a class="reference internal" href="#operator-support">Operator Support</a></li>
 <li><a class="reference internal" href="#adding-efficient-kernels">Adding Efficient Kernels</a><ul>
 <li><a class="reference internal" href="#custom-triton-kernels">Custom triton kernels</a></li>
 <li><a class="reference internal" href="#custom-hand-written-kernels">Custom hand written kernels</a></li>

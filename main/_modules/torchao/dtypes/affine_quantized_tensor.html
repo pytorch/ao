@@ -287,7 +287,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -313,12 +313,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -329,6 +330,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -450,9 +453,8 @@
 <span class="c1"># Tensor Subclass Definition #</span>
 <span class="c1">##############################</span>
 <div class="viewcode-block" id="AffineQuantizedTensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:</span>
-<span class="sd">       quantized_tensor = float_tensor / scale + zero_point</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:</span>
+<span class="sd">    quantized_tensor = float_tensor / scale + zero_point</span>
 
 <span class="sd">    To see what happens during choose_qparams, quantization and dequantization for affine quantization,</span>
 <span class="sd">    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py</span>
@@ -462,21 +464,18 @@
 <span class="sd">    regardless of the internal representation&#39;s type or orientation.</span>
 
 <span class="sd">    fields:</span>
-<span class="sd">      tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,</span>
-<span class="sd">         e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device</span>
-<span class="sd">         and operator/kernel</span>
-<span class="sd">      block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that&#39;s sharing the same qparam</span>
-<span class="sd">         e.g. when size is the same as the input tensor dimension, we are using per tensor quantization</span>
-<span class="sd">      shape (torch.Size): the shape for the original high precision Tensor</span>
-<span class="sd">      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
-<span class="sd">      quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
-<span class="sd">      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float</span>
-<span class="sd">        if zero_point is in integer domain, zero point is added to the quantized integer value during</span>
-<span class="sd">        quantization</span>
-<span class="sd">        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)</span>
-<span class="sd">        value during quantization</span>
-<span class="sd">        default is ZeroPointDomain.INT</span>
-<span class="sd">      dtype: dtype for original high precision tensor, e.g. torch.float32</span>
+<span class="sd">        - tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,</span>
+<span class="sd">            e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device and operator/kernel</span>
+<span class="sd">        - block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that&#39;s sharing the same qparam</span>
+<span class="sd">            e.g. when size is the same as the input tensor dimension, we are using per tensor quantization</span>
+<span class="sd">        - shape (torch.Size): the shape for the original high precision Tensor</span>
+<span class="sd">        - quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
+<span class="sd">        - quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
+<span class="sd">        - zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float</span>
+<span class="sd">            if zero_point is in integer domain, zero point is added to the quantized integer value during quantization</span>
+<span class="sd">            if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized) value during quantization</span>
+<span class="sd">            default is ZeroPointDomain.INT</span>
+<span class="sd">        - dtype: dtype for original high precision tensor, e.g. torch.float32</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@staticmethod</span>
@@ -491,6 +490,8 @@
         <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="n">strides</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tensor_impl</span><span class="o">.</span><span class="n">device</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;layout&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
@@ -596,7 +597,7 @@
             <span class="n">strides</span><span class="o">=</span><span class="n">outer_stride</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="AffineQuantizedTensor.from_hp_to_intx"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_intx">[docs]</a>    <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_hp_to_intx</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -609,10 +610,11 @@
         <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">zero_point_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">preserve_zero</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">(),</span>
         <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a high precision tensor to an integer affine quantized tensor.&quot;&quot;&quot;</span>
         <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">input_float</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
 
@@ -667,8 +669,7 @@
                 <span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="c1"># choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None</span>
-            <span class="c1"># TODO should probably consolidate ZeroPointDomain.NONE and None</span>
-            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
                 <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
                 <span class="n">input_float</span><span class="p">,</span>
@@ -693,9 +694,9 @@
             <span class="n">quant_max</span><span class="p">,</span>
             <span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
-    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="AffineQuantizedTensor.from_hp_to_intx_static"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_intx_static">[docs]</a>    <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_hp_to_intx_static</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -705,13 +706,15 @@
         <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">PlainLayout</span><span class="p">(),</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create an integer AffineQuantizedTensor from a high precision tensor using static parameters.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-            <span class="p">),</span> <span class="s2">&quot;zero_point_domain must be specified for non-fp8 types&quot;</span>
             <span class="k">assert</span> <span class="p">(</span>
                 <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
             <span class="p">),</span> <span class="s2">&quot;zero_point must be specified for non-fp8 types&quot;</span>
@@ -743,9 +746,9 @@
             <span class="n">quant_max</span><span class="p">,</span>
             <span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
-    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="AffineQuantizedTensor.from_hp_to_floatx"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_floatx">[docs]</a>    <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_hp_to_floatx</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -754,6 +757,7 @@
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
         <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a high precision tensor to a float8 quantized tensor.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_hp_to_intx</span><span class="p">(</span>
                 <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
@@ -766,16 +770,16 @@
                 <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
                 <span class="n">zero_point_dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                 <span class="n">preserve_zero</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">zero_point_domain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
                 <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
                 <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Unsupported dtype </span><span class="si">{</span><span class="n">target_dtype</span><span class="si">}</span><span class="s2"> for from_hp_to_floatx&quot;</span>
-            <span class="p">)</span>
+            <span class="p">)</span></div>
 
-    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="AffineQuantizedTensor.from_hp_to_floatx_static"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_floatx_static">[docs]</a>    <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_hp_to_floatx_static</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -784,6 +788,7 @@
         <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_hp_to_intx_static</span><span class="p">(</span>
                 <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
@@ -793,20 +798,21 @@
                 <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
                 <span class="n">quant_min</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
                 <span class="n">quant_max</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
-                <span class="n">zero_point_domain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
                 <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Unsupported dtype </span><span class="si">{</span><span class="n">target_dtype</span><span class="si">}</span><span class="s2"> for from_hp_to_floatx_static&quot;</span>
-            <span class="p">)</span>
+            <span class="p">)</span></div>
 
-    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="AffineQuantizedTensor.from_hp_to_fpx"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.from_hp_to_fpx">[docs]</a>    <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_hp_to_fpx</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7.&quot;&quot;&quot;</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
 
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
@@ -826,7 +832,7 @@
 
         <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
         <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">floatx_packed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">tensor_impl</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">original_shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">tensor_impl</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">original_shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span></div>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_layout</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Layout</span><span class="p">:</span>

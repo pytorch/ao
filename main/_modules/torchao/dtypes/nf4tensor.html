@@ -287,7 +287,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -313,12 +313,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -329,6 +330,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -1068,10 +1071,9 @@
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Used to unpack the double quantized scalers</span>
 
-<span class="sd">        Args;</span>
+<span class="sd">        Args:</span>
 <span class="sd">            input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format</span>
 <span class="sd">            quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype</span>
-<span class="sd">                size: (n_scaler_blocks)</span>
 <span class="sd">            scaler_block_size: Scaler block size to use for double quantization.</span>
 
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -1359,6 +1361,7 @@
 
 
 <div class="viewcode-block" id="to_nf4"><a class="viewcode-back" href="../../../generated/torchao.dtypes.to_nf4.html#torchao.dtypes.to_nf4">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">to_nf4</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a given tensor to normalized float 4-bit tensor.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span></div>
 
 

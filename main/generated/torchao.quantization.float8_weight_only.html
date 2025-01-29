@@ -290,7 +290,7 @@
           <div class="pytorch-left-menu-search">
             
     <div class="version">
-        <a href='index.html'>main &#x25BC</a>
+        <a href='https://pytorch.org/ao/versions.html'>main &#x25BC</a>
     </div>
     
 
@@ -316,12 +316,13 @@
             
               <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">torchao Contributor Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributor_guide.html">Contributor Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -332,6 +333,8 @@
 <p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 
             
@@ -414,11 +417,11 @@
 <h1>float8_weight_only<a class="headerlink" href="#float8-weight-only" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.quantization.float8_weight_only">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">float8_weight_only</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.5)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#float8_weight_only"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.float8_weight_only" title="Permalink to this definition">¶</a></dt>
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">float8_weight_only</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.6)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#float8_weight_only"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.float8_weight_only" title="Permalink to this definition">¶</a></dt>
 <dd><p>Applies float8 weight-only symmetric per-channel quantization to linear layers.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>weight_dtype</strong> (<a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.5)"><em>torch.dtype</em></a>) – The target data type for weight quantization. Default is torch.float8_e4m3fn.</p>
+<dd class="field-odd"><p><strong>weight_dtype</strong> (<a class="reference external" href="https://pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.6)"><em>torch.dtype</em></a>) – The target data type for weight quantization. Default is torch.float8_e4m3fn.</p>
 </dd>
 </dl>
 <div class="admonition note">
