@@ -338,64 +338,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_hp_to_floatx(
-        cls,
-        input_float: torch.Tensor,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        _layout: Layout,
-        scale_dtype: Optional[torch.dtype] = None,
-    ):
-        """Convert a high precision tensor to a float8 quantized tensor."""
-        if target_dtype in FP8_TYPES:
-            return cls.from_hp_to_intx(
-                input_float=input_float,
-                mapping_type=MappingType.SYMMETRIC,
-                block_size=block_size,
-                target_dtype=target_dtype,
-                quant_min=math.ceil(torch.finfo(target_dtype).min),
-                quant_max=math.ceil(torch.finfo(target_dtype).max),
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=None,
-                preserve_zero=True,
-                zero_point_domain=None,
-                _layout=_layout,
-                use_hqq=False,
-            )
-        else:
-            raise NotImplementedError(
-                f"Unsupported dtype {target_dtype} for from_hp_to_floatx"
-            )
-
-    @classmethod
-    def from_hp_to_floatx_static(
-        cls,
-        input_float: torch.Tensor,
-        scale: torch.Tensor,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        _layout: Layout,
-    ):
-        """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
-        if target_dtype in FP8_TYPES:
-            return cls.from_hp_to_intx_static(
-                input_float=input_float,
-                scale=scale,
-                zero_point=None,
-                block_size=block_size,
-                target_dtype=target_dtype,
-                quant_min=math.ceil(torch.finfo(target_dtype).min),
-                quant_max=math.ceil(torch.finfo(target_dtype).max),
-                zero_point_domain=None,
-                _layout=_layout,
-            )
-        else:
-            raise NotImplementedError(
-                f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static"
-            )
-
-    @classmethod
     def from_hp_to_fpx(
         cls,
         input_float: torch.Tensor,
