@@ -104,11 +104,12 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ):
         super().__init__()
         assert granularity is not None, "granularity is None"
-
+        if zero_point_domain is None:
+            raise ValueError("Please use ZeroPointDomain.NONE instead of None")
         self.mapping_type = mapping_type
         self.target_dtype = target_dtype
         self.granularity = granularity
