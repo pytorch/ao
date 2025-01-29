@@ -7,9 +7,9 @@
 # This script was initially developed for sub-byte MX dtypes (FP4 E2M1, FP6 E3M2, and FP6 E2M3).
 # It has been refactored to support any sub-byte FP dtypes. However, some behaviors of MX dtypes remain:
 #   1. No encodings are reserved for special values (+/-inf, NaN).
-#   2. When downcasting from FP32 to FPx,
+#   2. When downcasting from FP32 to Floatx,
 #      - Rounding mode is round to nearest, ties to even.
-#      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
+#      - Values outside the representable range of Floatx after rounding are clamped to the maximum Floatx
 #      magnitude (sign is preserved).
 
 import torch
@@ -24,7 +24,7 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
@@ -35,8 +35,8 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
       fp6: bits 0-1 empty and bits 2-7 in fp6_e2m3 or fp6_e3m2 encoding
 
     Note: there are no special values (NaN, inf) support in this code. Values
-    outside the representable range of FPx after rounding are clamped to the
-    maximum FPx magnitude (sign is preserved).
+    outside the representable range of Floatx after rounding are clamped to the
+    maximum Floatx magnitude (sign is preserved).
 
     Code below is an adaptation of https://fburl.com/code/ciwofcg4
 
@@ -55,7 +55,7 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     magic_adder = _n_ones(MBITS_F32 - mbits - 1)
 
     # all E bits and M bits are 1s
-    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2**mbits))
 
     # E bits = 1, M bits = 0
     min_normal = 2 ** (1 - exp_bias)
@@ -71,7 +71,9 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     denorm_mask_int = denorm_exp << MBITS_F32
 
     # reinterpret int32 as float32
-    denorm_mask_float = torch.tensor(denorm_mask_int, dtype=torch.int32).view(torch.float32)
+    denorm_mask_float = torch.tensor(denorm_mask_int, dtype=torch.int32).view(
+        torch.float32
+    )
 
     # save the sign
     # Note that we have torch.uint32, but some ops like cpu bit shifts
@@ -142,7 +144,7 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
 
 # TODO(future): check if LUT for everything is faster than bit shifting,
 # especially for fp4 (only 2^4=16 unique values).
-def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _floatx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
     """Convert sub-byte floating point numbers with the given number of exponent
     and mantissa bits to FP32.
 
@@ -208,17 +210,21 @@ def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
         # i=2, j=100,101,110,111
         # and so on
         for i in range(mbits):
-            for mantissa_cmp in range(1 << i, 1 << (i+1)):
+            for mantissa_cmp in range(1 << i, 1 << (i + 1)):
                 # left shift mantissa until it overflows (create an implicit 1)
                 # subtract exponent by the same amount
                 left_shift = mbits - i
-                mantissa_f32 = (mantissa_cmp - (1 << i)) << (left_shift + MBITS_F32 - mbits)
+                mantissa_f32 = (mantissa_cmp - (1 << i)) << (
+                    left_shift + MBITS_F32 - mbits
+                )
                 exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
 
                 # we can update this in-place since the values won't overlap
                 # torch.compile() may complain unsupported operand type(s) for |: 'SymInt' and 'int'
                 # thus we use + instead of | here
-                mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = exp_biased_f32 + mantissa_f32
+                mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = (
+                    exp_biased_f32 + mantissa_f32
+                )
 
         result = torch.where(denormal_mask, mantissa_lp_int32, result)
 

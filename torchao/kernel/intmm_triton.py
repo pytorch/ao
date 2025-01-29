@@ -1,14 +1,13 @@
 import itertools
-import os
 
 import torch
-
 import triton
 import triton.language as tl
 
 from torchao.kernel.autotuner import get_best_config_fn
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
-int8_powers_of_two = [32, 64, 128, 256]
+# TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_SEARCH_SPACE=EXHAUSTIVE to enable exhaustive option
 int8_mm_kernel_configs = sum(
     [
         # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
@@ -29,12 +28,22 @@ int8_mm_kernel_configs = sum(
             (i, j, k, 7, 8),
             (i, j, k, 8, 8),
         ]
-        for (i, j, k) in itertools.product(
-            int8_powers_of_two, int8_powers_of_two, int8_powers_of_two
-        )
+        for (i, j, k) in itertools.product([32, 64, 128, 256], repeat=3)
     ],
     [],
 )
+
+if TORCH_VERSION_AFTER_2_5:
+    if torch._inductor.config.max_autotune_gemm_search_space == "EXHAUSTIVE":
+        int8_mm_kernel_configs = [
+            (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
+            for BLOCK_M, BLOCK_N, BLOCK_K in itertools.product(
+                [16, 32, 64, 128, 256], repeat=3
+            )
+            for num_stages in [1, 2, 3, 4, 5, 6, 7, 8]
+            for num_warps in [2, 4, 8]
+        ]
+
 
 # Baseline configs from pytorch/pytorch
 # https://github.com/pytorch/pytorch/blob/7718a1cd4f8e0b794c18a31ebd6353d6273c534e/torch/_inductor/kernel/mm_common.py#L132-L147
@@ -356,9 +365,3 @@ def int_scaled_matmul_cuda(a, b, scales1):
         int_scaled_matmul_kernel, [a, b, scales1, c], int8_mm_kernel_configs
     )
     return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
-
-
-@torch.library.impl(lib, "int_scaled_matmul", "CPU")
-def int_scaled_matmul_cpu(a, b, scales1):
-    c = torch._int_mm(a, b)
-    return c.to(scales1.dtype) * scales1

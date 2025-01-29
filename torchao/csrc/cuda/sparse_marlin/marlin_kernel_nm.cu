@@ -401,10 +401,13 @@ __global__ void Marlin_24(
         meta_ptr[i] += m_gl_rd_delta_o;
       }
       // Only fetch scales if this tile starts a new group
-      if (group_blocks != -1 && pipe % (group_blocks / thread_k_blocks) == 0) {
-        int4* sh_s_stage = sh_s + s_sh_stage * pipe;
-        if (s_sh_wr_pred) cp_async4(&sh_s_stage[s_sh_wr], &s[s_gl_rd]);
-        s_gl_rd += s_gl_rd_delta;
+      if constexpr (group_blocks != -1) {
+        if (pipe % (group_blocks / thread_k_blocks) == 0) {
+          int4 *sh_s_stage = sh_s + s_sh_stage * pipe;
+          if (s_sh_wr_pred)
+            cp_async4(&sh_s_stage[s_sh_wr], &s[s_gl_rd]);
+          s_gl_rd += s_gl_rd_delta;
+        }
       }
     }
     // Insert a fence even when we are winding down the pipeline to ensure that
@@ -429,7 +432,7 @@ __global__ void Marlin_24(
     // however, this does not seem to be a significant bottleneck, while some
     // theoretically better attempts have lead to bad instruction ordering by
     // the compiler and correspondingly a noticeable drop in performance.
-    if (group_blocks != -1) {
+    if constexpr (group_blocks != -1) {
       int4* sh_s_stage =
           sh_s + s_sh_stage * ((group_blocks / thread_k_blocks) *
                                (pipe / (group_blocks / thread_k_blocks)));
@@ -852,8 +855,6 @@ __global__ void Marlin_24(
   }
 }
 
-#endif
-
 #define CALL_IF_2_4(NUM_BITS, THREAD_M_BLOCKS, THREAD_N_BLOCKS,               \
                     THREAD_K_BLOCKS, GROUP_BLOCKS)                            \
   else if (num_bits == NUM_BITS && thread_m_blocks == THREAD_M_BLOCKS &&      \
@@ -1118,6 +1119,8 @@ torch::Tensor marlin_24_gemm(torch::Tensor& a, torch::Tensor& b_q_weight,
 
   return c;
 }
+
+#endif
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::marlin_24_gemm", &marlin_24_gemm);

@@ -5,6 +5,8 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
 #include <arm_neon.h>
 #include <utility>
 
@@ -26,3 +28,5 @@ int32_t compute_sum(const int8_t* vals, int size);
 } // namespace cpu
 } // namespace kernels
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

@@ -1,0 +1,23 @@
+- func: Vec4Type
+  file: common.metal
+
+- func: int1mm
+  file: int1mm.metal
+
+- func: int2mm
+  file: int2mm_opt.metal
+
+- func: int3mm
+  file: int3mm_opt.metal
+
+- func: int4mm
+  file: int4mm_opt.metal
+
+- func: int5mm
+  file: int5mm.metal
+
+- func: int6mm
+  file: int6mm.metal
+
+- func: int7mm
+  file: int7mm.metal

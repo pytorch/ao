@@ -28,7 +28,6 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
     E8M0_EXPONENT_NAN_VAL,
-    F32_MIN_NORMAL,
     F4_E2M1_MAX,
     F4_E2M1_MAX_POW2,
     F6_E2M3_MAX,
@@ -39,16 +38,16 @@ from torchao.prototype.mx_formats.constants import (
     F8E4M3_MAX_POW2,
     F8E5M2_MAX,
     F8E5M2_MAX_POW2,
+    F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
-
 from torchao.prototype.mx_formats.custom_cast import (
-    f32_to_f4_unpacked,
-    f32_to_f6_e2m3_unpacked,
-    f32_to_f6_e3m2_unpacked,
     f4_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
+    f32_to_f4_unpacked,
+    f32_to_f6_e2m3_unpacked,
+    f32_to_f6_e3m2_unpacked,
     pack_uint4,
     triton_f4_to_scaled_bf16,
     unpack_uint4,
@@ -315,6 +314,10 @@ class MXTensor(torch.Tensor):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
             # set the tensor size to what it would be without 2x4 packing
+            # Note: `is_contiguous` is going to return True for a tensor of size
+            # (M, 1) regardless or the order of dims, so this logic is currently
+            # broken for tensors of size (M, 1) or (1, M). Leaving broken until
+            # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
                 data_bits.is_contiguous(),
@@ -322,6 +325,9 @@ class MXTensor(torch.Tensor):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             new_size,
+            strides=data_bits.stride(),
+            storage_offset=data_bits.storage_offset(),
+            layout=data_bits.layout,
             dtype=orig_dtype,
             device=data_bits.device,
         )

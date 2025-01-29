@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - 'gh/**'
   pull_request:
     branches:
       - main
+      - 'gh/**'
 
 concurrency:
   group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
@@ -22,22 +24,29 @@ jobs:
       matrix:
         include:
           - name: SM-89
-            runs-on: amz2023.linux.g6.4xlarge.experimental.nvidia.gpu
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
+            gpu-arch-version: "12.4"
+          - name: H100
+            runs-on: linux.aws.h100
+            torch-spec: '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.4"
 
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 60
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
-        echo "::group::Install newer objcopy that supports --set-section-alignment"
-        yum install -y  devtoolset-10-binutils
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

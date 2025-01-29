@@ -6,7 +6,7 @@ from torchao.prototype.quantized_training.int8_mm import int8_mm_dequant
 
 
 def bench_f(f, *args):
-    return do_bench(lambda: f(*args), fast_flush=False, return_mode="median")
+    return do_bench(lambda: f(*args), return_mode="median")
 
 
 shapes = [(sz, sz, sz) for sz in [1024, 2048, 4096]]
@@ -41,5 +41,7 @@ for M, N, K in shapes:
     sample = [M, N, K, bf16_time / i8_time, bf16_time / i8_dequant_time]
     data.append(sample)
 
-df = pd.DataFrame(data, columns=["M", "N", "K", "CuBLAS INT8 speedup", "Triton INT8 dequant speedup"])
+df = pd.DataFrame(
+    data, columns=["M", "N", "K", "CuBLAS INT8 speedup", "Triton INT8 dequant speedup"]
+)
 print(df.to_markdown())

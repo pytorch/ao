@@ -1,11 +1,12 @@
 import copy
 import itertools
-import pytest
 import threading
 import unittest
 from typing import Any, List, Optional
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+import pytest
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_89
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -15,18 +16,14 @@ import torch
 import torch._dynamo.testing
 import torch.distributed as dist
 import torch.nn as nn
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
-from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from fsdp2_common import check_parity_bf16_mp, check_parity_no_mp
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
-from torch.distributed._tensor import DTensor
+from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed._tensor import DTensor, init_device_mesh
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import (
+    MLP,
     FSDPTest,
     FSDPTestMultiThread,
-    MLP,
     patch_all_gather,
 )
 from torch.testing._internal.common_utils import run_tests
@@ -36,9 +33,16 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     TransformerBlock,
 )
 
-is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
-if not is_cuda_8_9:
+from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
+from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
+
+if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
+
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -59,7 +63,9 @@ class TestFloat8Common:
         self.broadcast_module(module)
         return module
 
-    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
+    def init_transformer(
+        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
+    ) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
@@ -160,8 +166,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             module,
             optim,
             local_inp,
-            precompute,
             config=float8_linear_config2,
+            precompute=precompute,
             compile_transformer_block=compile_transformer_block,
         )
 
@@ -291,6 +297,36 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     def _get_curr_active_memory_mb(self) -> int:
         mem_stats = torch.cuda.memory_stats()
         return round(mem_stats["active_bytes.all.current"] / 1e6)
+
+
+class Test2DParallelMultiThread(FSDPTestMultiThread, TestFloat8Common):
+    @property
+    def world_size(self) -> int:
+        return 4
+
+    def test_amax_allreduce_device_mesh(self):
+        dp_size = 2
+        pp_size = self.world_size // dp_size
+        global_mesh = init_device_mesh(
+            "cuda", (pp_size, dp_size), mesh_dim_names=("pp", "dp")
+        )
+        dp_mesh = global_mesh["dp"]
+
+        if self.rank in [0, 1]:
+            # rank 0 and 1 are the 1st stage in the pipeline
+            # rank 2 and 4 are doing nothing but waiting for the 1st stage
+            torch.manual_seed(42 + self.rank)
+            hp_tensor = torch.randn(768, 32, device="cuda")
+            hp_tensor_to_float8_dynamic(
+                hp_tensor,
+                torch.float8_e4m3fn,
+                Float8LinearConfig(
+                    cast_config_weight=CastConfig(scaling_type=ScalingType.DYNAMIC),
+                ),
+                gemm_input_role=GemmInputRole.WEIGHT,
+                reduce_amax=True,
+                device_mesh=dp_mesh,
+            )
 
 
 class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
@@ -429,7 +465,6 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
             [ScalingType.DYNAMIC, ScalingType.DELAYED, ScalingType.STATIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
-
             if scaling_type_weight is ScalingType.STATIC:
                 cast_config_weight = CastConfig(
                     scaling_type=scaling_type_weight,

@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
 
@@ -44,3 +46,5 @@ void torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
     i += 1;
   }
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

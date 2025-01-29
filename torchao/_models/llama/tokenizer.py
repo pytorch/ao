@@ -1,14 +1,8 @@
 # copied from https://github.com/pytorch-labs/gpt-fast/blob/main/tokenizer.py
 
 import os
-import sentencepiece as spm
-try:
-    import tiktoken
-    from tiktoken.load import load_tiktoken_bpe
-except:
-    pass
 from pathlib import Path
-from typing import Dict
+
 
 class TokenizerInterface:
     def __init__(self, model_path):
@@ -26,8 +20,11 @@ class TokenizerInterface:
     def eos_id(self):
         raise NotImplementedError("This method should be overridden by subclasses.")
 
+
 class SentencePieceWrapper(TokenizerInterface):
     def __init__(self, model_path):
+        import sentencepiece as spm
+
         super().__init__(model_path)
         self.processor = spm.SentencePieceProcessor(str(model_path))
         self.bos_token_id = self.bos_id()
@@ -45,21 +42,25 @@ class SentencePieceWrapper(TokenizerInterface):
     def eos_id(self):
         return self.processor.eos_id()
 
+
 class TiktokenWrapper(TokenizerInterface):
     """
     Tokenizing and encoding/decoding text using the Tiktoken tokenizer.
     """
 
-    special_tokens: Dict[str, int]
+    special_tokens: dict[str, int]
 
     num_reserved_special_tokens = 256
 
     pat_str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"  # noqa: E501
 
     def __init__(self, model_path):
+        import tiktoken
+        import tiktoken.load
+
         super().__init__(model_path)
         assert os.path.isfile(model_path), str(model_path)
-        mergeable_ranks = load_tiktoken_bpe(str(model_path))
+        mergeable_ranks = tiktoken.load.load_tiktoken_bpe(str(model_path))
         num_base_tokens = len(mergeable_ranks)
         special_tokens = [
             "<|begin_of_text|>",
@@ -102,6 +103,7 @@ class TiktokenWrapper(TokenizerInterface):
 
     def eos_id(self):
         return self._eos_id
+
 
 def get_tokenizer(tokenizer_model_path, model_name):
     """

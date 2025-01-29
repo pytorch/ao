@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_prepare_activation_data_1xk_f32-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
@@ -33,7 +36,6 @@ inline float clamp(float x, float min, float max) {
 // * weights are kxn and transposed, stored in column-major order.
 //   (can also be viewed as nxk non-transposed weights stored in row-major
 //   order).
-// * bias are mx1.  Ignored if has_bias = false.
 // * F is an element-wise activation function, either clamp (has_clamp = true)
 //   or linear (has_clamp = false).
 // * output is mxn.
@@ -82,8 +84,6 @@ void kernel_impl(
     int group_size,
     const void* weight_data,
     const void* activation_data,
-    // Ignored if has_bias is false
-    const float* bias,
     // Ignored if has_clamp is false
     float clamp_min,
     float clamp_max) {
@@ -159,7 +159,9 @@ void kernel_impl(
         }
       } // k_idx
       if constexpr (has_bias) {
-        res += bias[m_idx];
+        float bias = *((float*)weight_data_byte_ptr);
+        weight_data_byte_ptr += sizeof(float);
+        res += bias;
       }
       if constexpr (has_clamp) {
         res = clamp(res, clamp_min, clamp_max);
@@ -178,12 +180,13 @@ void kernel_impl(
 //  The groupi_zero is only present if has_weight_zeros = true.
 
 // Returns number of bytes required for weight_data
-int inline weight_data_size_impl(
+size_t inline weight_data_size_impl(
     int n,
     int k,
     int group_size,
     int weight_nbit,
-    bool has_weight_zeros) {
+    bool has_weight_zeros,
+    bool has_bias) {
   assert(k % group_size == 0);
   assert(k % 32 == 0);
   int groups_per_col = k / group_size;
@@ -204,10 +207,14 @@ int inline weight_data_size_impl(
     col_size += sizeof(int8_t) * groups_per_col;
   }
 
+  if (has_bias) {
+    col_size += sizeof(float);
+  }
+
   return col_size * n;
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_bias>
 void prepare_weight_data_impl(
     // Output
     void* weight_data,
@@ -218,7 +225,8 @@ void prepare_weight_data_impl(
     const int8_t* weight_qvals,
     const float* weight_scales,
     // Ignored if has_weight_zeros = false
-    const int8_t* weight_zeros) {
+    const int8_t* weight_zeros,
+    const float* bias) {
   assert(k % group_size == 0);
   assert(group_size % 32 == 0);
 
@@ -230,6 +238,7 @@ void prepare_weight_data_impl(
   const int8_t* qvals_ptr = weight_qvals;
   const float* scales_ptr = weight_scales;
   const int8_t* zeros_ptr = weight_zeros;
+  const float* bias_ptr = bias;
 
   for (int n_idx = 0; n_idx < n; n_idx++) {
     for (int k_idx = 0; k_idx < k; k_idx += group_size) {
@@ -258,6 +267,10 @@ void prepare_weight_data_impl(
         weight_data_byte_ptr += sizeof(int8_t);
       }
     }
+    if constexpr (has_bias) {
+      *((float*)weight_data_byte_ptr) = *bias_ptr++;
+      weight_data_byte_ptr += sizeof(float);
+    }
   }
 }
 
@@ -267,7 +280,7 @@ void prepare_weight_data_impl(
 
 // Activation functions
 template <bool has_weight_zeros>
-int torchao::kernels::cpu::aarch64::linear::
+size_t torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
         activation_data_size(int m, int k, int group_size) {
   return torchao::kernels::cpu::aarch64::linear::
@@ -293,17 +306,17 @@ void torchao::kernels::cpu::aarch64::linear::
 }
 
 // Weight functions
-template <int weight_nbit, bool has_weight_zeros>
-int torchao::kernels::cpu::aarch64::linear::
+template <int weight_nbit, bool has_weight_zeros, bool has_bias>
+size_t torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
         weight_data_size(int n, int k, int group_size) {
   return torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
           internal::weight_data_size_impl(
-              n, k, group_size, weight_nbit, has_weight_zeros);
+              n, k, group_size, weight_nbit, has_weight_zeros, has_bias);
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_bias>
 void torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
         prepare_weight_data(
@@ -314,17 +327,20 @@ void torchao::kernels::cpu::aarch64::linear::
             int group_size,
             const int8_t* weight_qvals,
             const float* weight_scales,
-            const int8_t* weight_zeros) {
+            const int8_t* weight_zeros,
+            const float* bias) {
   torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
-          internal::prepare_weight_data_impl<weight_nbit, has_weight_zeros>(
-              weight_data,
-              n,
-              k,
-              group_size,
-              weight_qvals,
-              weight_scales,
-              weight_zeros);
+          internal::
+              prepare_weight_data_impl<weight_nbit, has_weight_zeros, has_bias>(
+                  weight_data,
+                  n,
+                  k,
+                  group_size,
+                  weight_qvals,
+                  weight_scales,
+                  weight_zeros,
+                  bias);
 }
 
 // Kernel function
@@ -342,8 +358,6 @@ void torchao::kernels::cpu::aarch64::linear::
             int group_size,
             const void* weight_data,
             const void* activation_data,
-            // Not applied if nullptr
-            const float* bias,
             // Ignored if has_clamp = false
             float clamp_min,
             float clamp_max) {
@@ -359,7 +373,8 @@ void torchao::kernels::cpu::aarch64::linear::
                   group_size,
                   weight_data,
                   activation_data,
-                  bias,
                   clamp_min,
                   clamp_max);
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

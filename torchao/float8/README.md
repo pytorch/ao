@@ -11,6 +11,8 @@ throughput speedups of up to 1.5x on 128 GPU LLaMa 3 70B pretraining jobs.
 
 :warning: <em>The codebase is stable, but backwards compatibility is not yet guaranteed.</em>
 
+:warning: <em>These APIs are training-only and float8-only, and we plan to [unify them with the rest of torchao](https://github.com/pytorch/ao/issues/894) in the future.</em>
+
 # Single GPU User API
 
 We provide three per-tensor scaling strategies: dynamic, delayed and static.  See https://arxiv.org/pdf/2209.05433.pdf, Section 4.3 for more details. These strategies are configurable separately for activations (`input`), weights (`weight`) and gradients (`grad_output`).
@@ -23,6 +25,10 @@ This is the most accurate recipe as every tensor is scaled dynamically.
 import torch
 import torch.nn as nn
 from torchao.float8 import convert_to_float8_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+if not TORCH_VERSION_AT_LEAST_2_5:
+    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 m = nn.Sequential(
@@ -71,6 +77,13 @@ from torchao.float8 import (
     ScalingType,
     CastConfig,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+if not TORCH_VERSION_AT_LEAST_2_5:
+    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
+
+# Recommended: enable additional torchinductor passes to improve the performance of delayed scaling
+torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()
 
 # create model and sample input
 m = nn.Sequential(
@@ -85,8 +98,6 @@ config = Float8LinearConfig(
     cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
     cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
     cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-    # enable_amax_init=False,  # only needed for autocast + compile + FSDP +  float8 delayed
-    # enable_pre_and_post_forward=False  # only needed for autocast + compile + FSDP +  float8 delayed
 )
 
 # convert all `torch.nn.Linear` modules to `Float8Linear`, specifying custom scaling behavior
@@ -101,8 +112,11 @@ for _ in range(10):
     y = m(x)
     y.sum().backward()
 
-    # specific to float8 with delayed scaling: separate step to sync scales/amaxes
-    # in the future, this may move to a context manager
+    # Specific to delayed scaling: separate step to sync scales/amaxes.
+    # On the first call, this function also sets the `is_amax_initialized` flag to
+    # mark the amax and scale buffers as initialized.
+    # Make sure you run this after every model forward+backward pass.
+    # In the future, this may move to a context manager.
     sync_float8_amax_and_scale_history(m)
 
     optimizer.step()
@@ -113,6 +127,8 @@ for _ in range(10):
 We compose with the `DTensor` based [distributed APIs](https://pytorch.org/docs/stable/distributed.tensor.parallel.html),
 such as FSDP, TP and SP. Please see the [torchtitan](https://github.com/pytorch/torchtitan) repository for e2e examples
 on using `torchao.float8` in a distributed setting.
+
+:warning: <em>When using FSDP, it's recommended to enable `config.force_recompute_fp8_weight_in_bwd`, which prevents the un-sharded fp8 weights to be saved for backward. If you are using customized activation checkpoiting, you may ignore this config and handle the recomputation of fp8 weights in the customized AC code. </em>
 
 # Performance
 
@@ -159,7 +175,7 @@ For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium
 
 ## Scaling type vs speedup
 
-Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements.  Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling, so the observed performance of delayed scaling is close to that of dynamic scaling. As the torch.compile limitations are fixed, we expect delayed scaling to eventually become more performant compared to dynamic scaling.
+Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements. Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling without workarounds.  We have a prototype workaround (API subject to change) with the `torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()` API to improve delayed scaling performance.
 
 ## torch.compile behavior vs speedup
 

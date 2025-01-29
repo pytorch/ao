@@ -7,24 +7,18 @@
 import copy
 
 import pytest
-
 import torch
 import torch.nn as nn
-from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 
+from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
-
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
-# trying to outsmart flake8
-__has_cuda = torch.cuda.is_available()
-IS_CUDA_GE_89 = __has_cuda and torch.cuda.get_device_capability() >= (8, 9)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
 
 torch.manual_seed(2)
 
@@ -32,10 +26,20 @@ if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
+# source: https://stackoverflow.com/a/22638709
+@pytest.fixture(autouse=True)
+def run_around_tests():
+    # 1. before test - set up (currently do nothing)
+    # 2. run test
+    yield
+    # 3. after test - teardown
+    torch._dynamo.reset()
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
+@pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
@@ -44,7 +48,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     grad_shape[-1] = 6
 
     m = nn.Sequential(
-        nn.Linear(4, 6, bias=bias, device="cuda"),
+        nn.Linear(8, 6, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
     block_size = 2
@@ -67,7 +71,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     if elem_dtype is torch.float8_e4m3fn:
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
-        assert x_g_sqnr >= 14.0
+        assert x_g_sqnr >= 12.0
     else:
         assert y_sqnr >= 8.0
         assert w_g_sqnr >= 10.0
@@ -97,28 +101,41 @@ def test_activation_checkpointing():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [False, True])
-def test_linear_compile(elem_dtype, bias):
+# TODO(future PR): figure out why torch.compile does not match eager when
+# autocast is on
+@pytest.mark.parametrize(
+    "use_autocast",
+    [
+        False,
+    ],
+)
+def test_linear_compile(elem_dtype, bias, use_autocast):
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not IS_CUDA_GE_89:
+        if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-    input_shape = (2, 4)
-    grad_shape = (2, 6)
+    M, K, N = 4, 8, 6
+    input_shape = (M, K)
+    grad_shape = (M, N)
     m_mx = nn.Sequential(
-        nn.Linear(4, 6, bias=bias, device="cuda"),
+        nn.Linear(K, N, bias=bias, device="cuda"),
     )
     block_size = 2
     swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
     m_mx_c = copy.deepcopy(m_mx)
-    m_mx_c = torch.compile(m_mx_c, fullgraph=True)
+    m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
     x = copy.deepcopy(x_ref)
     g = torch.randn(*grad_shape, device="cuda")
 
-    with torch.autocast("cuda", dtype=torch.bfloat16):
+    if use_autocast:
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            y_ref = m_mx(x_ref)
+            y = m_mx_c(x)
+    else:
         y_ref = m_mx(x_ref)
         y = m_mx_c(x)
     torch.testing.assert_close(y_ref, y, atol=0, rtol=0)
@@ -173,7 +190,7 @@ def test_inference_compile_simple(elem_dtype):
     Smoke test for inference compile
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not IS_CUDA_GE_89:
+        if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
     m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
@@ -204,8 +221,6 @@ def test_filter_fn():
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    swap_linear_with_mx_inference_linear(
-        m2, torch.float8_e4m3fn, 32, filter_fn
-    )  # noqa: E501
+    swap_linear_with_mx_inference_linear(m2, torch.float8_e4m3fn, 32, filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear

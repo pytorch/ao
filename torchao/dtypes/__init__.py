@@ -1,38 +1,55 @@
-from .nf4tensor import NF4Tensor, to_nf4
-# from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
-from .uint4 import UInt4Tensor
+from . import affine_quantized_tensor_ops
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
-    to_affine_quantized_intx,
-    to_affine_quantized_intx_static,
-    # experimental, will be merged into floatx in the future
-    to_affine_quantized_fpx,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
-    LayoutType,
-    PlainLayoutType,
-    SemiSparseLayoutType,
-    TensorCoreTiledLayoutType,
-    Float8LayoutType,
-    Float8AQTLayout,
-    MarlinSparseLayoutType,
+    # experimental, will be merged into floatx in the future
+    to_affine_quantized_fpx,
+    to_affine_quantized_intx,
+    to_affine_quantized_intx_static,
+)
+from .floatx import (
+    Float8Layout,
+)
+from .nf4tensor import NF4Tensor, to_nf4
+from .uintx import (
+    BlockSparseLayout,
+    CutlassInt4PackedLayout,
+    Int4CPULayout,
+    MarlinQQQLayout,
+    MarlinQQQTensor,
+    MarlinSparseLayout,
+    SemiSparseLayout,
+    TensorCoreTiledLayout,
+    UintxLayout,
+    to_marlinqqq_quantized_intx,
+)
+from .utils import (
+    Layout,
+    PlainLayout,
 )
 
 __all__ = [
     "NF4Tensor",
     "to_nf4",
-    "UInt4Tensor"
     "AffineQuantizedTensor",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_fpx",
     "to_affine_quantized_floatx",
     "to_affine_quantized_floatx_static",
-    "LayoutType",
-    "PlainLayoutType",
-    "SemiSparseLayoutType",
-    "TensorCoreTiledLayoutType",
-    "Float8LayoutType",
-    "Float8AQTLayout",
-    "MarlinSparseLayoutType",
+    "to_marlinqqq_quantized_intx",
+    "Layout",
+    "PlainLayout",
+    "SemiSparseLayout",
+    "TensorCoreTiledLayout",
+    "Float8Layout",
+    "MarlinSparseLayout",
+    "affine_quantized_tensor_ops",
+    "BlockSparseLayout",
+    "UintxLayout",
+    "MarlinQQQTensor",
+    "MarlinQQQLayout",
+    "Int4CPULayout",
+    "CutlassInt4PackedLayout",
 ]

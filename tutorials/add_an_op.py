@@ -1,4 +1,5 @@
 import torch
+
 import torchao
 from torchao.dtypes import to_nf4
 
@@ -20,6 +21,7 @@ print(f"a_nf4: {a_nf4}")
 # NotImplementedError: NF4Tensor dispatch: attempting to run aten.gelu.default, this is not supported
 # torch.nn.functional.gelu(a_nf4)
 
+
 # Next you can add this function using the implements decorator
 @torchao.dtypes.nf4tensor.implements([torch.ops.aten.gelu.default])
 def gelu(func, *args, **kwargs):
@@ -30,7 +32,12 @@ def gelu(func, *args, **kwargs):
     # We're getting the first argument of the original args
     inp = args[0][0]
     # There's a way very inefficient way to implement it
-    return to_nf4(torch.nn.functional.gelu(inp.to(torch.float32)), inp.block_size, inp.scaler_block_size)
+    return to_nf4(
+        torch.nn.functional.gelu(inp.to(torch.float32)),
+        inp.block_size,
+        inp.scaler_block_size,
+    )
+
 
 print(f"gelu(a): {torch.nn.functional.gelu(a)}")
 print(f"gelu(a_nf4): {torch.nn.functional.gelu(a_nf4)}")

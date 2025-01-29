@@ -5,8 +5,11 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
-#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
+#include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 
 // This file contains bitpacking and unpacking methods for uint4.
 // These are not inteded to be used outside of bitpacking directory.
@@ -68,3 +71,5 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_uint4_values(
 } // namespace internal
 } // namespace bitpacking
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

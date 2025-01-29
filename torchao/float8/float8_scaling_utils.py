@@ -12,19 +12,16 @@ from typing import Optional
 
 import torch
 
+from torchao.float8.config import ScalingGranularity
+from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
-    ScaledMMConfig,
-    tensor_already_casted_to_fp8,
+    hp_tensor_and_scale_to_float8,
 )
-
 from torchao.float8.float8_utils import (
     amax_history_to_scale,
-    e4m3_dtype,
-    e5m2_dtype,
     tensor_to_amax,
     tensor_to_scale,
 )
@@ -36,6 +33,9 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
+    device_mesh=None,
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
+    axiswise_dim: Optional[int] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -49,16 +49,24 @@ def hp_tensor_to_float8_dynamic(
         reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
+        scaling_granularity: Defines the scaling granularity
+        axiswise_dim: if axiswise granularity is used, defines the dim to scale across
     """
-    if tensor_already_casted_to_fp8(hp_tensor):
-        return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax)
+    scale = tensor_to_scale(
+        hp_tensor,
+        float8_dtype,
+        reduce_amax,
+        device_mesh,
+        scaling_granularity,
+        axiswise_dim,
+    )
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
         float8_dtype,
         linear_mm_config,
         gemm_input_role,
+        axiswise_dim,
     )
 
 
@@ -128,6 +136,21 @@ def hp_tensor_to_float8_static(
     )
 
 
+def get_maybe_axiswise_dim(
+    axiswise_dim: int,
+    scaling_granularity: ScalingGranularity,
+) -> Optional[int]:
+    """
+    Convenience function which takes in an axiswise dim which is only relevant
+    for axiswise scaing, and a scaling type.  The output is pass-through
+    if scaling type is axiswise, and None otherwise.  This is done to keep the
+    logic from choosing the axiswise dim out of the scaling function.
+    """
+    if scaling_granularity is ScalingGranularity.AXISWISE:
+        return axiswise_dim
+    return None
+
+
 def _maybe_initialize_amaxes_scales_for_float8_cast(
     x,
     cur_amax,
@@ -151,14 +174,12 @@ def _maybe_initialize_amaxes_scales_for_float8_cast(
         new_amax = tensor_to_amax(x, reduce_amax=reduce_amax)
         cur_amax.fill_(new_amax)
         amax_history[0] = new_amax
-        new_scale = amax_history_to_scale(
-            amax_history, float8_dtype, x.dtype, scale_fn_name
-        )
+        new_scale = amax_history_to_scale(amax_history, float8_dtype, scale_fn_name)
         scale.copy_(new_scale)
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
+class NoopFwToFloat8BwDelayed(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with delayed scaling, initialize if needed
@@ -174,6 +195,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         scale_fn_name,
         is_amax_initialized,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(
             fp8_amax_grad_output, fp8_amax_history_grad_output, fp8_scale_grad_output
@@ -181,6 +203,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         ctx.scale_fn_name = scale_fn_name
         ctx.is_amax_initialized = is_amax_initialized
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
@@ -199,7 +222,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
             fp8_amax_history_grad_output,
             fp8_scale_grad_output,
             scale_fn_name,
-            e5m2_dtype,
+            ctx.target_dtype,
             is_amax_initialized,
             reduce_amax=True,
         )
@@ -209,16 +232,16 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
         res = hp_tensor_and_scale_to_float8(
             go,
             fp8_scale_grad_output,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        empty_grads = None, None, None, None, None, None
+        empty_grads = None, None, None, None, None, None, None
         return res, *empty_grads
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
+class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with dynamic scaling
@@ -229,27 +252,29 @@ class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
         ctx,
         tensor,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
-        gradY_scale = tensor_to_scale(gradY, e5m2_dtype)
+            return gradY, None, None
+        gradY_scale = tensor_to_scale(gradY, ctx.target_dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None
+        return fp8_tensor, None, None
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
+class NoopFwToFloat8BwStatic(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with static scaling
@@ -261,21 +286,23 @@ class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
         tensor,
         scale,
         linear_mm_config: LinearMMConfig,
+        target_dtype: torch.dtype,
     ):
         ctx.save_for_backward(scale)
         ctx.linear_mm_config = linear_mm_config
+        ctx.target_dtype = target_dtype
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None
-        gradY_scale, = ctx.saved_tensors
+            return gradY, None, None, None
+        (gradY_scale,) = ctx.saved_tensors
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
-            e5m2_dtype,
+            ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
         )
-        return fp8_tensor, None, None
+        return fp8_tensor, None, None, None

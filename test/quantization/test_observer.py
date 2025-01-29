@@ -1,23 +1,28 @@
 import re
+import unittest
+
 import torch
 import torch.nn as nn
+
+# NOTE: we can copy paste these here if we decide to deprecate them in torch.ao
+from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
+from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
+
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerTensor,
+)
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
-    PerAxis,
-)
-from torchao.quantization.quant_primitives import (
-    MappingType,
 )
 from torchao.quantization.quant_api import (
     insert_observers_,
 )
-from torch.testing._internal import common_utils
-import unittest
-
-# NOTE: we can copy paste these here if we decide to deprecate them in torch.ao
-from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
+)
 
 
 class TestQuantFlow(TestCase):
@@ -40,7 +45,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.ASYMMETRIC,
             torch.uint8,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -52,7 +57,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.ASYMMETRIC,
             torch.uint8,
-            granularity_type=PerAxis(axis=0),
+            granularity=PerAxis(axis=0),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -66,11 +71,11 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -85,11 +90,11 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(1),
+            granularity=PerAxis(1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         for example_input in example_inputs:
             obs(example_input)
@@ -100,11 +105,11 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(0),
+            granularity=PerAxis(0),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -119,11 +124,11 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(1),
+            granularity=PerAxis(1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -147,21 +152,21 @@ class TestLinearObserver(TestCase):
         input_observer = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         if observe_weight:
             weight_observer = AffineQuantizedMinMaxObserver(
                 MappingType.SYMMETRIC,
                 torch.float8_e4m3fn,
-                granularity_type=PerTensor(),
+                granularity=PerTensor(),
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float,
                 zero_point_dtype=torch.int,
-                zero_point_domain=None,
+                zero_point_domain=ZeroPointDomain.NONE,
             )
         else:
             weight_observer = None
@@ -195,7 +200,7 @@ class TestLinearObserver(TestCase):
             input_scale.item(),
             max_val / max_fp8,
         )
-        self.assertIsNotNone(input_zero_point)
+        self.assertIsNone(input_zero_point)
 
         if observe_weight:
             weight_observer = linear.weight.weight_observer
@@ -206,7 +211,7 @@ class TestLinearObserver(TestCase):
                 atol=5e-5,
                 rtol=0.0,
             )
-            self.assertIsNotNone(weight_zero_point)
+            self.assertIsNone(weight_zero_point)
         else:
             self.assertIsNone(linear.weight.weight_observer)
 

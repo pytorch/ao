@@ -5,12 +5,18 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
-#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint1.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint2.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint5.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint7.h>
+#include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <cassert>
 
 namespace torchao {
@@ -71,19 +77,33 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
     uint8_t* packed,
     const int8x16_t& unpacked0,
     const int8x16_t& unpacked1) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
-
-  // Shift unpacked values to nonnegative range
-  int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
-  uint8x16_t shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
-  uint8x16_t shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
+  // Shift unpacked values to nonnegative range for quantization of 1-7 bits
+  // No shifting is needed for 8-bit packing
+  uint8x16_t shifted0;
+  uint8x16_t shifted1;
+  if constexpr (nbit < 8) {
+    int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
+    shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
+    shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
+  }
 
   switch (nbit) {
+    case 1:
+      uint8_t buffer1[32];
+      vst1q_u8(buffer1, shifted0);
+      vst1q_u8(buffer1 + 16, shifted1);
+
+      torchao::bitpacking::internal::pack_8_uint1_values(packed, buffer1);
+      torchao::bitpacking::internal::pack_8_uint1_values(
+          packed + 1, buffer1 + 8);
+      torchao::bitpacking::internal::pack_8_uint1_values(
+          packed + 2, buffer1 + 16);
+      torchao::bitpacking::internal::pack_8_uint1_values(
+          packed + 3, buffer1 + 24);
+      break;
     case 2:
       torchao::bitpacking::internal::vec_pack_32_uint2_values(
           packed,
@@ -91,6 +111,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
           vget_high_u8(shifted0),
           vget_low_u8(shifted1),
           vget_high_u8(shifted1));
+      break;
     case 3:
       uint8_t buffer3[32];
       vst1q_u8(buffer3, shifted0);
@@ -121,6 +142,24 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
       torchao::bitpacking::internal::pack_8_uint5_values(
           packed + 15, buffer5 + 24);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_pack_32_uint6_values(
+          packed, shifted0, shifted1);
+      break;
+    case 7:
+      uint8_t buffer7[32];
+      vst1q_u8(buffer7, shifted0);
+      vst1q_u8(buffer7 + 16, shifted1);
+
+      torchao::bitpacking::internal::pack_8_uint7_values(packed, buffer7);
+      torchao::bitpacking::internal::pack_8_uint7_values(packed + 7, buffer7 + 8);
+      torchao::bitpacking::internal::pack_8_uint7_values(packed + 14, buffer7 + 16);
+      torchao::bitpacking::internal::pack_8_uint7_values(packed + 21, buffer7 + 24);
+      break;
+    case 8:
+      vst1q_u8(packed, vreinterpretq_u8_s8(unpacked0));
+      vst1q_u8(packed + 16, vreinterpretq_u8_s8(unpacked1));
+      break;
     default:
       assert(false);
   }
@@ -130,18 +169,26 @@ template <int nbit>
 TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
     int8x16_t& unpacked0,
     int8x16_t& unpacked1,
-    uint8_t* packed) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
-
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
+    const uint8_t* packed) {
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
   uint8x16_t shifted0;
   uint8x16_t shifted1;
 
   switch (nbit) {
+    case 1:
+      uint8_t buffer1[32];
+      torchao::bitpacking::internal::unpack_8_uint1_values(buffer1, packed);
+      torchao::bitpacking::internal::unpack_8_uint1_values(
+          buffer1 + 8, packed + 1);
+      torchao::bitpacking::internal::unpack_8_uint1_values(
+          buffer1 + 16, packed + 2);
+      torchao::bitpacking::internal::unpack_8_uint1_values(
+          buffer1 + 24, packed + 3);
+      shifted0 = vld1q_u8(buffer1);
+      shifted1 = vld1q_u8(buffer1 + 16);
+      break;
     case 2:
       uint8x8_t shifted0_low;
       uint8x8_t shifted0_high;
@@ -151,6 +198,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
           shifted0_low, shifted0_high, shifted1_low, shifted1_high, packed);
       shifted0 = vcombine_u8(shifted0_low, shifted0_high);
       shifted1 = vcombine_u8(shifted1_low, shifted1_high);
+      break;
     case 3:
       uint8_t buffer3[32];
       torchao::bitpacking::internal::unpack_8_uint3_values(buffer3, packed);
@@ -179,14 +227,37 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
       shifted0 = vld1q_u8(buffer5);
       shifted1 = vld1q_u8(buffer5 + 16);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_unpack_32_uint6_values(
+          shifted0, shifted1, packed);
+      break;
+    case 7:
+      uint8_t buffer7[32];
+      torchao::bitpacking::internal::unpack_8_uint7_values(buffer7, packed);
+      torchao::bitpacking::internal::unpack_8_uint7_values(
+          buffer7 + 8, packed + 7);
+      torchao::bitpacking::internal::unpack_8_uint7_values(
+          buffer7 + 16, packed + 14);
+      torchao::bitpacking::internal::unpack_8_uint7_values(
+          buffer7 + 24, packed + 21);
+      shifted0 = vld1q_u8(buffer7);
+      shifted1 = vld1q_u8(buffer7 + 16);
+      break;
+    case 8:
+      unpacked0 = vreinterpretq_s8_u8(vld1q_u8(packed));
+      unpacked1 = vreinterpretq_s8_u8(vld1q_u8(packed + 16));
+      break;
     default:
       assert(false);
   }
 
   // unshift to move unpacked values to full range
-  int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
-  unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
-  unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
+  // no shifting is needed for 8-bit packing
+  if constexpr (nbit < 8) {
+    int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
+    unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
+    unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
+  }
 }
 
 template <int nbit>
@@ -196,21 +267,29 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_64_lowbit_values(
     const int8x16_t& unpacked1,
     const int8x16_t& unpacked2,
     const int8x16_t& unpacked3) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
+  // Shift unpacked values to nonnegative range for quantization of 1-7 bits
+  // No shifting is needed for 8-bit packing
+  uint8x16_t shifted0;
+  uint8x16_t shifted1;
+  uint8x16_t shifted2;
+  uint8x16_t shifted3;
+  if constexpr (nbit < 8) {
+    int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
+    shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
+    shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
+    shifted2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
+    shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
+  }
 
-  // Shift unpacked values to nonnegative range
-  int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
-  uint8x16_t shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
-  uint8x16_t shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
-  uint8x16_t shifted2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
-  uint8x16_t shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
 
   switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_pack_64_uint1_values(
+          packed, shifted0, shifted1, shifted2, shifted3);
+      break;
     case 2:
       torchao::bitpacking::internal::vec_pack_64_uint2_values(
           packed, shifted0, shifted1, shifted2, shifted3);
@@ -229,6 +308,20 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_64_lowbit_values(
       torchao::bitpacking::internal::vec_pack_64_uint5_values(
           packed, shifted0, shifted1, shifted2, shifted3);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_pack_64_uint6_values(
+          packed, shifted0, shifted1, shifted2, shifted3);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_pack_64_uint7_values(
+          packed, shifted0, shifted1, shifted2, shifted3);
+      break;
+    case 8:
+      vst1q_u8(packed, vreinterpretq_u8_s8(unpacked0));
+      vst1q_u8(packed + 16, vreinterpretq_u8_s8(unpacked1));
+      vst1q_u8(packed + 32, vreinterpretq_u8_s8(unpacked2));
+      vst1q_u8(packed + 48, vreinterpretq_u8_s8(unpacked3));
+      break;
     default:
       assert(false);
   }
@@ -240,13 +333,9 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_64_lowbit_values(
     int8x16_t& unpacked1,
     int8x16_t& unpacked2,
     int8x16_t& unpacked3,
-    uint8_t* packed) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
-
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
+    const uint8_t* packed) {
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
   uint8x16_t shifted0;
   uint8x16_t shifted1;
@@ -254,6 +343,10 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_64_lowbit_values(
   uint8x16_t shifted3;
 
   switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_unpack_64_uint1_values(
+          shifted0, shifted1, shifted2, shifted3, packed);
+      break;
     case 2:
       torchao::bitpacking::internal::vec_unpack_64_uint2_values(
           shifted0, shifted1, shifted2, shifted3, packed);
@@ -272,16 +365,33 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_64_lowbit_values(
       torchao::bitpacking::internal::vec_unpack_64_uint5_values(
           shifted0, shifted1, shifted2, shifted3, packed);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+          shifted0, shifted1, shifted2, shifted3, packed);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_unpack_64_uint7_values(
+          shifted0, shifted1, shifted2, shifted3, packed);
+      break;
+    case 8:
+      unpacked0 = vreinterpretq_s8_u8(vld1q_u8(packed));
+      unpacked1 = vreinterpretq_s8_u8(vld1q_u8(packed + 16));
+      unpacked2 = vreinterpretq_s8_u8(vld1q_u8(packed + 32));
+      unpacked3 = vreinterpretq_s8_u8(vld1q_u8(packed + 48));
+      break;
     default:
       assert(false);
   }
 
   // unshift to move unpacked values to full range
-  int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
-  unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
-  unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
-  unpacked2 = vaddq_s8(vreinterpretq_s8_u8(shifted2), unshift);
-  unpacked3 = vaddq_s8(vreinterpretq_s8_u8(shifted3), unshift);
+  // no shifting is needed for 8-bit packing
+  if constexpr (nbit < 8) {
+    int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
+    unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
+    unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
+    unpacked2 = vaddq_s8(vreinterpretq_s8_u8(shifted2), unshift);
+    unpacked3 = vaddq_s8(vreinterpretq_s8_u8(shifted3), unshift);
+  }
 }
 
 template <int nbit>
@@ -295,25 +405,45 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_128_lowbit_values(
     const int8x16_t& unpacked5,
     const int8x16_t& unpacked6,
     const int8x16_t& unpacked7) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
+  // Shift unpacked values to nonnegative range for quantization of 1-7 bits
+  // No shifting is needed for 8-bit packing
+  uint8x16_t shifted0;
+  uint8x16_t shifted1;
+  uint8x16_t shifted2;
+  uint8x16_t shifted3;
+  uint8x16_t shifted4;
+  uint8x16_t shifted5;
+  uint8x16_t shifted6;
+  uint8x16_t shifted7;
+  if constexpr (nbit < 8) {
+    int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
+    shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
+    shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
+    shifted2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
+    shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
+    shifted4 = vreinterpretq_u8_s8(vaddq_s8(unpacked4, shift));
+    shifted5 = vreinterpretq_u8_s8(vaddq_s8(unpacked5, shift));
+    shifted6 = vreinterpretq_u8_s8(vaddq_s8(unpacked6, shift));
+    shifted7 = vreinterpretq_u8_s8(vaddq_s8(unpacked7, shift));
+  }
 
-  // Shift unpacked values to nonnegative range
-  int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
-  uint8x16_t shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
-  uint8x16_t shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
-  uint8x16_t shifted2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
-  uint8x16_t shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
-  uint8x16_t shifted4 = vreinterpretq_u8_s8(vaddq_s8(unpacked4, shift));
-  uint8x16_t shifted5 = vreinterpretq_u8_s8(vaddq_s8(unpacked5, shift));
-  uint8x16_t shifted6 = vreinterpretq_u8_s8(vaddq_s8(unpacked6, shift));
-  uint8x16_t shifted7 = vreinterpretq_u8_s8(vaddq_s8(unpacked7, shift));
 
   switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_pack_128_uint1_values(
+          packed,
+          shifted0,
+          shifted1,
+          shifted2,
+          shifted3,
+          shifted4,
+          shifted5,
+          shifted6,
+          shifted7);
+      break;
     case 2:
       torchao::bitpacking::internal::vec_pack_64_uint2_values(
           packed, shifted0, shifted1, shifted2, shifted3);
@@ -354,6 +484,34 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_128_lowbit_values(
           shifted6,
           shifted7);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_pack_64_uint6_values(
+          packed, shifted0, shifted1, shifted2, shifted3);
+      torchao::bitpacking::internal::vec_pack_64_uint6_values(
+          packed + 48, shifted4, shifted5, shifted6, shifted7);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_pack_128_uint7_values(
+          packed,
+          shifted0,
+          shifted1,
+          shifted2,
+          shifted3,
+          shifted4,
+          shifted5,
+          shifted6,
+          shifted7);
+      break;
+    case 8:
+      vst1q_u8(packed, vreinterpretq_u8_s8(unpacked0));
+      vst1q_u8(packed + 16, vreinterpretq_u8_s8(unpacked1));
+      vst1q_u8(packed + 32, vreinterpretq_u8_s8(unpacked2));
+      vst1q_u8(packed + 48, vreinterpretq_u8_s8(unpacked3));
+      vst1q_u8(packed + 64, vreinterpretq_u8_s8(unpacked4));
+      vst1q_u8(packed + 80, vreinterpretq_u8_s8(unpacked5));
+      vst1q_u8(packed + 96, vreinterpretq_u8_s8(unpacked6));
+      vst1q_u8(packed + 112, vreinterpretq_u8_s8(unpacked7));
+      break;
     default:
       assert(false);
   }
@@ -369,13 +527,9 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values(
     int8x16_t& unpacked5,
     int8x16_t& unpacked6,
     int8x16_t& unpacked7,
-    uint8_t* packed) {
-  static_assert(nbit < 8);
-  static_assert(nbit >= 2);
-
-  // Currently supported values
-  static_assert(nbit >= 2);
-  static_assert(nbit <= 5);
+    const uint8_t* packed) {
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
 
   uint8x16_t shifted0;
   uint8x16_t shifted1;
@@ -387,6 +541,18 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values(
   uint8x16_t shifted7;
 
   switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_unpack_128_uint1_values(
+          shifted0,
+          shifted1,
+          shifted2,
+          shifted3,
+          shifted4,
+          shifted5,
+          shifted6,
+          shifted7,
+          packed);
+      break;
     case 2:
       torchao::bitpacking::internal::vec_unpack_64_uint2_values(
           shifted0, shifted1, shifted2, shifted3, packed);
@@ -427,21 +593,54 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values(
           shifted7,
           packed);
       break;
+    case 6:
+      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+          shifted0, shifted1, shifted2, shifted3, packed);
+      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+          shifted4, shifted5, shifted6, shifted7, packed + 48);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_unpack_128_uint7_values(
+          shifted0,
+          shifted1,
+          shifted2,
+          shifted3,
+          shifted4,
+          shifted5,
+          shifted6,
+          shifted7,
+          packed);
+      break;
+    case 8:
+      unpacked0 = vreinterpretq_s8_u8(vld1q_u8(packed));
+      unpacked1 = vreinterpretq_s8_u8(vld1q_u8(packed + 16));
+      unpacked2 = vreinterpretq_s8_u8(vld1q_u8(packed + 32));
+      unpacked3 = vreinterpretq_s8_u8(vld1q_u8(packed + 48));
+      unpacked4 = vreinterpretq_s8_u8(vld1q_u8(packed + 64));
+      unpacked5 = vreinterpretq_s8_u8(vld1q_u8(packed + 80));
+      unpacked6 = vreinterpretq_s8_u8(vld1q_u8(packed + 96));
+      unpacked7 = vreinterpretq_s8_u8(vld1q_u8(packed + 112));
+      break;
     default:
       assert(false);
   }
 
   // unshift to move unpacked values to full range
-  int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
-  unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
-  unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
-  unpacked2 = vaddq_s8(vreinterpretq_s8_u8(shifted2), unshift);
-  unpacked3 = vaddq_s8(vreinterpretq_s8_u8(shifted3), unshift);
-  unpacked4 = vaddq_s8(vreinterpretq_s8_u8(shifted4), unshift);
-  unpacked5 = vaddq_s8(vreinterpretq_s8_u8(shifted5), unshift);
-  unpacked6 = vaddq_s8(vreinterpretq_s8_u8(shifted6), unshift);
-  unpacked7 = vaddq_s8(vreinterpretq_s8_u8(shifted7), unshift);
+  // no shifting is needed for 8-bit packing
+  if constexpr (nbit < 8) {
+    int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
+    unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
+    unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
+    unpacked2 = vaddq_s8(vreinterpretq_s8_u8(shifted2), unshift);
+    unpacked3 = vaddq_s8(vreinterpretq_s8_u8(shifted3), unshift);
+    unpacked4 = vaddq_s8(vreinterpretq_s8_u8(shifted4), unshift);
+    unpacked5 = vaddq_s8(vreinterpretq_s8_u8(shifted5), unshift);
+    unpacked6 = vaddq_s8(vreinterpretq_s8_u8(shifted6), unshift);
+    unpacked7 = vaddq_s8(vreinterpretq_s8_u8(shifted7), unshift);
+  }
 }
 
 } // namespace bitpacking
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

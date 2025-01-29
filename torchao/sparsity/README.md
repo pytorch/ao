@@ -37,7 +37,6 @@ On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our exi
 | Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8dq                  |    8.61       |   64.75                 |  9.24            |  7.52           |
 |             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
 |             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
@@ -54,12 +53,15 @@ Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regress
 
 ```py
 from torchao.quantization.quant_api import quantize_, int4_weight_only
-from torchao.dtypes import MarlinSparseLayoutType
+from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
 ```
+
+Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
+the necessary supporting flows in torchao.
 
 ### int8 dynamic quant + 2:4 sparasity
 
@@ -67,17 +69,17 @@ We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of 
 
 ```py
 from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
-from torchao.dtypes import SemiSparseLayoutType
+from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
-quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
+quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
 ```
 
 ### 2:4 sparsity
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
-from torchao.dtypes import SemiSparseLayoutType
+from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
 sparsify_(model, semi_sparse_weight())
@@ -88,7 +90,7 @@ We offer prototype support for accelerating block sparsity with our triton kerne
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_
-from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
 
 model = model.cuda()
 sparsify_(model, block_sparse_weight())

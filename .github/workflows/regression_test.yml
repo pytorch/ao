@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA Nightly (Aug 29, 2024)
+          - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: 'torch'
             gpu-arch-type: "cuda"

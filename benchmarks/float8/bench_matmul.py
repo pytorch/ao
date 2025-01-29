@@ -8,16 +8,15 @@ from typing import Optional
 
 import fire
 import pandas as pd
-
 import torch
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
-
 from utils import (
-    get_name_to_shapes_iter, 
-    profiler_output_to_filtered_time_by_kernel_name,
     get_gpu_kernel_gemm_time_s,
+    get_name_to_shapes_iter,
 )
+
+from torchao.float8.config import ScalingGranularity
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N
@@ -48,11 +47,11 @@ def benchmark_fn_in_sec(f, *args, **kwargs):
 
 
 def do_benchmarks(
-    tops, 
-    peak_tops, 
-    use_gpu_kernel_time, 
-    f, 
-    *args, 
+    tops,
+    peak_tops,
+    use_gpu_kernel_time,
+    f,
+    *args,
     **kwargs,
 ):
     if use_gpu_kernel_time:
@@ -69,23 +68,36 @@ def do_benchmarks(
 @torch.inference_mode()
 def run(
     n_limit: Optional[int] = None,
-    shape_gen_name: str = 'llama',
+    shape_gen_name: str = "llama",
     out_filename: Optional[str] = None,
     M: Optional[int] = None,
     K: Optional[int] = None,
     N: Optional[int] = None,
     use_gpu_kernel_time: bool = False,
+    scaling_granularity: str = "tensorwise",
 ):
     device = "cuda"
 
-    headers = ("fast_accum", "name", "M", "K", "N", "ref_time_s", "fp8_time_s", "fp8_speedup")
+    headers = (
+        "fast_accum",
+        "name",
+        "M",
+        "K",
+        "N",
+        "ref_time_s",
+        "fp8_time_s",
+        "fp8_speedup",
+    )
     results = []
 
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
+    scaling_granularity = ScalingGranularity(scaling_granularity)
 
-    for idx, (fast_accum, (name, (M, K, N))) in enumerate(itertools.product(fast_accum_vals, name_to_shapes)):
+    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
+        itertools.product(fast_accum_vals, name_to_shapes)
+    ):
         if n_limit is not None and idx >= n_limit:
             break
 
@@ -109,10 +121,17 @@ def run(
         d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-        scale_a = torch.tensor([1.0], device=device)
-        scale_b = torch.tensor([1.0], device=device)
+        if scaling_granularity == ScalingGranularity.TENSORWISE:
+            scale_a = torch.tensor([1.0], device=device)
+            scale_b = torch.tensor([1.0], device=device)
+        else:
+            assert scaling_granularity == ScalingGranularity.AXISWISE, "unsupported"
+            scale_a = torch.ones(M, 1, device=device)
+            scale_b = torch.ones(1, N, device=device)
 
         def do_matmul(A, B):
+            nonlocal scale_a
+            nonlocal scale_b
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )
@@ -144,6 +163,7 @@ def run(
 
     if out_filename is not None:
         data_df.to_csv(out_filename)
+
 
 def main() -> None:
     fire.Fire(run)

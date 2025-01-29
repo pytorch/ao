@@ -1,6 +1,7 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round
 # ==------------------------------------------------------------------------------------------==
+import collections
 import logging
 import random
 
@@ -109,9 +110,9 @@ def see_memory_usage(message: str = "", force=True):
 
 
 @torch.no_grad()
-def gen_text(
-    model, tokenizer, msg="", device="cuda", prompt="What's AI?", max_length=20
-):
+def gen_text(model, tokenizer, msg="", device=None, prompt="What's AI?", max_length=20):
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt")
     model = model.to(device)
     new_tokens = model.generate(**inputs.to(device), max_length=max_length)
@@ -145,12 +146,15 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     logging.warning(f"Detected decoder class: {decoder_cls}")
     if decoder_cls is None:
         raise ValueError(
-            f"Cannot detect the decoder class from the model, please provide it manually."
+            "Cannot detect the decoder class from the model, please provide it manually."
         )
     return model, tokenizer, decoder_cls
 
 
-def dump_elapsed_time(customized_msg=""):
+execution_records = collections.defaultdict(list)
+
+
+def dump_elapsed_time(customized_msg="", record=False):
     """Get the elapsed time for decorated functions.
 
     Args:
@@ -164,13 +168,24 @@ def dump_elapsed_time(customized_msg=""):
             start = time.time()
             res = func(*args, **kwargs)
             end = time.time()
+            dur = round((end - start) * 1000, 2)
+            if record:
+                execution_records[func.__qualname__].append(dur)
             logging.warning(
                 "%s elapsed time: %s ms"
                 % (
                     customized_msg if customized_msg else func.__qualname__,
-                    round((end - start) * 1000, 2),
+                    dur,
                 )
             )
+            if record:
+                avg_time = sum(execution_records[func.__qualname__]) / len(
+                    execution_records[func.__qualname__]
+                )
+                std_time = np.std(execution_records[func.__qualname__])
+                logging.warning(
+                    f"For {func.__qualname__}, the average elapsed time: {avg_time: .2f} ms, the std: {std_time: .2f} ms"
+                )
             return res
 
         return fi

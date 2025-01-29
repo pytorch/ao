@@ -5,12 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
-
 import torch
 from torch.utils._triton import has_triton
 
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_floatx_unpacked,
+    _floatx_unpacked_to_f32,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -21,8 +23,8 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 from torchao.prototype.mx_formats.constants import (
     E8M0_EXPONENT_BIAS,
     E8M0_EXPONENT_NAN_VAL,
-    F32_EXP_BIAS,
     F4_E2M1_EXP_BIAS,
+    F32_EXP_BIAS,
 )
 
 
@@ -31,9 +33,7 @@ def get_bits(x: torch.Tensor) -> str:
     # Numpy has a nice function to get the string representation of binary.
     # Since we are using ints as views of floats, need to specify the width
     # to avoid numpy from using two's complement for negative numbers.
-    return np.binary_repr(
-        x.cpu().numpy(), width=x.element_size() * bits_per_byte
-    )  # noqa: E501
+    return np.binary_repr(x.cpu().numpy(), width=x.element_size() * bits_per_byte)  # noqa: E501
 
 
 EBITS_F32, MBITS_F32 = 8, 23
@@ -54,7 +54,7 @@ def f32_to_f4_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
+    return _f32_to_floatx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -63,7 +63,7 @@ def f32_to_f6_e2m3_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e2m3
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
+    return _f32_to_floatx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f32_to_f6_e3m2_unpacked(x):
@@ -72,7 +72,7 @@ def f32_to_f6_e3m2_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e3m2
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
+    return _f32_to_floatx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 def f4_unpacked_to_f32(x: torch.Tensor):
@@ -81,7 +81,7 @@ def f4_unpacked_to_f32(x: torch.Tensor):
       containing an fp4_e2m1 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _fpx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
+    return _floatx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
@@ -90,7 +90,7 @@ def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _fpx_unpacked_to_f32(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
+    return _floatx_unpacked_to_f32(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
@@ -99,7 +99,7 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _fpx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
+    return _floatx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 if has_triton():
@@ -301,9 +301,7 @@ if has_triton():
         # multiply output by scale
         # TODO(later): see if manipulating the exponent instead of fp
         # multiplication is going to give a significant speedup
-        output = tl.reshape(
-            output, (BLOCK_SIZE_OUT // mx_block_size, mx_block_size)
-        )  # noqa: E501
+        output = tl.reshape(output, (BLOCK_SIZE_OUT // mx_block_size, mx_block_size))  # noqa: E501
         s_fp = tl.reshape(s_fp, (BLOCK_SIZE_S // 1, 1))
         output = output * s_fp
         output = tl.reshape(output, (BLOCK_SIZE_OUT,))

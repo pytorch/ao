@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
 
@@ -25,3 +27,5 @@ int32_t torchao::kernels::cpu::aarch64::reduction::compute_sum(
   }
   return res;
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

@@ -1,6 +1,7 @@
-import torch
-from typing import Any
 from abc import ABC, abstractmethod
+from typing import Any
+
+import torch
 
 """
 The vast majority of quantization algorithms follow one of two patterns
@@ -17,7 +18,6 @@ class Quantizer(ABC):
     def quantize(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
 
@@ -27,11 +27,10 @@ class TwoStepQuantizer:
     def prepare(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
+    @abstractmethod
     def convert(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass

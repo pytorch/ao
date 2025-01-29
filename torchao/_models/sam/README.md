@@ -17,5 +17,7 @@ sh setup.sh
 
 Finally, you can run benchmarks with
 ```
-sh benchmark_sam.sh
+sh benchmark.sh
 ```
+
+You can check out the result in results.csv

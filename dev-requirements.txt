@@ -9,15 +9,23 @@ sentencepiece # for gpt-fast tokenizer
 expecttest
 
 # For prototype features and benchmarks
-bitsandbytes #needed for testing triton quant / dequant ops for 8-bit optimizers
+bitsandbytes # needed for testing triton quant / dequant ops for 8-bit optimizers
 matplotlib
 pandas
 fire  # QOL for commandline scripts
 tabulate  # QOL for printing tables to stdout
+tiktoken
+blobfile
+lm_eval
+# sam
+diskcache
+pycocotools
+tqdm
+importlib_metadata
 
 # Custom CUDA Extensions
 ninja
 
 # Linting
-ruff
+ruff==0.6.8
 pre-commit
