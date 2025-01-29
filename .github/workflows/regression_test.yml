@@ -23,11 +23,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA Nightly (Aug 29, 2024)
+          - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch'
+            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
+          - name: CPU Nightly
+            runs-on: linux.4xlarge
+            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
 
     permissions:
       id-token: write
