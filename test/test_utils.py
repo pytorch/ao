@@ -41,8 +41,10 @@ class TestTorchAOBaseTensor(unittest.TestCase):
                 self.data = data
 
         l = torch.nn.Linear(10, 10)
-        with self.assertRaisesRegex(NotImplementedError, "arg_types"):
+        with self.assertRaisesRegex(NotImplementedError, "Subclasses must implement"):
             l.weight = torch.nn.Parameter(MyTensor(l.weight))
+
+        assert MyTensor(l.weight).get_layout() is None
 
 
 if __name__ == "__main__":
