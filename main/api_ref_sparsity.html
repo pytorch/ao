@@ -40,8 +40,8 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="WandaSparsifier" href="generated/torchao.sparsity.WandaSparsifier.html" />
-    <link rel="prev" title="TorchAODType" href="generated/torchao.quantization.TorchAODType.html" />
+    <link rel="next" title="sparsify" href="generated/torchao.sparsity.sparsify_.html" />
+    <link rel="prev" title="smooth_fq_linear_to_inference" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -415,23 +415,23 @@
 <span id="torchao-sparsity"></span><span id="api-sparsity"></span><h1>torchao.sparsity<a class="headerlink" href="#module-torchao.sparsity" title="Permalink to this heading">¶</a></h1>
 <table class="autosummary longtable docutils align-default">
 <tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.sparsity.sparsify_.html#torchao.sparsity.sparsify_" title="torchao.sparsity.sparsify_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">sparsify_</span></code></a></p></td>
+<td><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.sparsity.semi_sparse_weight.html#torchao.sparsity.semi_sparse_weight" title="torchao.sparsity.semi_sparse_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">semi_sparse_weight</span></code></a></p></td>
+<td><p>Convert the weight of linear moduels to semi-structured (2:4) sparsity</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight.html#torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight" title="torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int8_semi_sparse_weight</span></code></a></p></td>
+<td><p>Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight quantization + 2:4 sparsity to linear layers.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity" title="torchao.sparsity.apply_fake_sparsity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_fake_sparsity</span></code></a></p></td>
+<td><p>This function simulates 2:4 sparsity on all linear layers in a model.</p></td>
+</tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.sparsity.WandaSparsifier.html#torchao.sparsity.WandaSparsifier" title="torchao.sparsity.WandaSparsifier"><code class="xref py py-obj docutils literal notranslate"><span class="pre">WandaSparsifier</span></code></a></p></td>
 <td><p>Wanda sparsifier</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver" title="torchao.sparsity.PerChannelNormObserver"><code class="xref py py-obj docutils literal notranslate"><span class="pre">PerChannelNormObserver</span></code></a></p></td>
 <td><p>A custom observer that computes the L2 norm of each channel and stores it in a buffer.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity" title="torchao.sparsity.apply_fake_sparsity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_fake_sparsity</span></code></a></p></td>
-<td><p>This function simulates 2:4 sparsity on all linear layers in a model.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.sparsity.sparsify_.html#torchao.sparsity.sparsify_" title="torchao.sparsity.sparsify_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">sparsify_</span></code></a></p></td>
-<td><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite>.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.sparsity.semi_sparse_weight.html#torchao.sparsity.semi_sparse_weight" title="torchao.sparsity.semi_sparse_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">semi_sparse_weight</span></code></a></p></td>
-<td><p>Convert the weight of linear moduels to semi-structured (2:4) sparsity</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight.html#torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight" title="torchao.sparsity.int8_dynamic_activation_int8_semi_sparse_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int8_semi_sparse_weight</span></code></a></p></td>
-<td><p>Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight quantization + 2:4 sparsity to linear layers.</p></td>
 </tr>
 </tbody>
 </table>
@@ -445,10 +445,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="generated/torchao.sparsity.WandaSparsifier.html" class="btn btn-neutral float-right" title="WandaSparsifier" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="generated/torchao.sparsity.sparsify_.html" class="btn btn-neutral float-right" title="sparsify" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="generated/torchao.quantization.TorchAODType.html" class="btn btn-neutral" title="TorchAODType" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="generated/torchao.quantization.smooth_fq_linear_to_inference.html" class="btn btn-neutral" title="smooth_fq_linear_to_inference" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   

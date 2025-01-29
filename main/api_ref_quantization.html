@@ -40,7 +40,7 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="autoquant" href="generated/torchao.quantization.autoquant.html" />
+    <link rel="next" title="quantize" href="generated/torchao.quantization.quantize_.html" />
     <link rel="prev" title="to_nf4" href="generated/torchao.dtypes.to_nf4.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -413,13 +413,28 @@
               
   <section id="torchao-quantization">
 <span id="api-quantization"></span><h1>torchao.quantization<a class="headerlink" href="#torchao-quantization" title="Permalink to this heading">¶</a></h1>
+<section id="main-quantization-apis">
+<h2>Main Quantization APIs<a class="headerlink" href="#main-quantization-apis" title="Permalink to this heading">¶</a></h2>
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.autoquant.html#torchao.quantization.autoquant" title="torchao.quantization.autoquant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">autoquant</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_" title="torchao.quantization.quantize_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_</span></code></a></p></td>
+<td><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite>, model is modified inplace</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.autoquant.html#torchao.quantization.autoquant" title="torchao.quantization.autoquant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">autoquant</span></code></a></p></td>
 <td><p>Autoquantization is a process which identifies the fastest way to quantize each layer of a model over some set of potential qtensor subclasses.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_" title="torchao.quantization.quantize_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_</span></code></a></p></td>
-<td><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite>, model is modified inplace</p></td>
+</tbody>
+</table>
+</section>
+<section id="quantization-apis-for-quantize">
+<h2>Quantization APIs for <a href="#id1"><span class="problematic" id="id2">quantize_</span></a><a class="headerlink" href="#quantization-apis-for-quantize" title="Permalink to this heading">¶</a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only" title="torchao.quantization.int4_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int4_weight_only</span></code></a></p></td>
+<td><p>Applies uint4 weight-only asymmetric per-group quantization to linear layers, using &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_weight_only.html#torchao.quantization.int8_weight_only" title="torchao.quantization.int8_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_weight_only</span></code></a></p></td>
+<td><p>Applies int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_dynamic_activation_int4_weight.html#torchao.quantization.int8_dynamic_activation_int4_weight" title="torchao.quantization.int8_dynamic_activation_int4_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int4_weight</span></code></a></p></td>
 <td><p>Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet</p></td>
@@ -427,36 +442,34 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight" title="torchao.quantization.int8_dynamic_activation_int8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int8_weight</span></code></a></p></td>
 <td><p>Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only" title="torchao.quantization.int4_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int4_weight_only</span></code></a></p></td>
-<td><p>Applies uint4 weight-only asymmetric per-group quantization to linear layers, using &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.uintx_weight_only.html#torchao.quantization.uintx_weight_only" title="torchao.quantization.uintx_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">uintx_weight_only</span></code></a></p></td>
+<td><p>Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where x is the number of bits specified by <cite>dtype</cite></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_weight_only.html#torchao.quantization.int8_weight_only" title="torchao.quantization.int8_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_weight_only</span></code></a></p></td>
-<td><p>Applies int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.gemlite_uintx_weight_only.html#torchao.quantization.gemlite_uintx_weight_only" title="torchao.quantization.gemlite_uintx_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">gemlite_uintx_weight_only</span></code></a></p></td>
+<td><p>applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_weight_only.html#torchao.quantization.float8_weight_only" title="torchao.quantization.float8_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_weight_only</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.intx_quantization_aware_training.html#torchao.quantization.intx_quantization_aware_training" title="torchao.quantization.intx_quantization_aware_training"><code class="xref py py-obj docutils literal notranslate"><span class="pre">intx_quantization_aware_training</span></code></a></p></td>
+<td><p>Return a function that applies fake quantization to a <cite>torch.nn.Module</cite>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_weight_only.html#torchao.quantization.float8_weight_only" title="torchao.quantization.float8_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_weight_only</span></code></a></p></td>
 <td><p>Applies float8 weight-only symmetric per-channel quantization to linear layers.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_dynamic_activation_float8_weight.html#torchao.quantization.float8_dynamic_activation_float8_weight" title="torchao.quantization.float8_dynamic_activation_float8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_dynamic_activation_float8_weight</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_dynamic_activation_float8_weight.html#torchao.quantization.float8_dynamic_activation_float8_weight" title="torchao.quantization.float8_dynamic_activation_float8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_dynamic_activation_float8_weight</span></code></a></p></td>
 <td><p>Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_static_activation_float8_weight.html#torchao.quantization.float8_static_activation_float8_weight" title="torchao.quantization.float8_static_activation_float8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_static_activation_float8_weight</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.float8_static_activation_float8_weight.html#torchao.quantization.float8_static_activation_float8_weight" title="torchao.quantization.float8_static_activation_float8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">float8_static_activation_float8_weight</span></code></a></p></td>
 <td><p>Applies float8 static symmetric quantization to</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.uintx_weight_only.html#torchao.quantization.uintx_weight_only" title="torchao.quantization.uintx_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">uintx_weight_only</span></code></a></p></td>
-<td><p>Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where x is the number of bits specified by <cite>dtype</cite></p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.fpx_weight_only.html#torchao.quantization.fpx_weight_only" title="torchao.quantization.fpx_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">fpx_weight_only</span></code></a></p></td>
 <td><p>Sub-byte floating point dtypes defined by <cite>ebits</cite>: exponent bits and <cite>mbits</cite>: mantissa bits e.g.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.to_linear_activation_quantized.html#torchao.quantization.to_linear_activation_quantized" title="torchao.quantization.to_linear_activation_quantized"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_linear_activation_quantized</span></code></a></p></td>
-<td><p></p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear" title="torchao.quantization.swap_linear_with_smooth_fq_linear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">swap_linear_with_smooth_fq_linear</span></code></a></p></td>
-<td><p>Replaces linear layers in the model with their SmoothFakeDynamicallyQuantizedLinear equivalents.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference" title="torchao.quantization.smooth_fq_linear_to_inference"><code class="xref py py-obj docutils literal notranslate"><span class="pre">smooth_fq_linear_to_inference</span></code></a></p></td>
-<td><p>Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.</p></td>
-</tr>
+</tbody>
+</table>
+</section>
+<section id="quantization-primitives">
+<h2>Quantization Primitives<a class="headerlink" href="#quantization-primitives" title="Permalink to this heading">¶</a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine.html#torchao.quantization.choose_qparams_affine" title="torchao.quantization.choose_qparams_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_affine</span></code></a></p></td>
 <td><p><dl class="field-list simple">
 <dt class="field-odd">param input<span class="colon">:</span></dt>
@@ -520,6 +533,23 @@
 </tbody>
 </table>
 </section>
+<section id="other">
+<h2>Other<a class="headerlink" href="#other" title="Permalink to this heading">¶</a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.to_linear_activation_quantized.html#torchao.quantization.to_linear_activation_quantized" title="torchao.quantization.to_linear_activation_quantized"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_linear_activation_quantized</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear" title="torchao.quantization.swap_linear_with_smooth_fq_linear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">swap_linear_with_smooth_fq_linear</span></code></a></p></td>
+<td><p>Replaces linear layers in the model with their SmoothFakeDynamicallyQuantizedLinear equivalents.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference" title="torchao.quantization.smooth_fq_linear_to_inference"><code class="xref py py-obj docutils literal notranslate"><span class="pre">smooth_fq_linear_to_inference</span></code></a></p></td>
+<td><p>Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
 
 
              </article>
@@ -529,7 +559,7 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="generated/torchao.quantization.autoquant.html" class="btn btn-neutral float-right" title="autoquant" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="generated/torchao.quantization.quantize_.html" class="btn btn-neutral float-right" title="quantize" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="generated/torchao.dtypes.to_nf4.html" class="btn btn-neutral" title="to_nf4" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
@@ -564,7 +594,13 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">torchao.quantization</a></li>
+<li><a class="reference internal" href="#">torchao.quantization</a><ul>
+<li><a class="reference internal" href="#main-quantization-apis">Main Quantization APIs</a></li>
+<li><a class="reference internal" href="#quantization-apis-for-quantize">Quantization APIs for quantize_</a></li>
+<li><a class="reference internal" href="#quantization-primitives">Quantization Primitives</a></li>
+<li><a class="reference internal" href="#other">Other</a></li>
+</ul>
+</li>
 </ul>
 
             </div>

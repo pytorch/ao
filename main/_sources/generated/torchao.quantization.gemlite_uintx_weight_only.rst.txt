@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+gemlite_uintx_weight_only
+=========================
+
+.. autofunction:: gemlite_uintx_weight_only
