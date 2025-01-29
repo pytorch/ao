@@ -358,9 +358,7 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
                 from torchvision.transforms import ToTensor
                 from torchvision.transforms import v2
 
-                if baseline:
-                    image_tensor = ToTensor()(image_tensor)
-                else:
+                if not baseline:
                     image_tensor = torch.from_numpy(image_tensor)
                     image_tensor = image_tensor.permute((2, 0, 1))
                     image_tensor = image_tensor.cuda()
