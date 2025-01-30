@@ -21,12 +21,11 @@ from torchao.dtypes.affine_quantized_tensor_ops import (
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout
 from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
     MappingType,
+    ZeroPointDomain,
     choose_qparams_affine,
     quantize_affine,
 )
-
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
@@ -41,11 +40,13 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+
 class Target(Enum):
     """Enum that indicates the backend target"""
 
     NATIVE = auto()
     ATEN = auto()
+
 
 def target_from_str(target: str) -> Target:
     if target.lower() == "native":
@@ -54,6 +55,7 @@ def target_from_str(target: str) -> Target:
         return Target.ATEN
     else:
         raise ValueError(f"Invalid target: {target}")
+
 
 class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
     bit_width: Optional[int]
@@ -157,7 +159,10 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
-        assert layout.target in {Target.NATIVE, Target.ATEN}, f"Unexpected target: {layout.target}"
+        assert layout.target in {
+            Target.NATIVE,
+            Target.ATEN,
+        }, f"Unexpected target: {layout.target}"
 
         # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
         # when AOTI supports int
@@ -167,10 +172,14 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         k_tensor = torch.empty(0, k, dtype=torch.int8)
 
         if layout.target == Target.ATEN:
-            assert TORCH_VERSION_AT_LEAST_2_6, f"aten target is requires torch version > 2.6.0"
+            assert (
+                TORCH_VERSION_AT_LEAST_2_6
+            ), "aten target is requires torch version > 2.6.0"
             int_data = int_data.add(8)
-            int_data = (int_data[::,1::2]  << 4 | int_data[::,::2] ).to(torch.uint8)
-            packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(int_data, scale, bias, layout.group_size, k, n)
+            int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
+            packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(
+                int_data, scale, bias, layout.group_size, k, n
+            )
             return cls(packed_weight, layout, group_size_tensor, n_tensor, k_tensor)
 
         if layout.has_weight_zeros:
@@ -248,12 +257,11 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
 def _linear_check(input_tensor, weight_tensor, bias):
     layout = weight_tensor.tensor_impl.get_layout()
     return isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout) and (
-        bias is None or layout.target == Target.ATEN # Aten target allows bias
+        bias is None or layout.target == Target.ATEN  # Aten target allows bias
     )
 
 
 def _linear_impl(input_tensor, weight_tensor, bias):
-
     def _impl_2d_native(input_tensor, weight_tensor):
         assert input_tensor.dim() == 2
         assert weight_tensor.dim() == 2
@@ -299,14 +307,13 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         group_size = weight_tensor.tensor_impl.get_layout().group_size
         packed_weight = weight_tensor.tensor_impl.packed_weight
         return torch.ops.aten._dyn_quant_matmul_4bit(
-            input_tensor, packed_weight, group_size, k_, n)
+            input_tensor, packed_weight, group_size, k_, n
+        )
 
     target = weight_tensor.tensor_impl.get_layout().target
 
     if target == Target.ATEN:
-        assert (
-            TORCH_VERSION_AT_LEAST_2_6 == 1
-        ), "Target.ATEN requires torch >= 2.6.0"
+        assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
     elif target == Target.NATIVE:
         _impl_2d = _impl_2d_native
@@ -326,6 +333,7 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     res = _impl_2d(input_tensor.reshape(-1, k), weight_tensor)
     res = res.reshape(*lead_shape, m, n)
     return res
+
 
 register_aqt_quantized_linear_dispatch(
     _linear_check,
@@ -354,12 +362,17 @@ class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTenso
         zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         _layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(),
         use_hqq: bool = False,
-        bias: Optional[torch.Tensor] = None
+        bias: Optional[torch.Tensor] = None,
     ):
-        assert use_hqq == False, f"PackedLinearInt8DynamicActivationIntxWeightTensor can not support HQQ optimization"
+        assert (
+            use_hqq == False
+        ), "PackedLinearInt8DynamicActivationIntxWeightTensor can not support HQQ optimization"
         assert isinstance(
-            _layout, PackedLinearInt8DynamicActivationIntxWeightLayout), f"PackedLinearInt8DynamicActivationIntxWeightTensor can only support PackedLinearInt8DynamicActivationIntxWeightLayout(). Provided {_layout}"
-        assert _layout.target == Target.ATEN, f"PackedLinearInt8DynamicActivationIntxWeightTensor requires target 'aten'."
+            _layout, PackedLinearInt8DynamicActivationIntxWeightLayout
+        ), f"PackedLinearInt8DynamicActivationIntxWeightTensor can only support PackedLinearInt8DynamicActivationIntxWeightLayout(). Provided {_layout}"
+        assert (
+            _layout.target == Target.ATEN
+        ), "PackedLinearInt8DynamicActivationIntxWeightTensor requires target 'aten'."
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
@@ -405,4 +418,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTenso
             dtype=input_float.dtype,
         )
 
-to_packedlinearint8dynamicactivationintxweight_quantized_intx = PackedLinearInt8DynamicActivationIntxWeightAtenTensor.from_hp_to_intx
+
+to_packedlinearint8dynamicactivationintxweight_quantized_intx = (
+    PackedLinearInt8DynamicActivationIntxWeightAtenTensor.from_hp_to_intx
+)
