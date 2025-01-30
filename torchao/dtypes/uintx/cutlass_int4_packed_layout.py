@@ -105,10 +105,10 @@ class Int4PackedTensorImpl(AQTTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: torch.Tensor | None,
         _layout: Layout,
     ):
-        assert torch.all(zero_point == 0)
+        assert zero_point is None or torch.all(zero_point == 0)
 
         int_data_s4 = ((int_data[:, 1::2] & 0xF) << 4) | (int_data[:, 0::2] & 0xF)
         return cls(

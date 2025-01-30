@@ -677,6 +677,7 @@ def apply_int4_dynamic_activation_int4_weight_quant(
         quant_min=-8,
         quant_max=7,
         eps=torch.finfo(torch.float32).eps,
+        zero_point_domain=ZeroPointDomain.NONE,
         _layout=layout,
     )
     weight = to_linear_activation_quantized(
@@ -916,6 +917,7 @@ def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
         quant_min=-8,
         quant_max=7,
         eps=1e-5,
+        zero_point_domain=ZeroPointDomain.NONE,
         _layout=CutlassInt4PackedLayout(),
     )
 
