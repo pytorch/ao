@@ -34,6 +34,26 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
+def memory_runner(path, fn, *args, **kwargs):
+    print("Start memory recording")
+    torch.cuda.synchronize()
+    torch.cuda.memory._record_memory_history(
+        True,
+        trace_alloc_max_entries=100000,
+        trace_alloc_record_context=True
+    )
+    result = fn(*args, **kwargs)
+    torch.cuda.synchronize()
+    snapshot = torch.cuda.memory._snapshot()
+    print("Finish memory recording")
+    import pickle
+    with open(path, 'wb') as f:
+        pickle.dump(snapshot, f)
+    # Use to convert pickle file into html
+    # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
+    return result
+
+
 def latencies_statistics(data):
     # Convert the list to a NumPy array
     data_array = np.array(data)
@@ -645,4 +665,5 @@ def main(
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
     # profiler_runner("asdf.json.gz", fire.Fire, main)
+    # memory_runner("asdf.pickle", fire.Fire, main)
     fire.Fire(main)
