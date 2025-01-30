@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import (
@@ -105,7 +106,7 @@ class Int4PackedTensorImpl(AQTTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor | None,
+        zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
         assert zero_point is None or torch.all(zero_point == 0)
