@@ -14,10 +14,8 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
+from torchao.experimental.q_dq_layout import QDQLayout
+from torchao.quantization.granularity import PerGroup, PerRow
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -598,15 +596,21 @@ def int8_dynamic_activation_intx_weight(
             eps=torch.finfo(torch.float32).eps,
             zero_point_dtype=torch.int8,
             preserve_zero=has_weight_zeros,
-            zero_point_domain=ZeroPointDomain.INT
-            if has_weight_zeros
-            else ZeroPointDomain.NONE,
+            zero_point_domain=(
+                ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+            ),
             _layout=layout,
         )
 
         # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
         # with the kernel and it should not be applied separately
-        if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+        if not any(
+            isinstance(layout, layout_class)
+            for layout_class in [
+                QDQLayout,
+                PackedLinearInt8DynamicActivationIntxWeightLayout,
+            ]
+        ):
             activation_quant_func = lambda x: to_affine_quantized_intx(
                 x,
                 mapping_type=act_mapping_type,

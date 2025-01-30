@@ -40,3 +40,4 @@ jobs:
         run: |
           conda activate venv
           python torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
+          python torchao/experimental/tests/test_q_dq_layout.py
