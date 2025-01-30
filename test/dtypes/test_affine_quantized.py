@@ -8,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
+from torchao.dtypes import CutlassInt4PackedLayout, Int4XPULayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
     int4_weight_only,
@@ -20,6 +20,7 @@ from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
     is_sm_at_least_89,
 )
 
@@ -47,6 +48,18 @@ def get_quantization_functions(
                     int4_weight_only(
                         group_size=32,
                         layout=Int4CPULayout(),
+                        zero_point_domain=ZeroPointDomain.INT,
+                    )
+                )
+        elif device == "xpu" and  TORCH_VERSION_AT_LEAST_2_6:
+            base_functions.append(
+                int4_weight_only(group_size=32, layout=Int4XPULayout())
+            )
+            if int4_zp_int:
+                base_functions.append(
+                    int4_weight_only(
+                        group_size=32,
+                        layout=Int4XPULayout(),
                         zero_point_domain=ZeroPointDomain.INT,
                     )
                 )
