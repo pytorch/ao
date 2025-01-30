@@ -17,11 +17,9 @@ from torchao.experimental.quant_api import (
     int8_dynamic_activation_intx_weight,
 )
 from torchao.quantization.granularity import (
-    PerGroup,
     PerRow,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import unwrap_tensor_subclass
 from torchao.quantization.quant_primitives import MappingType
 
 
@@ -57,7 +55,8 @@ class TestPackedLinearInt8DynamicActivationIntxWeightLayoutAten(unittest.TestCas
                             has_weight_zeros=has_weight_zeros,
                             weight_mapping_type=weight_mapping_type,
                             layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
-                                target="aten"),  # default
+                                target="aten"
+                            ),  # default
                         ),
                     )
 
