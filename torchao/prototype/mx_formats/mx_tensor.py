@@ -318,15 +318,17 @@ class ToMXConstrFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, data_hp, elem_dtype, block_size):
-        scale_e8m0_biased, data_lp = to_mx(data_hp, elem_dtype, block_size)
+    def forward(ctx, data_hp, elem_dtype, block_size, scaling_mode):
+        scale_e8m0_biased, data_lp = to_mx(
+            data_hp, elem_dtype, block_size, scaling_mode
+        )
         return MXTensor(
             scale_e8m0_biased, data_lp, elem_dtype, block_size, data_hp.dtype
         )
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None
+        return g, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -440,8 +442,9 @@ class MXTensor(torch.Tensor):
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     ):
-        return ToMXConstrFunc.apply(data_hp, elem_dtype, block_size)
+        return ToMXConstrFunc.apply(data_hp, elem_dtype, block_size, scaling_mode)
 
     def __tensor_flatten__(self):
         ctx = {
