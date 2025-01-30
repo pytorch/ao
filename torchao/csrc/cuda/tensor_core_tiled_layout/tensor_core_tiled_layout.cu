@@ -1,17 +1,7 @@
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
 
-#include <ATen/ATen.h>
-#include <ATen/core/Tensor.h>
-#include <ATen/DeviceGuard.h>
-#include <ATen/core/TensorAccessor.h>
-#include <ATen/core/ivalue.h>
-#include <ATen/core/stack.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
 #include <c10/util/BFloat16.h>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
-#include <torch/csrc/inductor/aoti_torch/utils.h>
-#include <torch/library.h>
 
 template <typename U, typename V>
 constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
@@ -72,6 +62,7 @@ inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
 
   return result;
 }
+
 // in size [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2]
 // scales_and_zeros size [numQGroups][n][2]
 // out size [n][k]
@@ -162,6 +153,15 @@ __global__ void _dequantize_int4_kernel(
   }
 }
 
+
+
+// The following function should eventually be libtorch agnostic
+// Blockers from that goal today:
+//  - TORCH_CHECK
+//  - c10::cuda::CUDAGuard
+//  - at::cuda::getCurrentCUDAStream();
+//  - at::GenericPackedTensorAccessor
+//  - at::RestrictPtrTraits
 AtenTensorHandle _ATH_dequantize_tensor_core_tiled_layout(
     const AtenTensorHandle packed_w, const AtenTensorHandle scales_and_zeros,
     int64_t group_size, int64_t innerKTiles) {
@@ -352,77 +352,45 @@ void voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(void **stack,
   stack[num_args] = out;
 }
 
-// step 1: from here, call the ATH func
-// step 2: make ATH func also boxed and call it
-// step 3: move abstract code to libtorch
-void boxed_dequantize_tensor_core_tiled_layout(const c10::OperatorHandle &op,
-                                               torch::jit::Stack *stack) {
-
-  // function pt1 here should take in IValues, pass a malloc'd stack into the
-  // second function
-  // need a translation from IValues to ATH to void*s!
-
-  const auto& schema = op.schema();
-  const auto num_returns = schema.returns().size();
-  const auto num_arguments = schema.arguments().size();
-  void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
-
-  for (auto idx = 0; idx < num_arguments; idx++) {
-    const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
-    if (arg.isInt()) {
-      ministack[idx] = reinterpret_cast<void *>(arg.toInt());
-    } else if (arg.isTensor()) {
-      const at::Tensor& tensor = arg.toTensor();
-      AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
-      ministack[idx] = reinterpret_cast<void *>(ath);
-    } else {
-      TORCH_CHECK(false, "Other types of IValues not yet handled!");
-    }
-  }
-
-  // second function is going to take a stack of void*, cast them to our
-  // schema values for now, and run the function and modify the void* stack
-  voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_arguments,
-                                                    num_returns);
-
-  // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
-  // before calling the function
-  torch::jit::drop(stack, num_arguments);
-
-  // read the output from the end of the stack and wrap that back into
-  // IValue from void*?
-  for (auto idx = 0; idx < num_returns; idx++) {
-    const c10::TypePtr& ret_type = schema.returns()[idx].type();
-    if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
-      AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
-      at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
-      torch::jit::push(stack, c10::IValue(out));
-    } else {
-      TORCH_CHECK(false, "Only Tensor return types are currently supported!");
-    }
-  }
-
-  free(ministack);
-}
-
 
 // output is [n][k] (int32 dtype)
 // input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
-at::Tensor _unpack_tensor_core_tiled_layout(const at::Tensor &packed_w,
+AtenTensorHandle _ATH_unpack_tensor_core_tiled_layout(const AtenTensorHandle packed_w,
                                             int64_t innerKTiles) {
 
-  c10::cuda::CUDAGuard g(packed_w.device());
+  int32_t packed_w_device_index;
+  aoti_torch_get_device_index(packed_w, &packed_w_device_index);
 
-  TORCH_CHECK(packed_w.dim() == 4);
-  TORCH_CHECK(packed_w.dtype() == at::kInt);
-  TORCH_CHECK(packed_w.is_contiguous());
+  // c10::cuda::CUDAGuard g(packed_w.device());
+  c10::cuda::CUDAGuard g(packed_w_device_index);
 
-  TORCH_CHECK(packed_w.size(2) == 32);
-  TORCH_CHECK(packed_w.size(3) == innerKTiles / 2);
+  int64_t packed_w_dim;
+  aoti_torch_get_dim(packed_w, &packed_w_dim);
+  TORCH_CHECK(packed_w_dim == 4);
+
+  int32_t packed_w_dtype;
+  aoti_torch_get_dtype(packed_w, &packed_w_dtype);
+  TORCH_CHECK(packed_w_dtype == static_cast<int32_t>(at::kInt));
+
+  // is_contiguous not existent today
+  // TORCH_CHECK(packed_w.is_contiguous());
+
+  int64_t packed_w_dim_2_size;
+  aoti_torch_get_size(packed_w, 2, &packed_w_dim_2_size);
+  TORCH_CHECK(packed_w_dim_2_size == 32);
+  
+  int64_t packed_w_dim_3_size;
+  aoti_torch_get_size(packed_w, 3, &packed_w_dim_3_size);
+  TORCH_CHECK(packed_w_dim_3_size == innerKTiles / 2);
   TORCH_CHECK(innerKTiles == 2 || innerKTiles == 4 || innerKTiles == 8);
 
-  int N = packed_w.size(0) * 8;
-  int K = packed_w.size(1) * innerKTiles * 16;
+  int64_t packed_w_dim_0_size;
+  aoti_torch_get_size(packed_w, 0, &packed_w_dim_0_size);
+  int N = packed_w_dim_0_size * 8;
+
+  int64_t packed_w_dim_1_size;
+  aoti_torch_get_size(packed_w, 1, &packed_w_dim_1_size);
+  int K = packed_w_dim_1_size * innerKTiles * 16;
 
   constexpr int32_t kNTileSize = 8;
   constexpr int32_t kKTileSize = 16;
@@ -431,41 +399,75 @@ at::Tensor _unpack_tensor_core_tiled_layout(const at::Tensor &packed_w,
 
   auto kSuperTiles = divUp(K, innerKTiles * kKTileSize);
 
-  auto out = at::empty(
-      {N, K}, at::TensorOptions().dtype(at::kInt).device(packed_w.device()));
+  AtenTensorHandle out;
+  int64_t out_sizes[] = {N, K};
+  int64_t out_strides[] = {K, 1};
+  auto kInt = aoti_torch_dtype_int32();
+  int32_t packed_w_device_type;
+  aoti_torch_get_device_type(packed_w, &packed_w_device_type);
+  aoti_torch_empty_strided(2, out_sizes, out_strides, kInt, packed_w_device_type, packed_w_device_index, &out);
+  // auto out = at::empty(
+  //     {N, K}, at::TensorOptions().dtype(at::kInt).device(packed_w.device()));
 
   auto stream = at::cuda::getCurrentCUDAStream();
   dim3 grid(kSuperTiles, nTiles);
 
+  void *packed_w_data_ptr;
+  int64_t *packed_w_sizes;
+  int64_t *packed_w_strides;
+  aoti_torch_get_data_ptr(packed_w, &packed_w_data_ptr);
+  aoti_torch_get_sizes(packed_w, &packed_w_sizes);
+  aoti_torch_get_strides(packed_w, &packed_w_strides);
+  at::GenericPackedTensorAccessor<int32_t, 4, at::RestrictPtrTraits, int32_t>
+      packed_w_pta32(
+          static_cast<typename at::RestrictPtrTraits<int32_t>::PtrType>(
+              packed_w_data_ptr),
+          packed_w_sizes, packed_w_strides);
+
+  void *out_data_ptr;
+  aoti_torch_get_data_ptr(out, &out_data_ptr);
+  at::GenericPackedTensorAccessor<int32_t, 2, at::RestrictPtrTraits,
+                                  int32_t>
+      out_pta32(
+          static_cast<typename at::RestrictPtrTraits<int32_t>::PtrType>(
+              out_data_ptr),
+          out_sizes, out_strides);
+
   if (innerKTiles == 2) {
     _dequantize_int4_kernel<int32_t, 2, 0, false>
-        <<<grid, kWarpSize, 0, stream>>>(
-            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+        <<<grid, kWarpSize, 0, stream>>>(packed_w_pta32, out_pta32);
+    // packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
+    // out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>()
   } else if (innerKTiles == 4) {
     _dequantize_int4_kernel<int32_t, 4, 0, false>
-        <<<grid, kWarpSize, 0, stream>>>(
-            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+        <<<grid, kWarpSize, 0, stream>>>(packed_w_pta32, out_pta32);
   } else if (innerKTiles == 8) {
     _dequantize_int4_kernel<int32_t, 8, 0, false>
-        <<<grid, kWarpSize, 0, stream>>>(
-            packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
-            out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+        <<<grid, kWarpSize, 0, stream>>>(packed_w_pta32, out_pta32);
   }
 
   return out;
 }
 
+void voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(void **stack,
+                                                       int64_t num_args,
+                                                       int64_t num_outputs) {
+  // here, void* is my StableIValue
+  // function is going to take a stack of void*, cast them to our
+  // schema values for now, and run the function and modify the void* stack
+  int64_t innerKTiles = reinterpret_cast<int64_t>(stack[1]);
+  AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
 
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::unpack_tensor_core_tiled_layout",
-         &_unpack_tensor_core_tiled_layout);
-  // m.impl("torchao::dequantize_tensor_core_tiled_layout",
-  // &_dequantize_tensor_core_tiled_layout);
-  m.impl("torchao::dequantize_tensor_core_tiled_layout",
-         torch::CppFunction::makeFromBoxedFunction<
-             boxed_dequantize_tensor_core_tiled_layout>());
+  AtenTensorHandle ath_res = _ATH_unpack_tensor_core_tiled_layout(
+      packed_w_ath, innerKTiles);
+
+  void *out = reinterpret_cast<void *>(ath_res);
+  stack[num_args] = out;
+}
+
+STABLE_TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+    m.impl("torchao::unpack_tensor_core_tiled_layout", &voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout);
+    m.impl("torchao::dequantize_tensor_core_tiled_layout", &voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout);
 }
 
 #endif
