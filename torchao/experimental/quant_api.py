@@ -614,13 +614,13 @@ def int8_dynamic_activation_intx_weight(
             if layout.target == Target.ATEN:
                 if weight_dtype != torch.int4 or \
                     has_weight_zeros != True or \
-                    weight_mapping_type != MappingType.SYMMETRIC:
+                    weight_mapping_type == MappingType.ASYMMETRIC:
                     raise NotImplementedError(
                         f"target 'aten' requires:\n"
                         f"- layout to be PackedLinearInt8DynamicActivationIntxWeightLayout,\n"
                         f"- has_weight_zeros to be True,\n"
                         f"- weight_dtype to be torch.int4,\n"
-                        f"- weight_mapping_type to be MappingType.SYMMETRIC"
+                        f"- weight_mapping_type to be MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR"
                     )
                 assert TORCH_VERSION_AT_LEAST_2_6, f"aten target is requires torch version > 2.6.0"
                 if torch.backends.kleidiai.is_available():
