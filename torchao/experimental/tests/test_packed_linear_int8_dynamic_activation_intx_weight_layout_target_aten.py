@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-
 import torch
 
 from torchao.dtypes import PlainLayout
@@ -43,8 +42,7 @@ class TestPackedLinearInt8DynamicActivationIntxWeightLayoutAten(unittest.TestCas
             for has_weight_zeros in [True]:
                 for granularity in granularities:
                     print(
-                        f"Testing weight_dtype={weight_dtype}, has_weight_zeros={
-                            has_weight_zeros}, granularity={granularity}"
+                        f"Testing weight_dtype={weight_dtype}, has_weight_zeros={has_weight_zeros}, granularity={granularity}"
                     )
                     quantized_model = copy.deepcopy(model)
                     quantize_(
