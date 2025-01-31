@@ -152,7 +152,7 @@ def choose_qparams_codebook(
     code_dtype: torch.dtype,
     max_iter: int = 200,
     devices: Optional[List[torch.device]] = None,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Initialize the codebook using k-means clustering on blocks of the input tensor.
 
@@ -165,7 +165,9 @@ def choose_qparams_codebook(
         devices (List[torch.device]): Devices to run k-means on.
 
     Returns:
-        torch.Tensor: The codebook tensor, shape (codebook_size, *block_size).
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - codebook (torch.Tensor): Shape (codebook_size, *block_size).
+            - scales (torch.Tensor): Shape corresponding to scale blocks.
     """
     if code_dtype == torch.int32:
         codebook_size = 2**16
