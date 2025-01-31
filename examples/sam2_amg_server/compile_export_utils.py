@@ -171,6 +171,32 @@ def export_model(
         example_input,
         overwrite=overwrite,
     )
+    if task_type in ["sps"]:
+        example_input_args = ()
+        example_input_kwargs = {
+            "points": (
+                torch.randn(batch_size,
+                            1,
+                            2,
+                            dtype=torch.float32,
+                            device=mask_generator.predictor.device),
+                torch.ones(batch_size,
+                           1,
+                           dtype=torch.int32,
+                           device=mask_generator.predictor.device),
+            ),
+            "boxes": None,
+            "masks": None,
+        }
+        aot_compile(
+            model_directory,
+            "sam2_sam_prompt_encoder",
+            mask_generator.predictor.model.sam_prompt_encoder,
+            example_input_args,
+            sample_kwargs=example_input_kwargs,
+            overwrite=overwrite,
+        )
+    return mask_generator
 
     if task_type in ["sps"]:
         example_input_high_res_feats = [
@@ -295,6 +321,16 @@ def load_exported_model(
 
     if task_type in ["amg", "mps"]:
         return mask_generator
+
+    if task_type in ["sps"]:
+        path = Path(model_directory) / Path("sam2_sam_prompt_encoder.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        pkg_m = LoadedModel(pkg)
+        mask_generator.predictor.model.sam_prompt_encoder.forward = pkg_m.forward
+
+    return mask_generator
 
     path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
     assert path.exists(), f"Expected {path} to exist"
