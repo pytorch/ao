@@ -6,19 +6,38 @@
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 
 class StableLibrary final {
+  private:
+    class TorchLibraryOpaque;
+    using TorchLibraryHandle = TorchLibraryOpaque*;
+    TorchLibraryHandle lib_;
   public:
-  // a pointer to a real Library
-  // a kind
-  enum Kind {
-    DEF, // from TORCH_LIBRARY (no qualifier)
-    IMPL,
-    FRAGMENT,
-  };
+    // a pointer to a real Library
+    // a kind
+    enum Kind {
+      // DEF, // from TORCH_LIBRARY (no qualifier)
+      IMPL,
+      // FRAGMENT,
+    };
 
+    // constructor
+    /// \private
+    ///
+    /// Use TORCH_LIBRARY() or TORCH_LIBRARY_IMPL() instead of using these
+    /// constructors directly
+    StableLibrary(
+        Kind kind,
+        std::string ns,
+        std::optional<c10::DispatchKey> k,
+        const char* file,
+        uint32_t line);
+    
+    StableLibrary(const StableLibrary&) = delete;
+    StableLibrary& operator=(const StableLibrary&) = delete;
+    StableLibrary(StableLibrary&&) = default;
+    StableLibrary& operator=(StableLibrary&&) = default;
+    ~StableLibrary() = default;
 
-  // constructor
-
-  
+    StableLibrary& impl(std::string name, void* fn);
 };
 
 

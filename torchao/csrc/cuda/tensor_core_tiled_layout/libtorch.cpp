@@ -15,119 +15,231 @@
 #include <torch/library.h>
 
 
-// step 1: from here, call the ATH func
-// step 2: make ATH func also boxed and call it
-// step 3: move abstract code to libtorch
-void boxed_dequantize_tensor_core_tiled_layout(const c10::OperatorHandle &op,
-                                               torch::jit::Stack *stack) {
+// // step 1: from here, call the ATH func
+// // step 2: make ATH func also boxed and call it
+// // step 3: move abstract code to libtorch
+// void boxed_dequantize_tensor_core_tiled_layout(const c10::OperatorHandle &op,
+//                                                torch::jit::Stack *stack) {
 
-  // function pt1 here should take in IValues, pass a malloc'd stack into the
-  // second function
-  // need a translation from IValues to ATH to void*s!
+//   // function pt1 here should take in IValues, pass a malloc'd stack into the
+//   // second function
+//   // need a translation from IValues to ATH to void*s!
 
-  const auto& schema = op.schema();
-  const auto num_returns = schema.returns().size();
-  const auto num_arguments = schema.arguments().size();
-  void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
+//   const auto& schema = op.schema();
+//   const auto num_returns = schema.returns().size();
+//   const auto num_arguments = schema.arguments().size();
+//   void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
 
-  for (auto idx = 0; idx < num_arguments; idx++) {
-    const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
-    if (arg.isInt()) {
-      ministack[idx] = reinterpret_cast<void *>(arg.toInt());
-    } else if (arg.isTensor()) {
-      const at::Tensor& tensor = arg.toTensor();
-      AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
-      ministack[idx] = reinterpret_cast<void *>(ath);
-    } else {
-      TORCH_CHECK(false, "Other types of IValues not yet handled!");
+//   for (auto idx = 0; idx < num_arguments; idx++) {
+//     const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
+//     if (arg.isInt()) {
+//       ministack[idx] = reinterpret_cast<void *>(arg.toInt());
+//     } else if (arg.isTensor()) {
+//       const at::Tensor& tensor = arg.toTensor();
+//       AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+//       ministack[idx] = reinterpret_cast<void *>(ath);
+//     } else {
+//       TORCH_CHECK(false, "Other types of IValues not yet handled!");
+//     }
+//   }
+
+//   // second function is going to take a stack of void*, cast them to our
+//   // schema values for now, and run the function and modify the void* stack
+//   voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_arguments,
+//                                                     num_returns);
+
+//   // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
+//   // before calling the function
+//   torch::jit::drop(stack, num_arguments);
+
+//   // read the output from the end of the stack and wrap that back into
+//   // IValue from void*?
+//   for (auto idx = 0; idx < num_returns; idx++) {
+//     const c10::TypePtr& ret_type = schema.returns()[idx].type();
+//     if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
+//       AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
+//       at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
+//       torch::jit::push(stack, c10::IValue(out));
+//     } else {
+//       TORCH_CHECK(false, "Only Tensor return types are currently supported!");
+//     }
+//   }
+
+//   free(ministack);
+// }
+
+
+// void boxed_unpack_tensor_core_tiled_layout(const c10::OperatorHandle &op,
+//                                                torch::jit::Stack *stack) {
+
+//   // function pt1 here should take in IValues, pass a malloc'd stack into the
+//   // second function
+//   // need a translation from IValues to ATH to void*s!
+
+//   const auto& schema = op.schema();
+//   const auto num_returns = schema.returns().size();
+//   const auto num_arguments = schema.arguments().size();
+//   void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
+
+//   for (auto idx = 0; idx < num_arguments; idx++) {
+//     const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
+//     if (arg.isInt()) {
+//       ministack[idx] = reinterpret_cast<void *>(arg.toInt());
+//     } else if (arg.isTensor()) {
+//       const at::Tensor& tensor = arg.toTensor();
+//       AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+//       ministack[idx] = reinterpret_cast<void *>(ath);
+//     } else {
+//       TORCH_CHECK(false, "Other types of IValues not yet handled!");
+//     }
+//   }
+
+//   // second function is going to take a stack of void*, cast them to our
+//   // schema values for now, and run the function and modify the void* stack
+//   voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(ministack, num_arguments,
+//                                                     num_returns);
+
+//   // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
+//   // before calling the function
+//   torch::jit::drop(stack, num_arguments);
+
+//   // read the output from the end of the stack and wrap that back into
+//   // IValue from void*?
+//   for (auto idx = 0; idx < num_returns; idx++) {
+//     const c10::TypePtr& ret_type = schema.returns()[idx].type();
+//     if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
+//       AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
+//       at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
+//       torch::jit::push(stack, c10::IValue(out));
+//     } else {
+//       TORCH_CHECK(false, "Only Tensor return types are currently supported!");
+//     }
+//   }
+
+//   free(ministack);
+// }
+
+// void boxed_void_function(const c10::OperatorHandle &op, torch::jit::Stack *stack) {
+
+//   // function pt1 here should take in IValues, pass a malloc'd stack into the
+//   // second function
+//   // need a translation from IValues to ATH to void*s!
+
+//   const auto& schema = op.schema();
+//   const auto num_returns = schema.returns().size();
+//   const auto num_arguments = schema.arguments().size();
+//   void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
+
+//   for (auto idx = 0; idx < num_arguments; idx++) {
+//     const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
+//     if (arg.isInt()) {
+//       ministack[idx] = reinterpret_cast<void *>(arg.toInt());
+//     } else if (arg.isTensor()) {
+//       const at::Tensor& tensor = arg.toTensor();
+//       AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+//       ministack[idx] = reinterpret_cast<void *>(ath);
+//     } else {
+//       TORCH_CHECK(false, "Other types of IValues not yet handled!");
+//     }
+//   }
+
+//   // second function is going to take a stack of void*, cast them to our
+//   // schema values for now, and run the function and modify the void* stack
+//   voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(ministack, num_arguments,
+//                                                     num_returns);
+
+//   // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
+//   // before calling the function
+//   torch::jit::drop(stack, num_arguments);
+
+//   // read the output from the end of the stack and wrap that back into
+//   // IValue from void*?
+//   for (auto idx = 0; idx < num_returns; idx++) {
+//     const c10::TypePtr& ret_type = schema.returns()[idx].type();
+//     if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
+//       AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
+//       at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
+//       torch::jit::push(stack, c10::IValue(out));
+//     } else {
+//       TORCH_CHECK(false, "Only Tensor return types are currently supported!");
+//     }
+//   }
+
+//   free(ministack);
+// }
+
+// TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+//   // m.impl("torchao::unpack_tensor_core_tiled_layout",
+//   //        &_unpack_tensor_core_tiled_layout);
+//   m.impl("torchao::unpack_tensor_core_tiled_layout",
+//          torch::CppFunction::makeFromBoxedFunction<
+//              boxed_unpack_tensor_core_tiled_layout>());
+//   // m.impl("torchao::dequantize_tensor_core_tiled_layout",
+//   // &_dequantize_tensor_core_tiled_layout);
+//   m.impl("torchao::dequantize_tensor_core_tiled_layout",
+//          torch::CppFunction::makeFromBoxedFunction<
+//              boxed_dequantize_tensor_core_tiled_layout>());
+// }
+
+class StableLibrary::TorchLibraryOpaque {
+public:
+    TorchLibraryOpaque(StableLibrary::Kind kind, std::string ns, std::optional<c10::DispatchKey> k, const char* file, uint32_t line)
+        : library_(kind, ns, k, file, line) {}
+private:
+    torch::Library library_; // Actual Library object
+};
+
+StableLibrary::StableLibrary(StableLibrary::Kind kind, std::string ns, std::optional<c10::DispatchKey> k, const char* file, uint32_t line)
+    : lib_(&TorchLibraryOpaque(Library::Kind::IMPL, ns, k, file, line)) {}
+
+StableLibrary& StableLibrary::impl(std::string name, void (*fn)(void **, int64_t, int64_t)) {
+  auto boxed_function = [fn](const c10::OperatorHandle &op, torch::jit::Stack *stack) {
+    // function pt1 here should take in IValues, pass a malloc'd stack into the
+    // second function
+    // need a translation from IValues to ATH to void*s!
+
+    const auto& schema = op.schema();
+    const auto num_returns = schema.returns().size();
+    const auto num_arguments = schema.arguments().size();
+    void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
+
+    for (auto idx = 0; idx < num_arguments; idx++) {
+      const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
+      if (arg.isInt()) {
+        ministack[idx] = reinterpret_cast<void *>(arg.toInt());
+      } else if (arg.isTensor()) {
+        const at::Tensor& tensor = arg.toTensor();
+        AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+        ministack[idx] = reinterpret_cast<void *>(ath);
+      } else {
+        TORCH_CHECK(false, "Other types of IValues not yet handled!");
+      }
     }
+
+    // second function is going to take a stack of void*, cast them to our
+    // schema values for now, and run the function and modify the void* stack
+    fn(ministack, num_arguments, num_returns);
+
+    // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
+    // before calling the function
+    torch::jit::drop(stack, num_arguments);
+
+    // read the output from the end of the stack and wrap that back into
+    // IValue from void*?
+    for (auto idx = 0; idx < num_returns; idx++) {
+      const c10::TypePtr& ret_type = schema.returns()[idx].type();
+      if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
+        AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
+        at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
+        torch::jit::push(stack, c10::IValue(out));
+      } else {
+        TORCH_CHECK(false, "Only Tensor return types are currently supported!");
+      }
+    }
+
+    free(ministack);
   }
 
-  // second function is going to take a stack of void*, cast them to our
-  // schema values for now, and run the function and modify the void* stack
-  voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(ministack, num_arguments,
-                                                    num_returns);
-
-  // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
-  // before calling the function
-  torch::jit::drop(stack, num_arguments);
-
-  // read the output from the end of the stack and wrap that back into
-  // IValue from void*?
-  for (auto idx = 0; idx < num_returns; idx++) {
-    const c10::TypePtr& ret_type = schema.returns()[idx].type();
-    if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
-      AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
-      at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
-      torch::jit::push(stack, c10::IValue(out));
-    } else {
-      TORCH_CHECK(false, "Only Tensor return types are currently supported!");
-    }
-  }
-
-  free(ministack);
-}
-
-
-void boxed_unpack_tensor_core_tiled_layout(const c10::OperatorHandle &op,
-                                               torch::jit::Stack *stack) {
-
-  // function pt1 here should take in IValues, pass a malloc'd stack into the
-  // second function
-  // need a translation from IValues to ATH to void*s!
-
-  const auto& schema = op.schema();
-  const auto num_returns = schema.returns().size();
-  const auto num_arguments = schema.arguments().size();
-  void **ministack = (void**)malloc((num_arguments + num_returns) * sizeof(void *));
-
-  for (auto idx = 0; idx < num_arguments; idx++) {
-    const c10::IValue& arg = torch::jit::peek(stack, idx, num_arguments);
-    if (arg.isInt()) {
-      ministack[idx] = reinterpret_cast<void *>(arg.toInt());
-    } else if (arg.isTensor()) {
-      const at::Tensor& tensor = arg.toTensor();
-      AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
-      ministack[idx] = reinterpret_cast<void *>(ath);
-    } else {
-      TORCH_CHECK(false, "Other types of IValues not yet handled!");
-    }
-  }
-
-  // second function is going to take a stack of void*, cast them to our
-  // schema values for now, and run the function and modify the void* stack
-  voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(ministack, num_arguments,
-                                                    num_returns);
-
-  // now pop all inputs on stack. if we pop earlier, Tensors would go out of scope
-  // before calling the function
-  torch::jit::drop(stack, num_arguments);
-
-  // read the output from the end of the stack and wrap that back into
-  // IValue from void*?
-  for (auto idx = 0; idx < num_returns; idx++) {
-    const c10::TypePtr& ret_type = schema.returns()[idx].type();
-    if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
-      AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>( ministack[num_arguments + idx]);
-      at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
-      torch::jit::push(stack, c10::IValue(out));
-    } else {
-      TORCH_CHECK(false, "Only Tensor return types are currently supported!");
-    }
-  }
-
-  free(ministack);
-}
-
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  // m.impl("torchao::unpack_tensor_core_tiled_layout",
-  //        &_unpack_tensor_core_tiled_layout);
-  m.impl("torchao::unpack_tensor_core_tiled_layout",
-         torch::CppFunction::makeFromBoxedFunction<
-             boxed_unpack_tensor_core_tiled_layout>());
-  // m.impl("torchao::dequantize_tensor_core_tiled_layout",
-  // &_dequantize_tensor_core_tiled_layout);
-  m.impl("torchao::dequantize_tensor_core_tiled_layout",
-         torch::CppFunction::makeFromBoxedFunction<
-             boxed_dequantize_tensor_core_tiled_layout>());
+  this->lib_.impl(name, torch::CppFunction::makeFromBoxedFunction<boxed_function>());
+  return *this;
 }
