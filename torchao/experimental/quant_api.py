@@ -587,8 +587,6 @@ def int8_dynamic_activation_intx_weight(
                 f"granularity must be PerGroup or PerRow, got {granularity}"
             )
 
-        assert weight.shape[-1] % group_size == 0
-
         layout = layout_arg
         scale_dtype = None
         tensor_quantizer = to_affine_quantized_intx
@@ -605,13 +603,8 @@ def int8_dynamic_activation_intx_weight(
             assert (
                 act_mapping_type == MappingType.ASYMMETRIC
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
-            layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
-                bit_width=bit_width,
-                group_size=group_size,
-                has_weight_zeros=has_weight_zeros,
-                target="aten" if layout.target == Target.ATEN else "native",
-            )
+            assert not layout.has_params_set(
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
             if layout.target == Target.ATEN:
                 if (
                     weight_dtype != torch.int4
@@ -628,8 +621,13 @@ def int8_dynamic_activation_intx_weight(
                 assert (
                     TORCH_VERSION_AT_LEAST_2_6
                 ), "aten target is requires torch version > 2.6.0"
+                # Fallback to Channelwise scheme if group_size is too big
+                if weight.shape[-1] < group_size:
+                    logger.warning(f"Changing group_size to {
+                                   weight.shape[-1]}. Weight shape {weight.shape} can not support group_size {group_size}.")
+                    group_size = weight.shape[-1]
                 if torch.backends.kleidiai.is_available():
-                    if isinstance(granularity, PerGroup):
+                    if weight.shape[-1] != group_size and group_size % 32 == 0:
                         scale_dtype = (
                             torch.bfloat16
                         )  # KleidiAI kernel requires bfloat16 scale_dtype
@@ -637,6 +635,14 @@ def int8_dynamic_activation_intx_weight(
                     to_packedlinearint8dynamicactivationintxweight_quantized_intx
                 )
 
+            layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
+                bit_width=bit_width,
+                group_size=group_size,
+                has_weight_zeros=has_weight_zeros,
+                target="aten" if layout.target == Target.ATEN else "native",
+            )
+
+        assert weight.shape[-1] % group_size == 0
         quantizer_args = [
             weight,
             weight_mapping_type,
@@ -658,7 +664,7 @@ def int8_dynamic_activation_intx_weight(
         # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
         # with the kernel and it should not be applied separately
         if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            activation_quant_func = lambda x: to_affine_quantized_intx(
+            def activation_quant_func(x): return to_affine_quantized_intx(
                 x,
                 mapping_type=act_mapping_type,
                 block_size=_get_per_token_block_size(x),
@@ -668,7 +674,8 @@ def int8_dynamic_activation_intx_weight(
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.int32,
             )
-            weight = to_linear_activation_quantized(weight, activation_quant_func)
+            weight = to_linear_activation_quantized(
+                weight, activation_quant_func)
         return weight
 
     return _get_linear_subclass_inserter(apply, propagate_bias=propagate_bias)
