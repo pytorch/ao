@@ -70,10 +70,13 @@ import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
     IS_WINDOWS,
+    ROCM_HOME,
     BuildExtension,
     CppExtension,
     CUDAExtension,
 )
+
+IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
 
 # Constant known variables used throughout this file
 cwd = os.path.abspath(os.path.curdir)
@@ -203,13 +206,17 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-    if CUDA_HOME is None and torch.cuda.is_available():
-        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
+    if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
+        print(
+            "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
+        )
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
 
-    use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
+    use_cuda = torch.cuda.is_available() and (
+        CUDA_HOME is not None or ROCM_HOME is not None
+    )
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
@@ -228,7 +235,8 @@ def get_extensions():
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
-            extra_compile_args["nvcc"].append("-g")
+            if "nvcc" in extra_compile_args:
+                extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
         extra_compile_args["cxx"].extend(
@@ -253,17 +261,42 @@ def get_extensions():
             ]
         )
 
+    # Get base directory and source paths
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+
+    # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
-    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
-    )
-
+    # Collect CUDA source files if needed
     if use_cuda:
-        sources += cuda_sources
+        if not IS_ROCM:
+            # Regular CUDA sources
+            extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+            cuda_sources = list(
+                glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+            )
+            sources += cuda_sources
+        else:
+            # ROCm sources
+            extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+            hip_sources = list(
+                glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+            )
+
+            # Check ROCm GPU architecture compatibility
+            gpu_arch = torch.cuda.get_device_properties(0).name
+            if gpu_arch != "gfx942":
+                print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+                print(
+                    "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+                )
+                return None
+            sources += hip_sources
+
+    # Return None if no sources found
+    if not sources:
+        return None
 
     ext_modules = []
     if len(sources) > 0:
