@@ -1,4 +1,5 @@
 import itertools
+import sys
 
 import pytest
 import torch
@@ -614,4 +615,4 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main(sys.argv)

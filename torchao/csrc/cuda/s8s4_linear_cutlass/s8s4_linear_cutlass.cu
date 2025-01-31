@@ -1,4 +1,4 @@
-#include <torch/extension.h>
+#include <torch/library.h>
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>

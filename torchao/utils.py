@@ -630,6 +630,15 @@ def is_sm_at_least_90():
     )
 
 
+# TODO(future PR): rename to 8_9, 9_0, 10_0 instead of 89, 10, 100
+def is_sm_at_least_100():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() >= (10, 0)
+    )
+
+
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")

@@ -5,7 +5,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/DeviceGuard.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <torch/extension.h>
+#include <torch/library.h>
 
 template <typename U, typename V>
 constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {

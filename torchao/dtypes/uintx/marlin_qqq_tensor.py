@@ -54,10 +54,12 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         block_size: Tuple[int, ...],
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Optional[Layout] = None,
     ):
         """Converts a floating point tensor to a Marlin QQQ quantized tensor."""
+        if zero_point_domain is None:
+            raise ValueError("Please use ZeroPointDomain.NONE instead of None")
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
         nbits = int(math.log2(quant_max - quant_min + 1))

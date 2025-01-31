@@ -25,12 +25,34 @@ if(TORCHAO_BUILD_KLEIDIAI)
     add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
 endif()
 
+if(TORCHAO_BUILD_ARM_I8MM)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_I8MM)
+endif()
+
+if (ANDROID_ABI)
+  # We are cross compiling, delay test discovery till runtime
+  set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
+endif()
+
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
 set(TORCHAO_PARALLEL_BACKEND "test_dummy")
 add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
 include(${TORCHAO_ROOT}/Utils.cmake)
+
+if (ANDROID_ABI)
+  # Given where we are today this is sufficent. But needs to be revisited.
+  # This is also needed for native builds, but keeping it only for cross builds
+  # for now given the hacky nature.
+  file(GLOB DOTPROD_SRC_FILES test*.cpp)
+  message(SRC_FILES: ${DOTPROD_SRC_FILES})
+  set_property(SOURCE
+    ${DOTPROD_SRC_FILES}
+    APPEND_STRING PROPERTY
+    COMPILE_FLAGS " -march=armv8.2-a+dotprod ")
+endif()
+
 add_executable(
   test_linear_8bit_act_xbit_weight
   test_linear_8bit_act_xbit_weight.cpp

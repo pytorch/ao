@@ -18,7 +18,11 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_linear,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    is_sm_at_least_89,
+    is_sm_at_least_100,
+)
 
 torch.manual_seed(2)
 
@@ -99,6 +103,9 @@ def test_activation_checkpointing():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [False, True])
 # TODO(future PR): figure out why torch.compile does not match eager when
@@ -184,6 +191,9 @@ def test_inference_linear(elem_dtype, bias, input_shape):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_inference_compile_simple(elem_dtype):
     """

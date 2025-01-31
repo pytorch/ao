@@ -3,7 +3,6 @@ import random
 import torch
 import torch.multiprocessing as mp
 from ax.service.ax_client import AxClient, ObjectiveProperties
-from BO_acc_throughput import define_parameter_list
 from utils import (
     cal_model_size,
     cal_wikitext_ppl,
@@ -174,12 +173,12 @@ def eval_in_parallel(
     model, tokenizer = load_model(checkpoint, f"cuda:{gpu_id}")
 
     print(f"Process {proc_id} on GPU {gpu_id} starts!")
-
+    dict_config = dict(config)
     quantize_by_fqn_to_config(
-        model=model, device=f"cuda:{gpu_id}", fqn_to_config=dict(config)
+        model=model, device=f"cuda:{gpu_id}", fqn_to_config=dict_config
     )
 
-    eval_results = eval(model, tokenizer, num_PPL_eval_samples, config)
+    eval_results = eval(model, tokenizer, num_PPL_eval_samples, dict_config)
 
     return_dict[proc_id] = (trial_id, config, eval_results)
 
@@ -206,7 +205,7 @@ def run_parallel_BO(
     initial_samples,
 ):
     # TODO: add default parameter list if not specified
-    parameters_list = define_parameter_list()
+    parameters_list = load_parameters_from_json(parameters_list)
     initial_points_set = load_initial_samples(initial_samples)
     num_BO_initial_samples = len(initial_points_set)
 
