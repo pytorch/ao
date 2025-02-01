@@ -16,6 +16,7 @@ from torchao.float8.config import Float8LinearConfig, ScalingGranularity, Scalin
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
+    get_maybe_blockwise_size,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
@@ -96,6 +97,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_input.scaling_granularity
                 ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_input.blockwise_size, c.cast_config_input.scaling_granularity
+                ),
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -111,6 +115,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 scaling_granularity=c.cast_config_weight.scaling_granularity,
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_weight.scaling_granularity
+                ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_weight.blockwise_size, c.cast_config_weight.scaling_granularity
                 ),
             )
 
@@ -151,6 +158,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_grad_output.scaling_granularity
                 ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_grad_output.blockwise_size,
+                    c.cast_config_grad_output.scaling_granularity,
+                ),
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -161,7 +172,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         else:
             if (
                 c.cast_config_weight_for_grad_input.scaling_granularity
-                is ScalingGranularity.AXISWISE
+                in (
+                    ScalingGranularity.AXISWISE,
+                    ScalingGranularity.BLOCKWISE,
+                )
             ):
                 # workaround from https://github.com/pytorch/pytorch/issues/141881
                 # to avoid saving float8 weight from forward to backward when
@@ -180,6 +194,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 scaling_granularity=c.cast_config_weight_for_grad_input.scaling_granularity,
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_weight_for_grad_input.scaling_granularity
+                ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_weight_for_grad_input.blockwise_size,
+                    c.cast_config_weight_for_grad_input.scaling_granularity,
                 ),
             )
 
@@ -216,6 +234,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_grad_output_for_grad_weight.scaling_granularity
                 ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_grad_output_for_grad_weight.blockwise_size,
+                    c.cast_config_grad_output_for_grad_weight.scaling_granularity,
+                ),
             )
 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
@@ -232,6 +254,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_input_for_grad_weight.scaling_granularity
+                ),
+                blockwise_size=get_maybe_blockwise_size(
+                    c.cast_config_input_for_grad_weight.blockwise_size,
+                    c.cast_config_input_for_grad_weight.scaling_granularity,
                 ),
             )
 
@@ -304,7 +330,7 @@ class Float8Linear(torch.nn.Linear):
             input = input.to(autocast_dtype)
 
         has_any_axiswise_scaling = any(
-            cc.scaling_granularity is ScalingGranularity.AXISWISE
+            cc.scaling_granularity in (ScalingGranularity.AXISWISE, ScalingGranularity.BLOCKWISE)
             for cc in [
                 self.config.cast_config_input,
                 self.config.cast_config_weight,
