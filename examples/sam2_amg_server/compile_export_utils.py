@@ -164,13 +164,14 @@ def export_model(
     example_input = torch.empty(batch_size, 3, 1024, 1024)
     example_input = example_input.to(mask_generator.predictor._image_dtype)
     example_input = (example_input.to(mask_generator.predictor.device),)
-    # aot_compile(
-    #     model_directory,
-    #     "sam2_image_encoder",
-    #     mask_generator.predictor.model.image_encoder,
-    #     example_input,
-    #     overwrite=overwrite,
-    # )
+    aot_compile(
+        model_directory,
+        "sam2_image_encoder",
+        mask_generator.predictor.model.image_encoder,
+        example_input,
+        overwrite=overwrite,
+    )
+
     if task_type in ["sps"]:
         example_input_args = ()
         example_input_kwargs = {
@@ -188,15 +189,16 @@ def export_model(
             "boxes": None,
             "masks": None,
         }
-        # aot_compile(
-        #     model_directory,
-        #     "sam2_sam_prompt_encoder",
-        #     mask_generator.predictor.model.sam_prompt_encoder,
-        #     example_input_args,
-        #     sample_kwargs=example_input_kwargs,
-        #     overwrite=overwrite,
-        # )
-    if task_type in ["sps"]:
+        aot_compile(
+            model_directory,
+            "sam2_sam_prompt_encoder",
+            mask_generator.predictor.model.sam_prompt_encoder,
+            example_input_args,
+            sample_kwargs=example_input_kwargs,
+            overwrite=overwrite,
+        )
+
+    if task_type in []:
         example_input_args = ()
         example_input_kwargs = {
             "image_embeddings": torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device),
@@ -218,7 +220,8 @@ def export_model(
             sample_kwargs=example_input_kwargs,
             overwrite=overwrite,
         )
-    if task_type in []:
+
+    if task_type in ["sps"]:
         example_input_args = (
             torch.randn(batch_size, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
             torch.randn(batch_size, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
@@ -233,9 +236,8 @@ def export_model(
             sample_kwargs=example_input_kwargs,
             overwrite=overwrite,
         )
-    return mask_generator
 
-    if task_type in ["sps"]:
+    if task_type in []:
         example_input_high_res_feats = [
             torch.randn(
                 batch_size,
@@ -367,7 +369,7 @@ def load_exported_model(
         pkg_m = LoadedModel(pkg)
         mask_generator.predictor.model.sam_prompt_encoder.forward = pkg_m.forward
 
-    if task_type in ["sps"]:
+    if task_type in []:
         path = Path(model_directory) / Path("sam2_sam_mask_decoder.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")
@@ -375,35 +377,33 @@ def load_exported_model(
         pkg_m = LoadedModel(pkg)
         mask_generator.predictor.model.sam_mask_decoder.forward = pkg_m.forward
 
-    # if task_type in ["sps"]:
-    #     path = Path(model_directory) / Path("sam2_sam_mask_decoder_transformer.pt2")
-    #     assert path.exists(), f"Expected {path} to exist"
-    #     print(f"Start load from {path}")
-    #     pkg = torch._inductor.aoti_load_package(str(path))
-    #     pkg_m = LoadedModel(pkg)
-    #     # mask_generator.predictor.model.sam_mask_decoder.asdf = pkg_m.forward
-    #     mask_generator.predictor.model.sam_mask_decoder.transformer.forward = pkg_m.forward
+    if task_type in ["sps"]:
+        path = Path(model_directory) / Path("sam2_sam_mask_decoder_transformer.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        pkg_m = LoadedModel(pkg)
+        mask_generator.predictor.model.sam_mask_decoder.transformer.forward = pkg_m.forward
 
-    return mask_generator
-
-    path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
-    assert path.exists(), f"Expected {path} to exist"
-    print(f"Start load from {path}")
-    pkg = torch._inductor.aoti_load_package(str(path))
-    if task_type == "amg":
-        assert points_per_batch > 1
-    if task_type == "sps":
-        assert points_per_batch == 1
-    if task_type == "mps":
-        assert points_per_batch is None
-    pkg_m = SAM2ImagePredictor_predict_masks(
-        None,
-        batch_size=batch_size,
-        points_per_batch=points_per_batch,
-        aoti_compiled_model=pkg,
-        furious=furious,
-    )
-    mask_generator.predictor._predict_masks = pkg_m.forward
+    if task_type in []:
+        path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        if task_type == "amg":
+            assert points_per_batch > 1
+        if task_type == "sps":
+            assert points_per_batch == 1
+        if task_type == "mps":
+            assert points_per_batch is None
+        pkg_m = SAM2ImagePredictor_predict_masks(
+            None,
+            batch_size=batch_size,
+            points_per_batch=points_per_batch,
+            aoti_compiled_model=pkg,
+            furious=furious,
+        )
+        mask_generator.predictor._predict_masks = pkg_m.forward
 
     print(f"End load image encoder and predict masks. Took {time.time() - t0}s")
 

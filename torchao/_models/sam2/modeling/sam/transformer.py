@@ -127,7 +127,7 @@ class TwoWayTransformer(nn.Module):
                 query_pe=point_embedding,
                 key_pe=image_pe,
             )
-            return queries, keys
+            # return queries, keys
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
@@ -205,7 +205,7 @@ class TwoWayAttentionBlock(nn.Module):
         attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
         # queries = queries + attn_out
         queries = attn_out
-        return queries, keys
+        # return queries, keys
         queries = self.norm2(queries)
 
         # MLP block

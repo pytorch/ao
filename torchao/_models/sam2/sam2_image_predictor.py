@@ -425,15 +425,18 @@ class SAM2ImagePredictor(torch.nn.Module):
             image_embed = self._features["image_embed"]
             image_pe = self.model.sam_prompt_encoder.get_dense_pe().clone()
             high_res_feats_input = [
-                feat_level[img_idx].unsqueeze(0).clone(memory_format=torch.contiguous_format)
+                feat_level[img_idx].unsqueeze(0).clone()
                 # for feat_level in self._features["high_res_feats"]
                 for feat_level in high_res_feats
             ]
             image_embed_input = image_embed[img_idx].unsqueeze(0).clone()
+            assert boxes is None
+            assert mask_input is None
+            assert multimask_output is True
             low_res_masks, iou_predictions = self._predict_masks(
                 high_res_feats_input,
-                image_embed_input.contiguous(),
-                image_pe.contiguous(),
+                image_embed_input,
+                image_pe,
                 point_coords,
                 point_labels,
                 boxes=boxes,
