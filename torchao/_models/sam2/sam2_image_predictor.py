@@ -461,11 +461,6 @@ class SAM2ImagePredictor(torch.nn.Module):
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
     ):
-        # print(0, high_res_feats_input[0].stride(), high_res_feats_input[0].is_contiguous())
-        # print(1, high_res_feats_input[1].stride(), high_res_feats_input[1].is_contiguous())
-        # print(2, image_embed.stride(), image_embed.is_contiguous())
-        # print(3, image_pe.stride(), image_pe.is_contiguous())
-
         # NOTE: img_idx causes unnecessary recompilations, because
         # the int guard will fail otherwise.
         #   img_idx: int = -1):
@@ -489,14 +484,11 @@ class SAM2ImagePredictor(torch.nn.Module):
                 concat_points = (box_coords, box_labels)
 
         with torch.autograd.profiler.record_function("self.model.sam_prompt_encoder"):
-            # print("concat_points: ", concat_points)
             sparse_embeddings, dense_embeddings = self.model.sam_prompt_encoder(
                 points=concat_points,
                 boxes=None,
                 masks=mask_input,
             )
-            # print("sparse_embeddings.sum().item(): ", sparse_embeddings.sum().item())
-            # print("dense_embeddings.sum().item(): ", dense_embeddings.sum().item())
 
         # Predict masks
         batched_mode = (
@@ -508,31 +500,11 @@ class SAM2ImagePredictor(torch.nn.Module):
         #     for feat_level in high_res_feats_input
         # ]
         high_res_features = high_res_feats_input
-        # for name, fn in zip([".size()", ".dtype"], [lambda x: x.size(), lambda x: x.dtype]):
-        #     print(f"image_embeddings{name}: ", fn(image_embed))
-        #     print(f"image_pe{name}: ", fn(image_pe))
-        #     print(f"sparse_prompt_embeddings{name}: ", fn(sparse_embeddings))
-        #     print(f"dense_prompt_embeddings{name}: ", fn(dense_embeddings))
-        #     print("multimask_output: ", multimask_output)
-        #     print("repeat_image: ", batched_mode)
-        #     print(f"high_res_features{name}: ", [fn(h) for h in high_res_features])
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
-            if not multimask_output:
-                raise ValueError("Expected multimask_output.")
-            if batched_mode:
-                raise ValueError("Did not expected repeat_image.")
-            # print("image_embed.float().sum(): ", image_embed.float().sum())
-            # print("sparse_embeddings.float().sum(): ", sparse_embeddings.float().sum())
-            # print("dense_embeddings.float().sum(): ", dense_embeddings.float().sum())
-            # print("image_embed.size(): ", image_embed.size())
-            # print("sparse_embeddings.size(): ", sparse_embeddings.size())
-            # print("dense_embeddings.size(): ", dense_embeddings.size())
-            # print("image_embed.stride(): ", image_embed.stride())
-            # print("sparse_embeddings.stride(): ", sparse_embeddings.stride())
-            # print("dense_embeddings.stride(): ", dense_embeddings.stride())
-            # print("image_embed.is_contiguous(): ", image_embed.is_contiguous())
-            # print("sparse_embeddings.is_contiguous(): ", sparse_embeddings.is_contiguous())
-            # print("dense_embeddings.is_contiguous(): ", dense_embeddings.is_contiguous())
+            # if not multimask_output:
+            #     raise ValueError("Expected multimask_output.")
+            # if batched_mode:
+            #     raise ValueError("Did not expected repeat_image.")
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
                 # image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
                 # image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
@@ -545,9 +517,6 @@ class SAM2ImagePredictor(torch.nn.Module):
                 repeat_image=batched_mode,
                 high_res_features=high_res_features,
             )
-            # print("low_res_masks.sum(): ", low_res_masks.float().sum())
-            # print("iou_predictions.sum(): ", iou_predictions.float().sum())
-            # import sys; sys.exit(1)
 
         return low_res_masks, iou_predictions
 
