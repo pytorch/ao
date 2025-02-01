@@ -1,4 +1,4 @@
-#include <torch/library.h>
+#pragma once
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
@@ -7,15 +7,16 @@
 
 #if defined(TORCHAO_USE_CUTLASS) && !defined(_WIN32) &&                   \
     defined(CUDA_VERSION) && (CUDA_VERSION >= 11080)
-#define BUILD_S8S4_LINEAR_CUTLASS
+#define BUILD_ROWWISE_SCALED_LINEAR_CUTLASS
 #endif
 
-#if defined(BUILD_S8S4_LINEAR_CUTLASS)
+#if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
 #include <cuda_runtime.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm_universal.h>
 #include <cutlass/epilogue/threadblock/fusion/visitors.hpp>
 #include <cutlass/gemm/kernel/default_gemm_universal_with_visitor.h>
+#include <cutlass/gemm/device/gemm_universal_adapter.h>
 
 #define CUTLASS_STATUS_CHECK(status)                                      \
   {                                                                       \
@@ -27,41 +28,52 @@
 
 namespace torchao {
 
-#if defined(BUILD_S8S4_LINEAR_CUTLASS)
+#if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
 template<
     typename ThreadblockShape,
     typename WarpShape,
     typename InstructionShape,
+    typename ThreadblockSwizzle,
     int NumStages,
     typename ElementA,
     typename ElementB,
-    typename ElementAccumulator,
-    typename Operator,
-    typename ElementAScale,
-    typename ElementBScale,
+    typename ElementOutput,
     typename ElementC,
     typename UseTensorC,
-    typename ElementOutput>
-void s8s4_linear_kernel_cutlass_sm8x(
+    typename ElementAScale,
+    typename ElementBScale>
+void rowwise_scaled_linear_kernel_cutlass_sm8x(
     const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
     const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
     const at::Tensor& tensor_c, at::Tensor& tensor_d) {
+  static_assert((cutlass::sizeof_bits<ElementA>::value >= 8 ||
+                 8 % cutlass::sizeof_bits<ElementA>::value == 0) &&
+                (cutlass::sizeof_bits<ElementB>::value >= 8 ||
+                 8 % cutlass::sizeof_bits<ElementB>::value == 0));
+
   using SmArch = cutlass::arch::Sm80;
 
   using LayoutA = cutlass::layout::RowMajor;
   using LayoutB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
-  using ElementEpilogue = float;
+  // TODO: use FP32 if either ElementA/B is FP
+  using ElementAccumulator = int32_t;
+  using Operator =
+      std::conditional_t<std::is_same<ElementA, ElementB>::value,
+                         cutlass::arch::OpMultiplyAddSaturate,
+                         cutlass::arch::OpMultiplyAddMixedInputUpcast>;
 
-  using ThreadblockSwizzle =
-      cutlass::gemm::threadblock::ThreadblockSwizzleStreamK;
+  using ElementEpilogue = float;
 
   constexpr auto NumEVTEpilogueStages = 1;
 
   const int m = tensor_a.size(0);
   const int n = tensor_b.size(0);
-  const int k = tensor_a.size(1);
+  int k = tensor_a.size(1);
+  if constexpr (cutlass::sizeof_bits<ElementA>::value < 8) {
+    k *= 8 / cutlass::sizeof_bits<ElementA>::value;
+  }
 
   constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
   constexpr int AlignmentAScale =
@@ -84,27 +96,6 @@ void s8s4_linear_kernel_cutlass_sm8x(
               __func__, " : Number of columns of tensor C must be divisible ",
               "by ", AlignmentC);
 
-  using TensorAScaleTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementAScale,
-          AlignmentAScale,
-          NumEVTEpilogueStages>;
-  using TensorBScaleTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementBScale,
-          AlignmentBScale,
-          NumEVTEpilogueStages>;
-  using TensorCTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementC,
-          AlignmentC,
-          NumEVTEpilogueStages>;
   using OutputTileThreadMap =
       cutlass::epilogue::threadblock::OutputTileThreadLayout<
           ThreadblockShape,
@@ -117,14 +108,14 @@ void s8s4_linear_kernel_cutlass_sm8x(
 
   using TensorAScale =
       cutlass::epilogue::threadblock::VisitorColBroadcast<
-          TensorAScaleTileThreadMap,
+          OutputTileThreadMap,
           ElementAScale,
           cute::Stride<cute::_1, cute::_0, int64_t>>;
   using TensorAScaleArguments = typename TensorAScale::Arguments;
 
   using TensorBScale =
       cutlass::epilogue::threadblock::VisitorRowBroadcast<
-          TensorBScaleTileThreadMap,
+          OutputTileThreadMap,
           ElementBScale,
           cute::Stride<cute::_0, cute::_1, int64_t>>;
   using TensorBScaleArguments = typename TensorBScale::Arguments;
@@ -133,7 +124,7 @@ void s8s4_linear_kernel_cutlass_sm8x(
       cutlass::epilogue::threadblock::VisitorScalarBroadcast<ElementC>;
   using TensorCTensor =
       cutlass::epilogue::threadblock::VisitorRowBroadcast<
-          TensorCTileThreadMap,
+          OutputTileThreadMap,
           ElementC,
           cute::Stride<cute::_0, cute::_1, int64_t>>;
   using TensorC =
@@ -196,7 +187,7 @@ void s8s4_linear_kernel_cutlass_sm8x(
       NumEVTEpilogueStages
   >::GemmKernel;
 
-  using Gemm = cutlass::gemm::device::GemmUniversalBase<EVTKernel>;
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<EVTKernel>;
 
   cutlass::gemm::GemmCoord problem_size(m, n, k);
   constexpr auto SplitKFactor = 1;
@@ -242,7 +233,6 @@ void s8s4_linear_kernel_cutlass_sm8x(
     },                               // EVTApplySum
     output_arguments                 // Output
   };                                 // EVTOutput
-  constexpr auto AvailSms = -1;
 
   typename Gemm::Arguments arguments(
     cutlass::gemm::GemmUniversalMode::kGemm,
@@ -260,8 +250,8 @@ void s8s4_linear_kernel_cutlass_sm8x(
     problem_size.k(),                // stride A
     problem_size.k(),                // stride B
     0,                               // stride C (unused)
-    0,                               // stride D (unused)
-    AvailSms);
+    0                                // stride D (unused)
+  );
 
   Gemm gemm_op;
 
@@ -293,14 +283,61 @@ template<typename ElementA, typename ElementB, typename... Types>
 static void select_config(
     const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
     const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) { 
+    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
   const auto dprops = at::cuda::getCurrentDeviceProperties();
   const auto is_sm8x = dprops->major == 8;
 
   if (is_sm8x) {
-    if constexpr (std::is_same<ElementA, int8_t>::value &&
+    if constexpr (std::is_same<ElementA, cutlass::int4b_t>::value &&
+                  std::is_same<ElementB, cutlass::int4b_t>::value) {
+      using InstructionShape = cutlass::gemm::GemmShape<16, 8, 64>;
+      using ThreadblockSwizzle =
+        cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<1>;
+
+      // some basic tuning
+      if (tensor_a.size(0) <= 16) {
+        using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<16, 32, 256>;
+        constexpr auto NumStages = 5;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+              tensor_d);
+      } else if (tensor_a.size(0) <= 32) {
+        using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<32, 32, 256>;
+        constexpr auto NumStages = 4;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+              tensor_d);
+      } else if (tensor_a.size(0) <= 128) {
+        using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 256>;
+        using WarpShape = cutlass::gemm::GemmShape<64, 32, 256>;
+        constexpr auto NumStages = 4;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+            tensor_d);
+      } else {
+        using ThreadblockShape = cutlass::gemm::GemmShape<128, 256, 128>;
+        using WarpShape = cutlass::gemm::GemmShape<64, 64, 128>;
+        constexpr auto NumStages = 4;
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+            NumStages, ElementA, ElementB, Types...>(
+              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
+            tensor_d);
+      }
+      return;
+    } else if constexpr (std::is_same<ElementA, int8_t>::value &&
                   std::is_same<ElementB, cutlass::int4b_t>::value) {
       using InstructionShape = cutlass::gemm::GemmShape<16, 8, 32>;
+      using ThreadblockSwizzle =
+        cutlass::gemm::threadblock::ThreadblockSwizzleStreamK;
 
       // A minimal heuristic to improve performance for small number
       // of inputs cases.
@@ -308,27 +345,27 @@ static void select_config(
         using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<16, 32, 128>;
         constexpr auto NumStages = 6;
-        s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+          NumStages, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       } else if (tensor_a.size(0) <= 32) {
         using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<32, 32, 128>;
         constexpr auto NumStages = 5;
-        s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+          NumStages, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       } else {
         using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<64, 32, 128>;
         constexpr auto NumStages = 4;
-        s8s4_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, NumStages, ElementA,
-          ElementB, Types...>(
+        rowwise_scaled_linear_kernel_cutlass_sm8x<
+          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
+          NumStages, ElementA, ElementB, Types...>(
               tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
               tensor_d);
       }
@@ -341,36 +378,11 @@ static void select_config(
               dprops->minor, " for given operands");
 }
 
-template<typename... Types>
-static void
-dispatch_on_tensor_a_and_tensor_b(
-    const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
-    const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
-  if (tensor_a.scalar_type() == at::ScalarType::Char) {
-    if (tensor_b.scalar_type() == at::ScalarType::Char) {
-      if (tensor_a.size(1) == 2 * tensor_b.size(1)) {
-        using ElementA = int8_t;
-        using ElementB = cutlass::int4b_t;
-        using ElementAccumulator = int32_t;
-        using Operator = cutlass::arch::OpMultiplyAddMixedInputUpcast;
-        select_config<
-          ElementA, ElementB, ElementAccumulator, Operator, Types...>(
-            tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-            tensor_d);
-      }
-      return;
-    }
-  }
-
-  TORCH_CHECK(false,
-              __func__, " : Operator not supported for combination of data ",
-              "types ", tensor_a.scalar_type(), " for first operand and ",
-              tensor_b.scalar_type(), " for second operand");
-}
-
-
-template<typename ElementAScale, typename ElementBScale, typename ElementOutput>
+template<
+   typename ElementA,
+   typename ElementB,
+   typename ElementOutput,
+   typename... Types>
 static void
 dispatch_on_tensor_c(
     const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
@@ -379,8 +391,8 @@ dispatch_on_tensor_c(
   if (tensor_c.numel() == 0) {
     using ElementC = ElementOutput;
     using UseTensorC = std::false_type;
-    dispatch_on_tensor_a_and_tensor_b<
-      ElementAScale, ElementBScale, ElementC, UseTensorC, ElementOutput>(
+    select_config<
+      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
           tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
           tensor_d);
     return;
@@ -389,15 +401,15 @@ dispatch_on_tensor_c(
   using UseTensorC = std::true_type;
   if (tensor_c.scalar_type() == at::ScalarType::Half) {
     using ElementC = cutlass::half_t;
-    dispatch_on_tensor_a_and_tensor_b<
-      ElementAScale, ElementBScale, ElementC, UseTensorC, ElementOutput>(
+    select_config<
+      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
           tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
           tensor_d);
     return;
   } else if (tensor_c.scalar_type() == at::ScalarType::BFloat16) {
     using ElementC = cutlass::bfloat16_t;
-    dispatch_on_tensor_a_and_tensor_b<
-      ElementAScale, ElementBScale, ElementC, UseTensorC, ElementOutput>(
+    select_config<
+      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
           tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
           tensor_d);
     return;
@@ -408,6 +420,7 @@ dispatch_on_tensor_c(
                 tensor_c.scalar_type(), " for addend");
 }
 
+template<typename ElementA, typename ElementB>
 static void
 dispatch_on_tensor_a_scale_and_tensor_b_scale(
     const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
@@ -423,7 +436,8 @@ dispatch_on_tensor_a_scale_and_tensor_b_scale(
     using ElementAScale = cutlass::half_t;
     using ElementBScale = cutlass::half_t;
     using ElementOutput = cutlass::half_t;
-    dispatch_on_tensor_c<ElementAScale, ElementBScale, ElementOutput>(
+    dispatch_on_tensor_c<ElementA, ElementB, ElementOutput, ElementAScale,
+      ElementBScale>(
         tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c, tensor_d);
     return;
   } else if (tensor_a_scale.scalar_type() == at::ScalarType::BFloat16 &&
@@ -431,7 +445,8 @@ dispatch_on_tensor_a_scale_and_tensor_b_scale(
     using ElementAScale = cutlass::bfloat16_t;
     using ElementBScale = cutlass::bfloat16_t;
     using ElementOutput = cutlass::bfloat16_t;
-    dispatch_on_tensor_c<ElementAScale, ElementBScale, ElementOutput>(
+    dispatch_on_tensor_c<ElementA, ElementB, ElementOutput, ElementAScale,
+      ElementBScale>(
         tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c, tensor_d);
     return;
   }
@@ -443,8 +458,9 @@ dispatch_on_tensor_a_scale_and_tensor_b_scale(
                 " for second operand scale");
 }
 
+template<typename ElementA, typename ElementB>
 void
-check_inputs(
+rowwise_scaled_linear_cutlass_check_inputs(
     const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
     const at::Tensor& w_scale, const at::Tensor& bias) {
   // Validate layouts of arguments.
@@ -483,9 +499,10 @@ check_inputs(
 
   // Validate sizes of arguments.
   const auto xq_sizes = xq.sizes().vec();
-  TORCH_CHECK(xq_sizes.back() == 2 * wq.size(1),
-              __func__, " : Expected xq argument to have ", 2 * wq.size(1),
-              " columns, but got ", xq_sizes.back());
+  TORCH_CHECK(xq_sizes.back() == wq.size(1) ||
+              xq_sizes.back() == 2 * wq.size(1),
+              __func__, " : Expected xq argument to have ", wq.size(1), " or ",
+              2 * wq.size(1), " columns, but got ", xq_sizes.back());
   const auto x_scale_sizes = x_scale.sizes().vec();
   for (auto i = 0; i < x_scale_sizes.size(); ++i)
     TORCH_CHECK(x_scale_sizes[i] == xq_sizes[i],
@@ -525,57 +542,48 @@ check_inputs(
 }
 #endif
 
-// Perform linear operation, using corresponding CUTLASS mixed
-// data-types GEMM kernel, to given arguments:
-//   result = (xq * x_scale) @ (wq * w_scale).T + bias
-// Notes: The "x_scale" tensor is expected to be a vector, of size
-// equal to number of rows of "xq" tensor.  The "w_scale" tensor is
-// expected to be a vector, of size equal to number of rows of "wq"
-// tensor. The "bias" tensor is expected to be a vector, of size equal
-// to number of rows of "wq" tensor.
+// Perform linear operation, using corresponding CUTLASS datatypes
+// GEMM kernel, to given arguments - result produced is:
+// (tensor_a * tensor_a_scale) @ (tensor_b * tensor_b_scale).T + tensor_c
+//
+// Notes: The "tensor_a" and "tensor_b" are expected to be 2D tensors.
+// The "tensor_a_scale" tensor is expected to be a vector, of size
+// equal to number of rows of "tensor_a" tensor.  The "tensor_b_scale"
+// tensor is expected to be a vector, of size equal to number of rows
+// of "tensor_b" tensor. The "tensor_c" tensor is expected to be a
+// vector, of size equal to number of rows of "tensor_b" tensor.
+template <typename ElementA, typename ElementB>
 at::Tensor
-s8s4_linear_cutlass(
+rowwise_scaled_linear_cutlass(
     const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
     const at::Tensor& w_scale, const at::Tensor& bias) {
-#if defined(BUILD_S8S4_LINEAR_CUTLASS)
+#if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
   // Check inputs.
-  check_inputs(xq, x_scale, wq, w_scale, bias);
+  rowwise_scaled_linear_cutlass_check_inputs<ElementA, ElementB>(
+      xq, x_scale, wq, w_scale, bias);
 
   // Squash the input tensors as appropriate.
   const auto xq_sizes = xq.sizes().vec();
   const auto xq_2d = xq.reshape({-1, xq_sizes.back()});
-  const auto x_scale_sizes = x_scale.sizes().vec();
   const auto x_scale_1d = x_scale.reshape({-1});
   const auto w_scale_1d = w_scale.reshape({-1});
 
-  // Introduce alias names for arguments, according to the CUTLASS
-  // naming conventions.
-  const auto& tensor_a = xq_2d;
-  const auto& tensor_a_scale = x_scale_1d;
-  const auto& tensor_b = wq;
-  const auto& tensor_b_scale = w_scale_1d;
-  const auto& tensor_c = bias;
-
-  // Create output tensor.
-  at::Tensor tensor_d =
-      tensor_a_scale.new_empty({tensor_a.size(0), tensor_b.size(0)});
+  // Create result tensor.
+  at::Tensor result =
+      x_scale.new_empty({xq_2d.size(0), wq.size(0)});
 
   // Dispatch to appropriate kernel template.
-  dispatch_on_tensor_a_scale_and_tensor_b_scale(
-      tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c, tensor_d);
+  dispatch_on_tensor_a_scale_and_tensor_b_scale<ElementA, ElementB>(
+      xq_2d, x_scale_1d, wq, w_scale_1d, bias, result);
 
-  // Reshape and return output tensor.
-  auto tensor_d_sizes = xq_sizes;
-  tensor_d_sizes.back() = wq.size(0);
-  return tensor_d.reshape(tensor_d_sizes);
+  // Reshape and return result tensor.
+  auto result_sizes = xq_sizes;
+  result_sizes.back() = wq.size(0);
+  return result.reshape(result_sizes);
 #else
   TORCH_CHECK_NOT_IMPLEMENTED(false, __func__);
   return at::Tensor{};
 #endif
-}
-
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::s8s4_linear_cutlass", &s8s4_linear_cutlass);
 }
 
 }  // namespace torchao
