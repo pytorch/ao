@@ -36,6 +36,7 @@ def hp_tensor_to_float8_dynamic(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    blockwise_size: Optional[int] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -51,6 +52,7 @@ def hp_tensor_to_float8_dynamic(
           the 3 fwd/bwd gemms of linear
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
+        blockwise_size: if blockwise granularity is used, defines the block size
     """
     scale = tensor_to_scale(
         hp_tensor,
@@ -59,6 +61,7 @@ def hp_tensor_to_float8_dynamic(
         device_mesh,
         scaling_granularity,
         axiswise_dim,
+        blockwise_size,
     )
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
@@ -67,6 +70,7 @@ def hp_tensor_to_float8_dynamic(
         linear_mm_config,
         gemm_input_role,
         axiswise_dim,
+        blockwise_size,
     )
 
 
@@ -148,6 +152,20 @@ def get_maybe_axiswise_dim(
     """
     if scaling_granularity is ScalingGranularity.AXISWISE:
         return axiswise_dim
+    return None
+
+def get_maybe_blockwise_size(
+    blockwise_size: int,
+    scaling_granularity: ScalingGranularity,
+) -> Optional[int]:
+    """
+    Convenience function which takes in an blockwise size which is only relevant
+    for blockwise scaing, and a scaling type.  The output is pass-through
+    if scaling type is blockwise, and None otherwise.  This is done to keep the
+    logic from choosing the blockwise size out of the scaling function.
+    """
+    if scaling_granularity is ScalingGranularity.BLOCKWISE:
+        return blockwise_size
     return None
 
 

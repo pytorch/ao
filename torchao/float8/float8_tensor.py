@@ -10,6 +10,8 @@ import torch
 from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
+    deblockify_tensor,
+    blockify_tensor,
     to_fp8_saturated,
 )
 
@@ -136,6 +138,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         linear_mm_config: Optional[LinearMMConfig] = None,
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
         axiswise_dim: Optional[int] = None,
+        blockwise_size: Optional[int] = None,
     ):
         """
         This function will apply the scaling, and then convert to a Float8Tensor
@@ -168,6 +171,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
                 linear_mm_config=linear_mm_config,
                 gemm_input_role=gemm_input_role,
                 axiswise_dim=axiswise_dim,
+                blockwise_size=blockwise_size,
             )
             return DTensor.from_local(
                 inner_float8_tensor,
@@ -185,6 +189,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
             linear_mm_config=linear_mm_config,
             gemm_input_role=gemm_input_role,
             axiswise_dim=axiswise_dim,
+            blockwise_size=blockwise_size,
         )
 
     @staticmethod
@@ -216,6 +221,7 @@ def hp_tensor_and_scale_to_float8(
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     axiswise_dim: Optional[int] = None,
+    blockwise_size: Optional[int] = None,
 ):
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
@@ -233,9 +239,10 @@ def hp_tensor_and_scale_to_float8(
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
         axiswise_dim: for rowwise scaling, contains the axis scaled across
+        blockwise_size: for blockwise scaling, contains the block size
     """
     return _ToFloat8ConstrFunc.apply(
-        hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role, axiswise_dim
+        hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role, axiswise_dim, blockwise_size
     )
 
 
@@ -262,6 +269,8 @@ class Float8Tensor(torch.Tensor):
       tensor.
     * `_axiswise_dim`: for axiswise scaling only, contains the axis scales
       across. Only values of 0 or -1 are supported.
+    * `_blockwise_size`: for blockwise scaling only, contains the block size.
+        If None, the tensor is not blockwise scaled.
 
     Intended usage of this abstraction:
     1. to bundle raw data + fp8 metadata together for easy passing through
@@ -278,6 +287,7 @@ class Float8Tensor(torch.Tensor):
     _linear_mm_config: LinearMMConfig
     _gemm_input_role: GemmInputRole
     _axiswise_dim: Optional[int]
+    _blockwise_size: Optional[int]
     __slots__ = [
         "_data",
         "_scale",
@@ -285,6 +295,7 @@ class Float8Tensor(torch.Tensor):
         "_linear_mm_config",
         "_gemm_input_role",
         "_axiswise_dim",
+        "_blockwise_size",
     ]
 
     def __new__(
@@ -295,6 +306,7 @@ class Float8Tensor(torch.Tensor):
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
         axiswise_dim: Optional[int] = None,
+        blockwise_size: Optional[int] = None
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -315,11 +327,13 @@ class Float8Tensor(torch.Tensor):
         self._gemm_input_role = gemm_input_role
         assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
+        assert isinstance(blockwise_size, int), f"unsupported blockwise_size {blockwise_size}"
+        self._blockwise_size = blockwise_size
 
         return self
 
     def __repr__(self):
-        return f"Float8Tensor(dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}, axiswise_dim={self._axiswise_dim}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
+        return f"Float8Tensor(dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}, axiswise_dim={self._axiswise_dim}, blockwise_size={self._blockwise_size}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
 
     def __tensor_flatten__(self):
         ctx = {
@@ -327,6 +341,7 @@ class Float8Tensor(torch.Tensor):
             "_linear_mm_config": self._linear_mm_config,
             "_gemm_input_role": self._gemm_input_role,
             "_axiswise_dim": self._axiswise_dim,
+            "_blockwise_size": self._blockwise_size,
         }
         return ["_data", "_scale"], ctx
 
@@ -340,6 +355,7 @@ class Float8Tensor(torch.Tensor):
             metadata["_linear_mm_config"],
             metadata["_gemm_input_role"],
             metadata["_axiswise_dim"],
+            metadata["_blockwise_size"],
         )
 
     def to_original_precision(self):

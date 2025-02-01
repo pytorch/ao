@@ -95,13 +95,21 @@ def tensor_to_amax(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    block_size: Optional[int] = None,
 ) -> torch.Tensor:
     if scaling_granularity is ScalingGranularity.TENSORWISE:
         amax = torch.max(torch.abs(x))
-    else:
-        assert scaling_granularity is ScalingGranularity.AXISWISE, "unsupported"
+    elif scaling_granularity is ScalingGranularity.AXISWISE:
         assert axiswise_dim is not None, "unsupported"
         amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
+    else:
+        assert scaling_granularity is ScalingGranularity.BLOCKWISE, "unsupported"
+        assert block_size is not None, "block_size must be provided for BLOCKWISE scaling"
+        assert x.shape[-1] % block_size == 0, "x last dimension must be a multiple of block_size"
+        block_shape = list(x.shape[:-1]) + [x.shape[-1]//block_size] + [block_size]
+        block_tensor = x.view(block_shape)
+        amax = torch.amax(torch.abs(block_tensor), dim=-1)
+        amax.repeat_interleave(block_size, dim=-1)
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -116,6 +124,49 @@ def tensor_to_amax(
 
     return amax
 
+@torch.no_grad()
+def blockify_tensor(
+    x: torch.Tensor,
+    block_size: int | torch.Tensor = 128,
+) -> torch.Tensor:
+    """Blockify a tensor given a block_size for each dimension.
+
+    Args:
+        x: The tensor to blockify.
+        block_size: The block size.
+
+    Returns:
+        torch.Tensor: The blockified tensor.
+    """
+    dims = x.shape
+    n = len(dims)
+    if isinstance(block_size, int):
+        ones = torch.ones(n-1)
+        block_size = torch.cat((ones, torch.Tensor([block_size])))
+    assert len(dims) == len(block_size), "The tensor and the block sizes must have the same number of dimensions"
+    assert all(d % b == 0 for d, b in zip(dims, block_size)), "Each dimension of the tensor must be divisible by the corresponding block size"
+    new_shape = torch.Tensor([d // b for d, b in zip(dims, block_size)] + list(block_size)).to(dtype=torch.int)
+    perm = [2*i - i//n*(2*n-1) for i in range(2*n)] # get a sequence of even numbers then odd (ex: [0, 2, 4, 1, 3, 5])
+    x = x.view(new_shape[perm].tolist())
+    x = x.permute(*perm)
+    return x
+
+@torch.no_grad()
+def deblockify_tensor(
+    x: torch.Tensor,
+    block_size: int | torch.Tensor = 128,
+) -> torch.Tensor:
+    """Unblockify a tensor given a block_size for each dimension.
+
+    Args:
+        x: The tensor to unblockify.
+        block_size: The block size.
+    
+    Returns:
+        torch.Tensor: The unblockified tensor.
+    """
+    pass
+
 
 @torch.no_grad()
 def tensor_to_scale(
@@ -125,6 +176,7 @@ def tensor_to_scale(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    blockwise_size: Optional[int] = None,
 ) -> torch.Tensor:
     amax = tensor_to_amax(
         x,
@@ -132,6 +184,7 @@ def tensor_to_scale(
         device_mesh,
         scaling_granularity,
         axiswise_dim,
+        blockwise_size,
     )
     return amax_to_scale(amax, float8_dtype)
 
