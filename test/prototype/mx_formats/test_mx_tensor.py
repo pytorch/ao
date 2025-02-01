@@ -21,7 +21,11 @@ from torchao.prototype.mx_formats.mx_tensor import (
     to_dtype,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_89
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    is_sm_at_least_89,
+    is_sm_at_least_100,
+)
 
 torch.manual_seed(2)
 
@@ -166,6 +170,8 @@ def test_transpose(elem_dtype, fp4_triton):
     """
     if elem_dtype != DTYPE_FP4 and fp4_triton:
         pytest.skip("unsupported configuration")
+    elif fp4_triton and is_sm_at_least_100():
+        pytest.skip("triton does not work yet on CUDA capability 10.0")
 
     M, K = 128, 256
     block_size = 32
@@ -205,6 +211,9 @@ def test_view(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])
