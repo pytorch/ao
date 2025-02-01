@@ -468,6 +468,7 @@ def main(
     quiet=False,
     gpu_preproc=False,
     batch_size=1,
+    seed=42,
 ):
     if batch_size <= 0:
         raise ValueError("Expected --batch_size to be at least 1 but got {batch_size}")
@@ -539,6 +540,7 @@ def main(
         from torchao._models.sam2.utils.amg import (
             mask_to_rle_pytorch_2 as mask_to_rle_pytorch,
         )
+    torch.manual_seed(seed)
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     if verbose:

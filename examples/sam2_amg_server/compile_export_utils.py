@@ -370,12 +370,18 @@ def set_fast(
     # TODO: Only the sps task can export _predict_masks
     if task_type == "sps":
         if not loaded_exported_model:
-            mask_generator.predictor._predict_masks = torch.compile(
-                mask_generator.predictor._predict_masks,
+            mask_generator.predictor.model.sam_prompt_encoder.forward = torch.compile(
+                mask_generator.predictor.model.sam_prompt_encoder.forward,
                 mode="max-autotune",
                 fullgraph=True,
                 dynamic=False,
             )
+            # mask_generator.predictor._predict_masks = torch.compile(
+            #     mask_generator.predictor._predict_masks,
+            #     mode="max-autotune",
+            #     fullgraph=True,
+            #     dynamic=False,
+            # )
     elif task_type == "amg":
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,

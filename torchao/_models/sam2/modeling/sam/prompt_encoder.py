@@ -169,6 +169,12 @@ class PromptEncoder(nn.Module):
         boxes: Optional[torch.Tensor],
         masks: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if boxes is not None:
+            raise ValueError("Currently do not support boxes. "
+                             "Please create an issue on pytorch/ao.")
+        if masks is not None:
+            raise ValueError("Currently do not support masks. "
+                             "Please create an issue on pytorch/ao.")
         """
         Embeds different types of prompts, returning both sparse and dense
         embeddings.

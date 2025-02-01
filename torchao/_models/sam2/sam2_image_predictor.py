@@ -481,11 +481,14 @@ class SAM2ImagePredictor(torch.nn.Module):
                 concat_points = (box_coords, box_labels)
 
         with torch.autograd.profiler.record_function("self.model.sam_prompt_encoder"):
+            # print("concat_points: ", concat_points)
             sparse_embeddings, dense_embeddings = self.model.sam_prompt_encoder(
                 points=concat_points,
                 boxes=None,
                 masks=mask_input,
             )
+            # print("sparse_embeddings.sum().item(): ", sparse_embeddings.sum().item())
+            # print("dense_embeddings.sum().item(): ", dense_embeddings.sum().item())
 
         # Predict masks
         batched_mode = (
