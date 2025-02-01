@@ -363,17 +363,6 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
     for img_bytes_tensor in img_bytes_tensors:
         with record_function("decode image bytes"):
             if gpu_preproc:
-                # NOTE: We have to use numpy for the baseline
-                assert not baseline
-                from torchvision import io as tio
-
-                image_tensor = tio.decode_jpeg(
-                    img_bytes_tensor, device="cuda", mode=tio.ImageReadMode.RGB
-                )
-                from torchvision.transforms.v2 import functional as F
-
-                image_tensor = F.to_dtype(image_tensor, torch.float32, scale=True)
-            else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
                 from torchvision.transforms import ToTensor
                 from torchvision.transforms import v2
@@ -383,6 +372,12 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
                     image_tensor = image_tensor.permute((2, 0, 1))
                     image_tensor = image_tensor.cuda()
                     image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
+            else:
+                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
+                from torchvision.transforms import ToTensor
+
+                if not baseline:
+                    image_tensor = ToTensor()(image_tensor)
             image_tensors.append(image_tensor)
     return image_tensors
 
