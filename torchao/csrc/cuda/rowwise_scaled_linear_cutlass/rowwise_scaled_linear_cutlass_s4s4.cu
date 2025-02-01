@@ -1,4 +1,4 @@
-#include <torch/extension.h>
+#include <torch/library.h>
 
 #include "rowwise_scaled_linear_cutlass.cuh"
 
