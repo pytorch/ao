@@ -107,6 +107,8 @@ class CPUOffloadOptimizer:
             with getattr(torch, self.device).stream(self.stream):
                 p_device.copy_(p_host, non_blocking=True)
 
+        # make sure param H2D finishes before the next forward pass
+        self.stream.synchronize()
         self.queue.clear()
         return loss
 
