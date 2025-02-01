@@ -96,27 +96,6 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
               __func__, " : Number of columns of tensor C must be divisible ",
               "by ", AlignmentC);
 
-  using TensorAScaleTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementAScale,
-          AlignmentAScale,
-          NumEVTEpilogueStages>;
-  using TensorBScaleTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementBScale,
-          AlignmentBScale,
-          NumEVTEpilogueStages>;
-  using TensorCTileThreadMap =
-      cutlass::epilogue::threadblock::OutputTileThreadLayout<
-          ThreadblockShape,
-          WarpShape,
-          ElementC,
-          AlignmentC,
-          NumEVTEpilogueStages>;
   using OutputTileThreadMap =
       cutlass::epilogue::threadblock::OutputTileThreadLayout<
           ThreadblockShape,
@@ -129,14 +108,14 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
 
   using TensorAScale =
       cutlass::epilogue::threadblock::VisitorColBroadcast<
-          TensorAScaleTileThreadMap,
+          OutputTileThreadMap,
           ElementAScale,
           cute::Stride<cute::_1, cute::_0, int64_t>>;
   using TensorAScaleArguments = typename TensorAScale::Arguments;
 
   using TensorBScale =
       cutlass::epilogue::threadblock::VisitorRowBroadcast<
-          TensorBScaleTileThreadMap,
+          OutputTileThreadMap,
           ElementBScale,
           cute::Stride<cute::_0, cute::_1, int64_t>>;
   using TensorBScaleArguments = typename TensorBScale::Arguments;
@@ -145,7 +124,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       cutlass::epilogue::threadblock::VisitorScalarBroadcast<ElementC>;
   using TensorCTensor =
       cutlass::epilogue::threadblock::VisitorRowBroadcast<
-          TensorCTileThreadMap,
+          OutputTileThreadMap,
           ElementC,
           cute::Stride<cute::_0, cute::_1, int64_t>>;
   using TensorC =
