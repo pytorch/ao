@@ -458,10 +458,10 @@ class SAM2ImagePredictor(torch.nn.Module):
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
     ):
-        print(0, high_res_feats_input[0].stride(), high_res_feats_input[0].is_contiguous())
-        print(1, high_res_feats_input[1].stride(), high_res_feats_input[1].is_contiguous())
-        print(2, image_embed.stride(), image_embed.is_contiguous())
-        print(3, image_pe.stride(), image_pe.is_contiguous())
+        # print(0, high_res_feats_input[0].stride(), high_res_feats_input[0].is_contiguous())
+        # print(1, high_res_feats_input[1].stride(), high_res_feats_input[1].is_contiguous())
+        # print(2, image_embed.stride(), image_embed.is_contiguous())
+        # print(3, image_pe.stride(), image_pe.is_contiguous())
 
         # NOTE: img_idx causes unnecessary recompilations, because
         # the int guard will fail otherwise.
@@ -518,18 +518,18 @@ class SAM2ImagePredictor(torch.nn.Module):
                 raise ValueError("Expected multimask_output.")
             if batched_mode:
                 raise ValueError("Did not expected repeat_image.")
-            print("image_embed.float().sum(): ", image_embed.float().sum())
-            print("sparse_embeddings.float().sum(): ", sparse_embeddings.float().sum())
-            print("dense_embeddings.float().sum(): ", dense_embeddings.float().sum())
-            print("image_embed.size(): ", image_embed.size())
-            print("sparse_embeddings.size(): ", sparse_embeddings.size())
-            print("dense_embeddings.size(): ", dense_embeddings.size())
-            print("image_embed.stride(): ", image_embed.stride())
-            print("sparse_embeddings.stride(): ", sparse_embeddings.stride())
-            print("dense_embeddings.stride(): ", dense_embeddings.stride())
-            print("image_embed.is_contiguous(): ", image_embed.is_contiguous())
-            print("sparse_embeddings.is_contiguous(): ", sparse_embeddings.is_contiguous())
-            print("dense_embeddings.is_contiguous(): ", dense_embeddings.is_contiguous())
+            # print("image_embed.float().sum(): ", image_embed.float().sum())
+            # print("sparse_embeddings.float().sum(): ", sparse_embeddings.float().sum())
+            # print("dense_embeddings.float().sum(): ", dense_embeddings.float().sum())
+            # print("image_embed.size(): ", image_embed.size())
+            # print("sparse_embeddings.size(): ", sparse_embeddings.size())
+            # print("dense_embeddings.size(): ", dense_embeddings.size())
+            # print("image_embed.stride(): ", image_embed.stride())
+            # print("sparse_embeddings.stride(): ", sparse_embeddings.stride())
+            # print("dense_embeddings.stride(): ", dense_embeddings.stride())
+            # print("image_embed.is_contiguous(): ", image_embed.is_contiguous())
+            # print("sparse_embeddings.is_contiguous(): ", sparse_embeddings.is_contiguous())
+            # print("dense_embeddings.is_contiguous(): ", dense_embeddings.is_contiguous())
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
                 # image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
                 # image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
@@ -542,9 +542,9 @@ class SAM2ImagePredictor(torch.nn.Module):
                 repeat_image=batched_mode,
                 high_res_features=high_res_features,
             )
-            print("low_res_masks.sum(): ", low_res_masks.float().sum())
-            print("iou_predictions.sum(): ", iou_predictions.float().sum())
-            import sys; sys.exit(1)
+            # print("low_res_masks.sum(): ", low_res_masks.float().sum())
+            # print("iou_predictions.sum(): ", iou_predictions.float().sum())
+            # import sys; sys.exit(1)
 
         return low_res_masks, iou_predictions
 

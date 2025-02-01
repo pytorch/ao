@@ -430,24 +430,24 @@ def set_fast(
                 fullgraph=True,
                 dynamic=False,
             )
-            mask_generator.predictor.model.sam_mask_decoder.transformer.forward = torch.compile(
-                    mask_generator.predictor.model.sam_mask_decoder.transformer.forward,
-                    mode="max-autotune",
-                fullgraph=True,
-                dynamic=False,
-            )
+            # mask_generator.predictor.model.sam_mask_decoder.transformer.forward = torch.compile(
+            #         mask_generator.predictor.model.sam_mask_decoder.transformer.forward,
+            #         mode="max-autotune",
+            #     fullgraph=True,
+            #     dynamic=False,
+            # )
             # mask_generator.predictor.model.sam_mask_decoder.forward = torch.compile(
             #         mask_generator.predictor.model.sam_mask_decoder.forward,
             #         mode="max-autotune",
             #     fullgraph=True,
             #     dynamic=False,
             # )
-            # mask_generator.predictor._predict_masks = torch.compile(
-            #     mask_generator.predictor._predict_masks,
-            #     mode="max-autotune",
-            #     fullgraph=True,
-            #     dynamic=False,
-            # )
+            mask_generator.predictor._predict_masks = torch.compile(
+                mask_generator.predictor._predict_masks,
+                mode="max-autotune",
+                fullgraph=True,
+                dynamic=False,
+            )
     elif task_type == "amg":
         mask_generator.predictor._predict_masks = torch.compile(
             mask_generator.predictor._predict_masks,

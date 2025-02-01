@@ -264,25 +264,25 @@ class Attention(nn.Module):
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
-        print(q.size())
-        print(k.size())
-        print(v.size())
-        print(q.stride())
-        print(k.stride())
-        print(v.stride())
-        print(q.dtype)
-        print(k.dtype)
-        print(v.dtype)
+        # print(q.size())
+        # print(k.size())
+        # print(v.size())
+        # print(q.stride())
+        # print(k.stride())
+        # print(v.stride())
+        # print(q.dtype)
+        # print(k.dtype)
+        # print(v.dtype)
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
         v = self.v_proj(v)
-        out_q = self.out_proj(q)
-        out_k = self.out_proj(k)
-        out_v = self.out_proj(v)
-        # return out_k  # NOTE: This fails
-        return out_q  # NOTE: But this works
-        # return out_v  # NOTE: But this fails again
+        # out_q = self.out_proj(q)
+        # out_k = self.out_proj(k)
+        # out_v = self.out_proj(v)
+        # # return out_k  # NOTE: This fails
+        # return out_q  # NOTE: But this works
+        # # return out_v  # NOTE: But this fails again
 
         # Separate into heads
         q = self._separate_heads(q, self.num_heads)
@@ -307,9 +307,9 @@ class Attention(nn.Module):
         #     out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
         # TODO: This scale should not be needed. But without it compile causes a NaN.
         out = F.scaled_dot_product_attention(
-            # q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
+            q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
             # q, k, v, scale=(1.0 / math.sqrt(q.size(-1)))
-            q, k, v, scale=1.0
+            # q, k, v, scale=1.0
         )
 
         out = self._recombine_heads(out)
