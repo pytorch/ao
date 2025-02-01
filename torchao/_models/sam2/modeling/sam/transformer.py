@@ -21,27 +21,27 @@ from torchao._models.sam2.modeling.position_encoding import (
 from torchao._models.sam2.modeling.sam2_utils import MLP
 from torchao._models.sam2.utils.misc import get_sdpa_settings
 
-# warnings.simplefilter(action="ignore", category=FutureWarning)
-# # Check whether Flash Attention is available (and use it by default)
-# OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
-# # A fallback setting to allow all available kernels if Flash Attention fails
-# ALLOW_ALL_KERNELS = False
+warnings.simplefilter(action="ignore", category=FutureWarning)
+# Check whether Flash Attention is available (and use it by default)
+OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
+# A fallback setting to allow all available kernels if Flash Attention fails
+ALLOW_ALL_KERNELS = False
 
 
-# def sdp_kernel_context(dropout_p):
-#     """
-#     Get the context for the attention scaled dot-product kernel. We use Flash Attention
-#     by default, but fall back to all available kernels if Flash Attention fails.
-#     """
-#     if ALLOW_ALL_KERNELS:
-#         return contextlib.nullcontext()
-# 
-#     return torch.backends.cuda.sdp_kernel(
-#         enable_flash=USE_FLASH_ATTN,
-#         # if Flash attention kernel is off, then math kernel needs to be enabled
-#         enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
-#         enable_mem_efficient=OLD_GPU,
-#     )
+def sdp_kernel_context(dropout_p):
+    """
+    Get the context for the attention scaled dot-product kernel. We use Flash Attention
+    by default, but fall back to all available kernels if Flash Attention fails.
+    """
+    if ALLOW_ALL_KERNELS:
+        return contextlib.nullcontext()
+
+    return torch.backends.cuda.sdp_kernel(
+        enable_flash=USE_FLASH_ATTN,
+        # if Flash attention kernel is off, then math kernel needs to be enabled
+        enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
+        enable_mem_efficient=OLD_GPU,
+    )
 
 
 class TwoWayTransformer(nn.Module):
@@ -90,7 +90,6 @@ class TwoWayTransformer(nn.Module):
         )
         self.norm_final_attn = nn.LayerNorm(embedding_dim)
 
-    @torch.no_grad()
     def forward(
         self,
         image_embedding: Tensor,
@@ -127,7 +126,6 @@ class TwoWayTransformer(nn.Module):
                 query_pe=point_embedding,
                 key_pe=image_pe,
             )
-            # return queries, keys
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
@@ -184,11 +182,7 @@ class TwoWayAttentionBlock(nn.Module):
         self.skip_first_layer_pe = skip_first_layer_pe
 
     def forward(
-        self,
-        queries: Tensor,
-        keys: Tensor,
-        query_pe: Tensor,
-        key_pe: Tensor
+        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
@@ -201,11 +195,9 @@ class TwoWayAttentionBlock(nn.Module):
 
         # Cross attention block, tokens attending to image embedding
         q = queries + query_pe
-        k = keys  # + key_pe
+        k = keys + key_pe
         attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
-        # queries = queries + attn_out
-        queries = attn_out
-        # return queries, keys
+        queries = queries + attn_out
         queries = self.norm2(queries)
 
         # MLP block
@@ -264,25 +256,10 @@ class Attention(nn.Module):
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
-        # print(q.size())
-        # print(k.size())
-        # print(v.size())
-        # print(q.stride())
-        # print(k.stride())
-        # print(v.stride())
-        # print(q.dtype)
-        # print(k.dtype)
-        # print(v.dtype)
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
         v = self.v_proj(v)
-        # out_q = self.out_proj(q)
-        # out_k = self.out_proj(k)
-        # out_v = self.out_proj(v)
-        # # return out_k  # NOTE: This fails
-        # return out_q  # NOTE: But this works
-        # # return out_v  # NOTE: But this fails again
 
         # Separate into heads
         q = self._separate_heads(q, self.num_heads)
@@ -308,8 +285,6 @@ class Attention(nn.Module):
         # TODO: This scale should not be needed. But without it compile causes a NaN.
         out = F.scaled_dot_product_attention(
             q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
-            # q, k, v, scale=(1.0 / math.sqrt(q.size(-1)))
-            # q, k, v, scale=1.0
         )
 
         out = self._recombine_heads(out)
