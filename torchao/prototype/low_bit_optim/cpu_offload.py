@@ -6,7 +6,11 @@ from torch.optim.optimizer import Optimizer, ParamsT
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, get_available_devices
 
 
-class CPUOffloadOptimizer:
+# NOTE: We make this inherit Optimizer so it works with PyTorch's built-in LR
+# schedulers. (those schedulers specifically check for instances of Optimizer).
+# However, it won't behave exactly like Optimizer e.g. we don't call
+# Optimizer.__init__(), there is no self.defaults.
+class CPUOffloadOptimizer(Optimizer):
     def __init__(
         self,
         params: ParamsT,
