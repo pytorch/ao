@@ -11,20 +11,15 @@
 #endif
 
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
-#include <cuda_runtime.h>
-#include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm_universal.h>
-#include <cutlass/epilogue/threadblock/fusion/visitors.hpp>
-#include <cutlass/gemm/kernel/default_gemm_universal_with_visitor.h>
 #include <cutlass/gemm/device/gemm_universal_adapter.h>
+#include <cutlass/gemm/kernel/default_gemm_universal_with_visitor.h>
+#include <cutlass/epilogue/threadblock/fusion/visitors.hpp>
 
-#define CUTLASS_STATUS_CHECK(status)                                      \
-  {                                                                       \
-    TORCH_CHECK(status == cutlass::Status::kSuccess,                      \
-                __func__, " : Got CUTLASS error: ",                       \
-                cutlassGetStatusString(status));                          \
-  }
+#include "cutlass_extensions/common.h"
 #endif
+
+#define OPERATOR_NAME "rowwise_scaled_linear_cutlass"
 
 namespace torchao {
 
@@ -86,15 +81,15 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       128 / cutlass::sizeof_bits<ElementOutput>::value;
 
   // Check for current CUTLASS limitations w.r.t. alignments.
-  TORCH_CHECK(k % AlignmentA == 0,
-              __func__, " : Number of columns of tensor A must be divisible ",
-              "by ", AlignmentA);
-  TORCH_CHECK(k % AlignmentB == 0,
-              __func__, " : Number of columns of tensor B must be divisible ",
-              "by ", AlignmentB);
-  TORCH_CHECK(n % AlignmentC == 0,
-              __func__, " : Number of columns of tensor C must be divisible ",
-              "by ", AlignmentC);
+  TORCH_CHECK(k % AlignmentA == 0, OPERATOR_NAME,
+              " : Number of columns of tensor A must be divisible by ",
+              AlignmentA);
+  TORCH_CHECK(k % AlignmentB == 0, OPERATOR_NAME,
+              " : Number of columns of tensor B must be divisible by ",
+              AlignmentB);
+  TORCH_CHECK(n % AlignmentC == 0, OPERATOR_NAME,
+              " : Number of columns of tensor C must be divisible by ",
+              AlignmentC);
 
   using OutputTileThreadMap =
       cutlass::epilogue::threadblock::OutputTileThreadLayout<
@@ -168,24 +163,24 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       Output,
       EVTApplySum>;
 
-  using EVTKernel =
+  using EVTKernel = torchao::enable_2x_kernel_for_sm80_or_later<
       typename cutlass::gemm::kernel::DefaultGemmWithVisitor<
-      ElementA, LayoutA, cutlass::ComplexTransform::kNone, AlignmentA,
-      ElementB, LayoutB, cutlass::ComplexTransform::kNone, AlignmentB,
-      ElementOutput, LayoutOutput, AlignmentOutput,
-      ElementAccumulator,
-      ElementEpilogue,
-      cutlass::arch::OpClassTensorOp,
-      SmArch,
-      ThreadblockShape,
-      WarpShape,
-      InstructionShape,
-      EVTOutput,
-      ThreadblockSwizzle,
-      NumStages,
-      Operator,
-      NumEVTEpilogueStages
-  >::GemmKernel;
+          ElementA, LayoutA, cutlass::ComplexTransform::kNone, AlignmentA,
+          ElementB, LayoutB, cutlass::ComplexTransform::kNone, AlignmentB,
+          ElementOutput, LayoutOutput, AlignmentOutput,
+          ElementAccumulator,
+          ElementEpilogue,
+          cutlass::arch::OpClassTensorOp,
+          SmArch,
+          ThreadblockShape,
+          WarpShape,
+          InstructionShape,
+          EVTOutput,
+          ThreadblockSwizzle,
+          NumStages,
+          Operator,
+          NumEVTEpilogueStages
+    >::GemmKernel>;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<EVTKernel>;
 
@@ -260,7 +255,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   // Verify that GEMM operation with given arguments can be performed
   // by CUTLASS.
   status = gemm_op.can_implement(arguments);
-  CUTLASS_STATUS_CHECK(status);
+  CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
   // Allocate workspace for CUTLASS mixed datatypes GEMM kernel.
   const auto workspace_size = Gemm::get_workspace_size(arguments);
@@ -270,11 +265,11 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   // Initialize CUTLASS mixed datatypes GEMM object.
   status = gemm_op.initialize(arguments, workspace.data_ptr(),
                               at::cuda::getCurrentCUDAStream());
-  CUTLASS_STATUS_CHECK(status);
+  CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
   // Perform mixed datatypes GEMM operation.
   status = gemm_op.run(at::cuda::getCurrentCUDAStream());
-  CUTLASS_STATUS_CHECK(status);
+  CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -373,9 +368,8 @@ static void select_config(
     }
   }
 
-  TORCH_CHECK(false,
-              __func__, " : Operator not supported on SM", dprops->major, ".",
-              dprops->minor, " for given operands");
+  TORCH_CHECK(false, OPERATOR_NAME, " : Operator not supported on SM",
+              dprops->major, ".", dprops->minor, " for given operands");
 }
 
 template<
@@ -415,9 +409,8 @@ dispatch_on_tensor_c(
     return;
   }
 
-  TORCH_CHECK(false,
-              __func__, " : Operator not supported for datatype ",
-                tensor_c.scalar_type(), " for addend");
+  TORCH_CHECK(false, OPERATOR_NAME, " : Operator not supported for datatype ",
+              tensor_c.scalar_type(), " for addend");
 }
 
 template<typename ElementA, typename ElementB>
@@ -427,7 +420,7 @@ dispatch_on_tensor_a_scale_and_tensor_b_scale(
     const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
     const at::Tensor& tensor_c, at::Tensor& tensor_d) {
   TORCH_CHECK(tensor_d.scalar_type() == tensor_a_scale.scalar_type(),
-              __func__, " : Operator not supported for output datatype ",
+              OPERATOR_NAME, " : Operator not supported for output datatype ",
               tensor_d.scalar_type(), " as it's different from the first ",
               " operand scale datatype ", tensor_a_scale.scalar_type());
 
@@ -451,93 +444,92 @@ dispatch_on_tensor_a_scale_and_tensor_b_scale(
     return;
   }
 
-  TORCH_CHECK(false,
-              __func__, " : Operator not supported for combination of data ",
-              "types ", tensor_a_scale.scalar_type(),
-              " for first operand scale and ", tensor_b_scale.scalar_type(),
-                " for second operand scale");
+  TORCH_CHECK(false, OPERATOR_NAME,
+              " : Operator not supported for combination of data types ",
+              tensor_a_scale.scalar_type(), " for first operand scale and ",
+              tensor_b_scale.scalar_type(), " for second operand scale");
 }
 
 template<typename ElementA, typename ElementB>
 void
 rowwise_scaled_linear_cutlass_check_inputs(
     const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
-    const at::Tensor& w_scale, const at::Tensor& bias) {
+    const at::Tensor& w_scale, const at::Tensor& bias){
   // Validate layouts of arguments.
-  TORCH_CHECK(xq.dim() >= 2,
-              __func__, " : Expected xq argument to be 2D or "
-              "higher-dimensional tensor, got ", xq.dim(), " dims");
-  TORCH_CHECK(xq.layout() == at::Layout::Strided,
-              __func__, " : Expected xq argument to be strided, got layout ",
+  TORCH_CHECK(xq.dim() >= 2, OPERATOR_NAME,
+              " : Expected xq argument to be 2D or higher-dimensional tensor, "
+              "got ", xq.dim(), " dims");
+  TORCH_CHECK(xq.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected xq argument to be strided, got layout ",
               xq.layout());
-  TORCH_CHECK(x_scale.dim() == xq.dim() - 1,
-              __func__, " : Expected xq scale argument to be ", xq.dim() - 1,
+  TORCH_CHECK(x_scale.dim() == xq.dim() - 1, OPERATOR_NAME,
+              " : Expected xq scale argument to be ", xq.dim() - 1,
               "D tensor, got ", x_scale.dim(), " dims");
-  TORCH_CHECK(x_scale.layout() == at::Layout::Strided,
-              __func__, " : Expected xq scale argument to be strided, got "
-              "layout ", x_scale.layout());
-  TORCH_CHECK(wq.dim() == 2,
-              __func__, " : Expected wq argument to be 2D tensor, got ",
-              wq.dim(), " dims");
-  TORCH_CHECK(wq.layout() == at::Layout::Strided,
-              __func__, " : Expected wq argument to be strided, got layout ",
+  TORCH_CHECK(x_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected xq scale argument to be strided, got layout ",
+              x_scale.layout());
+  TORCH_CHECK(wq.dim() == 2, OPERATOR_NAME,
+              " : Expected wq argument to be 2D tensor, got ", wq.dim(),
+              " dims");
+  TORCH_CHECK(wq.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected wq argument to be strided, got layout ",
               wq.layout());
-  TORCH_CHECK(w_scale.dim() == 1 || w_scale.dim() == 2,
-              __func__, " : Expected wq scale argument to be 1D or 2D tensor, ",
-              "got ", w_scale.dim(), " dims");
-  TORCH_CHECK(w_scale.layout() == at::Layout::Strided,
-              __func__, " : Expected wq scale argument to be strided, got "
-              "layout ", w_scale.layout());
+  TORCH_CHECK(w_scale.dim() == 1 || w_scale.dim() == 2, OPERATOR_NAME,
+              " : Expected wq scale argument to be 1D or 2D tensor, ", "got ",
+              w_scale.dim(), " dims");
+  TORCH_CHECK(w_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected wq scale argument to be strided, got layout ",
+              w_scale.layout());
   if (bias.numel() > 0) {
-    TORCH_CHECK(bias.dim() == 1,
-                __func__, " : Expected bias argument to be 1D tensor, got ",
-                bias.dim(), " dims");
-    TORCH_CHECK(bias.layout() == at::Layout::Strided,
-                __func__, " : Expected bias argument to be strided, got ",
-                "layout ", bias.layout());
+    TORCH_CHECK(bias.dim() == 1, OPERATOR_NAME,
+                " : Expected bias argument to be 1D tensor, got ", bias.dim(),
+                " dims");
+    TORCH_CHECK(bias.layout() == at::Layout::Strided, OPERATOR_NAME,
+                " : Expected bias argument to be strided, got layout ",
+                bias.layout());
   }
 
   // Validate sizes of arguments.
   const auto xq_sizes = xq.sizes().vec();
   TORCH_CHECK(xq_sizes.back() == wq.size(1) ||
-              xq_sizes.back() == 2 * wq.size(1),
-              __func__, " : Expected xq argument to have ", wq.size(1), " or ",
-              2 * wq.size(1), " columns, but got ", xq_sizes.back());
+                  xq_sizes.back() == 2 * wq.size(1),
+              OPERATOR_NAME, " : Expected xq argument to have ", wq.size(1),
+              " or ", 2 * wq.size(1), " columns, but got ", xq_sizes.back());
   const auto x_scale_sizes = x_scale.sizes().vec();
   for (auto i = 0; i < x_scale_sizes.size(); ++i)
-    TORCH_CHECK(x_scale_sizes[i] == xq_sizes[i],
-                __func__, " : Expected xq scale argument size at position ",
-                i, " to be ", xq_sizes[i], ", but got ", x_scale_sizes[i]);
-  TORCH_CHECK(w_scale.numel() == wq.size(0),
-              __func__, " : Expected wq scale argument to have ", wq.size(0),
+    TORCH_CHECK(x_scale_sizes[i] == xq_sizes[i], OPERATOR_NAME,
+                " : Expected xq scale argument size at position ", i, " to be ",
+                xq_sizes[i], ", but got ", x_scale_sizes[i]);
+  TORCH_CHECK(w_scale.numel() == wq.size(0), OPERATOR_NAME,
+              " : Expected wq scale argument to have ", wq.size(0),
               " elements, got ", w_scale.numel(), " elements");
   if (bias.numel() > 0) {
-    TORCH_CHECK(bias.numel() == wq.size(0),
-                __func__, " : Expected bias argument to have ", wq.size(0),
+    TORCH_CHECK(bias.numel() == wq.size(0), OPERATOR_NAME,
+                " : Expected bias argument to have ", wq.size(0),
                 " elements, got ", bias.numel(), " elements");
   }
 
   // Validate strides of arguments.
   const auto xq_strides = xq.strides();
-  TORCH_CHECK(xq_strides[xq_strides.size() - 1] == 1,
-              __func__, " : Expected xq argument in row-major layout");
+  TORCH_CHECK(xq_strides[xq_strides.size() - 1] == 1, OPERATOR_NAME,
+              " : Expected xq argument in row-major layout");
   auto xq_stride_expected = xq_strides[xq_strides.size() - 2];
   for (int i = xq_strides.size() - 3; i >= 0; --i) {
     xq_stride_expected *= xq_sizes[i + 1];
-    TORCH_CHECK(xq_strides[i] == xq_stride_expected,
-                __func__, " : Expected xq argument in row-major layout");
+    TORCH_CHECK(xq_strides[i] == xq_stride_expected, OPERATOR_NAME,
+                " : Expected xq argument in row-major layout");
   }
-  TORCH_CHECK(x_scale.is_contiguous(),
-              __func__, " : Expected xq scale argument to be contiguous");
+  TORCH_CHECK(x_scale.is_contiguous(), OPERATOR_NAME,
+              " : Expected xq scale argument to be contiguous");
   const auto wq_strides = wq.strides();
-  TORCH_CHECK(wq_strides[0] >= 1 && wq_strides[1] == 1,
-              __func__, " : Expected wq argument in row-major layout");
-  TORCH_CHECK(w_scale.is_contiguous(),
-              __func__, " : Expected wq scale argument to be contiguous");
+  TORCH_CHECK(wq_strides[0] >= 1 && wq_strides[1] == 1, OPERATOR_NAME,
+              " : Expected wq argument in row-major layout");
+  TORCH_CHECK(w_scale.is_contiguous(), OPERATOR_NAME,
+              " : Expected wq scale argument to be contiguous");
   if (bias.numel() > 0) {
     const auto bias_strides = bias.strides();
-    TORCH_CHECK(bias_strides[0] == 1,
-                __func__, " : Expected bias argument to be contiguous");
+    TORCH_CHECK(bias_strides[0] == 1, OPERATOR_NAME,
+                " : Expected bias argument to be contiguous");
   }
 }
 #endif
@@ -581,7 +573,7 @@ rowwise_scaled_linear_cutlass(
   result_sizes.back() = wq.size(0);
   return result.reshape(result_sizes);
 #else
-  TORCH_CHECK_NOT_IMPLEMENTED(false, __func__);
+  TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
   return at::Tensor{};
 #endif
 }
