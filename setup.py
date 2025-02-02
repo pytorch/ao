@@ -271,8 +271,10 @@ def get_extensions():
         # assumption is that these files will have "cutlass" in its
         # name.
         cutlass_sources = list(
-            glob.glob(os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"),
-                      recursive=True) )
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
         sources = [s for s in sources if s not in cutlass_sources]
 
     ext_modules = []
