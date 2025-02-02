@@ -30,9 +30,7 @@
 #include <iostream>
 
 #include "base.h"
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-  #include "mem.h"
-#endif
+#include "mem.h"
 
 template <typename T>
 inline std::string str(T x) {
