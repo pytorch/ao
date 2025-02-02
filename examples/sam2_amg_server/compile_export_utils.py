@@ -172,16 +172,16 @@ def export_model(
         overwrite=overwrite,
     )
 
-    if task_type in ["sps"]:
+    if task_type in ["amg", "sps"]:
         example_input_args = ()
         example_input_kwargs = {
             "points": (
-                torch.randn(batch_size,
+                torch.randn(points_per_batch,
                             1,
                             2,
                             dtype=torch.float32,
                             device=mask_generator.predictor.device),
-                torch.ones(batch_size,
+                torch.ones(points_per_batch,
                            1,
                            dtype=torch.int32,
                            device=mask_generator.predictor.device),
@@ -221,11 +221,11 @@ def export_model(
             overwrite=overwrite,
         )
 
-    if task_type in ["sps"]:
+    if task_type in ["amg", "sps"]:
         example_input_args = (
-            torch.randn(batch_size, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
-            torch.randn(batch_size, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
-            torch.randn(batch_size,   8, 256,     dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
+            torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
+            torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
+            torch.randn(points_per_batch,   8, 256,     dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
         )
         example_input_kwargs = {}
         aot_compile(
@@ -358,10 +358,10 @@ def load_exported_model(
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
 
-    if task_type in ["amg", "mps"]:
+    if task_type in ["mps"]:
         return mask_generator
 
-    if task_type in ["sps"]:
+    if task_type in ["amg", "sps"]:
         path = Path(model_directory) / Path("sam2_sam_prompt_encoder.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")
@@ -377,7 +377,7 @@ def load_exported_model(
         pkg_m = LoadedModel(pkg)
         mask_generator.predictor.model.sam_mask_decoder.forward = pkg_m.forward
 
-    if task_type in ["sps"]:
+    if task_type in ["amg", "sps"]:
         path = Path(model_directory) / Path("sam2_sam_mask_decoder_transformer.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")
