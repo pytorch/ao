@@ -13,71 +13,12 @@
 #include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_header.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/kernel_selector.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 #include <optional>
 #include <vector>
 
 namespace {
-
-// This selects a UkernelConfig based on the packed weight header
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig
-get_ukernel_config(torchao::ops::PackedWeightsHeader header) {
-  torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig config;
-
-  switch (header.format) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
-    case torchao::ops::PackedWeightsFormat::
-        linear_8bit_act_xbit_weight_universal:
-      namespace ukernel
-      = torchao::kernels::cpu::aarch64::linear::
-          channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
-
-      // Check packing params match the kernel
-      TORCHAO_CHECK(
-          header ==
-              torchao::ops::linear_8bit_act_xbit_weight::
-                  get_packed_weights_header_universal(
-                      weight_nbit,
-                      has_weight_zeros,
-                      has_bias,
-                      /*nr=*/8,
-                      /*kr=*/16),
-          "Packing params do not match what kernel supports");
-
-      config.packed_weights_header = header;
-      config.mr = 1;
-      config.nr = 8;
-      config.activation_data_size_fn =
-          &ukernel::activation_data_size<has_weight_zeros>;
-      config.preferred_activation_data_alignment = 16; // size of neon register
-      config.prepare_activation_data_fn =
-          &ukernel::prepare_activation_data<has_weight_zeros>;
-      config.weight_data_size_fn =
-          &ukernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>;
-      config.preferred_weight_data_alignment = 16; // size of neon register
-      config.prepare_weight_data_fn =
-          &ukernel::
-              prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>;
-      config.kernel_fn =
-          &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
-      return config;
-      break;
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
-    default:
-      TORCHAO_CHECK(false, "Unsupported packed weights format");
-  }
-}
-
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig
-get_ukernel_config() {
-  auto header = torchao::ops::linear_8bit_act_xbit_weight::
-      get_packed_weights_header_universal(
-          weight_nbit, has_weight_zeros, has_bias, /*nr=*/8, /*kr=*/16);
-  return get_ukernel_config<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
-      header);
-}
 
 #ifdef USE_ATEN
 template <int weight_nbit, bool has_weight_zeros, bool has_bias>
@@ -127,11 +68,10 @@ Tensor pack_weights_cpu(
 
   using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
-  auto ukernel_config = get_ukernel_config<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      false /*has_clamp*/>();
+
+auto header = select_header<weight_nbit, has_weight_zeros, has_bias>();
+auto ukernel_config = select_ukernel_config<weight_nbit, has_weight_zeros>(header);
+
   auto pack_weight_tiling_params = get_default_pack_weight_data_tiling_params(
       ukernel_config, n, /*target_panels_per_thread=*/1);
 
@@ -139,7 +79,7 @@ Tensor pack_weights_cpu(
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
   Tensor packed_weights = torch::empty(
       {static_cast<int64_t>(packed_weight_data_size)}, torch::kInt8);
-  ukernel_config.packed_weights_header.write(
+  header.write(
       packed_weights.mutable_data_ptr<int8_t>());
   pack_weight_data_operator(
       ukernel_config,
@@ -206,11 +146,10 @@ Tensor pack_weights_meta(
 
   using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
-  auto ukernel_config = get_ukernel_config<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      false /*has_clamp*/>();
+
+  auto header = select_header<weight_nbit, has_weight_zeros, has_bias>();
+    auto ukernel_config = select_ukernel_config<weight_nbit, has_weight_zeros>(header);
+
 
   auto packed_weight_data_size = torchao::ops::PackedWeightsHeader::size() +
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
@@ -311,17 +250,14 @@ Tensor linear_out_cpu(
   auto header =
       torchao::ops::PackedWeightsHeader::read(packed_weights.const_data_ptr());
 
-  auto ukernel_config = get_ukernel_config<
-      weight_nbit,
-      has_weight_zeros /*has_weight_zeros*/,
-      false /*has_bias*/,
-      false /*has_clamp*/>(header);
+  auto ukernel_config = select_ukernel_config<weight_nbit, has_weight_zeros>(header);
 
   auto linear_tiling_params = get_default_linear_tiling_params(
       ukernel_config,
       m,
       n,
       /*target_tiles_per_thread=*/5);
+
   auto linear_scheduling_policy =
       LinearTileSchedulingPolicy::single_mc_parallel_nc;
 
@@ -332,6 +268,7 @@ Tensor linear_out_cpu(
       m,
       k,
       group_size);
+
   std::vector<char> activation_data_buffer(activation_data_buffer_size);
 
   linear_operator(

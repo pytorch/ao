@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
+#include <array>
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
@@ -40,6 +41,11 @@ struct UKernelConfig {
       const void* activation_data,
       float clamp_min,
       float clamp_max);
+  
+  struct kernel {
+    int mr{0};
+    kernel_fn_type kernel_fn{nullptr};
+  };
 
   activation_data_size_fn_type activation_data_size_fn{nullptr};
   // preferred_activation_data_alignment is only a preferred alignment for
@@ -57,11 +63,10 @@ struct UKernelConfig {
   size_t preferred_weight_data_alignment{0};
   prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
 
-  kernel_fn_type kernel_fn{nullptr};
-  int mr{0};
+  // kernel_fn_type kernel_fn{nullptr};
+  // int mr{0};
   int nr{0};
-
-  torchao::ops::PackedWeightsHeader packed_weights_header;
+  std::array<kernel, 4> kernels;
 };
 
 // Pack weight functions

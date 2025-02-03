@@ -98,7 +98,7 @@ LinearTilingParams get_default_linear_tiling_params(
   TORCHAO_CHECK(num_threads >= 1, "num_threads must be >= 1");
 
   tiling_params.mc_by_mr = 1;
-  int mc = tiling_params.mc_by_mr * ukernel_config.mr;
+  int mc = tiling_params.mc_by_mr * ukernel_config.kernels[0].mr;
   int num_mc_panels = (m + mc - 1) / mc;
 
   int numerator = n * num_mc_panels;
@@ -128,7 +128,7 @@ get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
     int k,
     int group_size) {
   return ukernel_config.activation_data_size_fn(
-      tiling_params.mc_by_mr * ukernel_config.mr, k, group_size);
+      tiling_params.mc_by_mr * ukernel_config.kernels[0].mr, k, group_size);
 }
 
 inline size_t
@@ -158,7 +158,7 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
     float clamp_min,
     float clamp_max) {
   int nr = ukernel_config.nr;
-  int mc = std::min(m, tiling_params.mc_by_mr * ukernel_config.mr);
+  int mc = std::min(m, tiling_params.mc_by_mr * ukernel_config.kernels[0].mr);
   int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
@@ -184,7 +184,7 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
       int output_offset = m_idx * n + n_idx;
       int weight_data_offset = (n_idx / nr) * weight_data_size;
 
-      ukernel_config.kernel_fn(
+      ukernel_config.kernels[0].kernel_fn(
           output + output_offset,
           /*output_m_stride=*/n,
           /*m=*/mc_tile_size,
@@ -214,10 +214,10 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     const float* activations,
     float clamp_min,
     float clamp_max) {
-  int mr = ukernel_config.mr;
+  int mr = ukernel_config.kernels[0].mr;
   int nr = ukernel_config.nr;
-  int mc = std::min(m, tiling_params.mc_by_mr * ukernel_config.mr);
-  int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
+  int mc = std::min(m, tiling_params.mc_by_mr * mr);
+  int nc = std::min(n, tiling_params.nc_by_nr * nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
 
@@ -254,7 +254,7 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     int output_offset = m_idx * n + n_idx;
     int weight_data_offset = (n_idx / nr) * weight_data_size;
 
-    ukernel_config.kernel_fn(
+    ukernel_config.kernels[0].kernel_fn(
         output + output_offset,
         /*output_m_stride=*/n,
         /*m=*/mc_tile_size,
