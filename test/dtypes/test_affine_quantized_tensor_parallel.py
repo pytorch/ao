@@ -12,7 +12,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from torchao.quantization import (
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
+    fpx_weight_only,
     int4_weight_only,
+    int8_dynamic_activation_int8_weight,
     int8_weight_only,
 )
 from torchao.quantization.observer import PerRow, PerTensor
@@ -166,9 +168,33 @@ class TestGemliteLayoutTensorParallel(TestAffineQuantizedTensorParallel):
                     return self._test_tp(dtype)
 
 
+class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
+    QUANT_METHOD_FN = staticmethod(int8_dynamic_activation_int8_weight)
+    COMMON_DTYPES = [torch.bfloat16]
+
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @with_comms
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_tp(self, dtype):
+        return self._test_tp(dtype)
+
+
+class TestFpxwoAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
+    QUANT_METHOD_FN = staticmethod(fpx_weight_only)
+    COMMON_DTYPES = [torch.bfloat16]
+
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @with_comms
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_tp(self, dtype):
+        return self._test_tp(dtype)
+
+
 common_utils.instantiate_parametrized_tests(TestInt8woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestGemliteLayoutTensorParallel)
+common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParallel)
+common_utils.instantiate_parametrized_tests(TestFpxwoAffineQuantizedTensorParallel)
 
 # Run only on H100
 if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
