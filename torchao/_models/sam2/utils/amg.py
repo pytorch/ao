@@ -316,6 +316,10 @@ def _mask_to_rle_pytorch_2_1(rle_data: RLEData):
 
 
 def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+    # print("tensor.size(): ", tensor.size(), " - ", end='')
+    # print("tensor.stride(): ", tensor.stride(), " - ", end='')
+    # print("tensor.is_contiguous(): ", tensor.is_contiguous(), " - ", end='')
+    # print("tensor.dtype: ", tensor.dtype)
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2"):
         return _mask_to_rle_pytorch_2_1(_mask_to_rle_pytorch_2_0(tensor))
 

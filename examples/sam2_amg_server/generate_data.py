@@ -371,7 +371,8 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
                     image_tensor = torch.from_numpy(image_tensor)
                     image_tensor = image_tensor.permute((2, 0, 1))
                     image_tensor = image_tensor.cuda()
-                    image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
+                    with record_function("v2.ToDtype"):
+                        image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
             else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
                 from torchvision.transforms import ToTensor
