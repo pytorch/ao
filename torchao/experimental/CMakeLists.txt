@@ -22,7 +22,7 @@ if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
 
-option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
+option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" ON)
 if(TORCHAO_BUILD_KLEIDIAI)
     message(STATUS "Building with Arm KleidiAI library")
     add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
