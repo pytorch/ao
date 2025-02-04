@@ -45,6 +45,7 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    float8_dynamic_activation_float8_semi_sparse_weight,
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
     float8_weight_only,
@@ -112,6 +113,7 @@ __all__ = [
     "intx_quantization_aware_training",
     "float8_weight_only",
     "float8_dynamic_activation_float8_weight",
+    "float8_dynamic_activation_float8_semi_sparse_weight",
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
