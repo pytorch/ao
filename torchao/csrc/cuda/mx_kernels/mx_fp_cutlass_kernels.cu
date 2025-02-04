@@ -34,7 +34,7 @@ using namespace cute;
 
 template<typename Element>
 constexpr int GetAlignment() {
-    if constexpr (std::is_same_v<Element, cutlass::nv_float4_t<cutlass::float_e2m1_t>>)
+    if constexpr (std::is_same_v<Element, cutlass::mx_float4_t<cutlass::float_e2m1_t>>)
         return 32;
     return 16;
 }
@@ -46,11 +46,7 @@ template <typename ElementA,
           typename ClusterShape,
           typename PerSmTileShape_MNK>
 void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
-             at::Tensor& b_scale, at::Tensor& out) {
- int M = a.size(0);
- int K = a.size(1);
- int N = b.size(1);
-
+             at::Tensor& b_scale, at::Tensor& out, int M, int K, int N) {
   // A matrix configuration
   using         LayoutATag  = cutlass::layout::RowMajor;                      // Layout type for A matrix operand
   constexpr int AlignmentA  = GetAlignment<ElementA>();    // Memory access granularity/alignment of A matrix in units of elements (up to 16 bytes)
@@ -225,9 +221,12 @@ at::Tensor mx_fp8_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
                        at::Tensor b_scale) {
 #if defined(BUILD_MX_KERNELS_CUTLASS)
   validate(a, b, a_scale, b_scale);
+  auto M = a.size(0);
+  auto K = a.size(1);
+  auto N = b.size(1);
 
   auto out =
-      at::empty({a.size(0), b.size(1)}, a.options().dtype(at::kBFloat16));
+      at::empty({M, N}, a.options().dtype(at::kBFloat16));
   using ElementA = cutlass::mx_float8_t<cutlass::float_e4m3_t>;
   using ElementB = cutlass::mx_float8_t<cutlass::float_e4m3_t>;
   using ElementD = cutlass::bfloat16_t;
@@ -236,9 +235,39 @@ at::Tensor mx_fp8_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
   using ClusterShape        = Shape<_2,_1,_1>;
   using PerSmTileShape_MNK  = Shape<_128,_128,_128>;
 
-  run_gemm<ElementA, ElementB, ElementD, MmaTileShape, ClusterShape, PerSmTileShape_MNK>(a, b, a_scale, b_scale, out);
+  run_gemm<ElementA, ElementB, ElementD, MmaTileShape, ClusterShape, PerSmTileShape_MNK>(a, b, a_scale, b_scale, out, M, K, N);
   return out;
   #else
+  TORCH_CHECK_NOT_IMPLEMENTED(false, __func__);
+  return at::Tensor{};
+#endif
+}
+
+at::Tensor mx_fp4_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
+                       at::Tensor b_scale) {
+#if defined(BUILD_MX_KERNELS_CUTLASS)
+  TORCH_CHECK(a.is_cuda(), "a must be CUDA tensor");
+  TORCH_CHECK(b.is_cuda(), "b must be CUDA tensor");
+  TORCH_CHECK(a_scale.is_cuda(), "a_scale must be CUDA tensor");
+  TORCH_CHECK(b_scale.is_cuda(), "b_scale must be CUDA tensor");
+
+  auto M = a.size(0);
+  auto K = a.size(1) * 2;
+  auto N = b.size(1);
+
+  auto out =
+      at::empty({M, N}, a.options().dtype(at::kBFloat16));
+  using ElementA = cutlass::mx_float4_t<cutlass::float_e2m1_t>;
+  using ElementB = cutlass::mx_float4_t<cutlass::float_e2m1_t>;
+  using ElementD = cutlass::bfloat16_t;
+
+  using MmaTileShape        = Shape<_128,_128,_128>;
+  using ClusterShape        = Shape<_2,_1,_1>;
+  using PerSmTileShape_MNK  = Shape<_128,_128,_128>;
+
+  run_gemm<ElementA, ElementB, ElementD, MmaTileShape, ClusterShape, PerSmTileShape_MNK>(a, b, a_scale, b_scale, out, M, K, N);
+  return out;
+#else
   TORCH_CHECK_NOT_IMPLEMENTED(false, __func__);
   return at::Tensor{};
 #endif
@@ -247,5 +276,10 @@ at::Tensor mx_fp8_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::mx_fp8_bf16", &mx_fp8_bf16);
 }
+TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+  m.impl("torchao::mx_fp4_bf16", &mx_fp4_bf16);
+}
+
+
 
 } // namespace torchao
