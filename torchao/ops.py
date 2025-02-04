@@ -27,6 +27,12 @@ lib.define(
 lib.define(
     "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
+lib.define(
+    "rowwise_scaled_linear_sparse_cutlass_f8f8(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_meta, Tensor weight_scale, Tensor bias) -> Tensor"
+)
+lib.define(
+    "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
+)
 lib.define("mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
 lib.define("mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
 
@@ -605,7 +611,76 @@ def _(
     weight_scale: Tensor,
     bias: Tensor,
 ) -> Tensor:
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
+
     return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
+
+
+def rowwise_scaled_linear_sparse_cutlass_f8f8(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_meta: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    """
+    CUTLASS-based row-wise scaled F8F8 linear operator, for sparsified weight case.
+    Args:
+        input: quantized input tensor, in row-major layout.
+        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
+        weight: sparsified quantized weight matrix, in row-major layout.
+        weight_meta: sparsify metadata for weight tensor.
+        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
+        bias: a vector of size equal to number of rows of weight tensor, or None.
+    Returns:
+        output: result tensor, in row-major layout.
+    """
+
+    return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
+        input, input_scale, weight, weight_meta, weight_scale, bias
+    )
+
+
+@register_custom_op("torchao::rowwise_scaled_linear_sparse_cutlass_f8f8")
+def _(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_meta: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
+
+
+def to_sparse_semi_structured_cutlass_sm9x_f8(
+    weight: Tensor,
+) -> (Tensor, Tensor):
+    """
+    CUTLASS-based converted from sparsified input tensor to corresponding compressed tensor, along with corresponding metadata tensor.
+    Args:
+        weight: input tensor, in row-major layout.
+    Returns:
+        weight_compressed: compressed weight tensor, with sparsity eliminated, in row-major layout.
+        weight_meta: metadata tensor, describing the sparsity structure of the input tensor, also in row-major layout.
+    """
+
+    return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(weight)
+
+
+@register_custom_op("torchao::to_sparse_semi_structured_cutlass_sm9x_f8")
+def _(
+    weight: Tensor,
+) -> (Tensor, Tensor):
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
+
+    return (
+        weight.new_empty(weight[0], weight[1] // 2),
+        weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
+    )
 
 
 @functools.lru_cache()
