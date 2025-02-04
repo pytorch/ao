@@ -52,7 +52,7 @@ class VoidStarConverter: public c10::OperatorKernel {
         if (arg.isInt()) {
           ministack[idx] = reinterpret_cast<void *>(arg.toInt());
         } else if (arg.isTensor()) {
-          const at::Tensor& tensor = arg.toTensor();
+          at::Tensor& tensor = const_cast<at::Tensor&>(arg.toTensor());
           AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
           ministack[idx] = reinterpret_cast<void *>(ath);
         } else {
