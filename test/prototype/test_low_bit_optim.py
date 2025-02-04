@@ -287,6 +287,9 @@ class TestOptim(TestCase):
             offload_gradients=offload_grad,
         )
 
+        scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optim1, 100)
+        scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optim2, 100)
+
         rng = torch.Generator(device=device)
         rng.manual_seed(42)
 
@@ -299,6 +302,7 @@ class TestOptim(TestCase):
 
             optim1.step()
             optim1.zero_grad()
+            scheduler1.step()
 
         # reset the rng
         rng.manual_seed(42)
@@ -309,6 +313,7 @@ class TestOptim(TestCase):
 
             optim2.step()
             optim2.zero_grad()
+            scheduler2.step()
 
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
