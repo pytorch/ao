@@ -172,7 +172,7 @@ def export_model(
         overwrite=overwrite,
     )
 
-    if task_type in ["amg", "sps"]:
+    if task_type in []:
         example_input_args = ()
         example_input_kwargs = {
             "points": (
@@ -221,7 +221,7 @@ def export_model(
             overwrite=overwrite,
         )
 
-    if task_type in ["amg", "sps"]:
+    if task_type in []:
         example_input_args = (
             torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
             torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
@@ -237,7 +237,7 @@ def export_model(
             overwrite=overwrite,
         )
 
-    if task_type in []:
+    if task_type in ["amg", "sps"]:
         example_input_high_res_feats = [
             torch.randn(
                 batch_size,
@@ -361,7 +361,7 @@ def load_exported_model(
     if task_type in ["mps"]:
         return mask_generator
 
-    if task_type in ["amg", "sps"]:
+    if task_type in []:
         path = Path(model_directory) / Path("sam2_sam_prompt_encoder.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")
@@ -377,7 +377,7 @@ def load_exported_model(
         pkg_m = LoadedModel(pkg)
         mask_generator.predictor.model.sam_mask_decoder.forward = pkg_m.forward
 
-    if task_type in ["amg", "sps"]:
+    if task_type in []:
         path = Path(model_directory) / Path("sam2_sam_mask_decoder_transformer.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")
@@ -385,7 +385,7 @@ def load_exported_model(
         pkg_m = LoadedModel(pkg)
         mask_generator.predictor.model.sam_mask_decoder.transformer.forward = pkg_m.forward
 
-    if task_type in []:
+    if task_type in ["amg", "sps"]:
         path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
         assert path.exists(), f"Expected {path} to exist"
         print(f"Start load from {path}")

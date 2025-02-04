@@ -434,11 +434,11 @@ class SAM2ImagePredictor(torch.nn.Module):
             assert mask_input is None
             assert multimask_output is True
             low_res_masks, iou_predictions = self._predict_masks(
-                high_res_feats_input,
-                image_embed_input,
-                image_pe,
-                point_coords,
-                point_labels,
+                [t.contiguous() for t in high_res_feats_input],
+                image_embed_input.contiguous(),
+                image_pe.contiguous(),
+                point_coords.contiguous(),
+                point_labels.contiguous(),
                 boxes=boxes,
                 mask_input=mask_input,
                 multimask_output=multimask_output,
