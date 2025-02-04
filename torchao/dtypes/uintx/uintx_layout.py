@@ -9,7 +9,7 @@ from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.utils import (
     Layout,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TorchAOBaseTensor
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TorchAOBaseTensor, fill_defaults
 
 from .bitpacking import pack, unpack
 
@@ -200,6 +200,23 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8)),
+    )
+
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    # assert step == 1
+    if end >= self.shape[dim]:
+        end = self.shape[dim]
+    shape = list(self.shape)
+    shape[dim] = end - start
+
+    def slice_fn(x):
+        return torch.ops.aten.slice.Tensor(x, dim, start, end, step)
+
+    return return_and_correct_aliasing(
+        func, args, kwargs, self.apply_transformation(slice_fn)
     )
 
 
