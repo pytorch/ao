@@ -598,6 +598,14 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
                     lambda x: x.to(device=kwargs.pop("device", None))
                 ),
             )
+        elif func is aten.slice.Tensor:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(aten.slice.Tensor)
+            )
+        elif func is aten.t.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(lambda x: x.t())
+            )
 
         raise NotImplementedError(
             f"FloatxTensorCoreAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
