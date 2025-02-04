@@ -25,7 +25,7 @@ class StableLibrary final {
     // constructor
     /// \private
     ///
-    /// Use TORCH_LIBRARY() or TORCH_LIBRARY_IMPL() instead of using these
+    /// Use STABLE_TORCH_LIBRARY or STABLE_TORCH_LIBRARY_IMPL() instead of using these
     /// constructors directly
     StableLibrary(
         Kind kind,
@@ -42,15 +42,6 @@ class StableLibrary final {
 
     StableLibrary& impl(const char* name, void (*fn)(void **, int64_t, int64_t));
 };
-
-
-// _def function   ==> IGNORE LIBRARY + just call these
-
-// stable_impl function (that takes in a string and a void** function pointer)
-// _impl doesn't really need a Library object, try to avoid it for now
-// just copy its implementation
-// it'll give u a handle that needs to be kept alive, just assign to global for now
-
 
 class StableTorchLibraryInit final {
   private:
@@ -90,7 +81,7 @@ class StableTorchLibraryInit final {
 
 
 
-
+// notes while figuring out templating
 /**
 #define TORCH_LIBRARY_IMPL(ns, k, m) _TORCH_LIBRARY_IMPL(ns, k, m, C10_UID)
 

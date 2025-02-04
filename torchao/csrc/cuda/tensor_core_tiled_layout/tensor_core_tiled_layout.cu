@@ -2,7 +2,7 @@
 
 #include "libtorch.h"
 
- // need to confirm or make the following includes header-only
+// need to confirm or make the following includes header-only
 #include <ATen/core/TensorAccessor.h> 
 #include <ATen/DeviceGuard.h>
 #include <ATen/cuda/CUDAContext.h>
