@@ -1,8 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
+import platform
 import glob
 import os
 import subprocess
@@ -10,12 +6,13 @@ import sys
 import time
 from datetime import datetime
 
+import torch
+from torch.utils.cpp_extension import BuildExtension, CUDA_HOME, IS_WINDOWS
 from setuptools import Extension, find_packages, setup
 
 current_date = datetime.now().strftime("%Y%m%d")
 
 PY3_9_HEXCODE = "0x03090000"
-
 
 def get_git_commit_id():
     try:
@@ -27,76 +24,40 @@ def get_git_commit_id():
     except Exception:
         return ""
 
-
 def read_requirements(file_path):
     with open(file_path, "r") as file:
         return file.read().splitlines()
 
-
 def read_version(file_path="version.txt"):
     with open(file_path, "r") as file:
         return file.readline().strip()
-
 
 # Use Git commit ID if VERSION_SUFFIX is not set
 version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv("USE_CPP")
-
-import platform
-
-build_torchao_experimental = (
-    use_cpp == "1"
-    and platform.machine().startswith("arm64")
-    and platform.system() == "Darwin"
-)
-
 version_prefix = read_version()
-# Version is version.dev year month date if using nightlies and version if not
 version = (
     f"{version_prefix}.dev{current_date}"
     if os.environ.get("TORCHAO_NIGHTLY")
     else version_prefix
 )
 
-
-def use_debug_mode():
-    return os.getenv("DEBUG", "0") == "1"
-
-
-import torch
-from torch.utils.cpp_extension import (
-    CUDA_HOME,
-    IS_WINDOWS,
-    BuildExtension,
-    CppExtension,
-    CUDAExtension,
-)
-
-# Constant known variables used throughout this file
-cwd = os.path.abspath(os.path.curdir)
-third_party_path = os.path.join(cwd, "third_party")
-
-
 def get_submodule_folders():
-    git_modules_path = os.path.join(cwd, ".gitmodules")
+    git_modules_path = os.path.join(os.path.abspath(os.path.curdir), ".gitmodules")
     default_modules_path = [
-        os.path.join(third_party_path, name)
-        for name in [
-            "cutlass",
-        ]
+        os.path.join("third_party", name)
+        for name in ["cutlass"]
     ]
     if not os.path.exists(git_modules_path):
         return default_modules_path
     with open(git_modules_path) as f:
         return [
-            os.path.join(cwd, line.split("=", 1)[1].strip())
+            os.path.join(line.split("=", 1)[1].strip())
             for line in f
             if line.strip().startswith("path")
         ]
-
 
 def check_submodules():
     def check_for_files(folder, files):
@@ -113,13 +74,12 @@ def check_submodules():
     if bool(os.getenv("USE_SYSTEM_LIBS", False)):
         return
     folders = get_submodule_folders()
-    # If none of the submodule folders exists, try to initialize them
     if all(not_exists_or_empty(folder) for folder in folders):
         try:
             print(" --- Trying to initialize submodules")
             start = time.time()
             subprocess.check_call(
-                ["git", "submodule", "update", "--init", "--recursive"], cwd=cwd
+                ["git", "submodule", "update", "--init", "--recursive"]
             )
             end = time.time()
             print(f" --- Submodule initialization took {end - start:.2f} sec")
@@ -140,19 +100,16 @@ def check_submodules():
             ],
         )
 
+class CMakeExtension(Extension):
+    def __init__(self, name, sourcedir=""):
+        Extension.__init__(self, name, sources=[])
+        self.sourcedir = os.path.abspath(sourcedir)
 
-# BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
 class TorchAOBuildExt(BuildExtension):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
     def build_extensions(self):
-        cmake_extensions = [
-            ext for ext in self.extensions if isinstance(ext, CMakeExtension)
-        ]
-        other_extensions = [
-            ext for ext in self.extensions if not isinstance(ext, CMakeExtension)
-        ]
+        cmake_extensions = [ext for ext in self.extensions if isinstance(ext, CMakeExtension)]
+        other_extensions = [ext for ext in self.extensions if not isinstance(ext, CMakeExtension)]
+
         for ext in cmake_extensions:
             self.build_cmake(ext)
 
@@ -160,133 +117,90 @@ class TorchAOBuildExt(BuildExtension):
         self.extensions = other_extensions
         super().build_extensions()
 
-        self.extensions = other_extensions + cmake_extensions
-
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
+        debug_mode = os.getenv("DEBUG", "0") == "1"
+        build_type = "Debug" if debug_mode else "Release"
 
-        build_type = "Debug" if use_debug_mode() else "Release"
+        # Get PyTorch's cmake directory
+        torch_cmake_dir = os.path.join(torch.utils.cmake_prefix_path, "Torch")
 
-        from distutils.sysconfig import get_python_lib
+        # Try to find Ninja
+        try:
+            subprocess.check_output(['ninja', '--version'])
+            use_ninja = True
+        except (subprocess.SubprocessError, FileNotFoundError):
+            use_ninja = False
 
-        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
+        # Build the cmake arguments
+        cmake_args = [
+            f"-DCMAKE_BUILD_TYPE={build_type}",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
+            f"-DTorch_DIR={torch_cmake_dir}",
+            f"-DUSE_CUDA={'ON' if torch.cuda.is_available() and CUDA_HOME else 'OFF'}",
+        ]
 
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
+        # Add CUDA architecture flags if CUDA is enabled
+        if torch.cuda.is_available() and CUDA_HOME:
+            # Get CUDA compute capability of the current GPU
+            capability = torch.cuda.get_device_capability()
+            arch_list = f"{capability[0]}.{capability[1]}"
+            cmake_args.append(f"-DTORCH_CUDA_ARCH_LIST={arch_list}")
+
+        # Add Ninja generator if available
+        if use_ninja:
+            cmake_args += ["-GNinja"]
+
+        build_temp = os.path.join(self.build_temp, ext.name)
+        if not os.path.exists(build_temp):
+            os.makedirs(build_temp)
 
         subprocess.check_call(
-            [
-                "cmake",
-                ext.sourcedir,
-                "-DCMAKE_BUILD_TYPE=" + build_type,
-                "-DTORCHAO_BUILD_EXECUTORCH_OPS=OFF",
-                "-DTorch_DIR=" + torch_dir,
-                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
-            ],
-            cwd=self.build_temp,
+            ["cmake", ext.sourcedir] + cmake_args, cwd=build_temp
         )
-        subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
 
-
-class CMakeExtension(Extension):
-    def __init__(self, name, sourcedir=""):
-        Extension.__init__(self, name, sources=[])
-        self.sourcedir = os.path.abspath(sourcedir)
-
+        # Use ninja if available, otherwise default to standard build
+        if use_ninja:
+            subprocess.check_call(["ninja"], cwd=build_temp)
+        else:
+            subprocess.check_call(
+                ["cmake", "--build", ".", "--config", build_type], cwd=build_temp
+            )
 
 def get_extensions():
-    debug_mode = use_debug_mode()
-    if debug_mode:
-        print("Compiling in debug mode")
-
-    if not torch.cuda.is_available():
-        print(
-            "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
-        )
     if CUDA_HOME is None and torch.cuda.is_available():
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
 
-    use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
-    extension = CUDAExtension if use_cuda else CppExtension
-
-    extra_link_args = []
-    extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": [
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-        ],
-    }
-
-    if not IS_WINDOWS:
-        extra_compile_args["cxx"].extend(
-            ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
-        )
-
-        if debug_mode:
-            extra_compile_args["cxx"].append("-g")
-            extra_compile_args["nvcc"].append("-g")
-            extra_link_args.extend(["-O0", "-g"])
-    else:
-        extra_compile_args["cxx"].extend(
-            ["/O2" if not debug_mode else "/Od", "/permissive-"]
-        )
-
-        if debug_mode:
-            extra_compile_args["cxx"].append("/ZI")
-            extra_compile_args["nvcc"].append("-g")
-            extra_link_args.append("/DEBUG")
-
-    use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-            ]
-        )
-
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
-    sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-
-    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    # Check for experimental build conditions
+    build_torchao_experimental = (
+        os.getenv("USE_CPP") == "1"
+        and platform.machine().startswith("arm64")
+        and platform.system() == "Darwin"
     )
 
-    if use_cuda:
-        sources += cuda_sources
-
+    use_cpp = os.getenv("USE_CPP")
     ext_modules = []
-    if len(sources) > 0:
-        ext_modules.append(
-            extension(
-                "torchao._C",
-                sources,
-                py_limited_api=True,
-                extra_compile_args=extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        )
 
-    if build_torchao_experimental:
+    if use_cpp != "0":
         ext_modules.append(
             CMakeExtension(
-                "torchao.experimental",
-                sourcedir="torchao/experimental",
+                "torchao._C",
+                sourcedir=".",
             )
         )
 
-    return ext_modules
+        if build_torchao_experimental:
+            ext_modules.append(
+                CMakeExtension(
+                    "torchao.experimental",
+                    sourcedir="torchao/experimental",
+                )
+            )
 
+    return ext_modules
 
 check_submodules()
 
@@ -298,7 +212,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions() if use_cpp != "0" else None,
+    ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),
