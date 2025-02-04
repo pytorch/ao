@@ -387,7 +387,7 @@ def insert_observers_(
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
 
         # Create a linear module
@@ -450,13 +450,17 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
-def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **kwargs):
+def _get_linear_subclass_inserter(
+    constructor, *, allow_requires_grad=False, propagate_bias=False, **kwargs
+):
     """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
     to the weight of linear module
     """
 
     def insert_subclass(lin):
         requires_grad = allow_requires_grad and lin.weight.requires_grad
+        if propagate_bias == True:
+            kwargs["bias"] = lin.bias
         lin.weight = torch.nn.Parameter(
             constructor(lin.weight, **kwargs), requires_grad=requires_grad
         )
@@ -688,7 +692,7 @@ def int4_weight_only(
     group_size=128,
     layout=TensorCoreTiledLayout(inner_k_tiles=8),
     use_hqq=False,
-    zero_point_domain=None,
+    zero_point_domain=ZeroPointDomain.NONE,
 ):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -733,7 +737,7 @@ def int4_weight_only(
         assert (
             type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
         ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
-        if zero_point_domain is None:
+        if zero_point_domain == ZeroPointDomain.NONE:
             # the first value is the default one
             zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
         else:
@@ -877,6 +881,7 @@ def int8_dynamic_activation_int8_weight(
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
         def get_weight_block_size(x):
             return (1, x.shape[1])
@@ -903,6 +908,7 @@ def int8_dynamic_activation_int8_weight(
             eps=eps,
             zero_point_dtype=zero_point_dtype,
             _layout=layout,
+            zero_point_domain=weight_zero_point_domain,
         )
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
