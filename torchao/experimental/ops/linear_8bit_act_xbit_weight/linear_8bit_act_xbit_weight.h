@@ -42,31 +42,24 @@ struct UKernelConfig {
       float clamp_min,
       float clamp_max);
   
-  struct kernel {
+  struct weight_packing_config {
+    int nr{0};
+    weight_data_size_fn_type weight_data_size_fn{nullptr};
+    prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
+  };
+  struct kernel_config {
     int mr{0};
+    activation_data_size_fn_type activation_data_size_fn{nullptr};
+    prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
     kernel_fn_type kernel_fn{nullptr};
   };
-
-  activation_data_size_fn_type activation_data_size_fn{nullptr};
-  // preferred_activation_data_alignment is only a preferred alignment for
-  // performance reasons.  Integration surfaces are not required to
-  // respect this alignment, and the ukernel must behave correctly no matter
-  // how the prepared_activation_data byte-array is aligned
-  size_t preferred_activation_data_alignment{0};
-  prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
-
-  weight_data_size_fn_type weight_data_size_fn{nullptr};
-  // weight_data_alignment is only a preferred alignment for
-  // performance reasons.  Integration surfaces are not required to
-  // respect this alignment, and the ukernel must behave correctly no matter
-  // how the prepared_weight_data byte-array is aligned
-  size_t preferred_weight_data_alignment{0};
-  prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
-
-  // kernel_fn_type kernel_fn{nullptr};
-  // int mr{0};
-  int nr{0};
-  std::array<kernel, 4> kernels;
+  
+  // preferred_alignment for activation and weight data
+  // Integration surfaces are not required to respect this alignment, and the
+  // ukernel must behave correctly no matter how buffers are aligned
+  size_t preferred_alignment{0}; 
+  weight_packing_config weight_packing;
+  std::array<kernel_config, 4> kernels;
 };
 
 // Pack weight functions
@@ -84,12 +77,12 @@ inline size_t get_packed_weight_data_size(
     int n,
     int k,
     int group_size) {
-  return ukernel_config.weight_data_size_fn(n, k, group_size);
+  return ukernel_config.weight_packing.weight_data_size_fn(n, k, group_size);
 }
 
 inline size_t get_preferred_packed_weight_data_alignment(
     const UKernelConfig& ukernel_config) {
-  return ukernel_config.preferred_weight_data_alignment;
+  return ukernel_config.preferred_alignment;
 }
 
 void pack_weight_data_operator(
@@ -131,9 +124,9 @@ size_t get_activation_data_buffer_size(
     int k,
     int group_size);
 
-inline size_t get_preferred_activation_data_buffer_alignment(
+inline size_t activation_data_buffer_alignment(
     const UKernelConfig& ukernel_config) {
-  return ukernel_config.preferred_activation_data_alignment;
+  return ukernel_config.preferred_alignment;
 }
 
 void linear_operator(

@@ -26,54 +26,6 @@
 #endif  // TORCHAO_ENABLE_ARM_I8MM
 #endif // TORCHAO_ENABLE_KLEIDI
 
-
-// #if defined(TORCHAO_ENABLE_KLEIDI)
-
-// enum kai_kernel_id {
-//     dotprod_1x4x32 = 0,
-//     dotprod_1x8x32,
-//     i8mm_4x8x32,
-//     i8mm_8x4x32
-// };
-
-// #define KAI_GEN_UKERNEL(kernel_ns)                                                       \
-//         namespace kernel = kernel_ns;                                                    \
-//         auto uk = kernel::get_ukernel();                                                 \
-//         config.mr = uk.get_m_step();                                                     \
-//         config.nr = uk.get_n_step();                                                     \
-//         config.activation_data_size_fn = &kernel::activation_data_size;                  \
-//         config.weight_data_size_fn = &kernel::weight_data_size;                          \
-//         config.preferred_activation_data_alignment = kernel::get_preferred_alignement(); \
-//         config.preferred_weight_data_alignment = kernel::get_preferred_alignement();     \
-//         config.prepare_activation_data_fn = &kernel::prepare_activation_data;            \
-//         config.prepare_weight_data_fn = &kernel::prepare_weight_data;                    \
-//         config.kernel_fn = &kernel::kernel;                                              \
-
-// template <kai_kernel_id kernel_id>
-// UKernelConfig get_ukernel_config_kleidi() {
-//     UKernelConfig config;
-// #if defined (TORCHAO_ENABLE_ARM_I8MM)
-//     if constexpr (kernel_id == i8mm_4x8x32) {
-//         KAI_GEN_UKERNEL(torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_4x8x32);
-//         return config;
-//     }
-//     if constexpr (kernel_id == i8mm_8x4x32) {
-//         KAI_GEN_UKERNEL(torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_8x4x32);
-//         return config;
-//     }
-// #endif // TORCHAO_ENABLE_ARM_I8MM
-//     if constexpr (kernel_id == dotprod_1x8x32) {
-//         KAI_GEN_UKERNEL(torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32);
-//         return config;
-//     }
-//     KAI_GEN_UKERNEL(torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32);
-//     return config;
-// }
-
-// #endif // TORCHAO_ENABLE_KLEIDI
-
-
-
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
 namespace {
@@ -92,14 +44,22 @@ void register_ukernel_config_universal(UKernelConfigCacheType& ukernel_config_ca
     if (nr == 8 && kr == 16) {
       namespace kernel = torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
   ukernel_config_cache[key] = torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-    &kernel::activation_data_size<has_weight_zeros>,
-    /*preferred_activation_data_alignment*/16,
-    &kernel::prepare_activation_data<has_weight_zeros>,
-    &kernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>,
-    /*preferred_weight_data_alignment*/16,
-    &kernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>,
-    /*nr*/8,
-    {{{/*mr*/1, &kernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>}}}
+    /*preferred_alignment*/16,
+    /*weight_packing*/
+    {
+      /*nr*/8,
+      /*weight_data_size_fn*/&kernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>,
+      /*prepare_weight_data_fn*/&kernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>
+    },
+    /*kernels*/
+    {{
+      {
+      /*mr*/1,
+      /*activation_data_size_fn*/&kernel::activation_data_size<has_weight_zeros>,
+      /*prepare_activation_data_fn*/&kernel::prepare_activation_data<has_weight_zeros>,
+      /*kernel*/&kernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>
+    }
+    }}
   };
   return;
   }
@@ -120,18 +80,33 @@ void register_ukernel_config_kleidi_ai(UKernelConfigCacheType& ukernel_config_ca
 
   #if defined (TORCHAO_ENABLE_ARM_I8MM)
   if (cpuinfo_has_arm_i8mm()) {
-    namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_4x8x32;                                                    \
+    if (nr == 8 && kr == 16 && sr == 2) {
+        namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_4x8x32;
         auto uk = kernel::get_ukernel();
+        assert (nr == uk.get_nr());
+        assert (kr == uk.get_kr());
+        assert (sr == uk.get_sr());
+
         ukernel_config_cache[key] = torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-          &kernel::activation_data_size,
-          kernel::get_preferred_alignement(),
-          &kernel::prepare_activation_data,
-          &kernel::weight_data_size,
-          kernel::get_preferred_alignement(),
-          &kernel::prepare_weight_data,
+        /*preferred_alignment*/16,
+        /*weight_packing*/
+        {
           /*nr*/static_cast<int>(uk.get_n_step()),
-          {{{/*mr*/static_cast<int>(uk.get_m_step()), &kernel::kernel}}}
+          /*weight_data_size_fn*/&kernel::weight_data_size,
+          /*prepare_weight_data_fn*/&kernel::prepare_weight_data
+        },
+        /*kernels*/
+        {{
+          {
+          /*mr*/static_cast<int>(uk.get_m_step()),
+          /*activation_data_size_fn*/&kernel::activation_data_size,
+          /*prepare_activation_data_fn*/&kernel::prepare_activation_data,
+          /*kernel*/&kernel::kernel
+          }
+          }}
         };
+        return;
+      }
     return;
   }
   #endif // TORCHAO_ENABLE_ARM_I8MM
@@ -144,35 +119,30 @@ void register_ukernel_config_kleidi_ai(UKernelConfigCacheType& ukernel_config_ca
           assert (nr == uk.get_nr());
           assert (kr == uk.get_kr());
           assert (sr == uk.get_sr());
+
           ukernel_config_cache[key] = torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-            &kernel::activation_data_size,
-            kernel::get_preferred_alignement(),
-            &kernel::prepare_activation_data,
-            &kernel::weight_data_size,
-            kernel::get_preferred_alignement(),
-            &kernel::prepare_weight_data,
+          /*preferred_alignment*/16,
+          /*weight_packing*/
+          {
             /*nr*/static_cast<int>(uk.get_n_step()),
-            {{{/*mr*/static_cast<int>(uk.get_m_step()), &kernel::kernel}}}
+            /*weight_data_size_fn*/&kernel::weight_data_size,
+            /*prepare_weight_data_fn*/&kernel::prepare_weight_data
+          },
+          /*kernels*/
+          {{
+            {
+            /*mr*/static_cast<int>(uk.get_m_step()),
+            /*activation_data_size_fn*/&kernel::activation_data_size,
+            /*prepare_activation_data_fn*/&kernel::prepare_activation_data,
+            /*kernel*/&kernel::kernel
+            }
+           }}
           };
           return;
         }
 
         if (nr == 4 && kr == 8 && sr == 2) {
-          namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32;
-          auto uk = kernel::get_ukernel();
-          assert (nr == uk.get_nr());
-          assert (kr == uk.get_kr());
-          assert (sr == uk.get_sr());
-          ukernel_config_cache[key] = torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-            &kernel::activation_data_size,
-            kernel::get_preferred_alignement(),
-            &kernel::prepare_activation_data,
-            &kernel::weight_data_size,
-            kernel::get_preferred_alignement(),
-            &kernel::prepare_weight_data,
-            /*nr*/static_cast<int>(uk.get_n_step()),
-            {{{/*mr*/static_cast<int>(uk.get_m_step()), &kernel::kernel}}}
-          };
+          // TODO
           return;
         }
   }
