@@ -329,7 +329,7 @@ class Float8Linear(torch.nn.Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        has_any_axiswise_scaling = any(
+        has_any_axiswise_or_blockwise_scaling = any(
             cc.scaling_granularity in (ScalingGranularity.AXISWISE, ScalingGranularity.BLOCKWISE)
             for cc in [
                 self.config.cast_config_input,
@@ -345,7 +345,7 @@ class Float8Linear(torch.nn.Linear):
 
         # TODO(future PR): check for axiswise scaling for input, weight,
         # grad_output separately instead of together
-        if not has_any_axiswise_scaling:
+        if not has_any_axiswise_or_blockwise_scaling:
             # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
             # weight_scale should be saved.
             weight_scale = _get_weight_scale(

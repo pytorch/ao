@@ -84,6 +84,7 @@ def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
     ]
 )
 def float8_transpose(aten_op, args, kwargs=None):
+    assert args[0]._blockwise_size is None, "Transposition is not yet supported for blockwise fp8 quantized tensors."
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
     if args[0]._scale.ndim > 1:
         new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
@@ -118,6 +119,7 @@ def float8_view(aten_op, args, kwargs=None):
         return float8_desugar_op(aten_op, args, kwargs)
 
     t, new_shape = args[0], args[1]
+    assert t._blockwise_size is None, "View is not yet supported for blockwise fp8 quantized tensors."
     # for now, only support reshaping to [-1, dim] or [dim, -1]
     axiswise_dim = t._axiswise_dim
     if len(new_shape) == 2:
@@ -252,6 +254,8 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     if is_row_major(b_data.stride()):
         b_data = b_data.t().contiguous().t()
     b_scale = b._scale
+
+    assert a._blockwise_size == b._blockwise_size, "Blockwise sizes must match for tensors a and b."
 
     # Today, torch._scaled_mm only supports both operands using the
     # same granularity. The code below checks for cases where one
