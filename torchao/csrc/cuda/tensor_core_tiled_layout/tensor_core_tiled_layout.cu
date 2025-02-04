@@ -1,7 +1,12 @@
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
 
-#include <c10/util/BFloat16.h>
-#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include "libtorch.h"
+
+ // need to confirm or make the following includes header-only
+#include <ATen/core/TensorAccessor.h> 
+#include <ATen/DeviceGuard.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 
 template <typename U, typename V>
 constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
@@ -455,6 +460,13 @@ void voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(void **stack,
   // here, void* is my StableIValue
   // function is going to take a stack of void*, cast them to our
   // schema values for now, and run the function and modify the void* stack
+
+
+  // check that num_args > 2
+  // strict aliasing rule --> you can reinterpret_cast between pointers except for this rule
+  // which doesn't even apply in C.
+  // reinterpret_cast is not okay to interpreting floats+ints (c++20 lets you bitcast these) so you'll have to use memcpy
+  // c10 has a shim for bitcast (it is just a memcpy)!! so we should just use it
   int64_t innerKTiles = reinterpret_cast<int64_t>(stack[1]);
   AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
 

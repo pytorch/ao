@@ -5,11 +5,14 @@
 #include <c10/core/DispatchKey.h>  // used for DispatchKey, enum verified to be header-only
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 
+#include <optional>
+#include <string>
+
 class StableLibrary final {
   private:
     class TorchLibraryOpaque;
     using TorchLibraryHandle = TorchLibraryOpaque*;
-    TorchLibraryHandle lib_;
+    TorchLibraryHandle lib_;  // pimpl unique_ptr
   public:
     // a pointer to a real Library
     // a kind
@@ -37,7 +40,7 @@ class StableLibrary final {
     StableLibrary& operator=(StableLibrary&&) = default;
     ~StableLibrary() = default;
 
-    StableLibrary& impl(std::string name, void* fn);
+    StableLibrary& impl(const char* name, void (*fn)(void **, int64_t, int64_t));
 };
 
 
@@ -88,22 +91,23 @@ class StableTorchLibraryInit final {
 
 
 
+/**
+#define TORCH_LIBRARY_IMPL(ns, k, m) _TORCH_LIBRARY_IMPL(ns, k, m, C10_UID)
 
-// #define TORCH_LIBRARY_IMPL(ns, k, m) _TORCH_LIBRARY_IMPL(ns, k, m, C10_UID)
+#define _TORCH_LIBRARY_IMPL(ns, k, m, uid)                                \
+  static void TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid(torch::Library&);       \
+  static const torch::detail::TorchLibraryInit      \
+      TORCH_LIBRARY_IMPL_static_init_torchao_CUDA_uid(                 \
+      torch::Library::IMPL,                                               \
+      (c10::impl::dispatch_key_allowlist_check(c10::DispatchKey::CUDA)       \
+           ? &TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid \
+           : [](torch::Library&) -> void {}),                             \
+      torchao,                                                                \
+      std::make_optional(c10::DispatchKey::CUDA),                            \
+      __FILE__,                                                           \
+      __LINE__);                                                          \
+  TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid(torch::Library & m) {
 
-// #define _TORCH_LIBRARY_IMPL(ns, k, m, uid)                                \
-//   static void TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid(torch::Library&);       \
-//   static const torch::detail::TorchLibraryInit      \
-//       TORCH_LIBRARY_IMPL_static_init_torchao_CUDA_uid(                 \
-//       torch::Library::IMPL,                                               \
-//       (c10::impl::dispatch_key_allowlist_check(c10::DispatchKey::CUDA)       \
-//            ? &TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid \
-//            : [](torch::Library&) -> void {}),                             \
-//       torchao,                                                                \
-//       std::make_optional(c10::DispatchKey::CUDA),                            \
-//       __FILE__,                                                           \
-//       __LINE__);                                                          \
-//   TORCH_LIBRARY_IMPL_init_torchao_CUDA_uid(torch::Library & m) {
-
-//   }
+  }
+*/
 
