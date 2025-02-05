@@ -83,15 +83,12 @@ def compare(path0, path1, strict=False, compare_folders=False):
         path0, path1 = Path(path0), Path(path1)
         assert path0.is_dir()
         assert path1.is_dir()
-        mask_files0 = [f.relative_to(path0)
-                       for f in list(path0.rglob("*.json"))]
-        mask_files1 = [f.relative_to(path1)
-                       for f in list(path1.rglob("*.json"))]
+        mask_files0 = [f.relative_to(path0) for f in list(path0.rglob("*.json"))]
+        mask_files1 = [f.relative_to(path1) for f in list(path1.rglob("*.json"))]
         assert all(m0 == m1 for (m0, m1) in zip(mask_files0, mask_files1))
-        for i, (m0, m1) in enumerate(zip(mask_files0, mask_files1)):
+        for m0, m1 in zip(mask_files0, mask_files1):
             with open(path0 / m0, "r") as f0, open(path1 / m1, "r") as f1:
                 m, e, fail = compare_masks_str(f0.read(), f1.read(), strict)
-                print("i: ", i, " m: ", m, " e: ", e)
                 if fail:
                     fail_count += 1
                 else:
