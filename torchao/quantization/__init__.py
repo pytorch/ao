@@ -50,6 +50,7 @@ from .quant_api import (
     float8_weight_only,
     fpx_weight_only,
     gemlite_uintx_weight_only,
+    int4_dynamic_activation_int4_weight,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
@@ -102,6 +103,7 @@ __all__ = [
     "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
+    "int4_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
     "int8_dynamic_activation_int8_semi_sparse_weight",
