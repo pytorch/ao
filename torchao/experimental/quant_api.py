@@ -23,7 +23,6 @@ from torchao.quantization.granularity import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
-from torchao.experimental.q_dq_layout import QDQLayout
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -658,13 +657,7 @@ def int8_dynamic_activation_intx_weight(
 
         # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
         # with the kernel and it should not be applied separately
-        if not any(
-            isinstance(layout, layout_class)
-            for layout_class in [
-                # QDQLayout,
-                PackedLinearInt8DynamicActivationIntxWeightLayout,
-            ]
-        ):
+        if not isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
             activation_quant_func = lambda x: to_affine_quantized_intx(
                 x,
                 mapping_type=act_mapping_type,
