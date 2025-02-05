@@ -15,9 +15,9 @@ import torch
 import torch.nn as nn
 
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -26,13 +26,13 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 from torchao.float8.config import (
     CastConfig,
-    e4m3_dtype,
-    e5m2_dtype,
     Float8LinearConfig,
     Float8LinearRecipeName,
-    recipe_name_to_linear_config,
     ScalingGranularity,
     ScalingType,
+    e4m3_dtype,
+    e5m2_dtype,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -48,15 +48,15 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
+    FP8_TYPES,
     compute_error,
     config_has_stateful_scaling,
     fp8_tensor_statistics,
-    FP8_TYPES,
     tensor_to_scale,
 )
 from torchao.float8.stateful_float8_linear import StatefulFloat8Linear

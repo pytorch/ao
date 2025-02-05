@@ -13,9 +13,9 @@ from io import StringIO
 import pytest
 
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -29,11 +29,11 @@ from torch._dynamo.testing import CompileCounterWithBackend
 from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     CastConfig,
-    e4m3_dtype,
     Float8LinearConfig,
     Float8LinearRecipeName,
-    recipe_name_to_linear_config,
     ScalingType,
+    e4m3_dtype,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -430,6 +430,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
     hp_tensor2 = hp_tensor1.detach().clone()
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        power_of_2_scale=power_of_2_scale,
     )
     linear_mm_config = LinearMMConfig(
         # output
@@ -459,7 +460,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
-        power_of_2_scale=power_of_2_scale,
+        power_of_2_scale=float8_config.power_of_2_scale,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
@@ -467,7 +468,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
-        power_of_2_scale=power_of_2_scale,
+        power_of_2_scale=float8_config.power_of_2_scale,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)
@@ -479,7 +480,8 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_delayed_scaling_pattern_replacement(dtype: torch.dtype):
-    from torch._inductor import config as inductor_config, metrics
+    from torch._inductor import config as inductor_config
+    from torch._inductor import metrics
 
     inductor_config.loop_ordering_after_fusion = True
 
