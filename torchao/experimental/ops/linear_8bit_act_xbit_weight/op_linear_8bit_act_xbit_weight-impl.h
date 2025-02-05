@@ -12,7 +12,6 @@
 
 #include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
-#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_header.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/kernel_selector.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 #include <optional>
