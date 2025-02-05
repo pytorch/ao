@@ -8,13 +8,14 @@ import logging
 
 import torch
 
-from torchao.dtypes.affine_quantized_tensor import register_layout
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
 from torchao.dtypes.affine_quantized_tensor_ops import (
     register_aqt_quantized_linear_dispatch,
 )
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-)
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -33,11 +34,7 @@ class QDQLayout(PlainLayout):
     pass
 
 
-from torchao._executorch_ops import (
-    _quantized_decomposed_dequantize_per_channel_group_wrapper,
-)
 from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
-from torchao.quantization.utils import per_token_dynamic_quant
 
 
 @register_layout(QDQLayout)
@@ -59,7 +56,6 @@ def _linear_impl(input_tensor, weight_tensor, bias):
 
     # assert isinstance(input_tensor, )
     # if isinstance(input_tensor, AffineQuantizedTensor):
-
 
     #         input_tensor = input_tensor.dequantize()
     #     if isinstance(weight_tensor, AffineQuantizedTensor):
