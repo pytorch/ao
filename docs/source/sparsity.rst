@@ -1,5 +1,5 @@
-Sparsity
---------
+Sparsity Overview
+-----------------
 
 Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing how the elements are pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
@@ -38,7 +38,7 @@ Given a target sparsity pattern, pruning/sparsifying a model can then be thought
 
 
 * **Accuracy** - How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
-* **Perforance** - How can I accelerate my sparse weights for inference and reduce memory overhead?
+* **Performance** - How can I accelerate my sparse weights for inference and reduce memory overhead?
 
 Our workflow is designed to consist of two parts that answer each question independently:
 

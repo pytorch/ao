@@ -14,6 +14,8 @@ from setuptools import Extension, find_packages, setup
 
 current_date = datetime.now().strftime("%Y%m%d")
 
+PY3_9_HEXCODE = "0x03090000"
+
 
 def get_git_commit_id():
     try:
@@ -212,42 +214,31 @@ def get_extensions():
 
     extra_link_args = []
     extra_compile_args = {
+        "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
             "-t=0",
-        ]
+        ],
     }
 
     if not IS_WINDOWS:
-        extra_compile_args["cxx"] = [
-            "-O3" if not debug_mode else "-O0",
-            "-fdiagnostics-color=always",
-        ]
+        extra_compile_args["cxx"].extend(
+            ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
-        extra_compile_args["cxx"] = ["/O2" if not debug_mode else "/Od", "/permissive-"]
+        extra_compile_args["cxx"].extend(
+            ["/O2" if not debug_mode else "/Od", "/permissive-"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
-
-    use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-            ]
-        )
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
@@ -260,6 +251,31 @@ def get_extensions():
 
     if use_cuda:
         sources += cuda_sources
+
+    use_cutlass = False
+    if use_cuda and not IS_WINDOWS:
+        use_cutlass = True
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+                "-I" + cutlass_extensions_include_dir,
+            ]
+        )
+    else:
+        # Remove CUTLASS-based kernels from the cuda_sources list.  An
+        # assumption is that these files will have "cutlass" in its
+        # name.
+        cutlass_sources = list(
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
+        sources = [s for s in sources if s not in cutlass_sources]
 
     ext_modules = []
     if len(sources) > 0:

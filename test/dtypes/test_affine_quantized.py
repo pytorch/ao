@@ -12,6 +12,7 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
+    int4_dynamic_activation_int4_weight,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
@@ -63,6 +64,7 @@ def get_quantization_functions(
                         layout=CutlassInt4PackedLayout(),
                     )
                 )
+                base_functions.append(int4_dynamic_activation_int4_weight())
 
     if do_sparse:
         base_functions.append(

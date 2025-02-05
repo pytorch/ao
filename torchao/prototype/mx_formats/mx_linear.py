@@ -5,41 +5,80 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Defines the UX for converting a model to use mx weights
-
-For now, this is a module swap for speed of iteration.
-
-Eventually we plan to move this to a tensor subclass weight wrapper for
-inference, and to a tensor subclass weight wrapper + module hooks for training.
+Defines the prototype UX for converting a model to use mx weights
 """
+
+from typing import Any
 
 import torch
 import torch.nn.functional as F
 
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
 @torch._dynamo.allow_in_graph
-class NoopFwToMXBw(torch.autograd.Function):
-    """
-    Forward: no-op
-    Backward: cast grad to MX
-    """
+class mx_mm(torch.autograd.Function):
+    # There are three gemms in a forward + backward of a Linear layer:
+    #
+    # 1.       input @ weight_t    = output     (forward pass)
+    # 2. grad_output @ weight      = grad_input (backward pass)
+    # 3.     input_t @ grad_output = grad_weight (backward pass)
 
     @staticmethod
-    def forward(ctx, x, elem_dtype, block_size):
+    def forward(
+        ctx,
+        input_hp: torch.Tensor,
+        weight_hp: torch.Tensor,
+        elem_dtype: Any,
+        block_size: int,
+    ):
+        ctx.save_for_backward(input_hp, weight_hp)
         ctx.elem_dtype = elem_dtype
         ctx.block_size = block_size
-        return x
+
+        # input @ weight_t = output
+        input_orig_shape = input_hp.shape
+        input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
+
+        input_mx_r_dim0 = MXTensor.to_mx(input_hp_r, elem_dtype, block_size)
+        weight_mx_dim0 = MXTensor.to_mx(weight_hp, elem_dtype, block_size)
+        output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
+        output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
+
+        return output
 
     @staticmethod
-    def backward(ctx, g):
-        scale, data = to_mx(g, ctx.elem_dtype, ctx.block_size)
-        return (
-            MXTensor(scale, data, ctx.elem_dtype, ctx.block_size, g.dtype),
-            None,
-            None,
+    def backward(ctx, grad_output_hp: torch.Tensor):
+        input_hp, weight_hp = ctx.saved_tensors
+        weight_hp_t_c = weight_hp.t().contiguous()
+        elem_dtype = ctx.elem_dtype
+        block_size = ctx.block_size
+
+        grad_output_orig_shape = grad_output_hp.shape
+        grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
+
+        input_hp_orig_shape = input_hp.shape
+        input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
+
+        # grad_output @ weight = grad_input
+        grad_output_mx_dim0 = MXTensor.to_mx(grad_output_hp_r, elem_dtype, block_size)
+        weight_mx_dim1 = MXTensor.to_mx(weight_hp_t_c, elem_dtype, block_size)
+        grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
+        grad_input = grad_input.reshape(
+            *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
+
+        # input_t @ grad_output = grad_weight
+        grad_output_mx_dim1 = MXTensor.to_mx(
+            grad_output_hp_r.t().contiguous(), elem_dtype, block_size
+        )
+        input_t_mx_dim0_tmp = MXTensor.to_mx(
+            input_hp_r.t().contiguous(), elem_dtype, block_size
+        )
+        input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
+
+        return grad_input, grad_weight, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -59,16 +98,26 @@ class MXLinear(torch.nn.Linear):
         return mod
 
     def forward(self, x):
-        x_mx = MXTensor.to_mx(x, self.elem_dtype, self.block_size)
-        w_mx = MXTensor.to_mx(self.weight, self.elem_dtype, self.block_size)
-        y = F.linear(x_mx, w_mx, self.bias)
-        y = NoopFwToMXBw.apply(y, self.elem_dtype, self.block_size)
+        if torch.is_autocast_enabled():
+            # special case autocast
+            autocast_dtype = torch.get_autocast_dtype("cuda")
+            x = x.to(autocast_dtype)
+            w = self.weight.to(autocast_dtype)
+        else:
+            w = self.weight
+
+        y = mx_mm.apply(x, w, self.elem_dtype, self.block_size)
+        if self.bias is not None:
+            y = y + self.bias
         return y
 
 
 class MXInferenceLinear(torch.nn.Linear):
     """
     Inference version of MXLinear, with the weight pre-quantized to MX.
+
+    Note: this is weight-only quantization, with the gemm being executed
+    in high precision.
     """
 
     @classmethod
@@ -84,8 +133,8 @@ class MXInferenceLinear(torch.nn.Linear):
         # TODO(future PR): set to new_mod.weight directly, will need to work
         # through some errors
         new_mod.weight_mx = MXTensor.to_mx(
-            mod.weight.t().contiguous(), elem_dtype, block_size=block_size
-        ).t()
+            mod.weight, elem_dtype, block_size=block_size
+        )
         new_mod.bias = mod.bias
         new_mod.elem_dtype = elem_dtype
         return new_mod

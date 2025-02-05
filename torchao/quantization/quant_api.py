@@ -400,7 +400,7 @@ def insert_observers_(
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=None,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
 
         # Create a linear module
@@ -463,13 +463,17 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
-def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **kwargs):
+def _get_linear_subclass_inserter(
+    constructor, *, allow_requires_grad=False, propagate_bias=False, **kwargs
+):
     """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
     to the weight of linear module
     """
 
     def insert_subclass(lin):
         requires_grad = allow_requires_grad and lin.weight.requires_grad
+        if propagate_bias == True:
+            kwargs["bias"] = lin.bias
         lin.weight = torch.nn.Parameter(
             constructor(lin.weight, **kwargs), requires_grad=requires_grad
         )
@@ -664,6 +668,59 @@ def int8_dynamic_activation_int4_weight(
     )
 
 
+def apply_int4_dynamic_activation_int4_weight_quant(
+    weight: torch.Tensor,
+    layout=CutlassInt4PackedLayout(),
+    mapping_type=MappingType.SYMMETRIC,
+    act_mapping_type=MappingType.SYMMETRIC,
+):
+    if not isinstance(layout, CutlassInt4PackedLayout):
+        raise NotImplementedError(
+            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
+        )
+    if mapping_type != MappingType.SYMMETRIC:
+        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
+    if act_mapping_type != MappingType.SYMMETRIC:
+        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
+
+    weight = to_affine_quantized_intx(
+        weight,
+        mapping_type=mapping_type,
+        block_size=(1, weight.shape[1]),
+        target_dtype=torch.int8,
+        quant_min=-8,
+        quant_max=7,
+        eps=torch.finfo(torch.float32).eps,
+        zero_point_domain=ZeroPointDomain.NONE,
+        _layout=layout,
+    )
+    weight = to_linear_activation_quantized(
+        weight,
+        _int4_symm_per_token_quant_cutlass,
+    )
+    return weight
+
+
+def int4_dynamic_activation_int4_weight(
+    layout=CutlassInt4PackedLayout(),
+    mapping_type=MappingType.SYMMETRIC,
+    act_mapping_type=MappingType.SYMMETRIC,
+):
+    """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
+
+    Args:
+        `layout`: layout type for quantized weight tensor, only supports `MarlinQQQLayout()` and `CutlassInt4PackedLayout()` for now
+        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
+        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
+    """
+    return _get_linear_subclass_inserter(
+        apply_int4_dynamic_activation_int4_weight_quant,
+        layout=layout,
+        mapping_type=mapping_type,
+        act_mapping_type=act_mapping_type,
+    )
+
+
 def gemlite_uintx_weight_only(
     group_size: Optional[int] = 64,
     bit_width: int = 4,
@@ -714,14 +771,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
-        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
     group_size: int = 128
     layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
     use_hqq: bool = False
-    zero_point_domain: Optional[ZeroPointDomain] = None
-
+    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
 
 # for BC
 # TODO maybe change other callsites
@@ -762,7 +818,7 @@ def _int4_weight_only_transform(
     assert (
         type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
     ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
-    if zero_point_domain is None:
+    if zero_point_domain == ZeroPointDomain.NONE:
         # the first value is the default one
         zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
     else:
@@ -885,6 +941,20 @@ def _int8_symm_per_token_reduced_range_quant_cutlass(
     )
 
 
+def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
+    return to_affine_quantized_intx(
+        x,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        quant_min=-8,
+        quant_max=7,
+        eps=1e-5,
+        zero_point_domain=ZeroPointDomain.NONE,
+        _layout=CutlassInt4PackedLayout(),
+    )
+
+
 def int8_dynamic_activation_int8_weight(
     layout=PlainLayout(),
     act_mapping_type=MappingType.SYMMETRIC,
@@ -907,6 +977,7 @@ def int8_dynamic_activation_int8_weight(
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
         def get_weight_block_size(x):
             return (1, x.shape[1])
@@ -933,6 +1004,7 @@ def int8_dynamic_activation_int8_weight(
             eps=eps,
             zero_point_dtype=zero_point_dtype,
             _layout=layout,
+            zero_point_domain=weight_zero_point_domain,
         )
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
@@ -1324,6 +1396,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
             _int8_symm_per_token_reduced_range_quant_cutlass,
+            _int4_symm_per_token_quant_cutlass,
             _input_activation_quant_func_fp8,
         ]
     )
