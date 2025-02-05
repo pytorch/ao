@@ -98,19 +98,24 @@ class MXLinear(torch.nn.Linear):
     weights and grads are casted to MX and back to high precision for each
     matmul.
 
-    Input, weight and grad_output can have each their own MX element dtype
-    by passing a tuple of `elem_dtype` to the factory method `from_float`.
+    Input, weight and grad_output can have each their own MX element dtype.
     """
 
     @classmethod
     @torch.no_grad()
-    def from_float(cls, mod, elem_dtype, block_size):
+    def from_float(
+        cls,
+        mod,
+        elem_dtype,
+        elem_dtype_weight_override=None,
+        elem_dtype_grad_output_override=None,
+        *,
+        block_size=32,
+    ):
         mod.__class__ = MXLinear
-        # Single element dtype passed for input, weight and gradient.
-        if not isinstance(elem_dtype, (tuple, list)):
-            elem_dtype = (elem_dtype, elem_dtype, elem_dtype)
-        # Unpack input, weight and gradient element dtypes.
-        mod.in_elem_dtype, mod.w_elem_dtype, mod.grad_elem_dtype = elem_dtype
+        mod.in_elem_dtype = elem_dtype
+        mod.w_elem_dtype = elem_dtype_weight_override or elem_dtype
+        mod.grad_elem_dtype = elem_dtype_grad_output_override or elem_dtype
         mod.block_size = block_size
         return mod
 
@@ -196,8 +201,15 @@ def _is_linear(mod, fqn):
     return isinstance(mod, torch.nn.Linear)
 
 
-def swap_linear_with_mx_linear(model, elem_dtype, block_size, filter_fn=None):
-    # `elem_dtype` can be a single dtype or a tuple of 3 for (input, weight, gradient).
+def swap_linear_with_mx_linear(
+    model,
+    elem_dtype,
+    elem_dtype_weight_override=None,
+    elem_dtype_grad_output_override=None,
+    *,
+    block_size=32,
+    filter_fn=None,
+):
     if filter_fn is None:
         combined_filter_fn = _is_linear
     else:
@@ -208,7 +220,13 @@ def swap_linear_with_mx_linear(model, elem_dtype, block_size, filter_fn=None):
         combined_filter_fn = __fn
     replace_with_custom_fn_if_matches_filter(
         model,
-        lambda mod: MXLinear.from_float(mod, elem_dtype, block_size),
+        lambda mod: MXLinear.from_float(
+            mod,
+            elem_dtype,
+            elem_dtype_weight_override,
+            elem_dtype_grad_output_override,
+            block_size=block_size,
+        ),
         combined_filter_fn,
     )
 

@@ -60,7 +60,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     )
     m_mx = copy.deepcopy(m)
     block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m_mx, *elem_dtype, block_size=block_size)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
     x = copy.deepcopy(x_ref)
@@ -98,7 +98,7 @@ def test_activation_checkpointing():
         nn.Linear(6, 6, bias=True, device="cuda"),
     )
     block_size = 2
-    swap_linear_with_mx_linear(m, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m, elem_dtype, block_size=block_size)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
     g = torch.randn(*grad_shape, device="cuda")
@@ -134,7 +134,7 @@ def test_linear_compile(elem_dtype, bias, use_autocast):
         nn.Linear(K, N, bias=bias, device="cuda"),
     )
     block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size=block_size)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
@@ -225,13 +225,13 @@ def test_inference_compile_simple(elem_dtype):
 
 def test_mx_linear_input_weight_gradient_dtypes():
     m = nn.Sequential(nn.Linear(32, 32))
-    swap_linear_with_mx_linear(m, tuple(SUPPORTED_ELEM_DTYPES[:3]), 32)
+    swap_linear_with_mx_linear(m, *SUPPORTED_ELEM_DTYPES[:3], block_size=32)
     assert m[0].in_elem_dtype == SUPPORTED_ELEM_DTYPES[0]
     assert m[0].w_elem_dtype == SUPPORTED_ELEM_DTYPES[1]
     assert m[0].grad_elem_dtype == SUPPORTED_ELEM_DTYPES[2]
 
     m = nn.Sequential(nn.Linear(32, 32))
-    swap_linear_with_mx_linear(m, torch.float8_e4m3fn, 32)
+    swap_linear_with_mx_linear(m, torch.float8_e4m3fn, block_size=32)
     assert m[0].in_elem_dtype == torch.float8_e4m3fn
     assert m[0].w_elem_dtype == torch.float8_e4m3fn
     assert m[0].grad_elem_dtype == torch.float8_e4m3fn
@@ -245,7 +245,9 @@ def test_filter_fn():
     m2 = copy.deepcopy(m1)
     filter_fn = lambda mod, fqn: fqn != "1"  # noqa: E731
 
-    swap_linear_with_mx_linear(m1, torch.float8_e4m3fn, 32, filter_fn)
+    swap_linear_with_mx_linear(
+        m1, torch.float8_e4m3fn, block_size=32, filter_fn=filter_fn
+    )
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 

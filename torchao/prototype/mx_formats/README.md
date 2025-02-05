@@ -2,8 +2,8 @@
 
 This is a POC of training and inference with tensors in the MX format from the OCP spec (https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) in native PyTorch.
 
-Note that the current version of the code is written for readability and 
-numerical correctness and not yet for optimal performance. We welcome 
+Note that the current version of the code is written for readability and
+numerical correctness and not yet for optimal performance. We welcome
 contributions on performance improvements.
 
 Note that there are no BC guarantees at the moment and we plan to evolve
@@ -44,8 +44,7 @@ from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 elem_dtype = torch.float8_e4m3fn
-block_size = 32
-swap_linear_with_mx_linear(m, elem_dtype, block_size)
+swap_linear_with_mx_linear(m, elem_dtype, block_size=32)
 
 # training loop (not shown)
 ```
@@ -93,7 +92,7 @@ python torchao/prototype/mx_formats/benchmarks/bench_qdq.py
 
 ## floating point format convenience functions
 
-We have a convenience script which summarizes the various properties of 
+We have a convenience script which summarizes the various properties of
 floating point formats:
 
 ```bash
