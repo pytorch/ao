@@ -120,7 +120,7 @@ def tensor_to_amax(
 
 @torch.no_grad()
 def tensor_to_scale(
-    x: torch.Tensor,
+    hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,
     reduce_amax: bool = False,
     device_mesh=None,
@@ -128,8 +128,19 @@ def tensor_to_scale(
     axiswise_dim: Optional[int] = None,
     power_of_2_scale: bool = False,
 ) -> torch.Tensor:
+    """
+    Compute scaling factor for the given high precision tensor.
+
+    Args:
+        hp_tensor: high precision tensor
+        float8_dtype: the float8 dtype to use
+        reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
+        scaling_granularity: Defines the scaling granularity
+        axiswise_dim: if axiswise granularity is used, defines the dim to scale across
+        power_of_2_scale: if true, round scaling factor down to the nearest power of 2.
+    """
     amax = tensor_to_amax(
-        x,
+        hp_tensor,
         reduce_amax,
         device_mesh,
         scaling_granularity,
