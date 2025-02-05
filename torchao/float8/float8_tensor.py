@@ -212,7 +212,9 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
     def forward(ctx, tensor):
         if tensor._blockwise_size:
             t = tensor._data.to(tensor._orig_dtype)
-            return (blockify_tensor(t, tensor._blockwise_size) / tensor._scale).view(tensor.shape)
+            return (blockify_tensor(t, tensor._blockwise_size) / tensor._scale).view(
+                tensor.shape
+            )
         else:
             return tensor._data.to(tensor._orig_dtype) / tensor._scale
 
@@ -340,9 +342,9 @@ class Float8Tensor(torch.Tensor):
         self._gemm_input_role = gemm_input_role
         assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
-        assert isinstance(
-            blockwise_size, int
-        ) or blockwise_size is None, f"unsupported blockwise_size {blockwise_size}"
+        assert (
+            isinstance(blockwise_size, int) or blockwise_size is None
+        ), f"unsupported blockwise_size {blockwise_size}"
         self._blockwise_size = blockwise_size
 
         return self
