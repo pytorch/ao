@@ -354,14 +354,30 @@ def run(
         m_fp8_dyn_axs = torch.compile(m_fp8_dyn_axs)
         fp8_dyn_axs_time_actual_s = get_gpu_kernel_time(m_fp8_dyn_axs, x)
 
-        # get the lw recipe scaling gpu kernel time
+        # get the float8 dynamic blockwise scaling gpu kernel time
+        torch._dynamo.reset()
+        config = recipe_name_to_linear_config(Float8LinearRecipeName.ALL_BLOCKWISE)
+        m_fp8_dyn_blk = convert_to_float8_training(copy.deepcopy(m_orig), config=config)
+        m_fp8_dyn_blk = torch.compile(m_fp8_dyn_blk)
+        fp8_dyn_blk_time_actual_s = get_gpu_kernel_time(m_fp8_dyn_blk, x)
+
+        # get the lw_axs recipe scaling gpu kernel time
         # TODO(future PR): enable below once basic performance issues
         # are fixed
         # torch._dynamo.reset()
         # config = recipe_name_to_linear_config(Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP)
-        # m_fp8_lw = convert_to_float8_training(m_orig, config=config)
-        # m_fp8_lw = torch.compile(m_fp8_lw)
-        # fp8_lw_time_actual_s = get_gpu_kernel_time(m_fp8_lw, x)
+        # m_fp8_lw_axs = convert_to_float8_training(m_orig, config=config)
+        # m_fp8_lw_axs = torch.compile(m_fp8_lw_axs)
+        # fp8_lw_axs_time_actual_s = get_gpu_kernel_time(m_fp8_lw_axs, x)
+
+        # get the lw_blk recipe scaling gpu kernel time
+        # TODO(future PR): enable below once basic performance issues
+        # are fixed
+        # torch._dynamo.reset()
+        # config = recipe_name_to_linear_config(Float8LinearRecipeName.LW_BLOCKWISE_WITH_GW_HP)
+        # m_fp8_lw_blk = convert_to_float8_training(m_orig, config=config)
+        # m_fp8_lw_blk = torch.compile(m_fp8_lw_blk)
+        # fp8_lw_blk_time_actual_s = get_gpu_kernel_time(m_fp8_lw_blk, x)
 
         results.append(
             [
@@ -382,6 +398,7 @@ def run(
                 fp8_dyn_time_actual_s,
                 fp8_del_time_actual_s,
                 fp8_dyn_axs_time_actual_s,
+                fp8_dyn_blk_time_actual_s,
                 # fp8_lw_time_actual_s,
                 bf16_time_actual_s / fp8_dyn_time_actual_s,
                 bf16_time_actual_s / fp8_del_time_actual_s,

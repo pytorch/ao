@@ -124,10 +124,13 @@ def run(
         if scaling_granularity == ScalingGranularity.TENSORWISE:
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
-        else:
-            assert scaling_granularity == ScalingGranularity.AXISWISE, "unsupported"
+        elif scaling_granularity == ScalingGranularity.AXISWISE:
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
+        else:
+            assert scaling_granularity == ScalingGranularity.BLOCKWISE, "unsupported"
+            scale_a = torch.ones(M, N, device=device)
+            scale_b = torch.ones(M, N, device=device)
 
         def do_matmul(A, B):
             nonlocal scale_a

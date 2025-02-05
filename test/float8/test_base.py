@@ -43,6 +43,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
+    get_maybe_blockwise_size,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
@@ -178,6 +179,22 @@ class TestFloat8Tensor:
         sqnr = compute_error(a, a_dq)
         assert sqnr >= 25.0
 
+    @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
+    @pytest.mark.parametrize("blockwise_size", [4])
+    def test_blockwise_dynamic_cast(self, shape, blockwise_size):
+        a = torch.randn(*shape, dtype=torch.bfloat16)
+        linear_mm_config = LinearMMConfig()
+        a_fp8 = hp_tensor_to_float8_dynamic(
+            a,
+            e4m3_dtype,
+            linear_mm_config,
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        a_dq = a_fp8.to_original_precision()
+        sqnr = compute_error(a, a_dq)
+        assert sqnr >= 25.0
+
     def test_axiswise_reshape(self):
         a = torch.randn(3, 5, 7, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
@@ -272,6 +289,47 @@ class TestFloat8Tensor:
         sqnr = compute_error(c_ref, c_fp8_compute)
         assert sqnr >= 25.0
 
+    @pytest.mark.parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
+    @pytest.mark.parametrize(
+        "a_granularity,b_granularity",
+        [
+            (ScalingGranularity.BLOCKWISE, ScalingGranularity.BLOCKWISE),
+            (ScalingGranularity.BLOCKWISE, ScalingGranularity.TENSORWISE),
+            (ScalingGranularity.TENSORWISE, ScalingGranularity.BLOCKWISE),
+        ],
+    )
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
+    def test_blockwise_gemm(self, a_shape, a_granularity, b_granularity):
+        a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
+        b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
+
+        linear_mm_config = LinearMMConfig()
+
+        a_fp8 = hp_tensor_to_float8_dynamic(
+            a,
+            e4m3_dtype,
+            linear_mm_config,
+            gemm_input_role=GemmInputRole.INPUT,
+            scaling_granularity=a_granularity,
+            blockwise_size=get_maybe_blockwise_size(8, a_granularity),
+        )
+        a_fp8 = a_fp8.reshape(-1, a_shape[-1])
+
+        b_fp8 = hp_tensor_to_float8_dynamic(
+            b,
+            e4m3_dtype,
+            linear_mm_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+            scaling_granularity=b_granularity,
+            blockwise_size=get_maybe_blockwise_size(8, b_granularity),
+        )
+
+        c_fp8_compute = torch.mm(a_fp8, b_fp8.t())
+        a = a.reshape(-1, a_shape[-1])
+        c_ref = torch.mm(a, b.t())
+        sqnr = compute_error(c_ref, c_fp8_compute)
+        assert sqnr >= 25.0
 
 class TestFloat8Linear:
     def _test_linear_impl(
@@ -417,7 +475,9 @@ class TestFloat8Linear:
         "recipe_name",
         [
             Float8LinearRecipeName.ALL_AXISWISE,
+            Float8LinearRecipeName.ALL_BLOCKWISE,
             Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+            Float8LinearRecipeName.LW_BLOCKWISE_WITH_GW_HP,
         ],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
