@@ -431,12 +431,13 @@ def set_fast(
                 dynamic=False,
             )
     elif task_type == "amg":
-        mask_generator.predictor._predict_masks = torch.compile(
-            mask_generator.predictor._predict_masks,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
+        if not loaded_exported_model:
+            mask_generator.predictor._predict_masks = torch.compile(
+                mask_generator.predictor._predict_masks,
+                mode="max-autotune",
+                fullgraph=True,
+                dynamic=False,
+            )
     else:
         # TODO: This might need to be under "allow_recompiles"
         # mps encounters rapidly changing points per batch
