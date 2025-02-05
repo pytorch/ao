@@ -5,10 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 import tempfile
 import unittest
-import itertools
+
 import torch
+from torch.testing import FileCheck
 
 from torchao.dtypes import PlainLayout
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -24,7 +26,6 @@ from torchao.quantization.granularity import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import unwrap_tensor_subclass
-from torch.testing import FileCheck
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -39,11 +40,25 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
 
         reference_layout = PlainLayout()
-        test_layouts = [PackedLinearInt8DynamicActivationIntxWeightLayout(), QDQLayout()]
-        test_weight_dtypes = [torch.int1, torch.int2, torch.int3, torch.int4, torch.int5, torch.int6, torch.int7, torch.int8]
+        test_layouts = [
+            PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            QDQLayout(),
+        ]
+        test_weight_dtypes = [
+            torch.int1,
+            torch.int2,
+            torch.int3,
+            torch.int4,
+            torch.int5,
+            torch.int6,
+            torch.int7,
+            torch.int8,
+        ]
         test_has_weight_zeros = [True, False]
         test_granularities = [PerGroup(128), PerRow()]
-        for layout, weight_dtype, has_weight_zeros, granularity in itertools.product(test_layouts, test_weight_dtypes, test_has_weight_zeros, test_granularities):
+        for layout, weight_dtype, has_weight_zeros, granularity in itertools.product(
+            test_layouts, test_weight_dtypes, test_has_weight_zeros, test_granularities
+        ):
             quantized_model = copy.deepcopy(model)
             quantize_(
                 quantized_model,
@@ -71,7 +86,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 expected_result = quantized_model_reference(activations)
             self.assertTrue(torch.allclose(result, expected_result, atol=1e-6))
 
-    def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(self):
+    def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
+        self,
+    ):
         """
         Checks that models quantized with PackedLinearInt8DynamicActivationIntxWeightLayout() work with
         torch.export.export, torch.compile, and AOTI.
@@ -126,7 +143,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             fn = torch._inductor.aoti_load_package(package_path)
             aoti_results = fn(activations)
             self.assertTrue(torch.allclose(eager_results, aoti_results))
-    
+
     def test_export_QDQLayout(self):
         """
         Checks that models quantized with TestQDQLayout() export as expected
@@ -167,6 +184,3 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             FileCheck().check_count(line, 1, exactly=True).run(
                 exported.graph_module.code
             )
-
-if __name__ == "__main__":
-    unittest.main()
