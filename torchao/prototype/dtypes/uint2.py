@@ -3,6 +3,7 @@ from typing import Any, Dict, Tuple
 
 import torch
 import torch._prims_common as utils
+
 from torchao.utils import fill_defaults
 
 UINT2_OPS_TABLE: Dict[Any, Any] = {}

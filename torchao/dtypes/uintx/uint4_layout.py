@@ -2,7 +2,9 @@ import torch
 import torch._prims_common as utils
 import torch.utils._pytree as pytree
 from torch.library import Library, impl
+
 from torchao.utils import fill_defaults
+
 
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
