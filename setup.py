@@ -240,19 +240,6 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-            ]
-        )
-
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
@@ -264,6 +251,31 @@ def get_extensions():
 
     if use_cuda:
         sources += cuda_sources
+
+    use_cutlass = False
+    if use_cuda and not IS_WINDOWS:
+        use_cutlass = True
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+                "-I" + cutlass_extensions_include_dir,
+            ]
+        )
+    else:
+        # Remove CUTLASS-based kernels from the cuda_sources list.  An
+        # assumption is that these files will have "cutlass" in its
+        # name.
+        cutlass_sources = list(
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
+        sources = [s for s in sources if s not in cutlass_sources]
 
     ext_modules = []
     if len(sources) > 0:
