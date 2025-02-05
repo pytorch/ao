@@ -10,7 +10,6 @@ import torch
 from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
-    deblockify_tensor,
     blockify_tensor,
     to_fp8_saturated,
 )
@@ -153,7 +152,11 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
         # upcasted to `float32` to multiply with the scale
         # In order to match numerics between eager and compile, we upcast manually here.
-        tensor_scaled = tensor.to(torch.float32) * scale
+        if blockwise_size:
+            tensor_scaled = blockify_tensor(tensor, blockwise_size) * scale
+            tensor_scaled = tensor_scaled.view(tensor.shape)
+        else:
+            tensor_scaled = tensor.to(torch.float32) * scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
@@ -194,7 +197,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None, None, None, None
+        return g, None, None, None, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -207,7 +210,11 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor):
-        return tensor._data.to(tensor._orig_dtype) / tensor._scale
+        if tensor._blockwise_size:
+            t = tensor._data.to(tensor._orig_dtype)
+            return (blockify_tensor(t, tensor._blockwise_size) / tensor._scale).view(tensor.shape)
+        else:
+            return tensor._data.to(tensor._orig_dtype) / tensor._scale
 
     @staticmethod
     def backward(ctx, g):
@@ -242,7 +249,13 @@ def hp_tensor_and_scale_to_float8(
         blockwise_size: for blockwise scaling, contains the block size
     """
     return _ToFloat8ConstrFunc.apply(
-        hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role, axiswise_dim, blockwise_size
+        hp_tensor,
+        s,
+        float8_dtype,
+        linear_mm_config,
+        gemm_input_role,
+        axiswise_dim,
+        blockwise_size,
     )
 
 
@@ -306,7 +319,7 @@ class Float8Tensor(torch.Tensor):
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
         axiswise_dim: Optional[int] = None,
-        blockwise_size: Optional[int] = None
+        blockwise_size: Optional[int] = None,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -327,7 +340,9 @@ class Float8Tensor(torch.Tensor):
         self._gemm_input_role = gemm_input_role
         assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
-        assert isinstance(blockwise_size, int), f"unsupported blockwise_size {blockwise_size}"
+        assert isinstance(
+            blockwise_size, int
+        ) or blockwise_size is None, f"unsupported blockwise_size {blockwise_size}"
         self._blockwise_size = blockwise_size
 
         return self

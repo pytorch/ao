@@ -331,6 +331,7 @@ class TestFloat8Tensor:
         sqnr = compute_error(c_ref, c_fp8_compute)
         assert sqnr >= 25.0
 
+
 class TestFloat8Linear:
     def _test_linear_impl(
         self,

@@ -333,7 +333,7 @@ def recipe_name_to_linear_config(
     blockwise_size: Optional[int] = None,
 ) -> Float8LinearConfig:
     """
-    Input: 
+    Input:
         `Float8LinearRecipeName` value
         `blockwise_size`: Optional[int] - if specified, blockwise scaling will be enabled with this size.
 
@@ -355,13 +355,24 @@ def recipe_name_to_linear_config(
             cast_config_weight=cc_w,
             cast_config_grad_output=cc_go,
         )
-    
+
     elif recipe_name is Float8LinearRecipeName.ALL_BLOCKWISE:
         # dynamic blockwise scaling with the CUTLASS blockwise kernel
-        assert blockwise_size is not None, "Blockwise scaling must be specified with blockwise_size"
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size)
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size)
+        assert (
+            blockwise_size is not None
+        ), "Blockwise scaling must be specified with blockwise_size"
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
@@ -407,7 +418,7 @@ def recipe_name_to_linear_config(
             cast_config_weight_for_grad_input=cc_w_gi,
             cast_config_grad_output_for_grad_weight=cc_go_gw,
         )
-    
+
     elif recipe_name is Float8LinearRecipeName.LW_BLOCKWISE_WITH_GW_HP:
         # lw's recipe for a modification on all-blockwise:
         #
@@ -423,23 +434,33 @@ def recipe_name_to_linear_config(
         #   * the e4m3 dtype is used across the board, including for gradients
         #
         # output_hp = input_fp8_blockwise @ weight_t_blockwise
-        assert blockwise_size is not None, "Blockwise scaling must be specified with blockwise_size"
+        assert (
+            blockwise_size is not None
+        ), "Blockwise scaling must be specified with blockwise_size"
 
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size)
-        
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+
         # grad_input_hp = grad_output_fp8_blockwise @ weight_fp8_tensorwise
         cc_go = CastConfig(
-            scaling_granularity=ScalingGranularity.BLOCKWISE, blockwise_size=blockwise_size, target_dtype=e4m3_dtype
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+            target_dtype=e4m3_dtype,
         )
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
-        
+
         # grad_weight_hp = input_t_hp @ grad_output_hp
         cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
         cc_go_gw = CastConfig(
             scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
         )
-        
+
         return Float8LinearConfig(
             cast_config_input=cc_i,
             cast_config_weight=cc_w,

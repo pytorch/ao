@@ -104,12 +104,14 @@ def tensor_to_amax(
         amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
     else:
         assert scaling_granularity is ScalingGranularity.BLOCKWISE, "unsupported"
-        assert block_size is not None, "block_size must be provided for BLOCKWISE scaling"
-        assert x.shape[-1] % block_size == 0, "x last dimension must be a multiple of block_size"
-        block_shape = list(x.shape[:-1]) + [x.shape[-1]//block_size] + [block_size]
-        block_tensor = x.view(block_shape)
-        amax = torch.amax(torch.abs(block_tensor), dim=-1)
-        amax.repeat_interleave(block_size, dim=-1)
+        assert (
+            block_size is not None
+        ), "block_size must be provided for BLOCKWISE scaling"
+        assert (
+            x.shape[-1] % block_size == 0
+        ), "x last dimension must be a multiple of block_size"
+        block_tensor = blockify_tensor(x, block_size)
+        amax = torch.amax(torch.abs(block_tensor), dim=-1, keepdim=True)
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -123,6 +125,7 @@ def tensor_to_amax(
             amax = amax.wait()
 
     return amax
+
 
 @torch.no_grad()
 def blockify_tensor(
@@ -138,34 +141,32 @@ def blockify_tensor(
     Returns:
         torch.Tensor: The blockified tensor.
     """
-    dims = x.shape
-    n = len(dims)
-    if isinstance(block_size, int):
-        ones = torch.ones(n-1)
-        block_size = torch.cat((ones, torch.Tensor([block_size])))
-    assert len(dims) == len(block_size), "The tensor and the block sizes must have the same number of dimensions"
-    assert all(d % b == 0 for d, b in zip(dims, block_size)), "Each dimension of the tensor must be divisible by the corresponding block size"
-    new_shape = torch.Tensor([d // b for d, b in zip(dims, block_size)] + list(block_size)).to(dtype=torch.int)
-    perm = [2*i - i//n*(2*n-1) for i in range(2*n)] # get a sequence of even numbers then odd (ex: [0, 2, 4, 1, 3, 5])
-    x = x.view(new_shape[perm].tolist())
-    x = x.permute(*perm)
-    return x
-
-@torch.no_grad()
-def deblockify_tensor(
-    x: torch.Tensor,
-    block_size: int | torch.Tensor = 128,
-) -> torch.Tensor:
-    """Unblockify a tensor given a block_size for each dimension.
-
-    Args:
-        x: The tensor to unblockify.
-        block_size: The block size.
-    
-    Returns:
-        torch.Tensor: The unblockified tensor.
-    """
-    pass
+    # This is suppose to give the implementation for multi-dimensional blockification
+    # but for now, this function only works for last dimension blockification
+    # TODO: implement blockification for multi-dimensional tensors
+    # dims = x.shape
+    # n = len(dims)
+    # if isinstance(block_size, int):
+    #     ones = torch.ones(n - 1)
+    #     block_size = torch.cat((ones, torch.Tensor([block_size])))
+    # assert len(dims) == len(
+    #     block_size
+    # ), "The tensor and the block sizes must have the same number of dimensions"
+    # assert all(
+    #     d % b == 0 for d, b in zip(dims, block_size)
+    # ), "Each dimension of the tensor must be divisible by the corresponding block size"
+    # new_shape = torch.Tensor(
+    #     [d // b for d, b in zip(dims, block_size)] + list(block_size)
+    # ).to(dtype=torch.int)
+    # perm = [
+    #     2 * i - i // n * (2 * n - 1) for i in range(2 * n)
+    # ]  # get a sequence of even numbers then odd (ex: [0, 2, 4, 1, 3, 5])
+    # x = x.view(new_shape[perm].tolist())
+    # x = x.permute(*perm)
+    # return x
+    block_shape = list(x.shape[:-1]) + [x.shape[-1] // block_size] + [block_size]
+    block_tensor = x.view(block_shape)
+    return block_tensor
 
 
 @torch.no_grad()

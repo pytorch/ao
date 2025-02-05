@@ -154,6 +154,7 @@ def get_maybe_axiswise_dim(
         return axiswise_dim
     return None
 
+
 def get_maybe_blockwise_size(
     blockwise_size: int,
     scaling_granularity: ScalingGranularity,

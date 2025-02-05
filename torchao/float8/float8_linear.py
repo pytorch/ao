@@ -98,7 +98,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     -1, c.cast_config_input.scaling_granularity
                 ),
                 blockwise_size=get_maybe_blockwise_size(
-                    c.cast_config_input.blockwise_size, c.cast_config_input.scaling_granularity
+                    c.cast_config_input.blockwise_size,
+                    c.cast_config_input.scaling_granularity,
                 ),
             )
 
@@ -117,7 +118,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     0, c.cast_config_weight.scaling_granularity
                 ),
                 blockwise_size=get_maybe_blockwise_size(
-                    c.cast_config_weight.blockwise_size, c.cast_config_weight.scaling_granularity
+                    c.cast_config_weight.blockwise_size,
+                    c.cast_config_weight.scaling_granularity,
                 ),
             )
 
@@ -170,12 +172,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
-            if (
-                c.cast_config_weight_for_grad_input.scaling_granularity
-                in (
-                    ScalingGranularity.AXISWISE,
-                    ScalingGranularity.BLOCKWISE,
-                )
+            if c.cast_config_weight_for_grad_input.scaling_granularity in (
+                ScalingGranularity.AXISWISE,
+                ScalingGranularity.BLOCKWISE,
             ):
                 # workaround from https://github.com/pytorch/pytorch/issues/141881
                 # to avoid saving float8 weight from forward to backward when
@@ -330,7 +329,8 @@ class Float8Linear(torch.nn.Linear):
             input = input.to(autocast_dtype)
 
         has_any_axiswise_or_blockwise_scaling = any(
-            cc.scaling_granularity in (ScalingGranularity.AXISWISE, ScalingGranularity.BLOCKWISE)
+            cc.scaling_granularity
+            in (ScalingGranularity.AXISWISE, ScalingGranularity.BLOCKWISE)
             for cc in [
                 self.config.cast_config_input,
                 self.config.cast_config_weight,
