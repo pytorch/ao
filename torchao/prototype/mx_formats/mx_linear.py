@@ -23,8 +23,8 @@ class mx_mm(torch.autograd.Function):
     # 1.       input @ weight_t    = output     (forward pass)
     # 2. grad_output @ weight      = grad_input (backward pass)
     # 3.     input_t @ grad_output = grad_weight (backward pass)
-    # 
-    # input, weight and grad_output have each their own MX element dtype.
+    #
+    # input, weight and grad_output can have each their own MX element dtype.
 
     @staticmethod
     def forward(
@@ -69,7 +69,9 @@ class mx_mm(torch.autograd.Function):
         input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
         # grad_output @ weight = grad_input
-        grad_output_mx_dim0 = MXTensor.to_mx(grad_output_hp_r, grad_elem_dtype, block_size)
+        grad_output_mx_dim0 = MXTensor.to_mx(
+            grad_output_hp_r, grad_elem_dtype, block_size
+        )
         weight_mx_dim1 = MXTensor.to_mx(weight_hp_t_c, w_elem_dtype, block_size)
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
@@ -95,13 +97,20 @@ class MXLinear(torch.nn.Linear):
     matmul is emulated since there is no hardware support yet. Activations,
     weights and grads are casted to MX and back to high precision for each
     matmul.
+
+    Input, weight and grad_output can have each their own MX element dtype
+    by passing a tuple of `elem_dtype` to the factory method `from_float`.
     """
 
     @classmethod
     @torch.no_grad()
     def from_float(cls, mod, elem_dtype, block_size):
         mod.__class__ = MXLinear
-        mod.elem_dtype = elem_dtype
+        # Single element dtype passed for input, weight and gradient.
+        if not isinstance(elem_dtype, (tuple, list)):
+            elem_dtype = (elem_dtype, elem_dtype, elem_dtype)
+        # Unpack input, weight and gradient element dtypes.
+        mod.in_elem_dtype, mod.w_elem_dtype, mod.grad_elem_dtype = elem_dtype
         mod.block_size = block_size
         return mod
 
@@ -114,7 +123,14 @@ class MXLinear(torch.nn.Linear):
         else:
             w = self.weight
 
-        y = mx_mm.apply(x, w, self.elem_dtype, self.block_size)
+        y = mx_mm.apply(
+            x,
+            w,
+            self.in_elem_dtype,
+            self.w_elem_dtype,
+            self.grad_elem_dtype,
+            self.block_size,
+        )
         if self.bias is not None:
             y = y + self.bias
         return y
@@ -181,6 +197,7 @@ def _is_linear(mod, fqn):
 
 
 def swap_linear_with_mx_linear(model, elem_dtype, block_size, filter_fn=None):
+    # `elem_dtype` can be a single dtype or a tuple of 3 for (input, weight, gradient).
     if filter_fn is None:
         combined_filter_fn = _is_linear
     else:

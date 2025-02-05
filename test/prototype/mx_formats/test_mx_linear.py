@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 
 import pytest
 import torch
@@ -41,13 +42,16 @@ def run_around_tests():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize(
+    "elem_dtype", itertools.product(SUPPORTED_ELEM_DTYPES, repeat=3)
+)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
     """
+    # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
     grad_shape[-1] = 6
 
@@ -72,7 +76,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     w_g_sqnr = compute_error(m[0].weight.grad, getattr(m_mx, "0").weight.grad)
     x_g_sqnr = compute_error(x_ref.grad, x.grad)
 
-    if elem_dtype is torch.float8_e4m3fn:
+    if elem_dtype == (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn):
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
         assert x_g_sqnr >= 12.0
@@ -217,6 +221,20 @@ def test_inference_compile_simple(elem_dtype):
         assert sqnr >= 20.0
     else:
         assert sqnr >= 13.5
+
+
+def test_mx_linear_input_weight_gradient_dtypes():
+    m = nn.Sequential(nn.Linear(32, 32))
+    swap_linear_with_mx_linear(m, tuple(SUPPORTED_ELEM_DTYPES[:3]), 32)
+    assert m[0].in_elem_dtype == SUPPORTED_ELEM_DTYPES[0]
+    assert m[0].w_elem_dtype == SUPPORTED_ELEM_DTYPES[1]
+    assert m[0].grad_elem_dtype == SUPPORTED_ELEM_DTYPES[2]
+
+    m = nn.Sequential(nn.Linear(32, 32))
+    swap_linear_with_mx_linear(m, torch.float8_e4m3fn, 32)
+    assert m[0].in_elem_dtype == torch.float8_e4m3fn
+    assert m[0].w_elem_dtype == torch.float8_e4m3fn
+    assert m[0].grad_elem_dtype == torch.float8_e4m3fn
 
 
 def test_filter_fn():
