@@ -573,7 +573,7 @@ class TorchAOBaseTensor(torch.Tensor):
     __torch_function__ = classmethod(_dispatch__torch_function__)
     register_layout = classmethod(_register_layout)
     get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
-    _get_to_kwargs = classmethod(_get_to_kwargs)
+    _get_to_kwargs = _get_to_kwargs
 
     def __tensor_flatten__(self):
         raise NotImplementedError("Subclasses must implement __tensor_flatten__")
@@ -586,9 +586,6 @@ class TorchAOBaseTensor(torch.Tensor):
 
     def __repr__(self):
         raise NotImplementedError("Subclasses must implement __repr__")
-
-    def _apply_fn_to_data(self, fn):
-        raise NotImplementedError("Subclasses must implement _apply_fn_to_data")
 
     def get_layout(self):
         if not hasattr(self, "_layout"):
