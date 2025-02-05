@@ -61,10 +61,8 @@ def hp_tensor_to_float8_dynamic(
         device_mesh,
         scaling_granularity,
         axiswise_dim,
+        power_of_2_scale,
     )
-    if power_of_2_scale:
-        # rounds down to the nearest power of 2.
-        scale = torch.exp2(torch.floor(torch.log2(scale)))
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,

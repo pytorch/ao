@@ -10,11 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
-from torchao.float8.config import (
-    Float8LinearConfig,
-    ScalingGranularity,
-    ScalingType,
-)
+from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -33,11 +29,14 @@ FP8_TYPES = {
 
 
 @torch.no_grad()
-def amax_to_scale(amax: torch.Tensor, float8_dtype: torch.dtype):
+def amax_to_scale(
+    amax: torch.Tensor, float8_dtype: torch.dtype, power_of_2_scale: bool = False
+):
     """Converts the amax value of a tensor to the fp8 scale.
     Args:
         amax: The amax value of the tensor.
         float8_dtype: The float8 dtype.
+        power_of_2_scale: if true, round scaling factor down to the nearest power of 2.
     """
     # torch.compile and eager show different numerics for 1.0 / float32,
     # upcast to float64 to ensure same numeric between compile and eager
@@ -46,7 +45,9 @@ def amax_to_scale(amax: torch.Tensor, float8_dtype: torch.dtype):
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
-
+    if power_of_2_scale:
+        # rounds down to the nearest power of 2.
+        res = torch.exp2(torch.floor(torch.log2(res)))
     return res.to(torch.float32)
 
 
@@ -125,6 +126,7 @@ def tensor_to_scale(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    power_of_2_scale: bool = False,
 ) -> torch.Tensor:
     amax = tensor_to_amax(
         x,
@@ -133,7 +135,7 @@ def tensor_to_scale(
         scaling_granularity,
         axiswise_dim,
     )
-    return amax_to_scale(amax, float8_dtype)
+    return amax_to_scale(amax, float8_dtype, power_of_2_scale=power_of_2_scale)
 
 
 def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):
