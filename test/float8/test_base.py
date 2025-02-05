@@ -15,9 +15,9 @@ import torch
 import torch.nn as nn
 
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -26,13 +26,13 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 from torchao.float8.config import (
     CastConfig,
-    Float8LinearConfig,
-    Float8LinearRecipeName,
-    ScalingGranularity,
-    ScalingType,
     e4m3_dtype,
     e5m2_dtype,
+    Float8LinearConfig,
+    Float8LinearRecipeName,
     recipe_name_to_linear_config,
+    ScalingGranularity,
+    ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -48,15 +48,15 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
+    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
-    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import (
-    FP8_TYPES,
     compute_error,
     config_has_stateful_scaling,
     fp8_tensor_statistics,
+    FP8_TYPES,
     tensor_to_scale,
 )
 from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
@@ -164,7 +164,8 @@ class TestFloat8Tensor:
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
-    def test_axiswise_dynamic_cast(self, shape, axiswise_dim):
+    @pytest.mark.parametrize("power_of_2_scale", [True, False])
+    def test_axiswise_dynamic_cast(self, shape, axiswise_dim, power_of_2_scale):
         a = torch.randn(*shape, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
         a_fp8 = hp_tensor_to_float8_dynamic(
@@ -173,6 +174,7 @@ class TestFloat8Tensor:
             linear_mm_config,
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=axiswise_dim,
+            power_of_2_scale=power_of_2_scale,
         )
         a_dq = a_fp8.to_original_precision()
         sqnr = compute_error(a, a_dq)

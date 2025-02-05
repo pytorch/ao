@@ -13,9 +13,9 @@ from io import StringIO
 import pytest
 
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -29,11 +29,11 @@ from torch._dynamo.testing import CompileCounterWithBackend
 from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     CastConfig,
+    e4m3_dtype,
     Float8LinearConfig,
     Float8LinearRecipeName,
-    ScalingType,
-    e4m3_dtype,
     recipe_name_to_linear_config,
+    ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -45,11 +45,7 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    GemmInputRole,
-    LinearMMConfig,
-    ScaledMMConfig,
-)
+from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
 from torchao.float8.float8_utils import config_has_stateful_scaling
 from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -420,7 +416,14 @@ def test_sync_amax_func_cuda_graph_success():
         torch.float16,
     ],
 )
-def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
+@pytest.mark.parametrize(
+    "power_of_2_scale",
+    [
+        True,
+        False,
+    ],
+)
+def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool):
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
     hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
@@ -456,6 +459,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        power_of_2_scale=power_of_2_scale,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
@@ -463,6 +467,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        power_of_2_scale=power_of_2_scale,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)
@@ -474,8 +479,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_delayed_scaling_pattern_replacement(dtype: torch.dtype):
-    from torch._inductor import config as inductor_config
-    from torch._inductor import metrics
+    from torch._inductor import config as inductor_config, metrics
 
     inductor_config.loop_ordering_after_fusion = True
 
