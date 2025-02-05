@@ -30,13 +30,15 @@ FP8_TYPES = {
 
 @torch.no_grad()
 def amax_to_scale(
-    amax: torch.Tensor, float8_dtype: torch.dtype, power_of_2_scale: bool = False
+    amax: torch.Tensor,
+    float8_dtype: torch.dtype,
+    round_scales_to_power_of_2: bool = False,
 ):
     """Converts the amax value of a tensor to the fp8 scale.
     Args:
         amax: The amax value of the tensor.
         float8_dtype: The float8 dtype.
-        power_of_2_scale: if true, round scaling factor down to the nearest power of 2.
+        round_scales_to_power_of_2: if true, round scaling factor down to the nearest power of 2.
     """
     # torch.compile and eager show different numerics for 1.0 / float32,
     # upcast to float64 to ensure same numeric between compile and eager
@@ -45,7 +47,7 @@ def amax_to_scale(
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
-    if power_of_2_scale:
+    if round_scales_to_power_of_2:
         # rounds down to the nearest power of 2.
         res = torch.exp2(torch.floor(torch.log2(res)))
     return res.to(torch.float32)
@@ -126,7 +128,7 @@ def tensor_to_scale(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
-    power_of_2_scale: bool = False,
+    round_scales_to_power_of_2: bool = False,
 ) -> torch.Tensor:
     """
     Compute scaling factor for the given high precision tensor.
@@ -137,7 +139,7 @@ def tensor_to_scale(
         reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
-        power_of_2_scale: if true, round scaling factor down to the nearest power of 2.
+        round_scales_to_power_of_2: if true, round scaling factor down to the nearest power of 2.
     """
     amax = tensor_to_amax(
         hp_tensor,
@@ -146,7 +148,9 @@ def tensor_to_scale(
         scaling_granularity,
         axiswise_dim,
     )
-    return amax_to_scale(amax, float8_dtype, power_of_2_scale=power_of_2_scale)
+    return amax_to_scale(
+        amax, float8_dtype, round_scales_to_power_of_2=round_scales_to_power_of_2
+    )
 
 
 def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):

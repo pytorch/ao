@@ -164,8 +164,10 @@ class TestFloat8Tensor:
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
-    @pytest.mark.parametrize("power_of_2_scale", [True, False])
-    def test_axiswise_dynamic_cast(self, shape, axiswise_dim, power_of_2_scale):
+    @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+    def test_axiswise_dynamic_cast(
+        self, shape, axiswise_dim, round_scales_to_power_of_2
+    ):
         a = torch.randn(*shape, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
         a_fp8 = hp_tensor_to_float8_dynamic(
@@ -174,7 +176,7 @@ class TestFloat8Tensor:
             linear_mm_config,
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=axiswise_dim,
-            power_of_2_scale=power_of_2_scale,
+            round_scales_to_power_of_2=round_scales_to_power_of_2,
         )
         a_dq = a_fp8.to_original_precision()
         sqnr = compute_error(a, a_dq)

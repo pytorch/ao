@@ -417,20 +417,22 @@ def test_sync_amax_func_cuda_graph_success():
     ],
 )
 @pytest.mark.parametrize(
-    "power_of_2_scale",
+    "round_scales_to_power_of_2",
     [
         True,
         False,
     ],
 )
-def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool):
+def test_dynamic_scale_numeric_parity(
+    dtype: torch.dtype, round_scales_to_power_of_2: bool
+):
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
     hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
     hp_tensor2 = hp_tensor1.detach().clone()
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-        power_of_2_scale=power_of_2_scale,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     linear_mm_config = LinearMMConfig(
         # output
@@ -460,7 +462,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
-        power_of_2_scale=float8_config.power_of_2_scale,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
@@ -468,7 +470,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype, power_of_2_scale: bool
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
-        power_of_2_scale=float8_config.power_of_2_scale,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)

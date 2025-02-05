@@ -239,7 +239,7 @@ class Float8LinearConfig:
     # reduce quantization error by avoiding rounding errors when multiplying/dividing
     # by the scaling factor, as well as ensuring large values are quantized to the
     # same value in the forward pass as the backward passes.
-    power_of_2_scale: bool = False
+    round_scales_to_power_of_2: bool = False
 
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
@@ -344,7 +344,7 @@ def recipe_name_to_linear_config(
             cast_config_weight=cc_w,
             cast_config_grad_output=cc_go,
             # enable power of 2 scaling factors by default for row-wise scaling
-            power_of_2_scale=True,
+            round_scales_to_power_of_2=True,
         )
 
     elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
