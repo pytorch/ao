@@ -538,11 +538,11 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             ]
             image_embed_input = image_embed[-1].unsqueeze(0).clone()
             low_res_masks, iou_preds = self.predictor._predict_masks(
-                high_res_feats_input,
-                image_embed_input,
-                image_pe,
-                in_points[:, None, :],
-                in_labels[:, None],
+                [t.contiguous() for t in high_res_feats_input],
+                image_embed_input.contiguous(),
+                image_pe.contiguous(),
+                in_points[:, None, :].contiguous(),
+                in_labels[:, None].contiguous(),
                 boxes=None,
                 mask_input=None,
                 multimask_output=self.multimask_output,

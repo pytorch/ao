@@ -89,7 +89,7 @@ def main(
         stdout, stderr = run_script_with_args(
             [
                 "generate_data.py",
-                "~/checkpoints/sam2",
+                f"{str(Path.home())}/checkpoints/sam2",
                 "large",
                 task,
                 image_paths,
