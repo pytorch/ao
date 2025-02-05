@@ -147,6 +147,20 @@ class Float8GemmConfig:
 
 
 @dataclass(frozen=True)
+class Float8ScalingFactorConfig:
+    """
+    Configuration for scaling factor used for float8 quantization.
+    """
+
+    # If this option is enabled, the scaling factor used for float8 quantization
+    # will be rounded down to the nearest power of 2. This has been shown to help
+    # reduce quantization error by avoiding rounding errors when multiplying/dividing
+    # by the scaling factor, as well as ensuring large values are quantized to the
+    # same value in the forward pass as the backward pass.
+    power_of_2_scale: bool = False
+
+
+@dataclass(frozen=True)
 class Float8LinearConfig:
     """
     Configuration for converting a `torch.nn.Linear` module to float8
@@ -233,6 +247,9 @@ class Float8LinearConfig:
     # TODO(future PR): either enable by default or have a warning and set up the
     # tests so that the warning does not spam the CI stdout.
     force_recompute_fp8_weight_in_bwd: bool = False
+
+    # configuration used for calculating the scaling factor used in float8 quantization.
+    scaling_factor_config: Float8ScalingFactorConfig = None
 
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them

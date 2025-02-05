@@ -12,7 +12,7 @@ from typing import Optional
 
 import torch
 
-from torchao.float8.config import ScalingGranularity
+from torchao.float8.config import Float8ScalingFactorConfig, ScalingGranularity
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -36,6 +36,7 @@ def hp_tensor_to_float8_dynamic(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    scaling_factor_config: Float8ScalingFactorConfig = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -51,6 +52,10 @@ def hp_tensor_to_float8_dynamic(
           the 3 fwd/bwd gemms of linear
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
+        scaling_factor_config: optional configurations used to calculate the scaling factor.
+          * for row-wise scaling granularity, power of 2 scaling factor will be used by default,
+            but can be disabled via this config.
+          * for all other scaling granularities, power of 2 scaling factors are not used by default.
     """
     scale = tensor_to_scale(
         hp_tensor,
@@ -60,6 +65,11 @@ def hp_tensor_to_float8_dynamic(
         scaling_granularity,
         axiswise_dim,
     )
+
+    if _use_power_of_2_scale(scaling_granularity, scaling_factor_config):
+        # this rounds the scaling factor down to the nearest power of 2.
+        scale = torch.exp2(torch.floor(torch.log2(scale)))
+
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
@@ -68,6 +78,36 @@ def hp_tensor_to_float8_dynamic(
         gemm_input_role,
         axiswise_dim,
     )
+
+
+def _use_power_of_2_scale(
+    scaling_granularity: ScalingGranularity,
+    scaling_factor_config: Float8ScalingFactorConfig = None,
+) -> bool:
+    """
+    Returns boolean indicating if scaling factor should be rounded down to
+    the nearest power of 2.
+
+    Returns true in these cases:
+    1. The caller has enabled it in the scaling factor config.
+    2. Default on for row-wise scaling unless user has explicitly disabled
+       it in the scaling factor config.
+
+    Otherwise, returns false.
+    """
+    power_of_2_scale_enabled = (
+        scaling_factor_config is not None
+        and scaling_factor_config.power_of_2_scale is True
+    )
+    power_of_2_scale_explicitly_disabled = (
+        scaling_factor_config is not None
+        and scaling_factor_config.power_of_2_scale is False
+    )
+    use_power_of_2_scale = power_of_2_scale_enabled or (
+        scaling_granularity == ScalingGranularity.AXISWISE
+        and not power_of_2_scale_explicitly_disabled
+    )
+    return use_power_of_2_scale
 
 
 def hp_tensor_to_float8_delayed(
