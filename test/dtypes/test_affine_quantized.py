@@ -96,7 +96,6 @@ class TestAffineQuantized(TestCase):
             aqt_shape = aqt.shape
             self.assertEqual(aqt_shape, shape)
 
-    @skip_if_rocm("ROCm development in progress")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
         "apply_quant",
@@ -181,7 +180,6 @@ class TestAffineQuantized(TestCase):
     @common_utils.parametrize(
         "apply_quant", get_quantization_functions(is_cusparselt_available, True)
     )
-    @skip_if_rocm("ROCm development in progress")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @skip_if_rocm("ROCm enablement in progress")
     def test_print_quantized_module(self, apply_quant):
@@ -194,7 +192,6 @@ class TestAffineQuantizedBasic(TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.bfloat16]
 
-    @skip_if_rocm("ROCm development in progress")
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     @skip_if_rocm("ROCm enablement in progress")
