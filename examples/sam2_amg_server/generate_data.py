@@ -38,16 +38,15 @@ def memory_runner(path, fn, *args, **kwargs):
     print("Start memory recording")
     torch.cuda.synchronize()
     torch.cuda.memory._record_memory_history(
-        True,
-        trace_alloc_max_entries=100000,
-        trace_alloc_record_context=True
+        True, trace_alloc_max_entries=100000, trace_alloc_record_context=True
     )
     result = fn(*args, **kwargs)
     torch.cuda.synchronize()
     snapshot = torch.cuda.memory._snapshot()
     print("Finish memory recording")
     import pickle
-    with open(path, 'wb') as f:
+
+    with open(path, "wb") as f:
         pickle.dump(snapshot, f)
     # Use to convert pickle file into html
     # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
@@ -372,7 +371,9 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
                     image_tensor = image_tensor.permute((2, 0, 1))
                     image_tensor = image_tensor.cuda()
                     with record_function("v2.ToDtype"):
-                        image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
+                        image_tensor = v2.ToDtype(torch.float32, scale=True)(
+                            image_tensor
+                        )
             else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
                 from torchvision.transforms import ToTensor

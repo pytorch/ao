@@ -176,15 +176,19 @@ def export_model(
         example_input_args = ()
         example_input_kwargs = {
             "points": (
-                torch.randn(points_per_batch,
-                            1,
-                            2,
-                            dtype=torch.float32,
-                            device=mask_generator.predictor.device),
-                torch.ones(points_per_batch,
-                           1,
-                           dtype=torch.int32,
-                           device=mask_generator.predictor.device),
+                torch.randn(
+                    points_per_batch,
+                    1,
+                    2,
+                    dtype=torch.float32,
+                    device=mask_generator.predictor.device,
+                ),
+                torch.ones(
+                    points_per_batch,
+                    1,
+                    dtype=torch.int32,
+                    device=mask_generator.predictor.device,
+                ),
             ),
             "boxes": None,
             "masks": None,
@@ -201,15 +205,56 @@ def export_model(
     if task_type in []:
         example_input_args = ()
         example_input_kwargs = {
-            "image_embeddings": torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device),
-            "image_pe": torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device),
-            "sparse_prompt_embeddings": torch.randn(batch_size, 2, 256, dtype=torch.float32, device=mask_generator.predictor.device),
-            "dense_prompt_embeddings": torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device=mask_generator.predictor.device),
+            "image_embeddings": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "image_pe": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "sparse_prompt_embeddings": torch.randn(
+                batch_size,
+                2,
+                256,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "dense_prompt_embeddings": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
             "multimask_output": True,
             "repeat_image": False,
             "high_res_features": [
-                torch.randn(batch_size, 32, 256, 256, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
-                torch.randn(batch_size, 64, 128, 128, dtype=mask_generator.predictor._image_dtype, device=mask_generator.predictor.device),
+                torch.randn(
+                    batch_size,
+                    32,
+                    256,
+                    256,
+                    dtype=mask_generator.predictor._image_dtype,
+                    device=mask_generator.predictor.device,
+                ),
+                torch.randn(
+                    batch_size,
+                    64,
+                    128,
+                    128,
+                    dtype=mask_generator.predictor._image_dtype,
+                    device=mask_generator.predictor.device,
+                ),
             ],
         }
         aot_compile(
@@ -223,9 +268,29 @@ def export_model(
 
     if task_type in []:
         example_input_args = (
-            torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
-            torch.randn(points_per_batch, 256,  64, 64, dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
-            torch.randn(points_per_batch,   8, 256,     dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype, device=mask_generator.predictor.device),
+            torch.randn(
+                points_per_batch,
+                256,
+                64,
+                64,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
+            torch.randn(
+                points_per_batch,
+                256,
+                64,
+                64,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
+            torch.randn(
+                points_per_batch,
+                8,
+                256,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
         )
         example_input_kwargs = {}
         aot_compile(
@@ -383,7 +448,9 @@ def load_exported_model(
         print(f"Start load from {path}")
         pkg = torch._inductor.aoti_load_package(str(path))
         pkg_m = LoadedModel(pkg)
-        mask_generator.predictor.model.sam_mask_decoder.transformer.forward = pkg_m.forward
+        mask_generator.predictor.model.sam_mask_decoder.transformer.forward = (
+            pkg_m.forward
+        )
 
     if task_type in ["amg", "sps"]:
         path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")

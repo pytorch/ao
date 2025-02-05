@@ -28,11 +28,9 @@ class SAM2Transforms(nn.Module):
         self.std = [0.229, 0.224, 0.225]
         self.to_tensor = ToTensor()
         # self.transforms = torch.jit.script(
-        self.transforms = (
-            nn.Sequential(
-                Resize((self.resolution, self.resolution)),
-                Normalize(self.mean, self.std),
-            )
+        self.transforms = nn.Sequential(
+            Resize((self.resolution, self.resolution)),
+            Normalize(self.mean, self.std),
         )
 
     def __call__(self, x):
