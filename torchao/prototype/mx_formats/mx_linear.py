@@ -23,25 +23,31 @@ class mx_mm(torch.autograd.Function):
     # 1.       input @ weight_t    = output     (forward pass)
     # 2. grad_output @ weight      = grad_input (backward pass)
     # 3.     input_t @ grad_output = grad_weight (backward pass)
+    # 
+    # input, weight and grad_output have each their own MX element dtype.
 
     @staticmethod
     def forward(
         ctx,
         input_hp: torch.Tensor,
         weight_hp: torch.Tensor,
-        elem_dtype: Any,
+        in_elem_dtype: Any,
+        w_elem_dtype: Any,
+        grad_elem_dtype: Any,
         block_size: int,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
-        ctx.elem_dtype = elem_dtype
+        ctx.in_elem_dtype = in_elem_dtype
+        ctx.w_elem_dtype = w_elem_dtype
+        ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
-        input_mx_r_dim0 = MXTensor.to_mx(input_hp_r, elem_dtype, block_size)
-        weight_mx_dim0 = MXTensor.to_mx(weight_hp, elem_dtype, block_size)
+        input_mx_r_dim0 = MXTensor.to_mx(input_hp_r, in_elem_dtype, block_size)
+        weight_mx_dim0 = MXTensor.to_mx(weight_hp, w_elem_dtype, block_size)
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
 
@@ -51,7 +57,9 @@ class mx_mm(torch.autograd.Function):
     def backward(ctx, grad_output_hp: torch.Tensor):
         input_hp, weight_hp = ctx.saved_tensors
         weight_hp_t_c = weight_hp.t().contiguous()
-        elem_dtype = ctx.elem_dtype
+        in_elem_dtype = ctx.in_elem_dtype
+        w_elem_dtype = ctx.w_elem_dtype
+        grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
 
         grad_output_orig_shape = grad_output_hp.shape
@@ -61,8 +69,8 @@ class mx_mm(torch.autograd.Function):
         input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
         # grad_output @ weight = grad_input
-        grad_output_mx_dim0 = MXTensor.to_mx(grad_output_hp_r, elem_dtype, block_size)
-        weight_mx_dim1 = MXTensor.to_mx(weight_hp_t_c, elem_dtype, block_size)
+        grad_output_mx_dim0 = MXTensor.to_mx(grad_output_hp_r, grad_elem_dtype, block_size)
+        weight_mx_dim1 = MXTensor.to_mx(weight_hp_t_c, w_elem_dtype, block_size)
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
@@ -70,15 +78,15 @@ class mx_mm(torch.autograd.Function):
 
         # input_t @ grad_output = grad_weight
         grad_output_mx_dim1 = MXTensor.to_mx(
-            grad_output_hp_r.t().contiguous(), elem_dtype, block_size
+            grad_output_hp_r.t().contiguous(), grad_elem_dtype, block_size
         )
         input_t_mx_dim0_tmp = MXTensor.to_mx(
-            input_hp_r.t().contiguous(), elem_dtype, block_size
+            input_hp_r.t().contiguous(), in_elem_dtype, block_size
         )
         input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None
+        return grad_input, grad_weight, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
