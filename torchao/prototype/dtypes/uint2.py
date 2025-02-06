@@ -4,16 +4,9 @@ from typing import Any, Dict, Tuple
 import torch
 import torch._prims_common as utils
 
+from torchao.utils import fill_defaults
+
 UINT2_OPS_TABLE: Dict[Any, Any] = {}
-
-
-def fill_defaults(args, n, defaults_tail):
-    if n - len(defaults_tail) > len(args):
-        raise RuntimeError("not enough defaults to fill arguments")
-    r = list(args)
-    for i in range(len(args), n):
-        r.append(defaults_tail[i - n + len(defaults_tail)])
-    return r
 
 
 def implements(aten_ops):
