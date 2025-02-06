@@ -195,7 +195,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     def get_plain(self):
         from torchao.sparsity.marlin import (
             unpack_from_marlin_24,
-        )  # avoid circular import
+        )
 
         int_data_expanded, scales_expanded = unpack_from_marlin_24(
             self.int_data,
@@ -220,7 +220,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         from torchao.sparsity.marlin import (
             const,
             pack_to_marlin_24,
-        )  # avoid circular import
+        )
 
         assert isinstance(_layout, MarlinSparseLayout)
 
