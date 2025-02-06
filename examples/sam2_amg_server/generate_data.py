@@ -363,7 +363,7 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
         with record_function("decode image bytes"):
             if gpu_preproc:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
-                from torchvision.transforms import ToTensor, v2
+                from torchvision.transforms import v2
 
                 if not baseline:
                     image_tensor = torch.from_numpy(image_tensor)

@@ -155,6 +155,20 @@ class Model:
         # from generate_data import gen_masks_baseline as gen_masks
         self.gen_masks = gen_masks
 
+    def decode_img_bytes(self, img_bytes_tensor, baseline=False):
+        import torch
+        image_tensor = self.file_bytes_to_image_tensor(img_bytes_tensor)
+        from torchvision.transforms import v2
+
+        if not baseline:
+            image_tensor = torch.from_numpy(image_tensor)
+            image_tensor = image_tensor.permute((2, 0, 1))
+            image_tensor = image_tensor.cuda()
+            image_tensor = v2.ToDtype(torch.float32, scale=True)(
+                image_tensor
+            )
+        return image_tensor
+
     @modal.web_endpoint(docs=True, method="POST")
     async def upload_rle(self, image):
         def upload_rle_inner(input_bytes):
@@ -167,7 +181,7 @@ class Model:
 
     @modal.method()
     def inference_amg_rle(self, input_bytes) -> dict:
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         return self.masks_to_rle_dict(masks)
 
