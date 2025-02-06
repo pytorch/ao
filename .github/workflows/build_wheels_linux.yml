@@ -54,6 +54,7 @@ jobs:
       trigger-event: ${{ github.event_name }}
       # This is the CUDA version to be uploaded to torchao-nightly pypi
       upload-to-pypi: cu121
+      python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   notify:
@@ -89,5 +90,5 @@ jobs:
             Error Information:
             ${{ needs.generate-matrix.result == 'failure' && 'Matrix generation failed' || '' }}
             ${{ needs.build.result == 'failure' && 'Build job failed' || '' }}
-            
+
             This is an automated notification. Please check the GitHub Actions page for more details about the failure.
