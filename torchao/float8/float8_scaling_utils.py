@@ -27,6 +27,7 @@ from torchao.float8.float8_utils import (
 )
 
 
+# TODO(danielvegamyhre): refactor to accept Float8LinearConfig directly
 def hp_tensor_to_float8_dynamic(
     hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,

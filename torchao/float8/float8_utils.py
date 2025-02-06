@@ -45,12 +45,15 @@ def amax_to_scale(
     amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+        res = res.to(torch.float32)
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
     if round_scales_to_power_of_2:
-        # rounds down to the nearest power of 2.
-        res = torch.exp2(torch.floor(torch.log2(res)))
-    return res.to(torch.float32)
+        # rounds down to the nearest power of 2
+        res = res.view(torch.int32)
+        res = (res >> 23) << 23
+        res = res.view(torch.float32)
+    return res
 
 
 @torch.no_grad()
