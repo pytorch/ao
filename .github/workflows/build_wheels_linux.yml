@@ -70,7 +70,7 @@ jobs:
           password: ${{ secrets.TORCHAO_NOTIFY_PASSWORD }}
           from: torchao.notify@gmail.com
           to: ${{ secrets.TORCHAO_NOTIFY_RECIPIENT }}
-          subject: breakbutterflyScheduled Build Failure for TorchAO
+          subject: Scheduled Build Failure for TorchAO
           body: |
             Build Failure Notification for TorchAO
 
