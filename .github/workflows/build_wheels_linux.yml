@@ -30,6 +30,8 @@ jobs:
       with-cuda: enable
       with-rocm: enable
       with-xpu: enable
+      # please note: excluding 3.13t for aarch64 builds for now
+      python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
 
   build:
     needs: generate-matrix
@@ -54,8 +56,6 @@ jobs:
       trigger-event: ${{ github.event_name }}
       # This is the CUDA version to be uploaded to torchao-nightly pypi
       upload-to-pypi: cu121
-      # please note: excluding 3.13t for linux builds for now
-      python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   notify:
