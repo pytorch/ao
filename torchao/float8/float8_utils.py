@@ -285,23 +285,6 @@ def config_has_stateful_scaling(config: Float8LinearConfig) -> bool:
     )
 
 
-def _round_scale_down_to_power_of_2(x: torch.Tensor):
-    assert x.dtype == torch.float32, "scale must be float32 tensor"
-
-    # eps = smallest normal fp32 value
-    # TODO(danielvegamyhre): support subnormal values
-    eps = 2**-126
-    x = torch.clamp(
-        x,
-        min=eps,
-    )
-
-    # view as int32 to allow bitshifting
-    x_int = x.view(torch.int32)
-
-    # clear mantissa bits (rightmost 23 bits)
-    x_int = (x_int >> 23) << 23
-
-    # return result as fp32
-    result = x_int.view(torch.float32)
-    return result
+def _round_scale_down_to_power_of_2(scale: torch.Tensor):
+    assert scale.dtype == torch.float32, "scale must be float32 tensor"
+    return torch.exp2(torch.floor(torch.log2(scale)))
