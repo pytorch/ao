@@ -49,10 +49,7 @@ def amax_to_scale(
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
     if round_scales_to_power_of_2:
-        # rounds down to the nearest power of 2
-        res = res.view(torch.int32)
-        res = (res >> 23) << 23
-        res = res.view(torch.float32)
+        res = _round_down_to_power_of_2(res)
     return res
 
 
@@ -286,3 +283,12 @@ def config_has_stateful_scaling(config: Float8LinearConfig) -> bool:
         or config.cast_config_weight.scaling_type != ScalingType.DYNAMIC
         or config.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
     )
+
+
+def _round_down_to_power_of_2(x: torch.Tensor) -> torch.Tensor:
+    assert x.dtype == torch.float32, "input must be float32 tensor"
+    # rounds down to the nearest power of 2
+    x = x.view(torch.int32)
+    x = (x >> 23) << 23
+    x = x.view(torch.float32)
+    return x
