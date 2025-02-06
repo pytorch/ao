@@ -607,10 +607,26 @@ def _torch_version_at_least(min_version):
 def is_MI300():
     if torch.cuda.is_available() and torch.version.hip:
         mxArchName = ["gfx940", "gfx941", "gfx942"]
-        archName = torch.cuda.get_device_properties().gcnArchName
+        archName = torch.cuda.get_device_properties(0).gcnArchName
         for arch in mxArchName:
             if arch in archName:
                 return True
+    return False
+
+
+def is_MI350():
+    if torch.cuda.is_available() and torch.version.hip:
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx950" in archName:
+            return True
+    return False
+
+
+def is_Navi4():
+    if torch.cuda.is_available() and torch.version.hip:
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx1200" or "gfx1201" in archName:
+            return True
     return False
 
 

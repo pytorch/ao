@@ -58,7 +58,7 @@ class Float8TypeConfig:
     """
     Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
 
-    Currently, ROCm only supports fnuz variants.
+    Currently, ROCm supports 1. fnuz variants in MI300. 2. OCP F8 variants in MI350/Navi4.
     """
 
     # The preferred e4m3 type.
