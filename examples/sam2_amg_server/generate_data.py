@@ -21,6 +21,38 @@ from torch.autograd.profiler import record_function
 from tqdm import tqdm
 
 
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        record_shapes=True,
+    ) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
+
+
+def memory_runner(path, fn, *args, **kwargs):
+    print("Start memory recording")
+    torch.cuda.synchronize()
+    torch.cuda.memory._record_memory_history(
+        True, trace_alloc_max_entries=100000, trace_alloc_record_context=True
+    )
+    result = fn(*args, **kwargs)
+    torch.cuda.synchronize()
+    snapshot = torch.cuda.memory._snapshot()
+    print("Finish memory recording")
+    import pickle
+
+    with open(path, "wb") as f:
+        pickle.dump(snapshot, f)
+    # Use to convert pickle file into html
+    # python torch/cuda/_memory_viz.py trace_plot <snapshot>.pickle -o <snapshot>.html
+    return result
+
+
 def latencies_statistics(data):
     # Convert the list to a NumPy array
     data_array = np.array(data)
@@ -330,16 +362,17 @@ def decode_img_bytes(img_bytes_tensors, gpu_preproc, baseline):
     for img_bytes_tensor in img_bytes_tensors:
         with record_function("decode image bytes"):
             if gpu_preproc:
-                # NOTE: We have to use numpy for the baseline
-                assert not baseline
-                from torchvision import io as tio
+                image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
+                from torchvision.transforms import ToTensor, v2
 
-                image_tensor = tio.decode_jpeg(
-                    img_bytes_tensor, device="cuda", mode=tio.ImageReadMode.RGB
-                )
-                from torchvision.transforms.v2 import functional as F
-
-                image_tensor = F.to_dtype(image_tensor, torch.float32, scale=True)
+                if not baseline:
+                    image_tensor = torch.from_numpy(image_tensor)
+                    image_tensor = image_tensor.permute((2, 0, 1))
+                    image_tensor = image_tensor.cuda()
+                    with record_function("v2.ToDtype"):
+                        image_tensor = v2.ToDtype(torch.float32, scale=True)(
+                            image_tensor
+                        )
             else:
                 image_tensor = file_bytes_to_image_tensor(img_bytes_tensor)
                 from torchvision.transforms import ToTensor
@@ -431,6 +464,7 @@ def main(
     quiet=False,
     gpu_preproc=False,
     batch_size=1,
+    seed=42,
 ):
     if batch_size <= 0:
         raise ValueError("Expected --batch_size to be at least 1 but got {batch_size}")
@@ -502,6 +536,7 @@ def main(
         from torchao._models.sam2.utils.amg import (
             mask_to_rle_pytorch_2 as mask_to_rle_pytorch,
         )
+    torch.manual_seed(seed)
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)
     if verbose:
@@ -628,4 +663,5 @@ def main(
 main.__doc__ = main_docstring()
 if __name__ == "__main__":
     # profiler_runner("asdf.json.gz", fire.Fire, main)
+    # memory_runner("asdf.pickle", fire.Fire, main)
     fire.Fire(main)
