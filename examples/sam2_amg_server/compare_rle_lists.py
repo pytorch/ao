@@ -3,8 +3,23 @@ from pathlib import Path
 
 import fire
 import torch
+import numpy as np
+from typing import Any, Dict
 
-from torchao._models.sam2.utils.amg import rle_to_mask
+
+# from torchao._models.sam2.utils.amg import rle_to_mask
+def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
+    """Compute a binary mask from an uncompressed RLE."""
+    h, w = rle["size"]
+    mask = np.empty(h * w, dtype=bool)
+    idx = 0
+    parity = False
+    for count in rle["counts"]:
+        mask[idx: idx + count] = parity
+        idx += count
+        parity ^= True
+    mask = mask.reshape(w, h)
+    return mask.transpose()  # Put in C order
 
 """
 Script to calculate mIoU given two lists of rles from upload_rle endpoint

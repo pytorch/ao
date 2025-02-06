@@ -25,11 +25,11 @@ image = (
     .apt_install("git")
     .apt_install("libopencv-dev")
     .apt_install("python3-opencv")
-    .run_commands(["git clone https://github.com/pytorch/ao.git /tmp/ao_src_0"])
-    .run_commands(
-        ["cd /tmp/ao_src_0; git checkout 1be4307db06d2d7e716d599c1091a388220a61e4"]
-    )
-    .run_commands(["cd /tmp/ao_src_0; python setup.py develop"])
+    .run_commands([f"git clone https://github.com/pytorch/ao.git {TARGET}ao_src_0"])
+    # .run_commands(
+    #     ["cd /tmp/ao_src_0; git checkout 1be4307db06d2d7e716d599c1091a388220a61e4"]
+    # )
+    .run_commands([f"cd {TARGET}ao_src_0; python setup.py develop"])
     .pip_install(
         "gitpython",
     )
@@ -73,76 +73,30 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
     },
 )
 class Model:
-    def calculate_file_hash(self, file_path, hash_algorithm="sha256"):
-        import hashlib
-
-        """Calculate the hash of a file."""
-        hash_func = hashlib.new(hash_algorithm)
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_func.update(chunk)
-        return hash_func.hexdigest()
-
-    def download_file(self, url, filename):
-        import subprocess
-
-        command = f"wget -O {filename} {url}"
-        subprocess.run(command, shell=True, check=True)
-
-    def download_and_verify_file(
-        self, url, filename, hash_value, hash_algorithm="sha256"
-    ):
-        if Path(filename).exists():
-            h = self.calculate_file_hash(filename, hash_algorithm)
-            if hash_value == h:
-                return
-        # Here either the file doesn't exist or the file
-        # has the wrong hash, so we try to download it again.
-        self.download_file(url, filename)
-        h = self.calculate_file_hash(filename, hash_algorithm)
-        if h != hash_value:
-            raise ValueError(
-                f"Url {url} doesn't contain file with "
-                f"{hash_algorithm} hash of value "
-                f"{hash_value}"
-            )
-
     @modal.build()
     @modal.enter()
     def build(self):
         import os
+        import numpy as np
+        import torch
 
         from torchao._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
         from torchao._models.sam2.build_sam import build_sam2
-        # Baseline
-        # from sam2.build_sam import build_sam2
-        # from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-        download_url_branch = "main"
-        download_url = f"{DOWNLOAD_URL_BASE}/{download_url_branch}/"
-        download_url = download_url + "examples/sam2_amg_server"
-
-        file_hashes = {
-            "cli.py": "8bce88807fe360babd7694f7ee009d7ea6cdc150a4553c41409589ec557b4c4b",
-            "server.py": "2d79458fabab391ef45cdc3ee9a1b62fea9e7e3b16e0782f522064d6c3c81a17",
-            "compile_export_utils.py": "552c422a5c267e57d9800e5080f2067f25b4e6a3b871b2063a2840033f4988d0",
-            "annotate_with_rle.py": "87ecb734c4b2bcdd469e0e373f73727316e844e98f263c6a713c1ce4d6e1f0f6",
-            "generate_data.py": "5ff754a0845ba0d706226013be2ebf46268a6d46c7bc825ff7dbab0de048a0a7",
-        }
-
-        for f in file_hashes:
-            self.download_and_verify_file(
-                f"{download_url}/{f}", TARGET + f"data/{f}", file_hashes[f]
-            )
-
-        os.chdir(Path(TARGET + "data"))
+        os.chdir(f"{TARGET}ao_src_0/examples/sam2_amg_server")
         import sys
 
         sys.path.append(".")
 
-        from server import model_type_to_paths
+        from server import (
+            model_type_to_paths,
+            file_bytes_to_image_tensor,
+            masks_to_rle_dict,
+            profiler_runner,
+            show_anns,
+        )
 
         device = "cuda"
         checkpoint_path = Path(TARGET) / Path("checkpoints")
@@ -153,31 +107,19 @@ class Model:
         mask_generator = SAM2AutomaticMaskGenerator(
             sam2, points_per_batch=1024, output_mode="uncompressed_rle"
         )
-        # from compile_export_utils import load_exported_model
-        # mask_generator = load_exported_model(mask_generator,
-        #                                      Path(TARGET) / Path("exported_models"),
-        #                                      # Currently task_type has no effect,
-        #                                      # because we can only export the image
-        #                                      # encoder, but this might change soon.
-        #                                      "amg",  # task_type
-        #                                      furious=True,
-        #                                      batch_size=1,
-        #                                      points_per_batch=1024)
+        from compile_export_utils import load_exported_model
+        export_model_path = Path(TARGET) / Path("exported_models")
+        export_model_path = export_model_path / Path("sam2") / Path("sam2_amg")
+        load_exported_model(mask_generator,
+                            export_model_path,
+                            # Currently task_type has no effect,
+                            # because we can only export the image
+                            # encoder, but this might change soon.
+                            "amg",
+                            furious=True,
+                            batch_size=1,
+                            points_per_batch=1024)
         self.mask_generator = mask_generator
-        import os
-        import sys
-
-        import numpy as np
-        import torch
-
-        os.chdir(Path(TARGET + "data"))
-        sys.path.append(".")
-        from server import (
-            file_bytes_to_image_tensor,
-            masks_to_rle_dict,
-            profiler_runner,
-            show_anns,
-        )
         from torchvision import io as tio
         from torchvision.transforms.v2 import functional as tio_F
 
@@ -187,7 +129,7 @@ class Model:
             rle_to_mask,
         )
 
-        # Baselien
+        # Baseline
         # from sam2.utils.amg import rle_to_mask
         # from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
 
@@ -380,7 +322,7 @@ def main(
     assert task_type in ["amg", "sps", "mps"]
     if task_type in ["sps", "mps"]:
         assert meta_paths is not None
-    input_paths = open(input_paths).read().split("\n")
+    input_paths = open(input_paths).read().split("\n")[:-1]
     for input_path in input_paths:
         assert Path(input_path).exists()
 
@@ -393,7 +335,7 @@ def main(
 
     if meta_paths is not None:
         meta_mapping = {}
-        meta_paths = open(meta_paths).read().split("\n")
+        meta_paths = open(meta_paths).read().split("\n")[:-1]
         for meta_path in meta_paths:
             assert Path(meta_path).exists()
             key = Path(meta_path).name.split("_meta.json")[0]
