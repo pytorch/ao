@@ -15,6 +15,7 @@ from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
         # "test_case_name": [input, expected result]
         ("one", [1.0, 1.0]),
         ("inf", [float("inf"), float("inf")]),
+        ("nan", [float("nan"), float("nan")]),
         ("smallest positive subnormal number", [2**-126 * 2**-23, 2**-126 * 2**-23]),
         ("largest subnormal number", [2**-126 * (1 - 2**-23), 1.1754943508222875e-38]),
         ("largest normal number", [2**127 * (2 - 2**-23), float("inf")]),
@@ -32,8 +33,9 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
         torch.tensor(expected_result).cuda(),
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
-    assert torch.equal(
-        result, expected_tensor
+    assert (
+        torch.equal(result, expected_tensor)
+        or (result.isnan() and expected_tensor.isnan())
     ), f"test: {test_case_name}, input: {input_tensor}, expected {expected_tensor}, but got {result}"
 
 
