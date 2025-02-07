@@ -65,6 +65,8 @@ for _ in range(10):
 
 ## float8 linear with delayed scaling
 
+:warning: <em>We plan to deprecate delayed scaling in a future release, see https://github.com/pytorch/ao/issues/1680 for more details.</em>
+
 This is theoretically the most performant recipe as it minimizes memory reads.
 
 ```python

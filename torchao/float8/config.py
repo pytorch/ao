@@ -304,6 +304,16 @@ class Float8LinearConfig:
                 "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
             )
 
+        # Future deprecation warning for delayed scaling
+        if (
+            self.cast_config_input.scaling_type != ScalingType.DYNAMIC
+            or self.cast_config_weight.scaling_type != ScalingType.DYNAMIC
+            or self.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
+        ):
+            logger.warning(
+                "Note: delayed and static scaling will be deprecated in a future release of torchao. Please see https://github.com/pytorch/ao/issues/1680 for more details."
+            )
+
 
 # Pre-made recipes for common configurations
 # TODO(future PR): go through a round of design on this, and eventually expose
