@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-
 import torch
 
 from torchao.dtypes import PlainLayout
