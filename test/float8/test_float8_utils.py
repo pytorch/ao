@@ -1,3 +1,5 @@
+import unittest
+
 import pytest
 import torch
 
@@ -6,6 +8,7 @@ from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 
 # source for notable single-precision cases:
 # https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -24,8 +27,10 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
     test_case: dict,
 ):
     test_case_name, (input, expected_result) = test_case
-    input_tensor, expected_tensor = torch.tensor(input), torch.tensor(expected_result)
-
+    input_tensor, expected_tensor = (
+        torch.tensor(input).cuda(),
+        torch.tensor(expected_result).cuda(),
+    )
     result = _round_scale_down_to_power_of_2(input_tensor)
     assert torch.equal(
         result, expected_tensor
