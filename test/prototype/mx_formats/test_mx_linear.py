@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 
 import pytest
 import torch
@@ -41,13 +42,16 @@ def run_around_tests():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize(
+    "elem_dtype", itertools.product(SUPPORTED_ELEM_DTYPES, repeat=3)
+)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
     """
+    # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
     grad_shape[-1] = 6
 
@@ -56,7 +60,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     )
     m_mx = copy.deepcopy(m)
     block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m_mx, *elem_dtype, block_size=block_size)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
     x = copy.deepcopy(x_ref)
@@ -72,7 +76,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     w_g_sqnr = compute_error(m[0].weight.grad, getattr(m_mx, "0").weight.grad)
     x_g_sqnr = compute_error(x_ref.grad, x.grad)
 
-    if elem_dtype is torch.float8_e4m3fn:
+    if elem_dtype == (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn):
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
         assert x_g_sqnr >= 12.0
@@ -94,7 +98,7 @@ def test_activation_checkpointing():
         nn.Linear(6, 6, bias=True, device="cuda"),
     )
     block_size = 2
-    swap_linear_with_mx_linear(m, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m, elem_dtype, block_size=block_size)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
     g = torch.randn(*grad_shape, device="cuda")
@@ -130,7 +134,7 @@ def test_linear_compile(elem_dtype, bias, use_autocast):
         nn.Linear(K, N, bias=bias, device="cuda"),
     )
     block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size=block_size)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
@@ -219,6 +223,20 @@ def test_inference_compile_simple(elem_dtype):
         assert sqnr >= 13.5
 
 
+def test_mx_linear_input_weight_gradient_dtypes():
+    m = nn.Sequential(nn.Linear(32, 32))
+    swap_linear_with_mx_linear(m, *SUPPORTED_ELEM_DTYPES[:3], block_size=32)
+    assert m[0].in_elem_dtype == SUPPORTED_ELEM_DTYPES[0]
+    assert m[0].w_elem_dtype == SUPPORTED_ELEM_DTYPES[1]
+    assert m[0].grad_elem_dtype == SUPPORTED_ELEM_DTYPES[2]
+
+    m = nn.Sequential(nn.Linear(32, 32))
+    swap_linear_with_mx_linear(m, torch.float8_e4m3fn, block_size=32)
+    assert m[0].in_elem_dtype == torch.float8_e4m3fn
+    assert m[0].w_elem_dtype == torch.float8_e4m3fn
+    assert m[0].grad_elem_dtype == torch.float8_e4m3fn
+
+
 def test_filter_fn():
     m1 = nn.Sequential(
         nn.Linear(32, 32),
@@ -227,7 +245,9 @@ def test_filter_fn():
     m2 = copy.deepcopy(m1)
     filter_fn = lambda mod, fqn: fqn != "1"  # noqa: E731
 
-    swap_linear_with_mx_linear(m1, torch.float8_e4m3fn, 32, filter_fn)
+    swap_linear_with_mx_linear(
+        m1, torch.float8_e4m3fn, block_size=32, filter_fn=filter_fn
+    )
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
