@@ -44,6 +44,11 @@ jobs:
         run: |
           conda activate venv
           pushd torchao/experimental/ops/mps
+
+          echo "Building"
           bash build.sh
+
+          echo "Running test"
           python test/test_lowbit.py
+
           popd
