@@ -43,5 +43,7 @@ jobs:
       - name: MPS tests
         run: |
           conda activate venv
-          bash torchao/experimental/ops/mps/build.sh
-          python torchao/experimental/ops/mps/test/test_lowbit.py
+          pushd torchao/experimental/ops/mps
+          bash build.sh
+          python test/test_lowbit.py
+          popd
