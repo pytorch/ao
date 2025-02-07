@@ -42,6 +42,7 @@ jobs:
           conda activate venv
           pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
       - name: MPS tests
+        run: |
           conda activate venv
           bash torchao/experimental/ops/mps/build.sh
           python torchao/experimental/ops/mps/test/test_lowbit.py
