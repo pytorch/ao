@@ -4,6 +4,10 @@ import pytest
 import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+if not TORCH_VERSION_AT_LEAST_2_5:
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 # source for notable single-precision cases:
@@ -33,6 +37,11 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
         torch.tensor(expected_result).cuda(),
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
+
+    print(f"input: {input}")
+    print(f"input tensor: {input_tensor}")
+    print(f"result: {result}")
+    print(f"expected_result: {expected_result}")
     assert (
         torch.equal(result, expected_tensor)
         or (result.isnan() and expected_tensor.isnan())
