@@ -33,8 +33,8 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
 ):
     test_case_name, (input, expected_result) = test_case
     input_tensor, expected_tensor = (
-        torch.tensor(input).cuda(),
-        torch.tensor(expected_result).cuda(),
+        torch.tensor(input, dtype=torch.float32).cuda(),
+        torch.tensor(expected_result, dtype=torch.float32).cuda(),
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
 
