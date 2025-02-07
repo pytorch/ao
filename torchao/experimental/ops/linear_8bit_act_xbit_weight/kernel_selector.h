@@ -17,12 +17,7 @@
 #include <unordered_map>
 
 #if defined(TORCHAO_ENABLE_KLEIDI)
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod.h>
-#if defined (TORCHAO_ENABLE_ARM_I8MM)
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm.h>
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm.h>
-#endif  // TORCHAO_ENABLE_ARM_I8MM
+#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #endif // TORCHAO_ENABLE_KLEIDI
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
@@ -208,44 +203,12 @@ void register_ukernel_config_kleidi_ai(UKernelConfigRegistrationTable& table, to
       "Kernel expects has_bias=true, but packed_weights have has_bias=" + std::to_string(kleidi_ai_format.has_bias)
     );
   }
+  namespace op = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
   if (nr == 8 && kr == 16 && sr == 2) {
     #if defined (TORCHAO_ENABLE_ARM_I8MM)
     if (cpuinfo_has_arm_i8mm()) {
-        namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_4x8x32;
-        auto uk = kernel::get_ukernel();
-        assert (nr == uk.get_nr());
-        assert (kr == uk.get_kr());
-        assert (sr == uk.get_sr());
-        table.register_ukernel_config(
-          format,
-          uarch,
-          torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-            /*preferred_alignment*/kernel::get_preferred_alignement(),
-            /*weight_packing*/
-            {
-              /*nr*/static_cast<int>(uk.get_n_step()),
-              /*weight_data_size_fn*/&kernel::weight_data_size,
-              /*prepare_weight_data_fn*/&kernel::prepare_weight_data
-            },
-            /*kernels*/
-            {{
-            {
-            /*mr*/static_cast<int>(uk.get_m_step()),
-            /*activation_data_size_fn*/&kernel::activation_data_size,
-            /*prepare_activation_data_fn*/&kernel::prepare_activation_data,
-            /*kernel*/&kernel::kernel
-            }
-           }}
-          }
-        );
-        return;
-    }
-    #endif // TORCHAO_ENABLE_ARM_I8MM
-
-    if (cpuinfo_has_arm_neon_dot()) {
-      namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32;
-      auto uk = kernel::get_ukernel();
+      auto uk = op::8x8_4x8x32_neon_i8mm::get_ukernel();
       assert (nr == uk.get_nr());
       assert (kr == uk.get_kr());
       assert (sr == uk.get_sr());
@@ -253,20 +216,51 @@ void register_ukernel_config_kleidi_ai(UKernelConfigRegistrationTable& table, to
         format,
         uarch,
         torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-          /*preferred_alignment*/kernel::get_preferred_alignement(),
+          /*preferred_alignment*/op::get_preferred_alignement(),
           /*weight_packing*/
           {
           /*nr*/static_cast<int>(uk.get_n_step()),
-          /*weight_data_size_fn*/&kernel::weight_data_size,
-          /*prepare_weight_data_fn*/&kernel::prepare_weight_data
+          /*weight_data_size_fn*/&op::weight_data_size_nr8_kr16_sr2,
+          /*prepare_weight_data_fn*/&op::prepare_weight_data_nr8_kr16_sr2
           },
           /*kernels*/
           {{
             {
             /*mr*/static_cast<int>(uk.get_m_step()),
-            /*activation_data_size_fn*/&kernel::activation_data_size,
-            /*prepare_activation_data_fn*/&kernel::prepare_activation_data,
-            /*kernel*/&kernel::kernel
+            /*activation_data_size_fn*/&op::activation_data_size_mr1_kr16_sr2,
+            /*prepare_activation_data_fn*/&op::prepare_activation_data_mr1_kr16_sr2,
+            /*kernel*/&op::8x8_4x8x32_neon_i8mm::kernel
+            }
+          }}
+        }
+      );
+      return;   
+    }
+    #endif // TORCHAO_ENABLE_ARM_I8MM
+
+    if (cpuinfo_has_arm_neon_dot()) {
+      auto uk = op::impl_8x8_1x8x32_neon_dotprod::get_ukernel();
+      assert (nr == uk.get_nr());
+      assert (kr == uk.get_kr());
+      assert (sr == uk.get_sr());
+      table.register_ukernel_config(
+        format,
+        uarch,
+        torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
+          /*preferred_alignment*/op::get_preferred_alignement(),
+          /*weight_packing*/
+          {
+          /*nr*/static_cast<int>(uk.get_n_step()),
+          /*weight_data_size_fn*/&op::weight_data_size_nr8_kr16_sr2,
+          /*prepare_weight_data_fn*/&op::prepare_weight_data_nr8_kr16_sr2
+          },
+          /*kernels*/
+          {{
+            {
+            /*mr*/static_cast<int>(uk.get_m_step()),
+            /*activation_data_size_fn*/&op::activation_data_size_mr1_kr16_sr2,
+            /*prepare_activation_data_fn*/&op::prepare_activation_data_mr1_kr16_sr2,
+            /*kernel*/&op::impl_8x8_1x8x32_neon_dotprod::kernel
             }
           }}
         }
@@ -274,11 +268,10 @@ void register_ukernel_config_kleidi_ai(UKernelConfigRegistrationTable& table, to
       return;
     }
   }
-
+  
   if (nr == 4 && kr == 16 && sr == 2) {
     if (cpuinfo_has_arm_neon_dot()) {
-      namespace kernel = torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32;
-      auto uk = kernel::get_ukernel();
+      auto uk = op::impl_4x8_1x4x32_neon_dotprod::get_ukernel();
       assert (nr == uk.get_nr());
       assert (kr == uk.get_kr());
       assert (sr == uk.get_sr());
@@ -286,26 +279,26 @@ void register_ukernel_config_kleidi_ai(UKernelConfigRegistrationTable& table, to
         format,
         uarch,
         torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig{
-          /*preferred_alignment*/kernel::get_preferred_alignement(),
+          /*preferred_alignment*/op::get_preferred_alignement(),
           /*weight_packing*/
           {
           /*nr*/static_cast<int>(uk.get_n_step()),
-          /*weight_data_size_fn*/&kernel::weight_data_size,
-          /*prepare_weight_data_fn*/&kernel::prepare_weight_data
+          /*weight_data_size_fn*/&op::weight_data_size_nr8_kr16_sr2,
+          /*prepare_weight_data_fn*/&op::prepare_weight_data_nr8_kr16_sr2
           },
           /*kernels*/
           {{
             {
             /*mr*/static_cast<int>(uk.get_m_step()),
-            /*activation_data_size_fn*/&kernel::activation_data_size,
-            /*prepare_activation_data_fn*/&kernel::prepare_activation_data,
-            /*kernel*/&kernel::kernel
+            /*activation_data_size_fn*/&op::activation_data_size_mr1_kr16_sr2,
+            /*prepare_activation_data_fn*/&op::prepare_activation_data_mr1_kr16_sr2,
+            /*kernel*/&op::impl_4x8_1x4x32_neon_dotprod::kernel
             }
           }}
         }
       );
       return;
-    }
+    } 
   }
 #endif // TORCHAO_ENABLE_KLEIDI
 }
