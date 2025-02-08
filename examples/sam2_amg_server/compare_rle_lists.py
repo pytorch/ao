@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
+from typing import Any, Dict
 
 import fire
-import torch
 import numpy as np
-from typing import Any, Dict
+import torch
 
 
 # from torchao._models.sam2.utils.amg import rle_to_mask
@@ -15,11 +15,12 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     idx = 0
     parity = False
     for count in rle["counts"]:
-        mask[idx: idx + count] = parity
+        mask[idx : idx + count] = parity
         idx += count
         parity ^= True
     mask = mask.reshape(w, h)
     return mask.transpose()  # Put in C order
+
 
 """
 Script to calculate mIoU given two lists of rles from upload_rle endpoint
@@ -33,6 +34,7 @@ def iou(mask1, mask2):
     intersection = torch.logical_and(mask1, mask2)
     union = torch.logical_or(mask1, mask2)
     return intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2))
+
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
     return sum(rle["counts"][1::2])

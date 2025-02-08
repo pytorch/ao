@@ -1,6 +1,5 @@
-import json
 import asyncio
-import time
+import json
 from pathlib import Path
 
 import fire
@@ -77,13 +76,12 @@ class Model:
     @modal.enter()
     def build(self):
         import os
+
         import numpy as np
         import torch
 
         if self.baseline:
-            from sam2.automatic_mask_generator import (
-                SAM2AutomaticMaskGenerator
-            )
+            from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
             from sam2.build_sam import build_sam2
         else:
             from torchao._models.sam2.automatic_mask_generator import (
@@ -97,9 +95,9 @@ class Model:
         sys.path.append(".")
 
         from server import (
-            model_type_to_paths,
             file_bytes_to_image_tensor,
             masks_to_rle_dict,
+            model_type_to_paths,
             profiler_runner,
             show_anns,
         )
@@ -119,25 +117,32 @@ class Model:
             sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
         )
         from compile_export_utils import load_exported_model
+
         export_model_path = Path(TARGET) / Path("exported_models")
-        export_model_path = export_model_path / Path("sam2") / Path(f"sam2_{self.task_type}")
+        export_model_path = (
+            export_model_path / Path("sam2") / Path(f"sam2_{self.task_type}")
+        )
         if not self.baseline:
-            load_exported_model(mask_generator,
-                                export_model_path,
-                                self.task_type,
-                                furious=True,
-                                batch_size=1,
-                                points_per_batch=points_per_batch)
+            load_exported_model(
+                mask_generator,
+                export_model_path,
+                self.task_type,
+                furious=True,
+                batch_size=1,
+                points_per_batch=points_per_batch,
+            )
         self.mask_generator = mask_generator
         from torchvision import io as tio
         from torchvision.transforms.v2 import functional as tio_F
 
         if self.baseline:
-            from sam2.utils.amg import rle_to_mask
             from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
+            from sam2.utils.amg import rle_to_mask
         else:
-            from torchao._models.sam2.utils.amg import rle_to_mask
-            from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+            from torchao._models.sam2.utils.amg import (
+                mask_to_rle_pytorch_2,
+                rle_to_mask,
+            )
         from torchao._models.sam2.utils.amg import area_from_rle
 
         self.np = np
@@ -165,6 +170,7 @@ class Model:
 
     def decode_img_bytes(self, img_bytes_tensor, baseline=False):
         import torch
+
         image_tensor = self.file_bytes_to_image_tensor(img_bytes_tensor)
         from torchvision.transforms import v2
 
@@ -172,9 +178,7 @@ class Model:
             image_tensor = torch.from_numpy(image_tensor)
             image_tensor = image_tensor.permute((2, 0, 1))
             image_tensor = image_tensor.cuda()
-            image_tensor = v2.ToDtype(torch.float32, scale=True)(
-                image_tensor
-            )
+            image_tensor = v2.ToDtype(torch.float32, scale=True)(image_tensor)
         return image_tensor
 
     @modal.web_endpoint(docs=True, method="POST")
@@ -334,8 +338,12 @@ def get_center_points(task_type, meta_path):
 
 def timed_print(msg):
     from datetime import datetime
+
     current_time = datetime.now()
-    timestamp_with_nanoseconds = current_time.strftime('%Y-%m-%d %H:%M:%S.') + f'{current_time.microsecond * 1000:09d}'
+    timestamp_with_nanoseconds = (
+        current_time.strftime("%Y-%m-%d %H:%M:%S.")
+        + f"{current_time.microsecond * 1000:09d}"
+    )
     print(f"{str(timestamp_with_nanoseconds)}: {msg}")
 
 
@@ -408,16 +416,24 @@ def main(
             if task_type == "amg":
                 outputs.append(model.inference_amg_rle.remote.aio(input_bytes))
             if task_type == "sps":
-                outputs.append(model.inference_sps_rle.remote.aio(input_bytes, center_points))
+                outputs.append(
+                    model.inference_sps_rle.remote.aio(input_bytes, center_points)
+                )
             if task_type == "mps":
-                outputs.append(model.inference_mps_rle.remote.aio(input_bytes, center_points))
+                outputs.append(
+                    model.inference_mps_rle.remote.aio(input_bytes, center_points)
+                )
         else:
             if task_type == "amg":
                 outputs.append(model.inference_amg.remote.aio(input_bytes))
             if task_type == "sps":
-                outputs.append(model.inference_sps.remote.aio(input_bytes, center_points))
+                outputs.append(
+                    model.inference_sps.remote.aio(input_bytes, center_points)
+                )
             if task_type == "mps":
-                outputs.append(model.inference_mps.remote.aio(input_bytes, center_points))
+                outputs.append(
+                    model.inference_mps.remote.aio(input_bytes, center_points)
+                )
 
     async def run_all(outputs):
         outputs = await asyncio.gather(*outputs)
