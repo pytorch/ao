@@ -347,6 +347,7 @@ def main(
     output_meta=False,
     meta_paths=None,
     baseline=False,
+    name=None,
 ):
     assert task_type in ["amg", "sps", "mps"]
     if task_type in ["sps", "mps"]:
@@ -372,7 +373,9 @@ def main(
             meta_mapping[key] = meta_path
 
     try:
-        model = modal.Cls.lookup("torchao-sam-2-cli", "Model")
+        if name is None:
+            name = "torchao-sam-2-cli"
+        model = modal.Cls.lookup(name, "Model")
         model = model(task_type=task_type, baseline=int(baseline))
     except modal.exception.NotFoundError:
         print(
