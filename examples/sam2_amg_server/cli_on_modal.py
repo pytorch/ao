@@ -120,7 +120,7 @@ class Model:
         )
         from compile_export_utils import load_exported_model
         export_model_path = Path(TARGET) / Path("exported_models")
-        export_model_path = export_model_path / Path("sam2") / Path("sam2_amg")
+        export_model_path = export_model_path / Path("sam2") / Path(f"sam2_{self.task_type}")
         if not self.baseline:
             load_exported_model(mask_generator,
                                 export_model_path,
