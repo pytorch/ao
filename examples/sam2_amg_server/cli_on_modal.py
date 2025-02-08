@@ -1,4 +1,5 @@
 import json
+import asyncio
 import time
 from pathlib import Path
 
@@ -6,7 +7,6 @@ import fire
 import modal
 
 TARGET = "/root/"
-DOWNLOAD_URL_BASE = "https://raw.githubusercontent.com/pytorch/ao/refs/heads"
 SAM2_GIT_SHA = "c2ec8e14a185632b0a5d8b161928ceb50197eddc"
 
 image = (
@@ -26,9 +26,6 @@ image = (
     .apt_install("libopencv-dev")
     .apt_install("python3-opencv")
     .run_commands([f"git clone https://github.com/pytorch/ao.git {TARGET}ao_src_0"])
-    # .run_commands(
-    #     ["cd /tmp/ao_src_0; git checkout 1be4307db06d2d7e716d599c1091a388220a61e4"]
-    # )
     .run_commands([f"cd {TARGET}ao_src_0; python setup.py develop"])
     .pip_install(
         "gitpython",
@@ -42,9 +39,9 @@ image = (
     .pip_install_from_requirements(
         "requirements.txt",
     )
-    # .pip_install(
-    #     f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
-    # )
+    .pip_install(
+        f"git+https://github.com/facebookresearch/sam2.git@{SAM2_GIT_SHA}",
+    )
 )
 
 app = modal.App("torchao-sam-2-cli", image=image)
@@ -62,7 +59,7 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
 @app.cls(
     gpu="H100",
     container_idle_timeout=20 * 60,
-    concurrency_limit=1,
+    concurrency_limit=10,
     allow_concurrent_inputs=1,
     timeout=20 * 60,
     volumes={
@@ -73,6 +70,9 @@ traces = modal.Volume.from_name("torchao-sam-2-traces", create_if_missing=True)
     },
 )
 class Model:
+    task_type: str = modal.parameter(default="amg")
+    baseline: int = modal.parameter(default=0)
+
     @modal.build()
     @modal.enter()
     def build(self):
@@ -80,10 +80,16 @@ class Model:
         import numpy as np
         import torch
 
-        from torchao._models.sam2.automatic_mask_generator import (
-            SAM2AutomaticMaskGenerator,
-        )
-        from torchao._models.sam2.build_sam import build_sam2
+        if self.baseline:
+            from sam2.automatic_mask_generator import (
+                SAM2AutomaticMaskGenerator
+            )
+            from sam2.build_sam import build_sam2
+        else:
+            from torchao._models.sam2.automatic_mask_generator import (
+                SAM2AutomaticMaskGenerator,
+            )
+            from torchao._models.sam2.build_sam import build_sam2
 
         os.chdir(f"{TARGET}ao_src_0/examples/sam2_amg_server")
         import sys
@@ -104,34 +110,35 @@ class Model:
         sam2 = build_sam2(
             model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False
         )
+        points_per_batch = None
+        if self.task_type == "amg":
+            points_per_batch = 64 if self.baseline else 1024
+        if self.task_type == "sps":
+            points_per_batch = 1
         mask_generator = SAM2AutomaticMaskGenerator(
-            sam2, points_per_batch=1024, output_mode="uncompressed_rle"
+            sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
         )
         from compile_export_utils import load_exported_model
         export_model_path = Path(TARGET) / Path("exported_models")
         export_model_path = export_model_path / Path("sam2") / Path("sam2_amg")
-        load_exported_model(mask_generator,
-                            export_model_path,
-                            # Currently task_type has no effect,
-                            # because we can only export the image
-                            # encoder, but this might change soon.
-                            "amg",
-                            furious=True,
-                            batch_size=1,
-                            points_per_batch=1024)
+        if not self.baseline:
+            load_exported_model(mask_generator,
+                                export_model_path,
+                                self.task_type,
+                                furious=True,
+                                batch_size=1,
+                                points_per_batch=points_per_batch)
         self.mask_generator = mask_generator
         from torchvision import io as tio
         from torchvision.transforms.v2 import functional as tio_F
 
-        from torchao._models.sam2.utils.amg import (
-            area_from_rle,
-            mask_to_rle_pytorch_2,
-            rle_to_mask,
-        )
-
-        # Baseline
-        # from sam2.utils.amg import rle_to_mask
-        # from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
+        if self.baseline:
+            from sam2.utils.amg import rle_to_mask
+            from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
+        else:
+            from torchao._models.sam2.utils.amg import rle_to_mask
+            from torchao._models.sam2.utils.amg import mask_to_rle_pytorch_2
+        from torchao._models.sam2.utils.amg import area_from_rle
 
         self.np = np
         self.tio = tio
@@ -149,10 +156,11 @@ class Model:
 
         self._get_center_point = _get_center_point
 
-        from generate_data import gen_masks_ao as gen_masks
-
         # Baseline
-        # from generate_data import gen_masks_baseline as gen_masks
+        if self.baseline:
+            from generate_data import gen_masks_baseline as gen_masks
+        else:
+            from generate_data import gen_masks_ao as gen_masks
         self.gen_masks = gen_masks
 
     def decode_img_bytes(self, img_bytes_tensor, baseline=False):
@@ -160,7 +168,7 @@ class Model:
         image_tensor = self.file_bytes_to_image_tensor(img_bytes_tensor)
         from torchvision.transforms import v2
 
-        if not baseline:
+        if not self.baseline:
             image_tensor = torch.from_numpy(image_tensor)
             image_tensor = image_tensor.permute((2, 0, 1))
             image_tensor = image_tensor.cuda()
@@ -176,7 +184,6 @@ class Model:
             masks = self.mask_generator.generate(image_tensor)
             return self.masks_to_rle_dict(masks)
 
-        # return self.profiler_runner(TARGET + "traces/trace.json.gz", upload_rle_inner, bytearray(await image.read()))
         return upload_rle_inner(bytearray(await image.read()))
 
     @modal.method()
@@ -187,7 +194,7 @@ class Model:
 
     @modal.method()
     def inference_amg_meta(self, input_bytes) -> dict:
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         rle_dict = self.masks_to_rle_dict(masks)
         masks = {}
@@ -205,7 +212,7 @@ class Model:
 
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks(
             "sps",
             image_tensor,
@@ -223,7 +230,7 @@ class Model:
 
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks(
             "mps",
             image_tensor,
@@ -269,7 +276,7 @@ class Model:
 
     @modal.method()
     def inference_amg(self, input_bytes, output_format="png"):
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks("amg", image_tensor, self.mask_generator)
         return self.plot_image_tensor(image_tensor, masks, output_format)
 
@@ -279,7 +286,7 @@ class Model:
 
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks(
             "sps",
             image_tensor,
@@ -299,7 +306,7 @@ class Model:
 
         prompts = np.array(prompts)
         prompts_label = np.array([1] * len(prompts))
-        image_tensor = self.file_bytes_to_image_tensor(input_bytes)
+        image_tensor = self.decode_img_bytes(input_bytes)
         masks = self.gen_masks(
             "mps",
             image_tensor,
@@ -325,6 +332,13 @@ def get_center_points(task_type, meta_path):
         return center_points
 
 
+def timed_print(msg):
+    from datetime import datetime
+    current_time = datetime.now()
+    timestamp_with_nanoseconds = current_time.strftime('%Y-%m-%d %H:%M:%S.') + f'{current_time.microsecond * 1000:09d}'
+    print(f"{str(timestamp_with_nanoseconds)}: {msg}")
+
+
 def main(
     task_type,
     input_paths,
@@ -332,6 +346,7 @@ def main(
     output_rle=False,
     output_meta=False,
     meta_paths=None,
+    baseline=False,
 ):
     assert task_type in ["amg", "sps", "mps"]
     if task_type in ["sps", "mps"]:
@@ -357,7 +372,8 @@ def main(
             meta_mapping[key] = meta_path
 
     try:
-        model = modal.Cls.lookup("torchao-sam-2-cli", "Model")()
+        model = modal.Cls.lookup("torchao-sam-2-cli", "Model")
+        model = model(task_type=task_type, baseline=int(baseline))
     except modal.exception.NotFoundError:
         print(
             "Can't find running app. To deploy the app run the following",
@@ -367,44 +383,58 @@ def main(
         print("modal deploy cli_on_modal.py")
         return
 
-    print("idx,time(s)")
-    for idx, (input_path) in enumerate(input_paths):
+    outputs = []
+    output_paths = []
+    timed_print(f"Queueing {len(input_paths)} tasks...")
+    for input_path in input_paths:
         key = Path(input_path).name.split(".jpg")[0]
         key = f"{Path(input_path).parent.name}/{key}"
         if meta_paths is not None:
             meta_path = meta_mapping[key]
             center_points = get_center_points(task_type, meta_path)
 
-        start = time.perf_counter()
         input_bytes = bytearray(open(input_path, "rb").read())
 
         output_path = output_directory / Path(key)
+        output_paths.append(str(output_path))
         output_path.parent.mkdir(parents=False, exist_ok=True)
         if output_meta:
             assert task_type == "amg"
-            output_dict = model.inference_amg_meta.remote(input_bytes)
-            with open(f"{output_path}_meta.json", "w") as file:
-                file.write(json.dumps(output_dict, indent=4))
+            outputs.append(model.inference_amg_meta.remote.aio(input_bytes))
         elif output_rle:
             if task_type == "amg":
-                output_dict = model.inference_amg_rle.remote(input_bytes)
+                outputs.append(model.inference_amg_rle.remote.aio(input_bytes))
             if task_type == "sps":
-                output_dict = model.inference_sps_rle.remote(input_bytes, center_points)
+                outputs.append(model.inference_sps_rle.remote.aio(input_bytes, center_points))
             if task_type == "mps":
-                output_dict = model.inference_mps_rle.remote(input_bytes, center_points)
-            with open(f"{output_path}_masks.json", "w") as file:
-                file.write(json.dumps(output_dict, indent=4))
+                outputs.append(model.inference_mps_rle.remote.aio(input_bytes, center_points))
         else:
             if task_type == "amg":
-                output_bytes = model.inference_amg.remote(input_bytes)
+                outputs.append(model.inference_amg.remote.aio(input_bytes))
             if task_type == "sps":
-                output_bytes = model.inference_sps.remote(input_bytes, center_points)
+                outputs.append(model.inference_sps.remote.aio(input_bytes, center_points))
             if task_type == "mps":
-                output_bytes = model.inference_mps.remote(input_bytes, center_points)
+                outputs.append(model.inference_mps.remote.aio(input_bytes, center_points))
+
+    async def run_all(outputs):
+        outputs = await asyncio.gather(*outputs)
+        return outputs
+
+    timed_print("Awaiting tasks...")
+    outputs = asyncio.run(run_all(outputs))
+
+    timed_print("Processing task output...")
+    for output, output_path in zip(outputs, output_paths):
+        if output_meta:
+            with open(f"{output_path}_meta.json", "w") as file:
+                file.write(json.dumps(output, indent=4))
+        elif output_rle:
+            with open(f"{output_path}_masks.json", "w") as file:
+                file.write(json.dumps(output, indent=4))
+        else:
             with open(f"{output_path}_annotated.png", "wb") as file:
-                file.write(output_bytes)
-        end = time.perf_counter()
-        print(f"{idx},{end - start}")
+                file.write(output)
+    timed_print("Done.")
 
 
 if __name__ == "__main__":
