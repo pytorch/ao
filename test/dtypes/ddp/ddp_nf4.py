@@ -53,7 +53,6 @@ class LoRALinear(nn.Module):
 
 def _init_model(dim, num_linears, device, dtype) -> nn.Module:
     with torch.device(device):
-
         modules = []
         for i in range(num_linears):
             modules += [LoRALinear(hidden_dim=dim, dtype=dtype)]
