@@ -100,6 +100,7 @@ def run_ddp(global_bs, dim, num_linears, device, dtype, num_steps, save_dir, com
     torch.save(model.state_dict(), save_path)
     dist_print("Saved model to", save_path)
 
+
 def init_dist():
     dist.init_process_group(backend="nccl")
     torch.cuda.set_device(dist.get_rank())

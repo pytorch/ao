@@ -37,4 +37,4 @@ if __name__ == "__main__":
                 print(f" \u2718 Param {name} differs by {diff}")
             else:
                 print(f" \u2713 Param {name} is consistent")
-        print(f"Passed!")
+        print("Passed!")
