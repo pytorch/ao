@@ -442,6 +442,9 @@ def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
         else:
             ts.append(t)
     
+    dtype = ts[0].dtype
+    assert all(t.dtype == dtype for t in ts)
+    
     if kwargs is None:
         kwargs = {}
     
