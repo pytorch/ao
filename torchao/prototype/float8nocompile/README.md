@@ -1,7 +1,7 @@
 # float8nocompile
 
 
-A prototype API for high performance eager mode float8 training via handwritten Triton kernels for quantization.
+A prototype API for high performance eager mode float8 training that uses handwritten Triton kernels for quantization.
 
 ### Usage
 
@@ -63,3 +63,10 @@ The results indicate a solid 6-10% tokens/sec speedup with relatively flat memor
 | bfloat16, eager                                 | 4502.0     | 28.07            | 0%           | 0.00%         |
 | float8nocompile prototype                       | 4773.4     | 28.07            | 6.03%        | 0.00%         |
 | float8 + torch.compile                          | 5775.2     | 28.03            | 28.28%       | -0.14%        |
+
+
+## Numerical accuracy
+
+Numerical accuracy has been verified via unit tests as well as manually verifying that the training loss curves maintain fidelity with the loss curves for bf16 eager and production float8 + torch.compile:
+
+![loss curves](float8nocompile_loss_curves.png "Loss curves")
