@@ -96,6 +96,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_input.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -112,6 +113,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -151,6 +153,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_grad_output.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -181,6 +184,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_weight_for_grad_input.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         grad_input = torch.mm(
@@ -216,6 +220,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_grad_output_for_grad_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
@@ -233,6 +238,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_input_for_grad_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         grad_weight = torch.mm(
