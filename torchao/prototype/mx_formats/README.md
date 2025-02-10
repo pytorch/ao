@@ -41,10 +41,11 @@ This is a module to do MX training, the MX matmul is currently emulated.
 
 ```python
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
+from torchao.prototype.mx_formats.config import MXLinearConfig
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-elem_dtype = torch.float8_e4m3fn
-swap_linear_with_mx_linear(m, elem_dtype, block_size=32)
+config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
+swap_linear_with_mx_linear(m, config=config)
 
 # training loop (not shown)
 ```
@@ -55,11 +56,11 @@ This is a module to do MX inference, weights are in MX and matmul is in high pre
 
 ```python
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_inference_linear
+from torchao.prototype.mx_formats.config import MXLinearConfig
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-elem_dtype = torch.float8_e4m3fn
-block_size = 32
-swap_linear_with_mx_inference_linear(m, elem_dtype, block_size)
+config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
+swap_linear_with_mx_inference_linear(m, config=config)
 
 # do inference (not shown)
 ```
