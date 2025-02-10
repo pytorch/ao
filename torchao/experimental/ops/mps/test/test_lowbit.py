@@ -79,13 +79,14 @@ from parameterized import parameterized
 
 if __name__ == "__main__":
     print("RUNNING UNIT TESTS")
-    # try:
-    #     print("TRYING")
-    #     for nbit in range(1, 8):
-    #         print("NBIT", nbit)
-    #         getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-    #         getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-    # except AttributeError:
+    try:
+        print("TRYING")
+        for nbit in range(1, 8):
+            print("NBIT", nbit)
+            getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+            getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+    except AttributeError:
+        print("ATTRIBUTE ERROR")
     #     try:
     #         print("LOADING LIB")
     #         libname = "libtorchao_ops_mps_aten.dylib"
