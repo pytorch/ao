@@ -44,13 +44,17 @@ class ScalingGranularity(enum.Enum):
     # Scaling factors computed along one axis of the tensor, reducing it to
     # size 1.
     AXISWISE = "axiswise"
+    # Scaling factors computed along a block of the tensor
+    BLOCKWISE = "blockwise"
 
     def short_str(self):
         if self is ScalingGranularity.TENSORWISE:
             return "ten"
-        else:
-            assert self is ScalingGranularity.AXISWISE
+        elif self is ScalingGranularity.AXISWISE:
             return "axs"
+        else:
+            assert self is ScalingGranularity.BLOCKWISE
+            return "blk"
 
 
 @dataclass
@@ -90,6 +94,7 @@ class CastConfig:
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
+    blockwise_size: Optional[int] = None
     static_scale: Optional[torch.Tensor] = None
     target_dtype: Optional[torch.dtype] = None
 
@@ -106,6 +111,13 @@ class CastConfig:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
             ), "only dynamic scaling type is supported for axiswise scaling granularity"
+        if self.scaling_granularity is ScalingGranularity.BLOCKWISE:
+            assert (
+                self.scaling_type is ScalingType.DISABLED
+            ), "blockwise scaling is not supported for disabled scaling type"
+            assert (
+                self.blockwise_size is not None
+            ), "blockwise_size must be specified for blockwise scaling"
         assert self.target_dtype is None or (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
@@ -321,14 +333,20 @@ class Float8LinearConfig:
 class Float8LinearRecipeName(enum.Enum):
     ALL_TENSORWISE = "all_tensorwise"
     ALL_AXISWISE = "all_axiswise"
+    ALL_BLOCKWISE = "all_blockwise"
     LW_AXISWISE_WITH_GW_HP = "lw_axiswise_with_gw_hp"
+    LW_BLOCKWISE_WITH_GW_HP = "lw_blockwise_with_gw_hp"
 
 
 def recipe_name_to_linear_config(
     recipe_name: Float8LinearRecipeName,
+    blockwise_size: Optional[int] = None,
 ) -> Float8LinearConfig:
     """
-    Input: `Float8LinearRecipeName` value
+    Input:
+        `Float8LinearRecipeName` value
+        `blockwise_size`: Optional[int] - if specified, blockwise scaling will be enabled with this size.
+
     Output: a `Float8LinearConfig` configured to implement the recipe
     """
 
@@ -341,6 +359,30 @@ def recipe_name_to_linear_config(
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+
+        return Float8LinearConfig(
+            cast_config_input=cc_i,
+            cast_config_weight=cc_w,
+            cast_config_grad_output=cc_go,
+        )
+
+    elif recipe_name is Float8LinearRecipeName.ALL_BLOCKWISE:
+        # dynamic blockwise scaling with the CUTLASS blockwise kernel
+        assert (
+            blockwise_size is not None
+        ), "Blockwise scaling must be specified with blockwise_size"
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
@@ -369,6 +411,57 @@ def recipe_name_to_linear_config(
         # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
         cc_go = CastConfig(
             scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
+        cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
+
+        # grad_weight_hp = input_t_hp @ grad_output_hp
+        cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
+        cc_go_gw = CastConfig(
+            scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
+        )
+
+        return Float8LinearConfig(
+            cast_config_input=cc_i,
+            cast_config_weight=cc_w,
+            cast_config_grad_output=cc_go,
+            cast_config_input_for_grad_weight=cc_i_gw,
+            cast_config_weight_for_grad_input=cc_w_gi,
+            cast_config_grad_output_for_grad_weight=cc_go_gw,
+        )
+
+    elif recipe_name is Float8LinearRecipeName.LW_BLOCKWISE_WITH_GW_HP:
+        # lw's recipe for a modification on all-blockwise:
+        #
+        #   output_hp = input_fp8_blockwise @ weight_t_blockwise
+        #   grad_input_hp = grad_output_fp8_blockwise @ weight_fp8_tensorwise
+        #   grad_weight_hp = input_t_hp @ grad_output_hp
+        #
+        # key characteristics:
+        #   * increased accuracy for grad_weight
+        #   * `input`, `weight` and `grad_output` now only need to be scaled
+        #     blockwise across all dims compared to vanilla all-blockwise,
+        #     which is more amenable to fast kernels
+        #   * the e4m3 dtype is used across the board, including for gradients
+        #
+        # output_hp = input_fp8_blockwise @ weight_t_blockwise
+        assert (
+            blockwise_size is not None
+        ), "Blockwise scaling must be specified with blockwise_size"
+
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+        )
+
+        # grad_input_hp = grad_output_fp8_blockwise @ weight_fp8_tensorwise
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.BLOCKWISE,
+            blockwise_size=blockwise_size,
+            target_dtype=e4m3_dtype,
         )
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
