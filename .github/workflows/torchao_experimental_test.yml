@@ -49,6 +49,13 @@ jobs:
           bash build.sh
 
           echo "Running test"
+          echo "LIST"
+          echo $(ls)
+
+          echo "PYTHON TEST"
+          echo $(python -c "(print(1 + 1))")
+
+          echo "REAL TEST"
           python test/test_lowbit.py
 
           popd
