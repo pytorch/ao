@@ -69,6 +69,7 @@ def use_debug_mode():
 import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
+    ROCM_HOME,
     IS_WINDOWS,
     BuildExtension,
     CppExtension,
@@ -203,22 +204,31 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-    if CUDA_HOME is None and torch.cuda.is_available():
+    if CUDA_HOME is None and torch.cuda.is_available() and torch.version.cuda:
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
+    if ROCM_HOME is None and torch.cuda.is_available() and torch.version.hip:
+        print("ROCm is not available. Skipping compilation of ROCm extensions")
+        print(
+            "If you'd like to compile ROCm extensions locally please install ROCm"
+        )
 
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
-    extension = CUDAExtension if use_cuda else CppExtension
+    use_rocm = torch.cuda.is_available() and ROCM_HOME is not None
+    extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
+
+    nvcc_args = [
+        "-O3" if not debug_mode else "-O0",
+        "-t=0",
+    ],
+    rocm_args = ["-O3" if not debug_mode else "-O0"]
 
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": [
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-        ],
+        "nvcc": nvcc_args if use_cuda else rocm_args
     }
 
     if not IS_WINDOWS:
@@ -245,12 +255,18 @@ def get_extensions():
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+    extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
     cuda_sources = list(
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    )
+    rocm_sources = list(
+        glob.glob(os.path.join(extensions_rocm_dir, "**/*.hip"), recursive=True)
     )
 
     if use_cuda:
         sources += cuda_sources
+    if use_rocm:
+        sources += rocm_sources
 
     use_cutlass = False
     if use_cuda and not IS_WINDOWS:
