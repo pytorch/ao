@@ -45,11 +45,7 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    GemmInputRole,
-    LinearMMConfig,
-    ScaledMMConfig,
-)
+from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
 from torchao.float8.float8_utils import config_has_stateful_scaling
 from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -420,13 +416,23 @@ def test_sync_amax_func_cuda_graph_success():
         torch.float16,
     ],
 )
-def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
+@pytest.mark.parametrize(
+    "round_scales_to_power_of_2",
+    [
+        True,
+        False,
+    ],
+)
+def test_dynamic_scale_numeric_parity(
+    dtype: torch.dtype, round_scales_to_power_of_2: bool
+):
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
     hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
     hp_tensor2 = hp_tensor1.detach().clone()
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     linear_mm_config = LinearMMConfig(
         # output
@@ -456,6 +462,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
@@ -463,6 +470,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)

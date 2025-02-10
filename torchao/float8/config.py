@@ -234,6 +234,13 @@ class Float8LinearConfig:
     # tests so that the warning does not spam the CI stdout.
     force_recompute_fp8_weight_in_bwd: bool = False
 
+    # If this option is enabled, the scaling factor used for float8 quantization
+    # will be rounded down to the nearest power of 2. This has been shown to help
+    # reduce quantization error by avoiding rounding errors when multiplying/dividing
+    # by the scaling factor, as well as ensuring large values are quantized to the
+    # same value in the forward pass as the backward passes.
+    round_scales_to_power_of_2: bool = False
+
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass
@@ -338,14 +345,22 @@ def recipe_name_to_linear_config(
 
     elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
             cast_config_weight=cc_w,
             cast_config_grad_output=cc_go,
+            # enable power of 2 scaling factors by default for row-wise scaling
+            round_scales_to_power_of_2=True,
         )
 
     elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
