@@ -98,12 +98,10 @@ if __name__ == "__main__":
             print("FAILED TO LOAD")
             raise e
             # raise RuntimeError(f"Failed to load library {libpath}")
-        # else:
-        #     try:
-        #         for nbit in range(1, 8):
-        #             getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-        #             getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-        #     except AttributeError as e:
-        #         raise e
+        finally:
+            print("TRYING AGAIN")
+            for nbit in range(1, 8):
+                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
 
     # unittest.main()
