@@ -7,7 +7,6 @@
 import pytest
 import torch
 
-from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -139,8 +138,14 @@ def test_exponent_nan_out(elem_dtype):
     else:
         raise AssertionError("unsupported")
     block_size = 2
+    use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
-        scale_e8m0_bits, data_bits, elem_dtype, block_size, torch.float
+        scale_e8m0_bits,
+        data_bits,
+        elem_dtype,
+        block_size,
+        torch.float,
+        use_fp4_custom_triton_dequant_kernel,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp[0:1]))
@@ -188,15 +193,16 @@ def test_transpose(elem_dtype, fp4_triton):
     M, K = 128, 256
     block_size = 32
     tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-    tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    config.use_fp4_custom_triton_dequant_kernel = fp4_triton
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        elem_dtype,
+        block_size,
+        use_fp4_custom_triton_dequant_kernel=fp4_triton,
+    )
     tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
-    config.use_fp4_custom_triton_dequant_kernel = False
 
     tensor_mx_t = tensor_mx.t()
-    config.use_fp4_custom_triton_dequant_kernel = fp4_triton
     tensor_mx_t_dq = tensor_mx_t.to_dtype(tensor_hp.dtype)
-    config.use_fp4_custom_triton_dequant_kernel = False
 
     assert tensor_mx_dq_t.shape == tensor_mx_t_dq.shape
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
