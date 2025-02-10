@@ -109,6 +109,7 @@ class TestAffineQuantized(TestCase):
             quantize_(linear, apply_quant)
             ql = linear
         else:
+            # TODO(#1690): delete this once config migration is done
             ql = apply_quant(linear)
         with tempfile.NamedTemporaryFile() as f:
             torch.save(ql.state_dict(), f)
@@ -187,12 +188,12 @@ class TestAffineQuantized(TestCase):
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_print_quantized_module(self, apply_quant):
-        print(apply_quant)
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         if isinstance(apply_quant, AOBaseConfig):
             quantize_(linear, apply_quant)
             ql = linear
         else:
+            # TODO(#1690): delete this once config migration is done
             ql = apply_quant(linear)
         assert "AffineQuantizedTensor" in str(ql)
 
@@ -210,6 +211,7 @@ class TestAffineQuantizedBasic(TestCase):
             if isinstance(apply_quant, AOBaseConfig):
                 quantize_(linear, apply_quant)
             else:
+                # TODO(#1690): delete this once config migration is done
                 ql = apply_quant(linear)
             lp_tensor = ql.weight
             tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()

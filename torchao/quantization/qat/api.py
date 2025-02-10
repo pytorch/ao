@@ -279,7 +279,7 @@ def _intx_quantization_aware_training_transform(
         )
         quantize_(
             model,
-            intx_quantization_aware_training(activation_config, weight_config),
+            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
     Note: If the returned function is applied on a module that is not
@@ -324,7 +324,7 @@ class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
         from torchao.quantization import quantize_
         quantize_(
             model_with_fake_quantized_linears,
-            from_intx_quantization_aware_training(),
+            FromIntXQuantizationAwareTrainingConfig(),
         )
     """
 

@@ -48,7 +48,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
         boxes: Optional[torch.Tensor] = None,
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
-        img_idx: int = -1,
     ):
         assert high_res_feats[0].size() == (self.batch_size, 32, 256, 256)
         assert high_res_feats[1].size() == (self.batch_size, 64, 128, 128)
@@ -73,7 +72,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
         assert boxes is None
         assert mask_input is None
         assert multimask_output
-        assert img_idx == -1
         if self.predictor is None:
             assert self.aoti_compiled_model is not None
             return self.aoti_compiled_model(
@@ -85,7 +83,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
                 boxes=boxes,
                 mask_input=mask_input,
                 multimask_output=multimask_output,
-                img_idx=img_idx,
             )
         return self.predictor._predict_masks(
             high_res_feats,
@@ -96,7 +93,6 @@ class SAM2ImagePredictor_predict_masks(torch.nn.Module):
             boxes=boxes,
             mask_input=mask_input,
             multimask_output=multimask_output,
-            img_idx=img_idx,
         )
 
 
@@ -176,10 +172,137 @@ def export_model(
         overwrite=overwrite,
     )
 
-    print(f"{task_type} cannot export _predict_masks")
-    return
+    if task_type in []:
+        example_input_args = ()
+        example_input_kwargs = {
+            "points": (
+                torch.randn(
+                    points_per_batch,
+                    1,
+                    2,
+                    dtype=torch.float32,
+                    device=mask_generator.predictor.device,
+                ),
+                torch.ones(
+                    points_per_batch,
+                    1,
+                    dtype=torch.int32,
+                    device=mask_generator.predictor.device,
+                ),
+            ),
+            "boxes": None,
+            "masks": None,
+        }
+        aot_compile(
+            model_directory,
+            "sam2_sam_prompt_encoder",
+            mask_generator.predictor.model.sam_prompt_encoder,
+            example_input_args,
+            sample_kwargs=example_input_kwargs,
+            overwrite=overwrite,
+        )
 
-    if task_type in ["sps"]:
+    if task_type in []:
+        example_input_args = ()
+        example_input_kwargs = {
+            "image_embeddings": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "image_pe": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "sparse_prompt_embeddings": torch.randn(
+                batch_size,
+                2,
+                256,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "dense_prompt_embeddings": torch.randn(
+                batch_size,
+                256,
+                64,
+                64,
+                dtype=torch.float32,
+                device=mask_generator.predictor.device,
+            ),
+            "multimask_output": True,
+            "repeat_image": False,
+            "high_res_features": [
+                torch.randn(
+                    batch_size,
+                    32,
+                    256,
+                    256,
+                    dtype=mask_generator.predictor._image_dtype,
+                    device=mask_generator.predictor.device,
+                ),
+                torch.randn(
+                    batch_size,
+                    64,
+                    128,
+                    128,
+                    dtype=mask_generator.predictor._image_dtype,
+                    device=mask_generator.predictor.device,
+                ),
+            ],
+        }
+        aot_compile(
+            model_directory,
+            "sam2_sam_mask_decoder",
+            mask_generator.predictor.model.sam_mask_decoder,
+            example_input_args,
+            sample_kwargs=example_input_kwargs,
+            overwrite=overwrite,
+        )
+
+    if task_type in []:
+        example_input_args = (
+            torch.randn(
+                points_per_batch,
+                256,
+                64,
+                64,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
+            torch.randn(
+                points_per_batch,
+                256,
+                64,
+                64,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
+            torch.randn(
+                points_per_batch,
+                8,
+                256,
+                dtype=mask_generator.predictor.model.sam_mask_decoder._src_dtype,
+                device=mask_generator.predictor.device,
+            ),
+        )
+        example_input_kwargs = {}
+        aot_compile(
+            model_directory,
+            "sam2_sam_mask_decoder_transformer",
+            mask_generator.predictor.model.sam_mask_decoder.transformer,
+            example_input_args,
+            sample_kwargs=example_input_kwargs,
+            overwrite=overwrite,
+        )
+
+    if task_type in ["amg", "sps"]:
         example_input_high_res_feats = [
             torch.randn(
                 batch_size,
@@ -239,7 +362,6 @@ def export_model(
             "boxes": None,
             "mask_input": None,
             "multimask_output": True,
-            "img_idx": -1,
         }
 
         sam2_image_predict_masks = SAM2ImagePredictor_predict_masks(
@@ -301,30 +423,54 @@ def load_exported_model(
     pkg_m = LoadedModel(pkg)
     mask_generator.predictor.model.image_encoder = pkg_m
 
-    print(f"End load image encoder. Took {time.time() - t0}s")
-    return mask_generator
-
-    if task_type in ["amg", "mps"]:
+    if task_type in ["mps"]:
         return mask_generator
 
-    path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
-    assert path.exists(), f"Expected {path} to exist"
-    print(f"Start load from {path}")
-    pkg = torch._inductor.aoti_load_package(str(path))
-    if task_type == "amg":
-        assert points_per_batch > 1
-    if task_type == "sps":
-        assert points_per_batch == 1
-    if task_type == "mps":
-        assert points_per_batch is None
-    pkg_m = SAM2ImagePredictor_predict_masks(
-        None,
-        batch_size=batch_size,
-        points_per_batch=points_per_batch,
-        aoti_compiled_model=pkg,
-        furious=furious,
-    )
-    mask_generator.predictor._predict_masks = pkg_m.forward
+    if task_type in []:
+        path = Path(model_directory) / Path("sam2_sam_prompt_encoder.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        pkg_m = LoadedModel(pkg)
+        mask_generator.predictor.model.sam_prompt_encoder.forward = pkg_m.forward
+
+    if task_type in []:
+        path = Path(model_directory) / Path("sam2_sam_mask_decoder.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        pkg_m = LoadedModel(pkg)
+        mask_generator.predictor.model.sam_mask_decoder.forward = pkg_m.forward
+
+    if task_type in []:
+        path = Path(model_directory) / Path("sam2_sam_mask_decoder_transformer.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        pkg_m = LoadedModel(pkg)
+        mask_generator.predictor.model.sam_mask_decoder.transformer.forward = (
+            pkg_m.forward
+        )
+
+    if task_type in ["amg", "sps"]:
+        path = Path(model_directory) / Path("sam2_image_predict_masks.pt2")
+        assert path.exists(), f"Expected {path} to exist"
+        print(f"Start load from {path}")
+        pkg = torch._inductor.aoti_load_package(str(path))
+        if task_type == "amg":
+            assert points_per_batch > 1
+        if task_type == "sps":
+            assert points_per_batch == 1
+        if task_type == "mps":
+            assert points_per_batch is None
+        pkg_m = SAM2ImagePredictor_predict_masks(
+            None,
+            batch_size=batch_size,
+            points_per_batch=points_per_batch,
+            aoti_compiled_model=pkg,
+            furious=furious,
+        )
+        mask_generator.predictor._predict_masks = pkg_m.forward
 
     print(f"End load image encoder and predict masks. Took {time.time() - t0}s")
 
@@ -352,12 +498,13 @@ def set_fast(
                 dynamic=False,
             )
     elif task_type == "amg":
-        mask_generator.predictor._predict_masks = torch.compile(
-            mask_generator.predictor._predict_masks,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
+        if not loaded_exported_model:
+            mask_generator.predictor._predict_masks = torch.compile(
+                mask_generator.predictor._predict_masks,
+                mode="max-autotune",
+                fullgraph=True,
+                dynamic=False,
+            )
     else:
         # TODO: This might need to be under "allow_recompiles"
         # mps encounters rapidly changing points per batch
