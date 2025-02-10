@@ -159,6 +159,15 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
+            if (
+                c.cast_config_weight_for_grad_input.scaling_granularity
+                is ScalingGranularity.AXISWISE
+            ):
+                # workaround from https://github.com/pytorch/pytorch/issues/141881
+                # to avoid saving float8 weight from forward to backward when
+                # FSDP is on
+                weight_hp_t = weight_hp_t + (grad_output_reshaped[0, 0] * 0)
+
             # Note: we need https://github.com/pytorch/pytorch/issues/136267
             # to be solved to have a chance to reuse max(abs(weight, dim=...))
             # from the forward to get max(abs(weight)) here without reading
