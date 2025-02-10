@@ -335,9 +335,15 @@ def recipe_name_to_linear_config(
 
     elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_i = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
+        cc_w = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
+        cc_go = CastConfig(
+            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+        )
 
         return Float8LinearConfig(
             cast_config_input=cc_i,
