@@ -55,6 +55,9 @@ jobs:
           echo "PYTHON TEST"
           echo $(python -c "(print(1 + 1))")
 
+          echo "LIST TEST"
+          echo $(ls test)
+
           echo "REAL TEST"
           python test/test_lowbit.py
 
