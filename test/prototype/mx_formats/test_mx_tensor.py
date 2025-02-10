@@ -264,12 +264,14 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
+    use_fp4_custom_triton_dequant_kernel = False
     x_mx_dq = to_dtype(
         x_mx._data,
         x_mx._scale_e8m0,
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
+        use_fp4_custom_triton_dequant_kernel,
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c._data,
@@ -277,5 +279,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
+        use_fp4_custom_triton_dequant_kernel,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
