@@ -50,7 +50,7 @@ from .quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
-    GemliteUIntxWeightOnlyConfig,
+    GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
@@ -140,7 +140,7 @@ __all__ = [
     "Float8StaticActivationFloat8WeightConfig",
     "UIntxWeightOnlyConfig",
     "FPXWeightOnlyConfig",
-    "GemliteUIntxWeightOnlyConfig",
+    "GemliteUIntXWeightOnlyConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
