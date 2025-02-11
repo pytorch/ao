@@ -46,6 +46,7 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    Int4WeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
     float8_weight_only,
@@ -119,6 +120,7 @@ __all__ = [
     "fpx_weight_only",
     "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
+    "Int4WeightOnlyConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
