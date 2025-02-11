@@ -7,6 +7,7 @@ from typing import Any, Dict, Tuple
 
 import torch
 
+import torchao.ops
 from torchao.swizzle.swizzle_tensor import SwizzleTensor
 
 aten = torch.ops.aten
@@ -31,7 +32,10 @@ def swizzle_mm(aten_op, args, kwargs=None):
 
     a = a.unswizzle() if isinstance(a, SwizzleTensor) else a
     b = b.unswizzle() if isinstance(b, SwizzleTensor) else b
-    tensor_out = aten_op(a, b, **kwargs)
+    if torch.is_floating_point(a):
+        tensor_out = torchao.ops.swizzle_mm(a, b)
+    else:
+        tensor_out = aten_op(a, b, **kwargs)
     return tensor_out
 
 
@@ -42,8 +46,7 @@ def swizzle_mm(aten_op, args, kwargs=None):
 
     a = a.unswizzle() if isinstance(a, SwizzleTensor) else a
     b = b.unswizzle() if isinstance(b, SwizzleTensor) else b
-    tensor_out = aten_op(a, b, **kwargs)
-    return tensor_out
+    return aten_op(a, b, **kwargs)
 
 
 @implements([aten.addmm.default])

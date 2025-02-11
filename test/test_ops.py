@@ -618,7 +618,7 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
 
 
 @pytest.mark.skipif(not IS_ROCM, reason="ROCm not available")
-def test_swizzle_stub():
+def test_swizzle_mm():
     test_utils = [
         "test_schema",
         "test_autograd_registration",
@@ -629,11 +629,12 @@ def test_swizzle_stub():
     if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
 
-    t = torch.randint(0, 16, dtype=torch.int, size=(16,16), device="cuda")
+    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16,32), device="cuda")
+    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32,16), device="cuda")
 
     opcheck(
-        torch.ops.torchao.swizzle_stub,
-        (t,),
+        torch.ops.torchao.swizzle_mm,
+        (mat1, mat2),
         test_utils=test_utils,
     )
 

@@ -26,7 +26,7 @@ lib.define(
     "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
 lib.define(
-    "swizzle_stub(Tensor input) -> Tensor"
+    "swizzle_mm(Tensor mat1, Tensor mat2) -> Tensor"
 )
 
 
@@ -597,16 +597,16 @@ def _(
     return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
 
 
-def swizzle_stub(w: Tensor) -> Tensor:
+def swizzle_mm(mat1: Tensor, mat2: Tensor) -> Tensor:
     """
-    Returns empty tensor like w.
+    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
 
     """
-    return torch.ops.torchao.swizzle_stub.default(
-        w=w
+    return torch.ops.torchao.swizzle_mm.default(
+        mat1, mat2
     )
 
 
-@register_custom_op("torchao::swizzle_stub")
-def _(w: Tensor) -> Tensor:
-    return torch.zeros_like(w)
+@register_custom_op("torchao::swizzle_mm")
+def _(mat1: Tensor, mat2: Tensor) -> Tensor:
+    return mat1.new_empty(mat1.shape[0], mat2.shape[1])

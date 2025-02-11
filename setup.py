@@ -222,7 +222,7 @@ def get_extensions():
     nvcc_args = [
         "-O3" if not debug_mode else "-O0",
         "-t=0",
-    ],
+    ]
     rocm_args = ["-O3" if not debug_mode else "-O0"]
 
     extra_link_args = []
@@ -261,6 +261,9 @@ def get_extensions():
     )
     rocm_sources = list(
         glob.glob(os.path.join(extensions_rocm_dir, "**/*.hip"), recursive=True)
+    )
+    rocm_sources += list(
+        glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
     )
 
     if use_cuda:
