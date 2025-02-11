@@ -69,6 +69,12 @@ class SwizzleTensor(torch.Tensor):
             undone = undone[0:self.B, 0:self.M, 0:self.K]
             return undone.reshape(self.B, self.M, self.K)
 
+    def as_tensor(self):
+        if self.original_ndim == 2:
+            return self.x.reshape(self.alignedM, self.alignedK)
+        if self.original_ndim == 3:
+            return self.x.reshape(self.B, self.alignedM, self.alignedK)
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         # Lazy import to avoid circular dependency

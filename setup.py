@@ -250,6 +250,23 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    if use_rocm:
+        # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16
+        found = False
+        print("ROCM_HOME", ROCM_HOME)
+        hipblaslt_headers = list(glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h")))
+        print("hipblaslt_headers", hipblaslt_headers)
+        for header in hipblaslt_headers:
+            with open(header) as f:
+                if "HIPBLASLT_ORDER_COL16" in f.read():
+                    found = True
+                    break
+        if found:
+            extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
+            print("hipblaslt found extended col order enums")
+        else:
+            print("hipblaslt does not have extended col order enums")
+
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))

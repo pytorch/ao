@@ -30,11 +30,19 @@ def swizzle_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 
-    a = a.unswizzle() if isinstance(a, SwizzleTensor) else a
-    b = b.unswizzle() if isinstance(b, SwizzleTensor) else b
-    if torch.is_floating_point(a):
-        tensor_out = torchao.ops.swizzle_mm(a, b)
+    if torch.is_floating_point(a) and torch.is_floating_point(b):
+        a_is_swizzled = False
+        b_is_swizzled = False
+        if isinstance(a, SwizzleTensor):
+            a = a.as_tensor()
+            a_is_swizzled = True
+        if isinstance(b, SwizzleTensor):
+            b = b.as_tensor()
+            b_is_swizzled = True
+        tensor_out = torchao.ops.swizzle_mm(a, b, a_is_swizzled, b_is_swizzled)
     else:
+        a = a.unswizzle() if isinstance(a, SwizzleTensor) else a
+        b = b.unswizzle() if isinstance(b, SwizzleTensor) else b
         tensor_out = aten_op(a, b, **kwargs)
     return tensor_out
 

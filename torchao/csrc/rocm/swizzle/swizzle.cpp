@@ -271,7 +271,7 @@ struct cublasCommonArgs {
 } // namespace
 
 template <typename Dtype>
-inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype)) {
+inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype), bool mat1_is_swizzled, bool mat2_is_swizzled) {
   hipDataType abcType = HIP_R_32F;
   hipblasComputeType_t computeType = HIPBLAS_COMPUTE_32F;
   hipDataType scaleType = HIP_R_32F;
@@ -306,6 +306,14 @@ inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype)) {
   HipBlasLtMatrixLayout Adesc(abcType, m, k, lda, opa == HIPBLAS_OP_T);
   HipBlasLtMatrixLayout Bdesc(abcType, k, n, ldb, opb == HIPBLAS_OP_T);
   HipBlasLtMatrixLayout Cdesc(abcType, m, n, ldc);
+#ifdef HIPBLASLT_HAS_ORDER_COL16
+  if (mat1_is_swizzled) {
+    Adesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_ORDER, HIPBLASLT_ORDER_COL16_4R8);
+  }
+  if (mat2_is_swizzled) {
+    Bdesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_ORDER, HIPBLASLT_ORDER_COL16_4R8);
+  }
+#endif
 
   if (num_batches > 1) {
     int num_batches_as_int = static_cast<int>(num_batches);
@@ -395,15 +403,16 @@ inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype)) {
       " scaleType ",
       scaleType);
 }
+
+
 template <typename Dtype>
-inline void gemm_hipblaslt(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
+inline void gemm_hipblaslt(CUDABLAS_GEMM_ARGTYPES(Dtype), bool mat1_is_swizzled, bool mat2_is_swizzled) {
   // forward to bgemm implementation but set strides and batches to 0
-  bgemm_hipblaslt(transa, transb, m, n, k, alpha, a, lda, 0, b, ldb, 0, beta, c, ldc, 0, 0);
+  bgemm_hipblaslt(transa, transb, m, n, k, alpha, a, lda, 0, b, ldb, 0, beta, c, ldc, 0, 0, mat1_is_swizzled, mat2_is_swizzled);
 }
 
 
-Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2) {
-  TORCH_CHECK(mat1.dim() == 2 && mat2.dim() == 2, "tensors must be 2-D");
+Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) {
   TORCH_CHECK(
     mat1.dtype() == mat2.dtype(),
     "expected mat1 and mat2 to have the same dtype, but got: ", mat1.dtype(), " != ", mat2.dtype()
@@ -446,7 +455,9 @@ Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2) {
             args.ldb,
             beta_val,
             result_ptr,
-            args.result_ld);
+            args.result_ld,
+            mat1_is_swizzled,
+            mat2_is_swizzled);
       });
 
     return result;
