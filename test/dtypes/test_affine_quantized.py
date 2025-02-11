@@ -218,6 +218,7 @@ class TestAffineQuantizedBasic(TestCase):
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
             if isinstance(apply_quant, AOBaseConfig):
                 quantize_(linear, apply_quant)
+                ql = linear
             else:
                 # TODO(#1690): delete this once config migration is done
                 ql = apply_quant(linear)
