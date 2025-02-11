@@ -34,31 +34,10 @@ jobs:
         run: |
           conda activate venv
           pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
-          pip install numpy pytest pyyaml parameterized
+          pip install numpy
+          pip install pytest
           USE_CPP=1 pip install .
       - name: Run tests
         run: |
           conda activate venv
           pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
-      - name: MPS tests
-        run: |
-          conda activate venv
-          pushd torchao/experimental/ops/mps
-
-          echo "Building"
-          bash build.sh
-
-          echo "Running test"
-          echo "LIST"
-          echo $(ls)
-
-          echo "PYTHON TEST"
-          echo $(python -c "(print(1 + 1))")
-
-          echo "LIST TEST"
-          echo $(ls test)
-
-          echo "REAL TEST"
-          python test/test_lowbit.py
-
-          popd

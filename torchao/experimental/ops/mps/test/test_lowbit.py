@@ -10,6 +10,29 @@ import unittest
 import torch
 from parameterized import parameterized
 
+libname = "libtorchao_ops_mps_aten.dylib"
+libpath = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
+)
+
+try:
+    for nbit in range(1, 8):
+        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+except AttributeError:
+    try:
+        torch.ops.load_library(libpath)
+    except:
+        raise RuntimeError(f"Failed to load library {libpath}")
+    else:
+        try:
+            for nbit in range(1, 8):
+                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        except AttributeError as e:
+            raise e
+
+
 class TestLowBitQuantWeightsLinear(unittest.TestCase):
     CASES = [
         (nbit, *param)
@@ -35,7 +58,7 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         ]
     ]
 
-    def _init_tensors(self, group_size, M, K, N, nbit, device="cpu"):
+    def _init_tensors(self, group_size, M, K, N, nbit, device="mps"):
         ceil_K_group_size = (K + group_size - 1) // group_size
         A = torch.rand(M, K, dtype=torch.float32, device=device)
         W = torch.randint(0, 1 << nbit, (N, K), dtype=torch.uint8, device=device)
@@ -69,40 +92,13 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         A, W, S, Z = self._init_tensors(group_size, M, K, N, nbit=nbit)
         packing_op = getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
         linear_op = getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-        # B = packing_op(W.cpu()).to("mps")
-        # result = linear_op(A, B, group_size, S, Z).cpu()
+        B = packing_op(W.cpu()).to("mps")
+        result = linear_op(A, B, group_size, S, Z).cpu()
         expected = self._reference_linear_lowbit_quant_weights(
             A.cpu(), W.cpu(), group_size, S.cpu(), Z.cpu(), nbit=nbit
         )
-        result = expected
         torch.testing.assert_close(result, expected, rtol=0.001, atol=0.001)
 
 
 if __name__ == "__main__":
-    print("RUNNING UNIT TESTS")
-    try:
-        print("TRYING")
-        for nbit in range(1, 8):
-            print("NBIT", nbit)
-            getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-            getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-    except AttributeError:
-        print("ATTRIBUTE ERROR")
-        try:
-            print("LOADING LIB")
-            libname = "libtorchao_ops_mps_aten.dylib"
-            libpath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname))
-            print("AT ", libpath)
-            torch.ops.load_library(libpath)
-            print("LOADED")
-        except Exception as e:
-            print("FAILED TO LOAD")
-            raise e
-            # raise RuntimeError(f"Failed to load library {libpath}")
-        finally:
-            print("TRYING AGAIN")
-            for nbit in range(1, 8):
-                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-
     unittest.main()
