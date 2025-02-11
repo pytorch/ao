@@ -884,11 +884,11 @@ def _int4_weight_only_transform(
     return module
 
 
+@dataclass
 class Int8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
     """
-
     group_size: Optional[int] = None
 
 
