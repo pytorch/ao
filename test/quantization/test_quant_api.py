@@ -49,6 +49,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_89,
     unwrap_tensor_subclass,
 )
 
@@ -806,6 +807,18 @@ class TestQuantFlow(TestCase):
         Simple test of e2e int4_weight_only workflow, comparing numerics
         to a bfloat16 baseline.
         """
+        if (
+            isinstance(
+                config,
+                (
+                    float8_dynamic_activation_float8_weight,
+                    float8_static_activation_float8_weight,
+                ),
+            )
+            and not is_sm_at_least_89()
+        ):
+            return unittest.skip("requires CUDA capability 8.9 or greater")
+
         # set up inputs
         x = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
         # TODO(future): model in float32 leads to error: https://gist.github.com/vkuzo/63b3bcd7818393021a6e3fb4ccf3c469

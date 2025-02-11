@@ -1208,9 +1208,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     mm_config: Optional[Float8MMConfig] = None
 
     def __post_init__(self):
-        assert (
-            is_sm_at_least_89() or is_MI300()
-        ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -1223,6 +1220,10 @@ float8_dynamic_activation_float8_weight = Float8DynamicActivationFloat8WeightCon
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
+
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
     granularity = config.granularity
@@ -1285,9 +1286,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     mm_config: Optional[Float8MMConfig] = None
 
     def __post_init__(self):
-        assert (
-            is_sm_at_least_89() or is_MI300()
-        ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
 
@@ -1300,6 +1298,10 @@ float8_static_activation_float8_weight = Float8StaticActivationFloat8WeightConfi
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
 ):
+    assert (
+        is_sm_at_least_89() or is_MI300()
+    ), "Float8 static activation quantization is only supported on CUDA 8.9 and above"
+
     scale = config.scale
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
