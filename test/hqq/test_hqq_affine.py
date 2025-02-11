@@ -53,12 +53,10 @@ def _eval_hqq(dtype):
     dummy_linear.weight.data = W
     if dtype == torch.uint4:
         config = int4_weight_only(group_size=max(block_size), use_hqq=True)
-        quantize_(dummy_linear, config)
-        q_tensor_hqq = dummy_linear.weight
     else:
-        q_tensor_hqq = uintx_weight_only(
-            dtype, group_size=max(block_size), use_hqq=True
-        )(dummy_linear).weight
+        config = uintx_weight_only(dtype, group_size=max(block_size), use_hqq=True)
+    quantize_(dummy_linear, config)
+    q_tensor_hqq = dummy_linear.weight
 
     quant_linear_layer = torch.nn.Linear(
         W.shape[1], W.shape[0], bias=False, device=W.device
