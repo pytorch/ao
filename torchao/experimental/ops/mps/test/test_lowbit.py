@@ -35,7 +35,7 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         ]
     ]
 
-    def _init_tensors(self, group_size, M, K, N, nbit, device="mps"):
+    def _init_tensors(self, group_size, M, K, N, nbit, device="cpu"):
         ceil_K_group_size = (K + group_size - 1) // group_size
         A = torch.rand(M, K, dtype=torch.float32, device=device)
         W = torch.randint(0, 1 << nbit, (N, K), dtype=torch.uint8, device=device)
