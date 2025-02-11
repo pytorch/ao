@@ -797,9 +797,7 @@ class TestQuantFlow(TestCase):
             int4_weight_only(),
             float8_weight_only(),
             float8_dynamic_activation_float8_weight(),
-            float8_static_activation_float8_weight(
-                scale=torch.tensor([1.0], device="cuda")
-            ),
+            float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
         ],
     )
     def test_workflow_e2e_numerics(self, config):
@@ -818,6 +816,11 @@ class TestQuantFlow(TestCase):
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
+
+        # scale has to be moved to cuda here because the parametrization init
+        # code happens before gating for cuda availability
+        if isinstance(config, float8_static_activation_float8_weight):
+            config.scale = config.scale.to("cuda")
 
         # set up inputs
         x = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
