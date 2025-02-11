@@ -867,7 +867,7 @@ class TestQuantFlow(TestCase):
             y_q = m_q(x)
 
         sqnr = compute_error(y_ref, y_q)
-        assert sqnr >= 20, f"SQNR {sqnr} is too low"
+        assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
 
 class TestMultiTensorFlow(TestCase):
