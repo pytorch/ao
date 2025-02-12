@@ -37,16 +37,16 @@ void check_embedding_inputs(
   int packed_embedding_dim = (embedding_dim * weight_nbit) / 8;
   TORCHAO_CHECK(
       packed_weight_qvals.size(0) ==
-          (torchao::ops::PackedWeightsHeader::size() +
+          (torchao::ops::PackedWeightsFormat::serialized_size() +
            (num_embeddings * packed_embedding_dim)),
       "packed_weight_qvals is not the correct size");
 
-  // Check header
-  auto header = torchao::ops::PackedWeightsHeader::read(
+  // Check packed_weights_format
+  auto packed_weights_format = torchao::ops::PackedWeightsFormat::deserialize(
       packed_weight_qvals.const_data_ptr());
   TORCHAO_CHECK(
-      header ==
-          torchao::ops::embedding_xbit::get_packed_weights_header_universal(
+      packed_weights_format ==
+          torchao::ops::embedding_xbit::get_packed_weights_format_universal(
               weight_nbit,
               /*min_value_chunk_size=*/32,
               /*max_value_chunk_size=*/128),
@@ -151,7 +151,7 @@ Tensor embedding_out_cpu(
         embedding_dim,
         group_size,
         packed_weight_qvals.const_data_ptr<int8_t>() +
-            torchao::ops::PackedWeightsHeader::size(),
+            torchao::ops::PackedWeightsFormat::serialized_size(),
         weight_scales.const_data_ptr<float>(),
         weight_zeros_ptr,
         index);
@@ -222,23 +222,23 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
       weight_qvals.dtype() == torch::kInt8, "weight_qvals must be int8");
 
   auto out = torch::empty(
-                 torchao::ops::PackedWeightsHeader::size() +
+                 torchao::ops::PackedWeightsFormat::serialized_size() +
                  (num_embeddings * packed_embedding_dim))
                  .to(torch::kInt8);
 
-  auto header =
-      torchao::ops::embedding_xbit::get_packed_weights_header_universal(
+  auto packed_weights_format =
+      torchao::ops::embedding_xbit::get_packed_weights_format_universal(
           weight_nbit,
           /*min_value_chunk_size=*/32,
           /*max_value_chunk_size=*/128);
-  header.write(out.mutable_data_ptr());
+  packed_weights_format.serialize(out.mutable_data_ptr());
 
   torchao::parallel_1d(0, num_embeddings, [&](int64_t idx) {
 #if defined(__aarch64__) || defined(__ARM_NEON)
     torchao::kernels::cpu::aarch64::embedding::pack_embedding_weight_qvals<
         weight_nbit>(
         out.mutable_data_ptr<int8_t>() +
-            torchao::ops::PackedWeightsHeader::size(),
+            torchao::ops::PackedWeightsFormat::serialized_size(),
         embedding_dim,
         weight_qvals.const_data_ptr<int8_t>(),
         idx);
@@ -261,7 +261,7 @@ Tensor pack_embedding_meta(const Tensor& weight_qvals) {
       embedding_dim % 8 == 0, "embedding_dim must be a multiple of 8 to pack");
   int packed_embedding_dim = embedding_dim * weight_nbit / 8;
   return torch::empty(
-             torchao::ops::PackedWeightsHeader::size() +
+             torchao::ops::PackedWeightsFormat::serialized_size() +
              (num_embeddings * packed_embedding_dim))
       .to("meta");
 }
