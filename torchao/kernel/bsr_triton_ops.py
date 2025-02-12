@@ -13,7 +13,6 @@ from torch.utils._triton import has_triton
 from torch.sparse._triton_ops_meta import get_meta
 
 
-
 TORCH_SPARSE_BSR_SCATTER_MM_LRU_CACHE_SIZE = int(
     os.getenv("TORCH_SPARSE_BSR_SCATTER_MM_LRU_CACHE_SIZE", 2)
 )
@@ -354,13 +353,14 @@ def bsr_dense_addmm_meta(
             #     verbose=True,
             # )
             # get padded key
-            padded_key = (M, K, 16, Ms, Ks, beta == 0, beta == 1, alpha == 1)
-            meta = get_meta(
-                "bsr_dense_addmm",
-                padded_key,
-                device_name,
-                version=(_version, version_dtype, sparsity),
-            )
+            # padded_key = (M, K, 16, Ms, Ks, beta == 0, beta == 1, alpha == 1)
+            # meta = get_meta(
+            #     "bsr_dense_addmm",
+            #     padded_key,
+            #     device_name,
+            #     version=(_version, version_dtype, sparsity),
+            # )
+            pass
             # breakpoint()
             # return meta
             # message
@@ -372,7 +372,7 @@ def bsr_dense_addmm_meta(
 
     SPLIT_N = SPLIT_N or max(N // Ms, 1)
     GROUP_SIZE_ROW = GROUP_SIZE_ROW or 4
-    num_stages = num_stages or 1
+    num_stages = num_stages or 4
     num_warps = num_warps or 4
     return dict(
         SPLIT_N=SPLIT_N,
@@ -505,7 +505,6 @@ def _int_bsr_dense_addmm(
 def bsr_dense_addmm(
     input: torch.Tensor,
     bsr: torch.Tensor,
-    row_indices: torch.Tensor,
     dense: torch.Tensor,
     *,
     beta=1,
@@ -657,7 +656,6 @@ def bsr_dense_addmm(
             BLOCKSIZE_ROW=BM,
             BLOCKSIZE_INNER=BK,
             BLOCKSIZE_COL=BN,
-            BLOCKSIZE_K=32,
             allow_tf32=dot_out_dtype == tl.float32,
             acc_dtype=dot_out_dtype,
             **meta,
@@ -746,7 +744,6 @@ if has_triton():
         BLOCKSIZE_ROW: tl.constexpr,
         BLOCKSIZE_COL: tl.constexpr,
         BLOCKSIZE_INNER: tl.constexpr,
-        BLOCKSIZE_K: tl.constexpr,
         acc_dtype: tl.constexpr,
         allow_tf32: tl.constexpr,
         GROUP_SIZE_ROW: tl.constexpr,
@@ -782,10 +779,10 @@ if has_triton():
         row_block_arange = tl.arange(0, BLOCKSIZE_ROW)
         inner_block_arange = tl.arange(0, BLOCKSIZE_INNER)
 
-        PADDED_BLOCKSIZE_COL : tl.constexpr = 16
-        # if BLOCKSIZE_COL < 16 or BLOCKSIZE_COL % 16 != 0:
-        # else:
-        #     PADDED_BLOCKSIZE_COL: tl.constexpr = BLOCKSIZE_COL
+        if BLOCKSIZE_COL < 16 or BLOCKSIZE_COL % 16 != 0:
+            PADDED_BLOCKSIZE_COL : tl.constexpr = 16
+        else:
+            PADDED_BLOCKSIZE_COL: tl.constexpr = BLOCKSIZE_COL
         
         col_block_arange = tl.arange(0, PADDED_BLOCKSIZE_COL)
 
@@ -826,11 +823,8 @@ if has_triton():
         )
 
         output_acc_block = tl.zeros((BLOCKSIZE_ROW, PADDED_BLOCKSIZE_COL), dtype=acc_dtype)
-
-        nsub_blocks = tl.cdiv(BLOCKSIZE_ROW, BLOCKSIZE_K)
-
-        
-        for i in range(row_nnz):
+        # offsets = tl.arange(0, PADDED_BLOCKSIZE_COL)[None, :]
+        for _ in range(row_nnz):
             values_block = tl.load(values_block_ptrs)
 
             # find which row of dense needs to get loaded
@@ -849,6 +843,45 @@ if has_triton():
             # move val/col_index ptrs to the next block in the row
             values_block_ptrs += values_nnz_stride
             col_index_nnz_ptr += col_indices_stride
+
+        if not alpha_is_one:
+            output_acc_block *= alpha
+
+        if not left_alpha_is_one:
+            left_alpha_ptrs = (
+                left_alpha_ptr
+                + left_alpha_batch_stride * batch_pid
+                + left_alpha_tiled_row_stride * row_block_pid
+                + left_alpha_tiled_col_stride * col_block_pid
+                + left_alpha_row_block_stride * row_block_arange[:, None]
+                + left_alpha_col_block_stride * col_block_arange[None, :]
+            )
+            output_acc_block *= tl.load(left_alpha_ptrs)
+
+        if not right_alpha_is_one:
+            right_alpha_ptrs = (
+                right_alpha_ptr
+                + right_alpha_batch_stride * batch_pid
+                + right_alpha_tiled_row_stride * row_block_pid
+                + right_alpha_tiled_col_stride * col_block_pid
+                + right_alpha_row_block_stride * row_block_arange[:, None]
+                + right_alpha_col_block_stride * col_block_arange[None, :]
+            )
+            output_acc_block *= tl.load(right_alpha_ptrs)
+
+        if beta_is_nonzero:
+            input_ptrs = (
+                input_ptr
+                + input_batch_stride * batch_pid
+                + input_tiled_row_stride * row_block_pid
+                + input_tiled_col_stride * col_block_pid
+                + input_row_block_stride * row_block_arange[:, None]
+                + input_col_block_stride * col_block_arange[None, :]
+            )
+            if beta_is_one:
+                output_acc_block += tl.load(input_ptrs)
+            else:
+                output_acc_block += beta * tl.load(input_ptrs)
 
         # write back the result
         tl.store(output_ptrs, output_acc_block.to(output_ptr.dtype.element_ty), mask=col_block_arange[None, :]< BLOCKSIZE_COL)

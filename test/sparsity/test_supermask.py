@@ -14,6 +14,8 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
+from torchao.sparsity.blocksparse import BlockSparseTensor
+from torchao.sparsity.utils import create_block_sparse_tensor
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
@@ -57,6 +59,18 @@ class TestSupermask(common_utils.TestCase):
         linear = nn.Linear(128, 128)
         supermask_linear = SupermaskLinear.from_linear(linear, sparsity_level=0.5, blocksize=4)
         assert supermask_linear.weight.shape == linear.weight.shape
+
+    def test_fastpath(self):
+        a = create_block_sparse_tensor(128, 128, 64, 0.5, torch.bfloat16).cuda()
+        # print(a)
+        w = a
+        x = torch.randn(128, 1).to(torch.bfloat16).cuda()   
+        expected = (torch.mul(w.unsqueeze(2), x.unsqueeze(0))).sum(dim=1)
+
+        a_sparse = BlockSparseTensor.from_dense(a, 64)
+        w = a_sparse
+        out = (torch.mul(w.unsqueeze(2), x.unsqueeze(0))).sum(dim=1)
+        torch.testing.assert_close(out, expected, rtol=1e-2, atol=1e-2)
 
 
 common_utils.instantiate_parametrized_tests(TestSupermask)
