@@ -25,6 +25,9 @@ lib.define(
 lib.define(
     "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
+lib.define(
+    "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
+)
 
 
 def register_custom_op(name):
@@ -592,3 +595,18 @@ def _(
     bias: Tensor,
 ) -> Tensor:
     return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
+
+
+def swizzle_mm(mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool) -> Tensor:
+    """
+    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
+
+    """
+    return torch.ops.torchao.swizzle_mm.default(
+        mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
+    )
+
+
+@register_custom_op("torchao::swizzle_mm")
+def _(mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool) -> Tensor:
+    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
