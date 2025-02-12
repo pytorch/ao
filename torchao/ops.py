@@ -26,6 +26,7 @@ lib.define(
     "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
 lib.define("mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
+lib.define("mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
 
 
 def register_custom_op(name):
@@ -639,4 +640,35 @@ def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
 @register_custom_op("torchao::mx_fp8_bf16")
 def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp8_bf16"""
+    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Defines a matmul between two fp4 tensors w/ MX scales in E8MO and returns a bf16 tensor.
+
+    The expected format is fp4_e2m1 specified:
+    https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final.pdf (Section 5.3.3)
+
+    Note: The mx scales are E8MO tensors stored in uint8 tensors (for now).
+        The layout of the scales is very particular, see:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+
+    Args:
+        A: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        B: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
+        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
+
+    Returns:
+        MXN bf16 Tensor
+
+    """
+    return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
+
+
+@register_custom_op("torchao::mx_fp4_bf16")
+def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Meta impl for mx_fp4_bf16"""
+    # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
