@@ -60,6 +60,8 @@ def latencies_statistics(data):
     mean = np.mean(data_array)
     # Calculate the median
     median = np.median(data_array)
+    # Calculate the 90th percentile
+    p90 = np.percentile(data_array, 90)
     # Calculate the 95th percentile
     p95 = np.percentile(data_array, 95)
     # Calculate the 99th percentile
@@ -74,6 +76,7 @@ def latencies_statistics(data):
         {
             "mean": mean,
             "median": median,
+            "p90": p90,
             "p95": p95,
             "p99": p99,
             "p999": p999,
