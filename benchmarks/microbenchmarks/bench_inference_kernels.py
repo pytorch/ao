@@ -1,19 +1,20 @@
-import torch
 import argparse
+import re
 from copy import deepcopy
 from typing import Callable, List, Optional
-from benchmarks.microbenchmarks.utils import (
+
+import torch
+
+from utils import (
     ToyLinearModel,
     get_default_device,
 )
-from torchao import quantization
 from torchao.quantization import (
+    float8_weight_only,
     int4_weight_only,
     int8_weight_only,
-    float8_weight_only,
     quantize_,
 )
-import re
 
 
 def parse_quantization_arg(quantization_input: List[str]):
@@ -61,9 +62,9 @@ def main(
     base_model = ToyLinearModel().eval().to(device)
 
     # Use quantize_ to apply each quantization function to the model
-    print(f"Running benchmark for {quant_func} {kwargs} quantization")
-    m_copy = deepcopy(base_model).to(device)
-    quantize_(m_copy, quant_func(**kwargs))
+    print(f"Running benchmark for {quant_func} {quant_kwargs} quantization")
+    m_copy = deepcopy(base_model).eval().to(device)
+    quantize_(m_copy, quant_func(**quant_kwargs))
     print(f"Quantized model: {m_copy}")
 
     if compile:
@@ -75,20 +76,16 @@ def main(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run microbenchmarks"
-    )
+    parser = argparse.ArgumentParser(description="Run microbenchmarks")
 
     parser.add_argument(
         "-q",
         "--quantization",
         type=str,
-        nargs='+',
+        nargs="+",
         help=(
             "Pass all the quantization techniques for benchmarking: "
-            + "int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
-            + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, int8adq-int4w-symm"
+            + "int8wo, int4wo-<groupsize>, int4wo-<groupsize>-hqq, float8wo"
         ),
     )
 
