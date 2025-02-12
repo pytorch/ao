@@ -60,7 +60,7 @@
       "_linear_8bit_act_" #weight_nbit "bit_weight",          \
       &linear_meta<weight_nbit, true>);
 
-TORCH_LIBRARY(torchao, m) {
+TORCH_LIBRARY_FRAGMENT(torchao, m) {
   DEFINE_OP(1);
   DEFINE_OP(2);
   DEFINE_OP(3);
