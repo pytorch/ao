@@ -163,12 +163,13 @@ class QuantizedLinear(torch.nn.Module):
                 weight, weight_scale, weight_zero_point, block_size, self.target_dtype
             )
         elif self.target_dtype == torch.float8_e4m3fn:
+            mm_config = Float8MMConfig(use_fast_accum=True)
             self.qweight = to_affine_quantized_floatx_static(
                 weight,
                 weight_scale,
                 block_size,
                 target_dtype,
-                Float8Layout(mm_config=None),
+                Float8Layout(mm_config=mm_config),
             )
         else:
             raise ValueError(f"Unsupported target dtype {self.target_dtype}")
