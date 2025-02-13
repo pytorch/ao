@@ -29,16 +29,16 @@ For inference, we have the option of
 ```python
 from torchao.quantization.quant_api import (
     quantize_,
-    int8_dynamic_activation_int8_weight,
-    int4_weight_only,
-    int8_weight_only
+    Int8DynamicActivationInt8WeightConfig,
+    Int4WeightOnlyConfig,
+    Int8WeightOnlyConfig
 )
-quantize_(m, int4_weight_only())
+quantize_(m, Int4WeightOnlyConfig())
 ```
 
-For gpt-fast `int4_weight_only()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
+For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
 
-If you don't have enough VRAM to quantize your entire model on GPU and you find CPU quantization to be too slow then you can use the device argument like so `quantize_(model, int8_weight_only(), device="cuda")` which will send and quantize each layer individually to your GPU.
+If you don't have enough VRAM to quantize your entire model on GPU and you find CPU quantization to be too slow then you can use the device argument like so `quantize_(model, Int8WeightOnlyConfig(), device="cuda")` which will send and quantize each layer individually to your GPU.
 
 If you see slowdowns with any of these techniques or you're unsure which option to use, consider using [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers and pick the best way to quantize each layer.
 
