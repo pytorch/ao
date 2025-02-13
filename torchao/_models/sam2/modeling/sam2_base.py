@@ -670,6 +670,10 @@ class SAM2Base(torch.nn.Module):
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
 
+        current_vision_feats = [c.clone() for c in current_vision_feats]
+        current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
+        memory = memory.clone()
+        memory_pos_embed = memory_pos_embed.clone()
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,
             curr_pos=current_vision_pos_embeds,
@@ -677,6 +681,7 @@ class SAM2Base(torch.nn.Module):
             memory_pos=memory_pos_embed,
             num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
+        pix_feat_with_mem = pix_feat_with_mem.clone()
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem

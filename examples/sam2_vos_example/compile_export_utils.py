@@ -120,8 +120,8 @@ def export_model(
     example_input = (example_input.to("cuda:0"),)
     aot_compile(
         model_directory,
-        "sam2_image_encoder",
-        predictor.image_encoder,
+        "sam2_image_encoder_trunk",
+        predictor.image_encoder.trunk,
         example_input,
         overwrite=overwrite,
     )
@@ -203,12 +203,12 @@ def load_exported_model(
     if furious:
         set_furious(predictor)
     t0 = time.time()
-    path = Path(model_directory) / Path("sam2_image_encoder.pt2")
+    path = Path(model_directory) / Path("sam2_image_encoder_trunk.pt2")
     assert path.exists(), f"Expected {path} to exist"
     print(f"Start load from {path}")
     pkg = torch._inductor.aoti_load_package(str(path))
     pkg_m = LoadedModel(pkg)
-    predictor.image_encoder = pkg_m
+    predictor.image_encoder.trunk = pkg_m
 
     path = Path(model_directory) / Path("sam2_video_forward_sam_heads.pt2")
     assert path.exists(), f"Expected {path} to exist"
@@ -246,6 +246,7 @@ def set_fast(
         )
     predictor.memory_attention = torch.compile(
         predictor.memory_attention,
+        mode="max-autotune",
         fullgraph=True,
         dynamic=True,
     )
