@@ -1,78 +1,64 @@
+"""Script to compare multiple quantization techniques for inference, for a particular matrix shape, and model type"""
+
 import argparse
-import re
 from copy import deepcopy
-from typing import Callable, List, Optional
+from typing import List
 
 import torch
-
 from utils import (
     ToyLinearModel,
+    benchmark_model_inference_in_microseconds,
+    benchmark_model_inference_in_microseconds_with_profiler,
+    create_model_and_input,
     get_default_device,
+    quantize_model,
 )
-from torchao.quantization import (
-    float8_weight_only,
-    int4_weight_only,
-    int8_weight_only,
-    quantize_,
-)
-
-
-def parse_quantization_arg(quantization_input: List[str]):
-    # Define regex patterns for quantization techniques
-    patterns = {
-        r"^int4wo-(\d+)(-hqq)?$": int4_weight_only,
-        r"^int8wo$": int8_weight_only,
-        r"^float8wo$": float8_weight_only,
-        # Add other patterns and corresponding functions here
-    }
-    for quant_technique in quantization_input:
-        # Iterate over patterns and functions
-        for pattern, func in patterns.items():
-            match = re.match(pattern, quant_technique)
-            if match:
-                # Extract parameters from the match
-                groups = match.groups()
-                if func == int4_weight_only:
-                    kwargs = {
-                        "group_size": int(groups[0]),
-                        "use_hqq": bool(groups[1]),
-                    }
-                    yield func, kwargs
-                elif func == int8_weight_only:
-                    yield func
-                elif func == float8_weight_only:
-                    yield func
-                # TODO: Add other function calls with parameters here
-
-                # raise ValueError(f"Unsupported quantization technique: {quant_technique}")
 
 
 def main(
-    quant_func: Callable,
-    quant_kwargs: Optional[dict],
-    # matrix_sizes,
-    # m,
-    # k,
-    # n,
-    # precision,
-    device=get_default_device(),
+    quantization: str,
+    m,
+    k,
+    n,
+    precision,
+    model_type: str = "linear",
     compile: bool = False,
+    device=get_default_device(),
 ) -> None:
     # TODO: Add more model types here
-    base_model = ToyLinearModel().eval().to(device)
-
+    base_model, input_data = create_model_and_input(
+        model_type, m, k, n,
+        dtype=precision,
+        device=device,)
+    print(f"Starting benchmarking for model: {base_model.__class__.__name__}......")
     # Use quantize_ to apply each quantization function to the model
-    print(f"Running benchmark for {quant_func} {quant_kwargs} quantization")
     m_copy = deepcopy(base_model).eval().to(device)
-    quantize_(m_copy, quant_func(**quant_kwargs))
-    print(f"Quantized model: {m_copy}")
+    m_copy = quantize_model(m_copy, quantization)
+    # quantized_dtype = .....
 
     if compile:
-        print("Compiling model...")
         m_copy = torch.compile(m_copy)
 
-    # TODO: Run benchmark on the quantized model
-    # Will add benchmarking code here
+    # Run benchmarks
+    # 1. Benchmark time to run an inference call for quantized model
+    model_time = benchmark_model_inference_in_microseconds(model=m_copy, input_data=input_data)
+    print(f"Time to run a {base_model.__class__.__name__}: {model_time * 1e6:.2f} microseconds quantized with {quantization}")
+
+    # 2. Benchmark time using profiler
+    
+    # Profile dtype model evaluation
+    # prof_dtype = benchmark_model_inference_in_microseconds_with_profiler(m_copy, input_data, quantized_dtype)
+    # prof_dtype.export_chrome_trace(f"dtype_model_{input_data[0].size()[0]}.json")  # Save profiling details
+
+    # Calculate and store GPU kernel times -> op time, overhead time
+    # dtype_gpu_op_time, dtype_gpu_overhead_time = get_gpu_kernel_times(prof_dtype, 'gemm')
+
+    # 3. Benchmark gemm time without profiler
+    # matmul_time (without profiler for a quantized tensor)
+    # gemm_time = benchmark_torch_function_in_microseconds(gemm_op, *args, **kwargs)
+
+    # 6. Create csv file with all the results
+    # generate_csv()
 
 
 if __name__ == "__main__":
@@ -82,45 +68,36 @@ if __name__ == "__main__":
         "-q",
         "--quantization",
         type=str,
-        nargs="+",
         help=(
-            "Pass all the quantization techniques for benchmarking: "
+            "Pass the quantization technique for benchmarking: "
             + "int8wo, int4wo-<groupsize>, int4wo-<groupsize>-hqq, float8wo"
         ),
     )
 
-    # parser.add_argument(
-    #     "--matrix_sizes",
-    #     type=str,
-    #     nargs='+',
-    #     help=(
-    #         "Pass all the matrix sizes for benchmarking."
-    #     ),
-    # )
+    parser.add_argument(
+        "-m",
+        type=int,
+        help="M dimension of the matrix",
+    )
 
-    # parser.add_argument(
-    #     "-m",
-    #     type=int,
-    #     help="M dimension of the matrix",
-    # )
+    parser.add_argument(
+        "-k",
+        type=int,
+        help="M dimension of the matrix",
+    )
 
-    # parser.add_argument(
-    #     "-k",
-    #     type=int,
-    #     help="M dimension of the matrix",
-    # )
+    parser.add_argument(
+        "-n",
+        type=int,
+        help="M dimension of the matrix",
+    )
 
-    # parser.add_argument(
-    #     "-n",
-    #     type=int,
-    #     help="M dimension of the matrix",
-    # )
-
-    # parser.add_argument(
-    #     "--precision",
-    #     type=str,
-    #     choices=["float32", "float16", "bfloat16"],
-    # )
+    parser.add_argument(
+        "--precision",
+        type=lambda x: getattr(torch, x.split(".")[-1]),
+        default=torch.bfloat16,
+        help="dtype precision to use",
+    )
 
     parser.add_argument(
         "--compile",
@@ -128,15 +105,23 @@ if __name__ == "__main__":
         help="Whether to compile the model",
     )
 
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        help="Device to run the model on",
+    )
+
     args = parser.parse_args()
     print(args)
 
-    # Process arguments
-    quantization_funcs = list(parse_quantization_arg(args.quantization))
-
     # Run benchmarks
-    for func, kwargs in quantization_funcs:
-        main(
-            quant_func=func,
-            quant_kwargs=kwargs,
-        )
+    main(
+        quantization=args.quantization,
+        m=args.m,
+        k=args.k,
+        n=args.n,
+        precision=args.precision,
+        compile=args.compile,
+        device=args.device,
+    )
