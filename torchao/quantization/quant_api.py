@@ -538,7 +538,7 @@ def quantize_(
     else:
         # old behavior, keep to avoid breaking BC
         warnings.warn(
-            """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/pull/1595 for instructions on how to pass in workflow configuration instead."""
+            """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
         )
 
         # make the variable name make sense
