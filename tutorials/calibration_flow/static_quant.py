@@ -3,11 +3,13 @@ Demo for static quantization flow
 """
 
 import copy
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     Float8Layout,
     to_affine_quantized_floatx_static,
@@ -25,6 +27,9 @@ from torchao.quantization.observer import (
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_primitives import (
     MappingType,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_90
@@ -77,66 +82,74 @@ def insert_observers_(model, act_obs, weight_obs):
     _replace_with_custom_fn_if_matches_filter(model, replacement_fn, _is_linear)
 
 
+@dataclass
+class ApplyStaticQuantConfig(AOBaseConfig):
+    target_dtype: torch.dtype
+
+
 # converting observed linear module to linear module with quantzied weights (and quantized activations)
 # with tensor subclasses
-def apply_static_quant(target_dtype: torch.dtype):
-    # target_dtype = torch.uint8
-    def _apply_static_quant_to_linear(observed_linear):
-        # weight quantization
-        weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
+@register_quantize_module_handler(ApplyStaticQuantConfig)
+def _apply_static_quant_transform(
+    module: torch.nn.Module,
+    config: ApplyStaticQuantConfig,
+):
+    target_dtype = config.target_dtype
+    observed_linear = module
 
-        def weight_quant_func(weight):
-            block_size = (1, weight.shape[1])
-            if target_dtype == torch.uint8:
-                return to_affine_quantized_intx_static(
-                    weight, weight_scale, weight_zero_point, block_size, target_dtype
-                )
-            elif target_dtype == torch.float8_e4m3fn:
-                mm_config = Float8MMConfig(use_fast_accum=True)
-                return to_affine_quantized_floatx_static(
-                    weight,
-                    weight_scale,
-                    block_size,
-                    target_dtype,
-                    Float8Layout(mm_config=mm_config),
-                )
-            else:
-                raise ValueError(f"Unsupported target dtype {target_dtype}")
+    # weight quantization
+    weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
 
-        linear = torch.nn.Linear(
-            observed_linear.in_features,
-            observed_linear.out_features,
-            False,
-            device=observed_linear.weight.device,
-            dtype=observed_linear.weight.dtype,
-        )
-        linear.weight = observed_linear.weight
-        linear.bias = observed_linear.bias
-
-        linear.weight = torch.nn.Parameter(
-            weight_quant_func(linear.weight), requires_grad=False
-        )
-
-        # activation quantization
-        act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
+    def weight_quant_func(weight):
+        block_size = (1, weight.shape[1])
         if target_dtype == torch.uint8:
-            input_quant_func = lambda x: to_affine_quantized_intx_static(
-                x, act_scale, act_zero_point, x.shape, target_dtype
+            return to_affine_quantized_intx_static(
+                weight, weight_scale, weight_zero_point, block_size, target_dtype
             )
         elif target_dtype == torch.float8_e4m3fn:
-            input_quant_func = lambda x: to_affine_quantized_floatx_static(
-                x, act_scale, x.shape, target_dtype, Float8Layout(mm_config=None)
+            mm_config = Float8MMConfig(use_fast_accum=True)
+            return to_affine_quantized_floatx_static(
+                weight,
+                weight_scale,
+                block_size,
+                target_dtype,
+                Float8Layout(mm_config=mm_config),
             )
         else:
             raise ValueError(f"Unsupported target dtype {target_dtype}")
-        linear.weight = torch.nn.Parameter(
-            to_linear_activation_quantized(linear.weight, input_quant_func),
-            requires_grad=False,
+
+    linear = torch.nn.Linear(
+        observed_linear.in_features,
+        observed_linear.out_features,
+        False,
+        device=observed_linear.weight.device,
+        dtype=observed_linear.weight.dtype,
+    )
+    linear.weight = observed_linear.weight
+    linear.bias = observed_linear.bias
+
+    linear.weight = torch.nn.Parameter(
+        weight_quant_func(linear.weight), requires_grad=False
+    )
+
+    # activation quantization
+    act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
+    if target_dtype == torch.uint8:
+        input_quant_func = lambda x: to_affine_quantized_intx_static(
+            x, act_scale, act_zero_point, x.shape, target_dtype
         )
+    elif target_dtype == torch.float8_e4m3fn:
+        input_quant_func = lambda x: to_affine_quantized_floatx_static(
+            x, act_scale, x.shape, target_dtype, Float8Layout(mm_config=None)
+        )
+    else:
+        raise ValueError(f"Unsupported target dtype {target_dtype}")
+    linear.weight = torch.nn.Parameter(
+        to_linear_activation_quantized(linear.weight, input_quant_func),
+        requires_grad=False,
+    )
 
-        return linear
-
-    return _apply_static_quant_to_linear
+    return linear
 
 
 # alternative for converting observed linear module to quantized linear module
@@ -210,11 +223,17 @@ class QuantizedLinear(torch.nn.Module):
         return quantized_linear
 
 
-def apply_static_quant2(target_dtype: torch.dtype):
-    def _apply_static_quant2(observed_linear):
-        return QuantizedLinear.from_observed(observed_linear, target_dtype)
+@dataclass
+class ApplyStaticQuantConfig2(AOBaseConfig):
+    target_dtype: torch.dtype
 
-    return _apply_static_quant2
+
+@register_quantize_module_handler(ApplyStaticQuantConfig2)
+def apply_static_quant(
+    module: torch.nn.Module,
+    config: ApplyStaticQuantConfig2,
+):
+    return QuantizedLinear.from_observed(module, config.target_dtype)
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -281,14 +300,14 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, apply_static_quant(target_dtype), is_observed_linear)
+    quantize_(m, ApplyStaticQuantConfig(target_dtype), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
     print("test passed")
 
     # quantized linear as a standalone module
-    quantize_(m2, apply_static_quant2(target_dtype), is_observed_linear)
+    quantize_(m2, ApplyStaticQuantConfig2(target_dtype), is_observed_linear)
     print("quantized model (quantized module):", m2)
     after_quant = m2(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
