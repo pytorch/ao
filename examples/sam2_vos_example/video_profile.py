@@ -291,6 +291,7 @@ def main(
         # hydra_overrides_extra=hydra_overrides_extra,
     )
     predictor._frame_batch_size = frame_batch_size
+    predictor.image_encoder.trunk = predictor.image_encoder.trunk.to(torch.bfloat16)
 
     inference_states = []
     for i in range(batch_size):
