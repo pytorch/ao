@@ -163,7 +163,7 @@ Tensor pack_weights_cpu_kernel(const Tensor& W) {
   return B;
 }
 
-TORCH_LIBRARY(torchao, m) {
+TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def("_pack_weight_1bit(Tensor W) -> Tensor");
   m.def("_pack_weight_2bit(Tensor W) -> Tensor");
   m.def("_pack_weight_3bit(Tensor W) -> Tensor");
