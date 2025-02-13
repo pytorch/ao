@@ -28,6 +28,7 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
+    CutlassSemiSparselayout,
     Float8Layout,
     Int4CPULayout,
     MarlinQQQLayout,
@@ -112,6 +113,7 @@ __all__ = [
     "fpx_weight_only",
     "gemlite_uintx_weight_only",
     "float8_dynamic_activation_float8_weight",
+    "float8_dynamic_activation_float8_semi_sparse_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
@@ -607,7 +609,7 @@ def apply_int8_dynamic_activation_int4_weight_quant(
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
         elif isinstance(layout, CutlassInt4PackedLayout):
-            input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+            input_quant_func = _int8_symm_per_token_quant_cutlass
         else:
             input_quant_func = _int8_symm_per_token_quant
     else:
@@ -891,24 +893,14 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
         )
 
 
-def _int8_symm_per_token_reduced_range_quant_cutlass(
-    x: torch.Tensor,
-) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
+def _int8_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(
         x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        eps=1e-5,
         zero_point_domain=ZeroPointDomain.NONE,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=torch.float16 if x.dtype == torch.float16 else None,
     )
 
 
@@ -1199,6 +1191,56 @@ def float8_dynamic_activation_float8_weight(
     return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
 
 
+def float8_dynamic_activation_float8_semi_sparse_weight(
+    activation_dtype=torch.float8_e4m3fn,
+    weight_dtype=torch.float8_e4m3fn,
+    layout=CutlassSemiSparseLayout(),
+):
+    """
+    Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.
+
+    Args:
+        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
+        `activation_dtype`: data type for quantized activation tensor.
+        `weight_dtype`: data type for quantized weight tensor.
+    """
+    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+
+    def apply_float8_dynamic_activation_float8_semi_sparse_weight_quant(
+        weight: torch.Tensor, activation_dtype: torch.dtype, weight_dtype: torch.dtype
+    ):
+        block_size = [1] * (weight.dim() - 1) + [weight.shape[-1]]
+        weight_quantized, scales, zero_points = to_affine_quantized_floatx(
+            input_float=weight,
+            target_dtype=weight_dtype,
+            block_size=block_size,
+            _layout=Float8Layout(mm_config=None),
+        ).tensor_impl.get_plain()
+        assert zero_points is None
+        weight_sparse, meta = to_sparse_semi_structured_cutlass_sm9x_f8(
+            weight_quantized
+        )
+
+        def input_quant_func(input: torch.Tensor):
+            block_size = [1] * (x.dim() - 1) + [x.shape[-1]]
+            return to_affine_quantized_floatx(
+                input_float=input,
+                target_dtype=activation_dtype,
+                block_size=block_size,
+                _layout=Float8Layout(mm_config=None),
+            )
+
+        input_quant_func_kwargs = {}
+
+        return to_linear_activation_quantized(
+            weight_sparse, input_quant_func, quant_kwargs=input_quant_kwargs
+        )
+
+    return _get_linear_subclass_inserter(
+        apply_float8_dynamic_activation_float8_semi_sparse_weight_quant
+    )
+
+
 def float8_static_activation_float8_weight(
     scale: torch.Tensor,
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -1366,7 +1408,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
         [
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
-            _int8_symm_per_token_reduced_range_quant_cutlass,
+            _int8_symm_per_token_quant_cutlass,
             _int4_symm_per_token_quant_cutlass,
             _input_activation_quant_func_fp8,
         ]
