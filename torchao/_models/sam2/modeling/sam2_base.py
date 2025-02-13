@@ -784,11 +784,16 @@ class SAM2Base(torch.nn.Module):
                 assert point_inputs is not None and mask_inputs is None
                 mask_inputs = prev_sam_mask_logits
             multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
+
+            assert mask_inputs is None
+            assert multimask_output
+            if point_inputs is not None:
+                point_inputs = {k: point_inputs[k].contiguous() for k in point_inputs}
             sam_outputs = self._forward_sam_heads(
-                backbone_features=pix_feat,
+                backbone_features=pix_feat.contiguous(),
                 point_inputs=point_inputs,
                 mask_inputs=mask_inputs,
-                high_res_features=high_res_features,
+                high_res_features=[h.contiguous() for h in high_res_features],
                 multimask_output=multimask_output,
             )
 
