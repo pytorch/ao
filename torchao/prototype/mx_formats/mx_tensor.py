@@ -21,6 +21,7 @@ from typing import Dict, Union
 
 import torch
 
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP4,
@@ -331,6 +332,7 @@ class ToMXConstrFunc(torch.autograd.Function):
         block_size,
         scaling_mode,
         use_fp4_custom_triton_dequant_kernel,
+        gemm_kernel_choice,
     ):
         scale_e8m0_biased, data_lp = to_mx(
             data_hp, elem_dtype, block_size, scaling_mode
@@ -342,11 +344,12 @@ class ToMXConstrFunc(torch.autograd.Function):
             block_size,
             data_hp.dtype,
             use_fp4_custom_triton_dequant_kernel,
+            gemm_kernel_choice,
         )
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None, None, None
+        return g, None, None, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -380,6 +383,7 @@ class MXTensor(torch.Tensor):
         block_size,
         orig_dtype,
         use_fp4_custom_triton_dequant_kernel,
+        gemm_kernel_choice,
     ):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
@@ -440,6 +444,7 @@ class MXTensor(torch.Tensor):
         self._use_fp4_custom_triton_dequant_kernel = (
             use_fp4_custom_triton_dequant_kernel
         )
+        self._gemm_kernel_choice = gemm_kernel_choice
         return self
 
     def __repr__(self):
@@ -467,6 +472,7 @@ class MXTensor(torch.Tensor):
         block_size: int = BLOCK_SIZE_DEFAULT,
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         use_fp4_custom_triton_dequant_kernel: bool = False,
+        gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
     ):
         return ToMXConstrFunc.apply(
             data_hp,
@@ -474,6 +480,7 @@ class MXTensor(torch.Tensor):
             block_size,
             scaling_mode,
             use_fp4_custom_triton_dequant_kernel,
+            gemm_kernel_choice,
         )
 
     def __tensor_flatten__(self):
@@ -482,6 +489,7 @@ class MXTensor(torch.Tensor):
             "_block_size": self._block_size,
             "_orig_dtype": self._orig_dtype,
             "_use_fp4_custom_triton_dequant_kernel": self._use_fp4_custom_triton_dequant_kernel,
+            "_gemm_kernel_choice": self._gemm_kernel_choice,
         }
         return ["_scale_e8m0", "_data"], ctx
 
@@ -499,6 +507,7 @@ class MXTensor(torch.Tensor):
             metadata["_block_size"],
             metadata["_orig_dtype"],
             metadata["_use_fp4_custom_triton_dequant_kernel"],
+            metadata["_gemm_kernel_choice"],
         )
 
     # Do not force the MXTensor type on the returned tensor
