@@ -11,6 +11,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from torchao.prototype.mx_formats.config import MXLinearConfig
 from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
@@ -59,8 +60,13 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         nn.Linear(8, 6, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_linear(m_mx, *elem_dtype, block_size=block_size)
+    config = MXLinearConfig(
+        block_size=2,
+        elem_dtype=elem_dtype[0],
+        elem_dtype_weight_override=elem_dtype[1],
+        elem_dtype_grad_output_override=elem_dtype[2],
+    )
+    swap_linear_with_mx_linear(m_mx, config=config)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
     x = copy.deepcopy(x_ref)
@@ -97,8 +103,8 @@ def test_activation_checkpointing():
         nn.Linear(4, 6, bias=True, device="cuda"),
         nn.Linear(6, 6, bias=True, device="cuda"),
     )
-    block_size = 2
-    swap_linear_with_mx_linear(m, elem_dtype, block_size=block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_linear(m, config=config)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
     g = torch.randn(*grad_shape, device="cuda")
@@ -133,8 +139,8 @@ def test_linear_compile(elem_dtype, bias, use_autocast):
     m_mx = nn.Sequential(
         nn.Linear(K, N, bias=bias, device="cuda"),
     )
-    block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size=block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_linear(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
@@ -181,8 +187,8 @@ def test_inference_linear(elem_dtype, bias, input_shape):
     m = nn.Sequential(nn.Linear(4, 6, bias=bias, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_inference_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_inference_linear(m_mx, config=config)
 
     x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
     y_ref = m(x)
@@ -209,8 +215,8 @@ def test_inference_compile_simple(elem_dtype):
     m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_inference_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_inference_linear(m_mx, config=config)
     m_mx = torch.compile(m_mx, fullgraph="true")
 
     x = torch.randn(2, 4, device="cuda", dtype=torch.bfloat16)
@@ -223,20 +229,6 @@ def test_inference_compile_simple(elem_dtype):
         assert sqnr >= 13.5
 
 
-def test_mx_linear_input_weight_gradient_dtypes():
-    m = nn.Sequential(nn.Linear(32, 32))
-    swap_linear_with_mx_linear(m, *SUPPORTED_ELEM_DTYPES[:3], block_size=32)
-    assert m[0].in_elem_dtype == SUPPORTED_ELEM_DTYPES[0]
-    assert m[0].w_elem_dtype == SUPPORTED_ELEM_DTYPES[1]
-    assert m[0].grad_elem_dtype == SUPPORTED_ELEM_DTYPES[2]
-
-    m = nn.Sequential(nn.Linear(32, 32))
-    swap_linear_with_mx_linear(m, torch.float8_e4m3fn, block_size=32)
-    assert m[0].in_elem_dtype == torch.float8_e4m3fn
-    assert m[0].w_elem_dtype == torch.float8_e4m3fn
-    assert m[0].grad_elem_dtype == torch.float8_e4m3fn
-
-
 def test_filter_fn():
     m1 = nn.Sequential(
         nn.Linear(32, 32),
@@ -245,12 +237,11 @@ def test_filter_fn():
     m2 = copy.deepcopy(m1)
     filter_fn = lambda mod, fqn: fqn != "1"  # noqa: E731
 
-    swap_linear_with_mx_linear(
-        m1, torch.float8_e4m3fn, block_size=32, filter_fn=filter_fn
-    )
+    config = MXLinearConfig(block_size=32)
+    swap_linear_with_mx_linear(m1, config=config, filter_fn=filter_fn)
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    swap_linear_with_mx_inference_linear(m2, torch.float8_e4m3fn, 32, filter_fn)  # noqa: E501
+    swap_linear_with_mx_inference_linear(m2, config=config, filter_fn=filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
