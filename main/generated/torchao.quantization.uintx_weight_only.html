@@ -415,22 +415,10 @@
               
   <section id="uintx-weight-only">
 <h1>uintx_weight_only<a class="headerlink" href="#uintx-weight-only" title="Permalink to this heading">¶</a></h1>
-<dl class="py function">
+<dl class="py attribute">
 <dt class="sig sig-object py" id="torchao.quantization.uintx_weight_only">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">uintx_weight_only</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dtype</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">64</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pack_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-</span> <span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_hqq</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#uintx_weight_only"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.uintx_weight_only" title="Permalink to this definition">¶</a></dt>
-<dd><p>Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
-x is the number of bits specified by <cite>dtype</cite></p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>dtype</strong> – torch.uint1 to torch.uint7 sub byte dtypes</p></li>
-<li><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
-size is more fine grained, defaults to 64</p></li>
-<li><p><strong>pack_dim</strong> – the dimension we use for packing, defaults to -1</p></li>
-<li><p><strong>use_hqq</strong> – whether to use hqq algorithm or the default algorithm to quantize the weight</p></li>
-</ul>
-</dd>
-</dl>
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">uintx_weight_only</span></span><a class="headerlink" href="#torchao.quantization.uintx_weight_only" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">UIntXWeightOnlyConfig</span></code></p>
 </dd></dl>
 
 </section>

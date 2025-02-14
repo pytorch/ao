@@ -6,4 +6,5 @@
 fpx_weight_only
 ===============
 
-.. autofunction:: fpx_weight_only
+.. autoclass:: fpx_weight_only
+    :members:

@@ -6,4 +6,5 @@
 int8_weight_only
 ================
 
-.. autofunction:: int8_weight_only
+.. autoclass:: int8_weight_only
+    :members:
