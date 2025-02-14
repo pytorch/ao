@@ -16,7 +16,8 @@ from torchao.quantization.utils import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, find_multiple
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, find_multiple,\
+    TORCH_VERSION_AT_LEAST_2_7
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
@@ -466,6 +467,13 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 w_qtensor.groupsize,
                 w_qtensor.scales_and_zeros,
             )
+        elif is_device(act_mat.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+            y = aten._weight_int4pack_mm_with_scales_and_zeros(
+                act_mat.contiguous(),
+                w_qtensor.int_data,
+                w_qtensor.groupsize,
+                w_qtensor.scales_and_zeros,
+            )
         else:
             y = aten._weight_int4pack_mm(
                 act_mat.contiguous(),
@@ -621,6 +629,11 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         if is_device(input_float.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
             int_data = aten._convert_weight_to_int4pack_for_cpu(
                 input_int4x8, inner_k_tiles
+            )
+        if is_device(input_float.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+            from torchao.quantization.utils import convert_weight_to_int4pack_xpu
+            int_data = convert_weight_to_int4pack_xpu(
+                input_int4x8
             )
         else:
             int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
