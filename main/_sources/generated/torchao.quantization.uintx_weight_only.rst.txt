@@ -6,5 +6,4 @@
 uintx_weight_only
 =================
 
-.. autoclass:: uintx_weight_only
-    :members:
+.. autofunction:: uintx_weight_only

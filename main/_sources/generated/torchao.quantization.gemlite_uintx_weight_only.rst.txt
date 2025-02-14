@@ -6,5 +6,4 @@
 gemlite_uintx_weight_only
 =========================
 
-.. autoclass:: gemlite_uintx_weight_only
-    :members:
+.. autofunction:: gemlite_uintx_weight_only

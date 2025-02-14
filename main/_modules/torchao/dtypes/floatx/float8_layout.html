@@ -662,7 +662,6 @@
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm&quot;&quot;&quot;</span>
     <span class="n">scaled_mm_config</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="o">.</span><span class="n">mm_config</span>
-    <span class="k">assert</span> <span class="n">scaled_mm_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
     <span class="n">out_shape</span> <span class="o">=</span> <span class="n">get_out_shape</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="c1"># Weight tensor preprocessing</span>
