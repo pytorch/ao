@@ -63,7 +63,7 @@ Post-training quantization can result in a fast and compact model, but may also 
 ```python
 from torchao.quantization import (
     quantize_,
-    int8_dynamic_activation_int4_weight,
+    Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.qat import (
     FakeQuantizeConfig,
@@ -83,7 +83,7 @@ quantize_(
 
 # Convert fake quantization to actual quantized operations
 quantize_(my_model, FromIntXQuantizationAwareTrainingConfig())
-quantize_(my_model, int8_dynamic_activation_int4_weight(group_size=32))
+quantize_(my_model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 ```
 
 ### Float8
