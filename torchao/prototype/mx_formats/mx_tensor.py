@@ -21,7 +21,6 @@ from typing import Dict, Union
 
 import torch
 
-import torchao.prototype.mx_formats.config as config
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP4,
@@ -239,7 +238,14 @@ def get_fp_scale(scale_e8m0):
     return s_fp
 
 
-def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
+def to_dtype(
+    data_lp,
+    scale_e8m0,
+    elem_dtype,
+    block_size,
+    target_dtype,
+    use_fp4_custom_triton_dequant_kernel,
+):
     orig_shape = data_lp.shape
     is_transposed = not data_lp.is_contiguous()
     # if the underlying data is transposed, convert to row major before
@@ -258,7 +264,7 @@ def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
         data_hp = f6_e3m2_unpacked_to_f32(data_lp)
         data_hp = data_hp.to(target_dtype)
     elif elem_dtype == DTYPE_FP4:
-        if config.use_fp4_custom_triton_dequant_kernel:
+        if use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
                 data_lp,
                 scale_e8m0,
@@ -318,17 +324,29 @@ class ToMXConstrFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, data_hp, elem_dtype, block_size, scaling_mode):
+    def forward(
+        ctx,
+        data_hp,
+        elem_dtype,
+        block_size,
+        scaling_mode,
+        use_fp4_custom_triton_dequant_kernel,
+    ):
         scale_e8m0_biased, data_lp = to_mx(
             data_hp, elem_dtype, block_size, scaling_mode
         )
         return MXTensor(
-            scale_e8m0_biased, data_lp, elem_dtype, block_size, data_hp.dtype
+            scale_e8m0_biased,
+            data_lp,
+            elem_dtype,
+            block_size,
+            data_hp.dtype,
+            use_fp4_custom_triton_dequant_kernel,
         )
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None, None
+        return g, None, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -345,6 +363,7 @@ class FromMXConstrFunc(torch.autograd.Function):
             tensor_lp._elem_dtype,
             tensor_lp._block_size,
             target_dtype,
+            tensor_lp._use_fp4_custom_triton_dequant_kernel,
         )
 
     @staticmethod
@@ -360,6 +379,7 @@ class MXTensor(torch.Tensor):
         elem_dtype,
         block_size,
         orig_dtype,
+        use_fp4_custom_triton_dequant_kernel,
     ):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
@@ -417,6 +437,9 @@ class MXTensor(torch.Tensor):
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
+        self._use_fp4_custom_triton_dequant_kernel = (
+            use_fp4_custom_triton_dequant_kernel
+        )
         return self
 
     def __repr__(self):
@@ -443,14 +466,22 @@ class MXTensor(torch.Tensor):
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+        use_fp4_custom_triton_dequant_kernel: bool = False,
     ):
-        return ToMXConstrFunc.apply(data_hp, elem_dtype, block_size, scaling_mode)
+        return ToMXConstrFunc.apply(
+            data_hp,
+            elem_dtype,
+            block_size,
+            scaling_mode,
+            use_fp4_custom_triton_dequant_kernel,
+        )
 
     def __tensor_flatten__(self):
         ctx = {
             "_elem_dtype": self._elem_dtype,
             "_block_size": self._block_size,
             "_orig_dtype": self._orig_dtype,
+            "_use_fp4_custom_triton_dequant_kernel": self._use_fp4_custom_triton_dequant_kernel,
         }
         return ["_scale_e8m0", "_data"], ctx
 
@@ -467,6 +498,7 @@ class MXTensor(torch.Tensor):
             metadata["_elem_dtype"],
             metadata["_block_size"],
             metadata["_orig_dtype"],
+            metadata["_use_fp4_custom_triton_dequant_kernel"],
         )
 
     # Do not force the MXTensor type on the returned tensor
