@@ -31,6 +31,11 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     get_available_devices,
 )
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_6,
+)
 
 try:
     import bitsandbytes as bnb
@@ -400,10 +405,56 @@ class TestOptim(TestCase):
                 loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}"
             )
 
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
+    @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("device", _DEVICES)
+    def test_optim_exclude_low_bit_params(self, optim_name, dtype, device):
+        # Skip FP8 tests on devices that don't support it
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+                
+        model = nn.Sequential(
+            nn.Linear(32, 256),
+            nn.ReLU(),
+            nn.Linear(256, 32)
+        )
+        model.to(device=device, dtype=dtype)
+
+        params_to_exclude = [model[0].weight, model[0].bias]
+        excluded_params_ids = set(id(p) for p in params_to_exclude)
+        
+
+        optim = getattr(low_bit_optim, optim_name)(
+            model.parameters(),
+            exclude_low_bit_optim_params=params_to_exclude
+        )
+
+        x = torch.randn(4, 32, device=device, dtype=dtype)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+        state = optim.state
+        excluded_param = params_to_exclude[0]
+        excluded_state = state[excluded_param]
+        exp_avg = excluded_state['exp_avg']
+        exp_avg_sq = excluded_state['exp_avg_sq']
+        # Assert that the state tensors for the excluded parameter are not quantized
+        self.assertTrue(exp_avg.__class__ == torch.Tensor)
+        self.assertTrue(exp_avg_sq.__class__ == torch.Tensor)
+        for param in model.parameters():
+            if id(param) not in excluded_params_ids and param.numel() >= 4096 and param.numel() % optim.block_size == 0:
+                param_state = state[param]
+                exp_avg = param_state['exp_avg']
+                exp_avg_sq = param_state['exp_avg_sq']
+                self.assertTrue(exp_avg.__class__ != torch.Tensor)
+                self.assertTrue(exp_avg_sq.__class__ != torch.Tensor)
 
 _FSDP_WORLD_SIZE = 2
-
-
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
