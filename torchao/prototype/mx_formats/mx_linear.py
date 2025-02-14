@@ -107,22 +107,11 @@ class MXLinear(torch.nn.Linear):
     def from_float(
         cls,
         mod,
-        elem_dtype,
-        elem_dtype_weight_override=None,
-        elem_dtype_grad_output_override=None,
-        *,
-        # TODO(next PR): move elem_dtype* and block size into config
-        config: MXLinearConfig = None,
-        block_size=32,
+        config: Optional[MXLinearConfig] = MXLinearConfig(),
     ):
+        # TODO(before land): remove this
+        assert isinstance(config, MXLinearConfig)
         mod.__class__ = MXLinear
-        mod.in_elem_dtype = elem_dtype
-        mod.w_elem_dtype = elem_dtype_weight_override or elem_dtype
-        mod.grad_elem_dtype = elem_dtype_grad_output_override or elem_dtype
-        mod.block_size = block_size
-        # TODO(next PR): fix this
-        if config is None:
-            config = MXLinearConfig()
         mod.config = config
         return mod
 
@@ -135,13 +124,14 @@ class MXLinear(torch.nn.Linear):
         else:
             w = self.weight
 
+        config = self.config
         y = mx_mm.apply(
             x,
             w,
-            self.in_elem_dtype,
-            self.w_elem_dtype,
-            self.grad_elem_dtype,
-            self.block_size,
+            config.elem_dtype,
+            config.elem_dtype_weight_override or config.elem_dtype,
+            config.elem_dtype_grad_output_override or config.elem_dtype,
+            config.block_size,
         )
         if self.bias is not None:
             y = y + self.bias
@@ -158,9 +148,11 @@ class MXInferenceLinear(torch.nn.Linear):
 
     @classmethod
     @torch.no_grad()
-    def from_float(cls, mod, elem_dtype, block_size, config: MXLinearConfig):
-        # TODO(next PR): move elem_dtype and block_size into config
-
+    def from_float(
+        cls,
+        mod,
+        config: Optional[MXLinearConfig] = MXLinearConfig(),
+    ):
         with torch.device("meta"):
             super_kwargs = {
                 "in_features": mod.in_features,
@@ -171,10 +163,9 @@ class MXInferenceLinear(torch.nn.Linear):
         # TODO(future PR): set to new_mod.weight directly, will need to work
         # through some errors
         new_mod.weight_mx = MXTensor.to_mx(
-            mod.weight, elem_dtype, block_size=block_size
+            mod.weight, config.elem_dtype, block_size=config.block_size
         )
         new_mod.bias = mod.bias
-        new_mod.elem_dtype = elem_dtype
         new_mod.config = config
         return new_mod
 
@@ -213,13 +204,8 @@ def _is_linear(mod, fqn):
 
 def swap_linear_with_mx_linear(
     model,
-    elem_dtype,
-    elem_dtype_weight_override=None,
-    elem_dtype_grad_output_override=None,
     *,
-    # TODO(next PR): move elem_dtype* and block_size into config
     config: Optional[MXLinearConfig] = None,
-    block_size=32,
     filter_fn=None,
 ):
     if filter_fn is None:
@@ -232,24 +218,16 @@ def swap_linear_with_mx_linear(
         combined_filter_fn = __fn
     replace_with_custom_fn_if_matches_filter(
         model,
-        lambda mod: MXLinear.from_float(
-            mod,
-            elem_dtype,
-            elem_dtype_weight_override,
-            elem_dtype_grad_output_override,
-            config=config,
-            block_size=block_size,
-        ),
+        lambda mod: MXLinear.from_float(mod, config=config),
         combined_filter_fn,
     )
 
 
 def swap_linear_with_mx_inference_linear(
     model,
-    elem_dtype,
-    block_size,
-    filter_fn=None,
+    *,
     config: Optional[MXLinearConfig] = None,
+    filter_fn=None,
 ):
     if filter_fn is None:
         combined_filter_fn = _is_linear
@@ -261,8 +239,6 @@ def swap_linear_with_mx_inference_linear(
         combined_filter_fn = __fn
     replace_with_custom_fn_if_matches_filter(
         model,
-        lambda mod: MXInferenceLinear.from_float(
-            mod, elem_dtype, block_size, config=config
-        ),
+        lambda mod: MXInferenceLinear.from_float(mod, config=config),
         combined_filter_fn,
     )
