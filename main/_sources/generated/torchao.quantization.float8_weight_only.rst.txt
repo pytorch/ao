@@ -6,4 +6,5 @@
 float8_weight_only
 ==================
 
-.. autofunction:: float8_weight_only
+.. autoclass:: float8_weight_only
+    :members:
