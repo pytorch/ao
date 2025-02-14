@@ -5,6 +5,7 @@
 #include <ATen/core/Tensor.h>
 #include <ATen/cpu/vec/functional.h>
 #include <ATen/cpu/vec/vec.h>
+#include <ATen/cpu/Utils.h>
 
 #include <ATen/native/transformers/sdp_utils_cpp.h>
 #include <ATen/native/cpu/utils.h>
@@ -2204,15 +2205,26 @@ void sdpa_int8_fused_kernel(
     double a_scale,
     long o_zp,
     double o_scale) {
+  TORCH_CHECK(query.scalar_type() == c10::kByte);
   int64_t batchSize = query.size(0);
   int64_t num_head = query.size(1);
   int64_t q_seq_len = query.size(2);
-
-  TORCH_CHECK(query.scalar_type() == c10::kByte);
-  bool use_one_parallel_loop = batchSize * num_head % 40 == 0;
+  int64_t kv_seq_len = key.size(2);
+  int64_t q_split_size = 32;
+  if (q_seq_len >= 768) {
+    q_split_size = 256;
+  } else if (q_seq_len >= 192) {
+    q_split_size = 64;
+  }
+  // Heuristic to decide whether to use one parallel loop or not
+  uint32_t l2_cache_size = at::cpu::L2_cache_size();
+  int64_t num_thread = at::get_num_threads();
+  int64_t attn_size = q_split_size * kv_seq_len * sizeof(int32_t) * num_thread;
+  bool use_one_parallel_loop = (batchSize * num_head > num_thread) &&
+      (attn_size > l2_cache_size);
   if (use_one_parallel_loop) {
     if (!attn_mask.defined()) {
-      if (q_seq_len >= 768) {
+      if (q_split_size == 256) {
         sdpa_int8_kernel_one_loop_impl<unsigned char, float, 256, 64>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -2221,7 +2233,7 @@ void sdpa_int8_fused_kernel(
           v_zp, v_scale,
           a_zp, a_scale,
           o_zp, o_scale);
-      } else if (q_seq_len >= 192) {
+      } else if (q_split_size == 64) {
         sdpa_int8_kernel_one_loop_impl<unsigned char, float, 64, 64>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -2242,7 +2254,7 @@ void sdpa_int8_fused_kernel(
       }
     } else {
       AT_DISPATCH_MASK_TYPES(attn_mask.scalar_type(), "sdpa_mask", [&]() {
-        if (q_seq_len >= 768) {
+        if (q_split_size == 256) {
           sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 256, 64>(
             output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
@@ -2251,7 +2263,7 @@ void sdpa_int8_fused_kernel(
             v_zp, v_scale,
             a_zp, a_scale,
             o_zp, o_scale);
-        } else if (q_seq_len >= 192) {
+        } else if (q_split_size == 64) {
           sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 64, 64>(
             output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
@@ -2274,7 +2286,7 @@ void sdpa_int8_fused_kernel(
     }
   } else {
     if (!attn_mask.defined()) {
-      if (q_seq_len >= 768) {
+      if (q_split_size == 256) {
         sdpa_int8_kernel_several_loops_impl<unsigned char, float, 256, 64>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -2283,7 +2295,7 @@ void sdpa_int8_fused_kernel(
           v_zp, v_scale,
           a_zp, a_scale,
           o_zp, o_scale);
-      } else if (q_seq_len >= 192) {
+      } else if (q_split_size == 64) {
         sdpa_int8_kernel_several_loops_impl<unsigned char, float, 64, 64>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
@@ -2304,7 +2316,7 @@ void sdpa_int8_fused_kernel(
       }
     } else {
       AT_DISPATCH_MASK_TYPES(attn_mask.scalar_type(), "sdpa_mask", [&]() {
-        if (q_seq_len >= 768) {
+        if (q_split_size == 256) {
           sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 256, 64>(
             output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
@@ -2313,7 +2325,7 @@ void sdpa_int8_fused_kernel(
             v_zp, v_scale,
             a_zp, a_scale,
             o_zp, o_scale);
-        } else if (q_seq_len >= 192) {
+        } else if (q_split_size == 64) {
           sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 64, 64>(
             output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
