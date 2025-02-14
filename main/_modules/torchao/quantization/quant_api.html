@@ -897,7 +897,7 @@
     <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">]],</span>
     <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">set_inductor_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">Device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `config`, model is modified inplace</span>
@@ -907,7 +907,7 @@
 <span class="sd">        config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.</span>
 <span class="sd">        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on</span>
 <span class="sd">        the weight of the module</span>
-<span class="sd">        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)</span>
+<span class="sd">        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to None)</span>
 <span class="sd">        device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `&quot;cuda&quot;` to speed up quantization. The final model will be on the specified `device`.</span>
 <span class="sd">            Defaults to None (do not change device).</span>
 
@@ -931,6 +931,15 @@
 <span class="sd">        quantize_(m, int4_weight_only(group_size=32))</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">set_inductor_config</span> <span class="o">!=</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;The `set_inductor_config` argument to `quantize_` will be removed in a future release. This functionality is being migrated to individual workflows. Please see https://github.com/pytorch/ao/issues/1715 for more details.&quot;&quot;&quot;</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>  <span class="c1"># None</span>
+        <span class="c1"># for now, default to True to not change existing behavior when the</span>
+        <span class="c1"># argument is not specified</span>
+        <span class="n">set_inductor_config</span> <span class="o">=</span> <span class="kc">True</span>
+
     <span class="k">if</span> <span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
