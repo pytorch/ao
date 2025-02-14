@@ -33,11 +33,14 @@ from torchao.quantization.quant_api import (
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
     float8_weight_only,
+    fpx_weight_only,
+    gemlite_uintx_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
+    uintx_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.subclass import (
@@ -54,6 +57,13 @@ from torchao.utils import (
     is_sm_at_least_90,
     unwrap_tensor_subclass,
 )
+
+try:
+    import gemlite  # noqa: F401
+
+    has_gemlite = True
+except ModuleNotFoundError:
+    has_gemlite = False
 
 
 def dynamic_quant(model, example_inputs):
@@ -804,6 +814,9 @@ class TestQuantFlow(TestCase):
             int8_dynamic_activation_int8_weight(),
             int8_dynamic_activation_int4_weight(),
             int8_weight_only(),
+            fpx_weight_only(ebits=4, mbits=3),
+            gemlite_uintx_weight_only(),
+            uintx_weight_only(dtype=torch.uint4),
         ],
     )
     def test_workflow_e2e_numerics(self, config):
@@ -827,17 +840,23 @@ class TestQuantFlow(TestCase):
             and is_sm_at_least_90()
         ):
             return unittest.skip("only supported on CUDA capability 8.9, not greater")
+        elif isinstance(config, gemlite_uintx_weight_only) and not has_gemlite:
+            return unittest.skip("gemlite not available")
 
         # scale has to be moved to cuda here because the parametrization init
         # code happens before gating for cuda availability
         if isinstance(config, float8_static_activation_float8_weight):
             config.scale = config.scale.to("cuda")
 
+        dtype = torch.bfloat16
+        if isinstance(config, gemlite_uintx_weight_only):
+            dtype = torch.float16
+
         # set up inputs
-        x = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(128, 128, device="cuda", dtype=dtype)
         # TODO(future): model in float32 leads to error: https://gist.github.com/vkuzo/63b3bcd7818393021a6e3fb4ccf3c469
         # is that expected?
-        m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).cuda().bfloat16()
+        m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).cuda().to(dtype)
         m_q = copy.deepcopy(m_ref)
 
         # quantize
