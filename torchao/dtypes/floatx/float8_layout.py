@@ -253,6 +253,7 @@ def _linear_fp8_act_fp8_weight_impl(
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
     scaled_mm_config = weight_tensor._layout.mm_config
+    assert scaled_mm_config is not None
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
     # Weight tensor preprocessing
