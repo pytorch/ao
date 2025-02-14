@@ -6,6 +6,7 @@ from torchao.quantization import (
     MappingType,
     ZeroPointDomain,
     int4_weight_only,
+    quantize_,
     uintx_weight_only,
 )
 from torchao.utils import (
@@ -51,9 +52,9 @@ def _eval_hqq(dtype):
     )
     dummy_linear.weight.data = W
     if dtype == torch.uint4:
-        q_tensor_hqq = int4_weight_only(group_size=max(block_size), use_hqq=True)(
-            dummy_linear
-        ).weight
+        config = int4_weight_only(group_size=max(block_size), use_hqq=True)
+        quantize_(dummy_linear, config)
+        q_tensor_hqq = dummy_linear.weight
     else:
         q_tensor_hqq = uintx_weight_only(
             dtype, group_size=max(block_size), use_hqq=True

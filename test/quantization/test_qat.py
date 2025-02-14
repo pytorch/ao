@@ -1185,7 +1185,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_quantize_api(self):
+    def test_quantize_api_standalone(self):
         """
         Test that the following:
 
