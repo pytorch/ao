@@ -386,6 +386,9 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
 
 ### Automatic Inductor Configuration
+
+:warning: <em>This functionality is being migrated from the top level `quantize_` API to individual workflows, see https://github.com/pytorch/ao/issues/1715 for more details.</em>
+
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ

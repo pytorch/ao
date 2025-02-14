@@ -488,7 +488,7 @@ def quantize_(
     model: torch.nn.Module,
     config: Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
-    set_inductor_config: bool = True,
+    set_inductor_config: Optional[bool] = None,
     device: Optional[torch.types.Device] = None,
 ):
     """Convert the weight of linear modules in the model with `config`, model is modified inplace
@@ -498,7 +498,7 @@ def quantize_(
         config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
         the weight of the module
-        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
+        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to None)
         device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.
             Defaults to None (do not change device).
 
@@ -522,6 +522,15 @@ def quantize_(
         quantize_(m, int4_weight_only(group_size=32))
 
     """
+    if set_inductor_config != None:
+        warnings.warn(
+            """The `set_inductor_config` argument to `quantize_` will be removed in a future release. This functionality is being migrated to individual workflows. Please see https://github.com/pytorch/ao/issues/1715 for more details."""
+        )
+    else:  # None
+        # for now, default to True to not change existing behavior when the
+        # argument is not specified
+        set_inductor_config = True
+
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
