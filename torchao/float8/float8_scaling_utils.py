@@ -27,6 +27,7 @@ from torchao.float8.float8_utils import (
 )
 
 
+# TODO(danielvegamyhre): refactor to accept Float8LinearConfig directly
 def hp_tensor_to_float8_dynamic(
     hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,
@@ -36,6 +37,7 @@ def hp_tensor_to_float8_dynamic(
     device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
+    round_scales_to_power_of_2: bool = False,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -51,6 +53,7 @@ def hp_tensor_to_float8_dynamic(
           the 3 fwd/bwd gemms of linear
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
+        round_scales_to_power_of_2: if true, round scaling factor down to the nearest power of 2.
     """
     scale = tensor_to_scale(
         hp_tensor,
@@ -59,6 +62,7 @@ def hp_tensor_to_float8_dynamic(
         device_mesh,
         scaling_granularity,
         axiswise_dim,
+        round_scales_to_power_of_2,
     )
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
