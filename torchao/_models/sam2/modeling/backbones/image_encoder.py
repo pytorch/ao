@@ -36,6 +36,8 @@ class ImageEncoder(nn.Module):
                 features = [to_map_tensor(t.unsqueeze(1)) for t in features]
                 pos = [to_map_tensor(t.unsqueeze(1)) for t in pos]
             else:
+                # print('sample.dtype: ', sample.dtype)
+                sample = sample.to(torch.bfloat16)
                 features, pos = self.neck(self.trunk(sample))
         if self.scalp > 0:
             # Discard the lowest resolution features

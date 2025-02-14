@@ -16,7 +16,6 @@ from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 TASK_TYPES = ["amg", "sps", "mps"]
 
 
-# NOTE: We have to declare a separate class, because torch.export demands it.
 # We build this explicitly for the sole purpose of exporting _predict_masks
 # We made sure _predict_masks is fullgraph=True compileable so it can be exported
 # We must be sure to export using example args that are big enough and past

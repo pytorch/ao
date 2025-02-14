@@ -311,7 +311,7 @@ class RoPEAttention(Attention):
         self.compute_cis = partial(
             compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta
         )
-        freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1])
+        freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1], device="cuda")
         self.freqs_cis = freqs_cis
         self.rope_k_repeat = rope_k_repeat
 
