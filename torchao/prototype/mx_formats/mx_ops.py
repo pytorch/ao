@@ -54,6 +54,7 @@ def mx_desugar_op(aten_op, args, kwargs=None):
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
+        old._use_fp4_custom_triton_dequant_kernel,
     )
     return new
 
@@ -82,6 +83,7 @@ def mx_t(aten_op, args, kwargs=None):
         old._elem_dtype,
         old._block_size,
         old._orig_dtype,
+        old._use_fp4_custom_triton_dequant_kernel,
     )
     return new
 
@@ -120,6 +122,7 @@ def mx_view_op(aten_op, args, kwargs=None):
         args[0]._elem_dtype,
         args[0]._block_size,
         args[0]._orig_dtype,
+        args[0]._use_fp4_custom_triton_dequant_kernel,
     )
 
 
@@ -130,7 +133,6 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     tensor.
     """
     assert isinstance(args[0], MXTensor)
-    # print('before', args[0], args[0].dtype, args[0]._orig_dtype)
     assert (
         len(kwargs) == 1 and "dtype" in kwargs
     ), "Only support dtype kwarg for autocast"
@@ -144,6 +146,6 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         args[0]._elem_dtype,
         args[0]._block_size,
         kwargs["dtype"],
+        args[0]._use_fp4_custom_triton_dequant_kernel,
     )
-    # print('after', res, res.dtype, res._orig_dtype)
     return res
