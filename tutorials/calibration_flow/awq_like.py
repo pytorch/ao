@@ -8,11 +8,13 @@ Demo for awq like flow that applies equalization scale to input activation
 """
 
 import copy
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     Float8Layout,
     to_affine_quantized_floatx_static,
@@ -32,6 +34,9 @@ from torchao.quantization.observer import (
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_primitives import (
     MappingType,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
 
@@ -83,61 +88,72 @@ def insert_observers_(model, act_obs, weight_obs):
     _replace_with_custom_fn_if_matches_filter(model, replacement_fn, _is_linear)
 
 
+@dataclass
+class ApplyAWQConfig(AOBaseConfig):
+    target_dtype: torch.dtype
+
+
 # converting observed linear module to linear module with quantzied weights (and quantized activations)
 # with tensor subclasses
-def apply_awq(target_dtype: torch.dtype):
+
+
+@register_quantize_module_handler(ApplyAWQConfig)
+def _apply_awq_transform(
+    module: torch.nn.Module,
+    config: ApplyAWQConfig,
+):
+    target_dtype = config.target_dtype
+    observed_linear = module
+
     # target_dtype = torch.uint8
-    def _apply_awq_to_linear(observed_linear):
-        # weight quantization
-        weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
+    # weight quantization
+    weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
 
-        def weight_quant_func(weight):
-            block_size = (1, weight.shape[1])
-            if target_dtype == torch.uint8:
-                return to_affine_quantized_intx_static(
-                    weight, weight_scale, weight_zero_point, block_size, target_dtype
-                )
-            elif target_dtype == torch.float8_e4m3fn:
-                return to_affine_quantized_floatx_static(
-                    weight,
-                    weight_scale,
-                    block_size,
-                    target_dtype,
-                    Float8Layout(mm_config=None),
-                )
-            else:
-                raise ValueError(f"Unsupported target dtype {target_dtype}")
+    def weight_quant_func(weight):
+        block_size = (1, weight.shape[1])
+        if target_dtype == torch.uint8:
+            return to_affine_quantized_intx_static(
+                weight, weight_scale, weight_zero_point, block_size, target_dtype
+            )
+        elif target_dtype == torch.float8_e4m3fn:
+            return to_affine_quantized_floatx_static(
+                weight,
+                weight_scale,
+                block_size,
+                target_dtype,
+                Float8Layout(mm_config=None),
+            )
+        else:
+            raise ValueError(f"Unsupported target dtype {target_dtype}")
 
-        linear = torch.nn.Linear(
-            observed_linear.in_features,
-            observed_linear.out_features,
-            False,
-            device=observed_linear.weight.device,
-            dtype=observed_linear.weight.dtype,
-        )
-        linear.weight = observed_linear.weight
-        linear.bias = observed_linear.bias
+    linear = torch.nn.Linear(
+        observed_linear.in_features,
+        observed_linear.out_features,
+        False,
+        device=observed_linear.weight.device,
+        dtype=observed_linear.weight.dtype,
+    )
+    linear.weight = observed_linear.weight
+    linear.bias = observed_linear.bias
 
-        # activation quantization
-        # pretend this to be the equalization scale, in reality the `act_obs` should
-        # be an observer that can caluclate equalization scale
-        equalization_scale, _ = observed_linear.act_obs.calculate_qparams()
-        equalization_scale = torch.ones_like(equalization_scale)
+    # activation quantization
+    # pretend this to be the equalization scale, in reality the `act_obs` should
+    # be an observer that can caluclate equalization scale
+    equalization_scale, _ = observed_linear.act_obs.calculate_qparams()
+    equalization_scale = torch.ones_like(equalization_scale)
 
-        linear.weight = torch.nn.Parameter(
-            weight_quant_func(linear.weight * equalization_scale), requires_grad=False
-        )
+    linear.weight = torch.nn.Parameter(
+        weight_quant_func(linear.weight * equalization_scale), requires_grad=False
+    )
 
-        linear.weight = torch.nn.Parameter(
-            to_weight_tensor_with_linear_activation_scale_metadata(
-                linear.weight, equalization_scale
-            ),
-            requires_grad=False,
-        )
+    linear.weight = torch.nn.Parameter(
+        to_weight_tensor_with_linear_activation_scale_metadata(
+            linear.weight, equalization_scale
+        ),
+        requires_grad=False,
+    )
 
-        return linear
-
-    return _apply_awq_to_linear
+    return linear
 
 
 ######## Test ##########
@@ -201,7 +217,7 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, apply_awq(target_dtype), is_observed_linear)
+    quantize_(m, ApplyAWQConfig(target_dtype), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
