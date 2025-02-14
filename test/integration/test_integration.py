@@ -19,7 +19,7 @@ from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 
 import torchao
-from torchao.dtypes import Int4CPULayout, TensorCoreTiledLayout
+from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.dtypes.utils import is_device
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
@@ -155,6 +155,11 @@ def _int4wo_api(mod, use_hqq=False):
             int4_weight_only(
                 layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
             ),
+        )
+        unwrap_tensor_subclass(mod)
+    elif is_device(next(mod.parameters()).device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+        quantize_(
+            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
@@ -1131,6 +1136,8 @@ class TestSubclass(unittest.TestCase):
         layout_list = []
         if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
             layout_list.append(Int4CPULayout())
+        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_7:
+            layout_list.append(Int4XPULayout())
         else:
             for inner_k_tiles in [4, 2]:
                 layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))

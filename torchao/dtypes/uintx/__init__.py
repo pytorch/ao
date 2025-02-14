@@ -7,6 +7,9 @@ from .cutlass_int4_packed_layout import (
 from .int4_cpu_layout import (
     Int4CPULayout,
 )
+from .int4_xpu_layout import (
+    Int4XPULayout,
+)
 from .marlin_qqq_tensor import (
     MarlinQQQLayout,
     MarlinQQQTensor,
@@ -46,4 +49,5 @@ __all__ = [
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
+    "Int4XPULayout"
 ]
