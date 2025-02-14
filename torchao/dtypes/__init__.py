@@ -17,6 +17,7 @@ from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
     Int4CPULayout,
+    Int4XPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
     MarlinSparseLayout,
@@ -54,4 +55,5 @@ __all__ = [
     "Int4CPULayout",
     "CutlassInt4PackedLayout",
     "CutlassSemiSparseLayout",
+    "Int4XPULayout",
 ]
