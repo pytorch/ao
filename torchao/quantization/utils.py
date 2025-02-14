@@ -20,7 +20,8 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6,\
+    TORCH_VERSION_AT_LEAST_2_7
 
 __all__ = [
     "compute_error",
@@ -366,11 +367,37 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
         .contiguous()
     )
 
+def pack_xpu_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
+    guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
+    guard_dtype_size(zeros, "zeros", dtype=dtype)
+    return (
+        torch.cat(
+            [
+                scales.reshape(scales.size(0), scales.size(1), 1),
+                zeros.reshape(zeros.size(0), zeros.size(1), 1),
+            ],
+            2,
+        )
+    )
+
 
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
+def unpack_xpu_scales_and_zeros(scales_and_zeros):
+    assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
+    return torch.split(scales_and_zeros, 1, 2)
+
+def convert_weight_to_int4pack_xpu(weight):
+    assert weight.device.type == "xpu"
+
+    # First, N * K int32 -> N * K/2 uint8
+    out = weight.to(dtype=torch.uint8)
+    out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
+
+    # Second, N * K/2 uint8 -> N * K/8 int32
+    return out.view(torch.int32)
 
 def groupwise_affine_quantize_tensor_from_qparams(
     w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
@@ -399,7 +426,8 @@ def groupwise_affine_quantize_tensor_from_qparams(
         zero_point_domain=zero_point_domain,
     )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
-        if not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
+        if (not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)) \
+           and (not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
 
@@ -419,6 +447,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
         TORCH_VERSION_AT_LEAST_2_5
         and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
         and not (is_device(w_int4x8.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
+        and not (is_device(w_int4x8.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4

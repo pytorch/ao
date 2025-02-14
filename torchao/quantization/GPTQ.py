@@ -549,6 +549,14 @@ def linear_forward_int4(
             groupsize,
             scales_and_zeros.to(scales_precision),
         ).to(dtype=x.dtype)
+    elif is_device(x.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+        c = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
+            x.to(precision),
+            weight_int4pack,
+            groupsize,
+            scales_and_zeros[0],
+            scales_and_zeros[1],
+        ).to(dtype=x.dtype)
     else:
         c = torch.ops.aten._weight_int4pack_mm(
             x.to(precision),

@@ -41,6 +41,7 @@ from torchao.dtypes import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
+    Int4XPULayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
@@ -140,12 +141,14 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
+    Int4XPULayout: [ZeroPointDomain.FLOAT]
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
     Int4CPULayout: False,
+    Int4XPULayout: False
 }
 
 
