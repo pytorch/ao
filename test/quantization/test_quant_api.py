@@ -30,6 +30,9 @@ from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
+    float8_dynamic_activation_float8_weight,
+    float8_static_activation_float8_weight,
+    float8_weight_only,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
@@ -46,6 +49,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_89,
     unwrap_tensor_subclass,
 )
 
@@ -784,28 +788,55 @@ class TestQuantFlow(TestCase):
             assert "_weight_int4pack_mm_for_cpu" in code[0]
             assert "aten.mm.default" not in code[0]
 
+    # TODO(#1690): move to new config names
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_int4_weight_only_numerics(self):
+    @common_utils.parametrize(
+        "config",
+        [
+            int4_weight_only(),
+            float8_weight_only(),
+            float8_dynamic_activation_float8_weight(),
+            float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
+        ],
+    )
+    def test_workflow_e2e_numerics(self, config):
         """
         Simple test of e2e int4_weight_only workflow, comparing numerics
         to a bfloat16 baseline.
         """
+        if (
+            isinstance(
+                config,
+                (
+                    float8_dynamic_activation_float8_weight,
+                    float8_static_activation_float8_weight,
+                ),
+            )
+            and not is_sm_at_least_89()
+        ):
+            return unittest.skip("requires CUDA capability 8.9 or greater")
+
+        # scale has to be moved to cuda here because the parametrization init
+        # code happens before gating for cuda availability
+        if isinstance(config, float8_static_activation_float8_weight):
+            config.scale = config.scale.to("cuda")
+
         # set up inputs
         x = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
         # TODO(future): model in float32 leads to error: https://gist.github.com/vkuzo/63b3bcd7818393021a6e3fb4ccf3c469
         # is that expected?
         m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).cuda().bfloat16()
-        m_int4_wo = copy.deepcopy(m_ref)
+        m_q = copy.deepcopy(m_ref)
 
         # quantize
-        quantize_(m_int4_wo, int4_weight_only())
+        quantize_(m_q, config)
 
         with torch.no_grad():
             y_ref = m_ref(x)
-            y_int4_wo = m_int4_wo(x)
+            y_q = m_q(x)
 
-        sqnr = compute_error(y_ref, y_int4_wo)
+        sqnr = compute_error(y_ref, y_q)
         assert sqnr >= 20, f"SQNR {sqnr} is too low"
 
 
