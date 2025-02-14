@@ -123,16 +123,24 @@ class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
     def test_to_device(self, apply_quant):
+        def _apply(module, config_or_subclass_inserter):
+            if isinstance(config_or_subclass_inserter, AOBaseConfig):
+                quantize_(module, config_or_subclass_inserter)
+            else:
+                # TODO(#1690): delete this once config migration is done
+                module = config_or_subclass_inserter(module)
+            return module
+
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.to("cuda")
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.to(device="cuda")
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.cuda()
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
