@@ -22,11 +22,15 @@ from typing import Any, Dict
 import torch
 from torch.utils._pytree import tree_map
 
+# from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
+import torchao.ops
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import DTYPE_FP4
 from torchao.prototype.mx_formats.mx_tensor import (  # noqa: E501
     MXTensor,
     tensor_size_hp_to_fp4x2,
 )
+from torchao.prototype.mx_formats.utils import to_blocked
 
 aten = torch.ops.aten
 
@@ -55,6 +59,7 @@ def mx_desugar_op(aten_op, args, kwargs=None):
         old._block_size,
         old._orig_dtype,
         old._use_fp4_custom_triton_dequant_kernel,
+        old._gemm_kernel_choice,
     )
     return new
 
@@ -64,12 +69,34 @@ def mx_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
-    a_hp = a.to_dtype(a._orig_dtype)
-    b_hp = b.to_dtype(b._orig_dtype)
-    # assert memory layout we expect to be required in hardware
-    assert a_hp.is_contiguous()
-    assert b_hp.t().is_contiguous()
-    res = aten_op(a_hp, b_hp)
+    assert a._gemm_kernel_choice == b._gemm_kernel_choice, "unsupported"
+    if a._gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
+        # real MX gemm backed by torchao's CUTLASS kernels
+        M, K, N = a.shape[0], a.shape[1], b.shape[1]
+        assert b._data.t().is_contiguous()
+        a_scale = a._scale_e8m0.view(M, K // 32)
+        b_scale = b._scale_e8m0.view(N, K // 32)
+        a_scale_block = to_blocked(a_scale)
+        b_scale_block = to_blocked(b_scale)
+        if a._elem_dtype == torch.float8_e4m3fn:
+            assert b._elem_dtype == torch.float8_e4m3fn
+            res = torchao.ops.mx_fp8_bf16(
+                a._data, b._data, a_scale_block, b_scale_block
+            )
+        else:
+            assert a._elem_dtype == DTYPE_FP4
+            assert b._elem_dtype == DTYPE_FP4
+            res = torchao.ops.mx_fp4_bf16(
+                a._data, b._data, a_scale_block, b_scale_block
+            )
+    else:
+        # emulated MX gemm
+        a_hp = a.to_dtype(a._orig_dtype)
+        b_hp = b.to_dtype(b._orig_dtype)
+        # assert memory layout we expect to be required in hardware
+        assert a_hp.is_contiguous()
+        assert b_hp.t().is_contiguous()
+        res = aten_op(a_hp, b_hp)
     return res
 
 
@@ -84,6 +111,7 @@ def mx_t(aten_op, args, kwargs=None):
         old._block_size,
         old._orig_dtype,
         old._use_fp4_custom_triton_dequant_kernel,
+        old._gemm_kernel_choice,
     )
     return new
 
@@ -123,6 +151,7 @@ def mx_view_op(aten_op, args, kwargs=None):
         args[0]._block_size,
         args[0]._orig_dtype,
         args[0]._use_fp4_custom_triton_dequant_kernel,
+        args[0]._gemm_kernel_choice,
     )
 
 
@@ -147,5 +176,6 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         args[0]._block_size,
         kwargs["dtype"],
         args[0]._use_fp4_custom_triton_dequant_kernel,
+        args[0]._gemm_kernel_choice,
     )
     return res

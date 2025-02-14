@@ -7,6 +7,7 @@
 import pytest
 import torch
 
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -146,6 +147,7 @@ def test_exponent_nan_out(elem_dtype):
         block_size,
         torch.float,
         use_fp4_custom_triton_dequant_kernel,
+        MXGemmKernelChoice.EMULATED,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp[0:1]))
