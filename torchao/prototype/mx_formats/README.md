@@ -41,10 +41,21 @@ This is a module to do MX training, the MX matmul is currently emulated.
 
 ```python
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
+from torchao.utils import is_sm_at_least_100
+
+# early prototype: on MX-enabled hardware, you can use the real MX gemm backed by
+# torchao's CUTLASS kernels. In the future, we will also add cuBLAS kernel support.
+gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+if is_sm_at_least_100():
+    gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
+config = MXLinearConfig(
+    elem_dtype=torch.float8_e4m3fn, 
+    block_size=32, 
+    gemm_kernel_choice=gemm_kernel_choice,
+)
 swap_linear_with_mx_linear(m, config=config)
 
 # training loop (not shown)
