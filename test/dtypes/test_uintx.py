@@ -150,7 +150,7 @@ def test_uintx_target_dtype(dtype):
 
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
     # make sure it runs
-    uintx_weight_only(dtype)(linear)
+    quantize_(linear, uintx_weight_only(dtype))
     linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
 
@@ -165,7 +165,7 @@ def test_uintx_target_dtype_compile(dtype):
 
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
     # make sure it runs
-    uintx_weight_only(dtype)(linear)
+    quantize_(linear, uintx_weight_only(dtype))
     linear = torch.compile(linear)
     linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
@@ -196,6 +196,6 @@ def test_uintx_model_size(dtype):
     )
     bf16_size = get_model_size_in_bytes(linear)
     # make sure it runs
-    uintx_weight_only(dtype)(linear[0])
+    quantize_(linear[0], uintx_weight_only(dtype))
     quantized_size = get_model_size_in_bytes(linear)
     assert bf16_size * _dtype_to_ratio[dtype] == quantized_size

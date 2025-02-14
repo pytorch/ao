@@ -729,12 +729,8 @@ def _int4_dynamic_activation_int4_weight_transform(
     return module
 
 
-def gemlite_uintx_weight_only(
-    group_size: Optional[int] = 64,
-    bit_width: int = 4,
-    packing_bitwidth: int = 32,
-    contiguous: Optional[bool] = None,
-):
+@dataclass
+class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
     """
     applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
     This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
@@ -747,16 +743,39 @@ def gemlite_uintx_weight_only(
         `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
     """
 
+    group_size: Optional[int] = 64
+    bit_width: int = 4
+    packing_bitwidth: int = 32
+    contiguous: Optional[bool] = None
+
+
+# for BC
+gemlite_uintx_weight_only = GemliteUIntXWeightOnlyConfig
+
+
+@register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
+def _gemlite_uintx_weight_only_transform(
+    module: torch.nn.Module, config: GemliteUIntXWeightOnlyConfig
+):
+    group_size = config.group_size
+    bit_width = config.bit_width
+    packing_bitwidth = config.packing_bitwidth
+    contiguous = config.contiguous
+
+    weight = module.weight
+
     from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
     use_hqq = True if bit_width == 4 else False
-    apply_fn = lambda weight: to_affine_quantized_intx(
+    new_weight = to_affine_quantized_intx(
         weight,
         **get_gemlite_aqt_kwargs(
             weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
         ),
     )
-    return _get_linear_subclass_inserter(apply_fn)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 @dataclass
@@ -1380,9 +1399,10 @@ def _float8_static_activation_float8_weight_transform(
     return module
 
 
-def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
+@dataclass
+class UIntXWeightOnlyConfig(AOBaseConfig):
     """
-    Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
+    Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
     x is the number of bits specified by `dtype`
 
     Args:
@@ -1392,6 +1412,28 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
         `pack_dim`: the dimension we use for packing, defaults to -1
         `use_hqq`: whether to use hqq algorithm or the default algorithm to quantize the weight
     """
+
+    dtype: torch.dtype
+    group_size: int = 64
+    pack_dim: int = -1
+    use_hqq: bool = False
+
+
+# for BC
+uintx_weight_only = UIntXWeightOnlyConfig
+
+
+@register_quantize_module_handler(UIntXWeightOnlyConfig)
+def _uintx_weight_only_transform(
+    module: torch.nn.Module, config: UIntXWeightOnlyConfig
+):
+    dtype = config.dtype
+    group_size = config.group_size
+    pack_dim = config.pack_dim
+    use_hqq = config.use_hqq
+
+    weight = module.weight
+
     from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS
 
     SUPPORTED_DTYPES = {
@@ -1406,49 +1448,50 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
     }
     assert dtype in SUPPORTED_DTYPES, f"Unsupported dtype for hqq: {dtype}"
 
-    def apply_uintx_weight_only_quant(weight, dtype):
-        mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = (1, group_size)
 
-        if use_hqq:
-            if dtype == torch.uint4:
-                logger.warn(
-                    "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
-                )
-            quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
-            dtype = torch.uint8
-            eps = None
-            zero_point_dtype = None
-            zero_point_domain = ZeroPointDomain.FLOAT
-            preserve_zero = False
-            _layout = PlainLayout()
-        else:
-            quant_min, quant_max = None, None
-            eps = torch.finfo(torch.float32).eps
-            zero_point_dtype = torch.int32
-            zero_point_domain = ZeroPointDomain.INT
-            preserve_zero = True
-            _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
+    if use_hqq:
+        if dtype == torch.uint4:
+            logger.warn(
+                "Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance"
+            )
+        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+        dtype = torch.uint8
+        eps = None
+        zero_point_dtype = None
+        zero_point_domain = ZeroPointDomain.FLOAT
+        preserve_zero = False
+        _layout = PlainLayout()
+    else:
+        quant_min, quant_max = None, None
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int32
+        zero_point_domain = ZeroPointDomain.INT
+        preserve_zero = True
+        _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
 
-        return to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-            zero_point_domain=zero_point_domain,
-            preserve_zero=preserve_zero,
-            _layout=_layout,
-            use_hqq=use_hqq,
-        )
+    new_weight = to_affine_quantized_intx(
+        weight,
+        mapping_type,
+        block_size,
+        dtype,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=eps,
+        zero_point_dtype=zero_point_dtype,
+        zero_point_domain=zero_point_domain,
+        preserve_zero=preserve_zero,
+        _layout=_layout,
+        use_hqq=use_hqq,
+    )
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
-    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant, dtype=dtype)
 
-
-def fpx_weight_only(ebits: int, mbits: int):
+@dataclass
+class FPXWeightOnlyConfig(AOBaseConfig):
     """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
     e.g. fp6_e3_m2, fp6_e2_m3, ...
     The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112
@@ -1459,26 +1502,40 @@ def fpx_weight_only(ebits: int, mbits: int):
     in the future
     """
 
-    def apply_quant_llm(weight: torch.Tensor) -> torch.Tensor:
-        from torchao.dtypes import to_affine_quantized_fpx
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
+    ebits: int
+    mbits: int
 
-        assert (
-            weight.dim() == 2
-        ), f"floatx only works for 2-d Tensor, got: {weight.dim()}"
-        out_dim, in_dim = weight.shape
-        if (in_dim % 64 != 0) or (out_dim % 256 != 0):
-            logger.info(
-                f"Skipping floatx quantization float{ebits + mbits + 1}_{ebits}_{mbits} because "
-                f"the shape is not compatible with the kernel: in_dim={in_dim}, out_dim={out_dim} "
-                "expected in_dim % 64 == 0 and out_dim % 256 == 0"
-            )
-            return weight
 
-        _layout = FloatxTensorCoreLayout(ebits, mbits)
-        return to_affine_quantized_fpx(weight, _layout)
+# for BC
+fpx_weight_only = FPXWeightOnlyConfig
 
-    return _get_linear_subclass_inserter(apply_quant_llm)
+
+@register_quantize_module_handler(FPXWeightOnlyConfig)
+def _fpx_weight_only_transform(
+    module: torch.nn.Module, config: FPXWeightOnlyConfig
+) -> torch.nn.Module:
+    ebits = config.ebits
+    mbits = config.mbits
+    weight = module.weight
+
+    from torchao.dtypes import to_affine_quantized_fpx
+    from torchao.dtypes.floatx import FloatxTensorCoreLayout
+
+    assert weight.dim() == 2, f"floatx only works for 2-d Tensor, got: {weight.dim()}"
+    out_dim, in_dim = weight.shape
+    if (in_dim % 64 != 0) or (out_dim % 256 != 0):
+        logger.info(
+            f"Skipping floatx quantization float{ebits + mbits + 1}_{ebits}_{mbits} because "
+            f"the shape is not compatible with the kernel: in_dim={in_dim}, out_dim={out_dim} "
+            "expected in_dim % 64 == 0 and out_dim % 256 == 0"
+        )
+        return module
+
+    _layout = FloatxTensorCoreLayout(ebits, mbits)
+    new_weight = to_affine_quantized_fpx(weight, _layout)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 if TORCH_VERSION_AT_LEAST_2_5:
