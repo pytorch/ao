@@ -427,13 +427,15 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">types</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.utils.parametrize</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">parametrize</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torchao</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.core.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">AOBaseConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">CutlassInt4PackedLayout</span><span class="p">,</span>
@@ -456,6 +458,10 @@
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.observer</span><span class="w"> </span><span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span><span class="p">,</span> <span class="n">get_block_size</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.transform_module</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">,</span>
+    <span class="n">register_quantize_module_handler</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.weight_tensor_linear_activation_quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
 <span class="p">)</span>
@@ -526,7 +532,6 @@
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
-<span class="c1"># update according to the support matrix</span>
 <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">TensorCoreTiledLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span>
     <span class="n">MarlinSparseLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">],</span>
@@ -637,6 +642,7 @@
     <span class="n">filter_fn</span><span class="p">,</span>
     <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">extra_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(),</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`</span>
@@ -648,6 +654,7 @@
 <span class="sd">        filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.</span>
 <span class="sd">        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to &quot;&quot;.</span>
 <span class="sd">        device (device, optional): Device to move the model to before applying `filter_fn`. Defaults to None.</span>
+<span class="sd">        extra_args (Tuple[Any, ...], optional): optional extra args to pass to `replacement_fn`.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        None</span>
@@ -661,12 +668,18 @@
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">replacement_fn</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">replacement_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">*</span><span class="n">extra_args</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">model</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
+        <span class="n">named_children_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">named_children_list</span><span class="p">:</span>
             <span class="n">new_child</span> <span class="o">=</span> <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-                <span class="n">child</span><span class="p">,</span> <span class="n">replacement_fn</span><span class="p">,</span> <span class="n">filter_fn</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cur_fqn</span><span class="si">}{</span><span class="n">name</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="n">device</span>
+                <span class="n">child</span><span class="p">,</span>
+                <span class="n">replacement_fn</span><span class="p">,</span>
+                <span class="n">filter_fn</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cur_fqn</span><span class="si">}{</span><span class="n">name</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
+                <span class="n">device</span><span class="p">,</span>
+                <span class="n">extra_args</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">if</span> <span class="n">new_child</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">child</span><span class="p">:</span>
                 <span class="nb">setattr</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">new_child</span><span class="p">)</span>
@@ -881,17 +894,17 @@
 
 <div class="viewcode-block" id="quantize_"><a class="viewcode-back" href="../../../generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">quantize_</span><span class="p">(</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
-    <span class="n">apply_tensor_subclass</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">]],</span>
     <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">Device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `config`, model is modified inplace</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        model (torch.nn.Module): input model</span>
-<span class="sd">        apply_tensor_subclass (Callable[[torch.nn.Module], torch.nn.Module]): function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor)</span>
-<span class="sd">        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on</span>
+<span class="sd">        config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.</span>
+<span class="sd">        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on</span>
 <span class="sd">        the weight of the module</span>
 <span class="sd">        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)</span>
 <span class="sd">        device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `&quot;cuda&quot;` to speed up quantization. The final model will be on the specified `device`.</span>
@@ -903,7 +916,7 @@
 <span class="sd">        import torch.nn as nn</span>
 <span class="sd">        from torchao import quantize_</span>
 
-<span class="sd">        # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to</span>
+<span class="sd">        # quantize with some predefined `config` method that corresponds to</span>
 <span class="sd">        # optimized execution paths or kernels (e.g. int4 tinygemm kernel)</span>
 <span class="sd">        # also customizable with arguments</span>
 <span class="sd">        # currently options are</span>
@@ -916,39 +929,36 @@
 <span class="sd">        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))</span>
 <span class="sd">        quantize_(m, int4_weight_only(group_size=32))</span>
 
-<span class="sd">        # 2. write your own new apply_tensor_subclass</span>
-<span class="sd">        # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor</span>
-<span class="sd">        # on weight</span>
-
-<span class="sd">        from torchao.dtypes import to_affine_quantized_intx</span>
-
-<span class="sd">        # weight only uint4 asymmetric groupwise quantization</span>
-<span class="sd">        groupsize = 32</span>
-<span class="sd">        apply_weight_quant = lambda x: to_affine_quantized_intx(</span>
-<span class="sd">          x, &quot;asymmetric&quot;, (1, groupsize), torch.int32, 0, 15, 1e-6,</span>
-<span class="sd">          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain=&quot;float&quot;)</span>
-
-<span class="sd">        def apply_weight_quant_to_linear(linear):</span>
-<span class="sd">            linear.weight = torch.nn.Parameter(apply_weight_quant(linear.weight), requires_grad=False)</span>
-<span class="sd">            return linear</span>
-
-<span class="sd">        # apply to modules under block0 submodule</span>
-<span class="sd">        def filter_fn(module: nn.Module, fqn: str) -&gt; bool:</span>
-<span class="sd">            return isinstance(module, nn.Linear)</span>
-
-<span class="sd">        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))</span>
-<span class="sd">        quantize_(m, apply_weight_quant_to_linear, filter_fn)</span>
-
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
-    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span>
-        <span class="n">apply_tensor_subclass</span><span class="p">,</span>
-        <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
-        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
-    <span class="p">)</span></div>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOBaseConfig</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)]</span>
+        <span class="c1"># for each linear in the model, apply the transform if filtering passes</span>
+        <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
+            <span class="n">model</span><span class="p">,</span>
+            <span class="n">handler</span><span class="p">,</span>
+            <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">extra_args</span><span class="o">=</span><span class="p">(</span><span class="n">config</span><span class="p">,),</span>
+        <span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># old behavior, keep to avoid breaking BC</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead.&quot;&quot;&quot;</span>
+        <span class="p">)</span>
+
+        <span class="c1"># make the variable name make sense</span>
+        <span class="n">apply_tensor_subclass</span> <span class="o">=</span> <span class="n">config</span>
+
+        <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
+            <span class="n">model</span><span class="p">,</span>
+            <span class="n">apply_tensor_subclass</span><span class="p">,</span>
+            <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+        <span class="p">)</span></div>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_int8_asymm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -1150,14 +1160,10 @@
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_fn</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">int4_weight_only</span><span class="p">(</span>
-    <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-    <span class="n">layout</span><span class="o">=</span><span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span>
-    <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-    <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-<span class="p">):</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
+<span class="sd">    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
 <span class="sd">    &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</span>
 
 <span class="sd">    Note:</span>
@@ -1174,64 +1180,90 @@
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`</span>
 <span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False</span>
-<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
+<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Skipping quantizing weight with int4 weight only quantization because the shape of weight </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> is not compatible with group_size </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
-            <span class="k">return</span> <span class="n">weight</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
+    <span class="n">layout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TensorCoreTiledLayout</span><span class="p">]</span> <span class="o">=</span> <span class="n">TensorCoreTiledLayout</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+    <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
 
-        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
-        <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
-        <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
-        <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
-        <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
-        <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
-        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4CPULayout</span><span class="p">)</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+
+<span class="c1"># for BC</span>
+<span class="c1"># TODO maybe change other callsites</span>
+<span class="n">int4_weight_only</span> <span class="o">=</span> <span class="n">Int4WeightOnlyConfig</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int4WeightOnlyConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int4_weight_only_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightOnlyConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="c1"># TODO(future PR): perhaps move this logic to a different file, to keep the API</span>
+    <span class="c1"># file clean of implementation details</span>
+
+    <span class="c1"># for now, make these local variables to allow the rest of the function</span>
+    <span class="c1"># to be a direct copy-paste</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">group_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">group_size</span>
+    <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
+    <span class="n">use_hqq</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">use_hqq</span>
+    <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">zero_point_domain</span>
+
+    <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Skipping quantizing weight with int4 weight only quantization because the shape of weight </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> is not compatible with group_size </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
+        <span class="k">return</span> <span class="n">module</span>
 
-        <span class="k">nonlocal</span> <span class="n">zero_point_domain</span>
+    <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+    <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
+    <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+    <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
+    <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
+    <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
+    <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4CPULayout</span><span class="p">)</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+    <span class="p">)</span>
+
+    <span class="c1"># nonlocal zero_point_domain</span>
+    <span class="k">assert</span> <span class="p">(</span>
+        <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+        <span class="c1"># the first value is the default one</span>
+        <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
-            <span class="c1"># the first value is the default one</span>
-            <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
 
-        <span class="c1"># Sparse Marlin only supports symmetric quantization.</span>
-        <span class="c1"># NOTE: If we start having lots of layouts that require different configurations,</span>
-        <span class="c1"># we should consider moving this logic somewhere else.</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinSparseLayout</span><span class="p">):</span>
-            <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="c1"># Sparse Marlin only supports symmetric quantization.</span>
+    <span class="c1"># NOTE: If we start having lots of layouts that require different configurations,</span>
+    <span class="c1"># we should consider moving this logic somewhere else.</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinSparseLayout</span><span class="p">):</span>
+        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
-        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span>
-            <span class="n">mapping_type</span><span class="p">,</span>
-            <span class="n">block_size</span><span class="p">,</span>
-            <span class="n">target_dtype</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">eps</span><span class="p">,</span>
-            <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
-            <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
-            <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
-            <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">,</span>
-        <span class="p">)</span>
-
-    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int4_weight_only_quant</span><span class="p">)</span></div>
+    <span class="n">new_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">weight</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">eps</span><span class="p">,</span>
+        <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+        <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
+        <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
+        <span class="n">use_hqq</span><span class="o">=</span><span class="n">use_hqq</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">new_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">module</span>
 
 
 <div class="viewcode-block" id="int8_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_weight_only.html#torchao.quantization.int8_weight_only">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">int8_weight_only</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>

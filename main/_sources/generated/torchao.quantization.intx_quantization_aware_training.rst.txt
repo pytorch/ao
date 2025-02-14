@@ -6,4 +6,5 @@
 intx_quantization_aware_training
 ================================
 
-.. autofunction:: intx_quantization_aware_training
+.. autoclass:: intx_quantization_aware_training
+    :members:
