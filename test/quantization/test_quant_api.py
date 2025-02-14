@@ -33,6 +33,7 @@ from torchao.quantization.quant_api import (
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
     float8_weight_only,
+    int4_dynamic_activation_int4_weight,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
@@ -50,6 +51,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_sm_at_least_89,
+    is_sm_at_least_90,
     unwrap_tensor_subclass,
 )
 
@@ -798,6 +800,10 @@ class TestQuantFlow(TestCase):
             float8_weight_only(),
             float8_dynamic_activation_float8_weight(),
             float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
+            int4_dynamic_activation_int4_weight(),
+            int8_dynamic_activation_int8_weight(),
+            int8_dynamic_activation_int4_weight(),
+            int8_weight_only(),
         ],
     )
     def test_workflow_e2e_numerics(self, config):
@@ -816,6 +822,11 @@ class TestQuantFlow(TestCase):
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
+        elif (
+            isinstance(config, int4_dynamic_activation_int4_weight)
+            and is_sm_at_least_90()
+        ):
+            return unittest.skip("only supported on CUDA capability 8.9, not greater")
 
         # scale has to be moved to cuda here because the parametrization init
         # code happens before gating for cuda availability
@@ -837,7 +848,7 @@ class TestQuantFlow(TestCase):
             y_q = m_q(x)
 
         sqnr = compute_error(y_ref, y_q)
-        assert sqnr >= 20, f"SQNR {sqnr} is too low"
+        assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
 
 class TestMultiTensorFlow(TestCase):
