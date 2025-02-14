@@ -67,8 +67,8 @@ from torchao.quantization import (
 )
 from torchao.quantization.qat import (
     FakeQuantizeConfig,
-    from_intx_quantization_aware_training,
-    intx_quantization_aware_training,
+    FromIntXQuantizationAwareTrainingConfig,
+    IntXQuantizationAwareTrainingConfig,
 )
 
 # Insert fake quantization
@@ -76,13 +76,13 @@ activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=Fal
 weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
     my_model,
-    intx_quantization_aware_training(activation_config, weight_config),
+    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
 )
 
 # Run training... (not shown)
 
 # Convert fake quantization to actual quantized operations
-quantize_(my_model, from_intx_quantization_aware_training())
+quantize_(my_model, FromIntXQuantizationAwareTrainingConfig())
 quantize_(my_model, int8_dynamic_activation_int4_weight(group_size=32))
 ```
 
@@ -139,7 +139,7 @@ The best example we have combining the composability of lower bit dtype with com
 
 We've added support for authoring and releasing [custom ops](./torchao/csrc/) that do not graph break with `torch.compile()` so if you love writing kernels but hate packaging them so they work all operating systems and cuda versions, we'd love to accept contributions for your custom ops. We have a few examples you can follow
 
-1. [fp6](torchao/dtypes/floatx) for 2x faster inference over fp16 with an easy to use API `quantize_(model, fpx_weight_only(3, 2))`
+1. [fp6](torchao/dtypes/floatx) for 2x faster inference over fp16 with an easy to use API `quantize_(model, FPXWeightOnlyConfig(3, 2))`
 2. [2:4 Sparse Marlin GEMM](https://github.com/pytorch/ao/pull/733) 2x speedups for FP16xINT4 kernels even at batch sizes up to 256
 3. [int4 tinygemm unpacker](https://github.com/pytorch/ao/pull/415) which makes it easier to switch quantized backends for inference
 
