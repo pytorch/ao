@@ -306,7 +306,7 @@ class Float8Linear(torch.nn.Linear):
         if torch.is_autocast_enabled():
             # For now, hardcode to GPU's autocast dtype
             # if we need CPU support in the future, we can add it
-            autocast_dtype = torch.get_autocast_gpu_dtype()
+            autocast_dtype = torch.get_autocast_gpu_dtype('cuda')
             input = input.to(autocast_dtype)
 
         has_any_axiswise_scaling = any(
