@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Optional
 
 import torch
@@ -16,7 +16,7 @@ from torchao.prototype.mx_formats.constants import (
 )
 
 
-class MXGemmKernelChoice(StrEnum):
+class MXGemmKernelChoice(Enum):
     # always available - MX operands are dequantized and a high precision
     # gemm is run
     EMULATED = "emulated"
