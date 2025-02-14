@@ -8,6 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
     float8_weight_only,
@@ -16,6 +17,7 @@ from torchao.quantization import (
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
+    quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.utils import (
@@ -82,7 +84,8 @@ class TestAffineQuantized(TestCase):
         t = linear.weight
         shape = t.shape
         apply_int4_weight_only_quant = int4_weight_only(group_size=32)
-        ql = apply_int4_weight_only_quant(linear)
+        quantize_(linear, apply_int4_weight_only_quant)
+        ql = linear
         aqt = ql.weight
         aqt_shape = aqt.shape
         self.assertEqual(aqt_shape, shape)
@@ -102,7 +105,12 @@ class TestAffineQuantized(TestCase):
     )
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        ql = apply_quant(linear)
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+        else:
+            # TODO(#1690): delete this once config migration is done
+            ql = apply_quant(linear)
         with tempfile.NamedTemporaryFile() as f:
             torch.save(ql.state_dict(), f)
             f.seek(0)
@@ -181,7 +189,12 @@ class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_print_quantized_module(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        ql = apply_quant(linear)
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+        else:
+            # TODO(#1690): delete this once config migration is done
+            ql = apply_quant(linear)
         assert "AffineQuantizedTensor" in str(ql)
 
 
@@ -195,7 +208,11 @@ class TestAffineQuantizedBasic(TestCase):
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-            ql = apply_quant(linear)
+            if isinstance(apply_quant, AOBaseConfig):
+                quantize_(linear, apply_quant)
+            else:
+                # TODO(#1690): delete this once config migration is done
+                ql = apply_quant(linear)
             lp_tensor = ql.weight
             tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
             tensor_data_dict = {

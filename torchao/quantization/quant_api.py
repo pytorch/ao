@@ -18,13 +18,15 @@ and mixed GEMM kernels
 import logging
 import types
 import warnings
-from typing import Callable, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Any, Callable, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
 
 import torchao
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
@@ -47,6 +49,10 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase, get_block_size
+from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
+    register_quantize_module_handler,
+)
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
@@ -117,7 +123,6 @@ __all__ = [
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
 
-# update according to the support matrix
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
@@ -228,6 +233,7 @@ def _replace_with_custom_fn_if_matches_filter(
     filter_fn,
     cur_fqn="",
     device=None,
+    extra_args: Optional[Tuple[Any, ...]] = (),
 ) -> None:
     """
     Recursively replaces each child module in `model` with the result of `replacement_fn(child)`
@@ -239,6 +245,7 @@ def _replace_with_custom_fn_if_matches_filter(
         filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.
         cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
         device (device, optional): Device to move the model to before applying `filter_fn`. Defaults to None.
+        extra_args (Tuple[Any, ...], optional): optional extra args to pass to `replacement_fn`.
 
     Returns:
         None
@@ -252,12 +259,18 @@ def _replace_with_custom_fn_if_matches_filter(
     if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
-        model = replacement_fn(model)
+        model = replacement_fn(model, *extra_args)
         return model
     else:
-        for name, child in model.named_children():
+        named_children_list = list(model.named_children())
+        for name, child in named_children_list:
             new_child = _replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, f"{cur_fqn}{name}.", device
+                child,
+                replacement_fn,
+                filter_fn,
+                f"{cur_fqn}{name}.",
+                device,
+                extra_args,
             )
             if new_child is not child:
                 setattr(model, name, new_child)
@@ -472,17 +485,17 @@ def _get_linear_subclass_inserter(
 
 def quantize_(
     model: torch.nn.Module,
-    apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
+    config: Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]],
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: bool = True,
     device: Optional[torch.types.Device] = None,
 ):
-    """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
+    """Convert the weight of linear modules in the model with `config`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
-        apply_tensor_subclass (Callable[[torch.nn.Module], torch.nn.Module]): function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor)
-        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
+        config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
+        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
         device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.
@@ -494,7 +507,7 @@ def quantize_(
         import torch.nn as nn
         from torchao import quantize_
 
-        # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to
+        # quantize with some predefined `config` method that corresponds to
         # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
         # also customizable with arguments
         # currently options are
@@ -507,39 +520,36 @@ def quantize_(
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
         quantize_(m, int4_weight_only(group_size=32))
 
-        # 2. write your own new apply_tensor_subclass
-        # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
-        # on weight
-
-        from torchao.dtypes import to_affine_quantized_intx
-
-        # weight only uint4 asymmetric groupwise quantization
-        groupsize = 32
-        apply_weight_quant = lambda x: to_affine_quantized_intx(
-          x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
-          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
-
-        def apply_weight_quant_to_linear(linear):
-            linear.weight = torch.nn.Parameter(apply_weight_quant(linear.weight), requires_grad=False)
-            return linear
-
-        # apply to modules under block0 submodule
-        def filter_fn(module: nn.Module, fqn: str) -> bool:
-            return isinstance(module, nn.Linear)
-
-        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, apply_weight_quant_to_linear, filter_fn)
-
     """
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        apply_tensor_subclass,
-        _is_linear if filter_fn is None else filter_fn,
-        device=device,
-    )
+    if isinstance(config, AOBaseConfig):
+        handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
+        # for each linear in the model, apply the transform if filtering passes
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            handler,
+            _is_linear if filter_fn is None else filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
+
+    else:
+        # old behavior, keep to avoid breaking BC
+        warnings.warn(
+            """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
+        )
+
+        # make the variable name make sense
+        apply_tensor_subclass = config
+
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            apply_tensor_subclass,
+            _is_linear if filter_fn is None else filter_fn,
+            device=device,
+        )
 
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -741,14 +751,10 @@ def gemlite_uintx_weight_only(
     return _get_linear_subclass_inserter(apply_fn)
 
 
-def int4_weight_only(
-    group_size=128,
-    layout=TensorCoreTiledLayout(inner_k_tiles=8),
-    use_hqq=False,
-    zero_point_domain=ZeroPointDomain.NONE,
-):
+@dataclass
+class Int4WeightOnlyConfig(AOBaseConfig):
     """
-    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
+    Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Note:
@@ -765,64 +771,90 @@ def int4_weight_only(
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
-        `zero_point_domain`: data type of zeros points, choices are [None(then the value is determined by the layout), ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
     """
 
-    def apply_int4_weight_only_quant(weight):
-        if weight.shape[-1] % group_size != 0:
-            logger.info(
-                f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
-            )
-            return weight
+    group_size: int = 128
+    layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
+    use_hqq: bool = False
+    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
 
-        mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int32
-        quant_min = 0
-        quant_max = 15
-        eps = 1e-6
-        preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
-        zero_point_dtype = (
-            weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
+
+# for BC
+# TODO maybe change other callsites
+int4_weight_only = Int4WeightOnlyConfig
+
+
+@register_quantize_module_handler(Int4WeightOnlyConfig)
+def _int4_weight_only_transform(
+    module: torch.nn.Module, config: Int4WeightOnlyConfig
+) -> torch.nn.Module:
+    # TODO(future PR): perhaps move this logic to a different file, to keep the API
+    # file clean of implementation details
+
+    # for now, make these local variables to allow the rest of the function
+    # to be a direct copy-paste
+    weight = module.weight
+    group_size = config.group_size
+    layout = config.layout
+    use_hqq = config.use_hqq
+    zero_point_domain = config.zero_point_domain
+
+    if weight.shape[-1] % group_size != 0:
+        logger.info(
+            f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
         )
+        return module
 
-        nonlocal zero_point_domain
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = (1, group_size)
+    target_dtype = torch.int32
+    quant_min = 0
+    quant_max = 15
+    eps = 1e-6
+    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
+    zero_point_dtype = (
+        weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
+    )
+
+    # nonlocal zero_point_domain
+    assert (
+        type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
+    ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
+    if zero_point_domain == ZeroPointDomain.NONE:
+        # the first value is the default one
+        zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
+    else:
         assert (
-            type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys()
-        ), f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
-        if zero_point_domain == ZeroPointDomain.NONE:
-            # the first value is the default one
-            zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
-        else:
-            assert (
-                zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
-            ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
+            zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
+        ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
-        # Sparse Marlin only supports symmetric quantization.
-        # NOTE: If we start having lots of layouts that require different configurations,
-        # we should consider moving this logic somewhere else.
-        if isinstance(layout, MarlinSparseLayout):
-            mapping_type = MappingType.SYMMETRIC
-            assert (
-                group_size == 128 or group_size == weight.shape[-1]
-            ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
+    # Sparse Marlin only supports symmetric quantization.
+    # NOTE: If we start having lots of layouts that require different configurations,
+    # we should consider moving this logic somewhere else.
+    if isinstance(layout, MarlinSparseLayout):
+        mapping_type = MappingType.SYMMETRIC
+        assert (
+            group_size == 128 or group_size == weight.shape[-1]
+        ), f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
 
-        return to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-            _layout=layout,
-            use_hqq=use_hqq,
-        )
-
-    return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
+    new_weight = to_affine_quantized_intx(
+        weight,
+        mapping_type,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        zero_point_dtype=zero_point_dtype,
+        preserve_zero=preserve_zero,
+        zero_point_domain=zero_point_domain,
+        _layout=layout,
+        use_hqq=use_hqq,
+    )
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 def int8_weight_only(group_size=None):
