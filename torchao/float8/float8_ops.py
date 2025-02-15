@@ -113,11 +113,25 @@ def float8_transpose(aten_op, args, kwargs=None):
 
 @implements([aten.view.default])
 def float8_view(aten_op, args, kwargs=None):
+    t, new_shape = args[0], args[1]
+
+    # if the new shape is the same as old, return an equivalent tensor
+    # note that we have to create a new wrapper to make PyTorch internals happy
+    if new_shape == list(t._data.shape):
+        new_data = aten_op(args[0]._data, *args[1:], **kwargs)
+        return Float8Tensor(
+            new_data,
+            args[0]._scale,
+            args[0]._orig_dtype,
+            args[0]._linear_mm_config,
+            args[0]._gemm_input_role,
+            args[0]._axiswise_dim,
+        )
+
     if len(args[0]._scale.shape) < 2:
         # tensorwise scaling
         return float8_desugar_op(aten_op, args, kwargs)
 
-    t, new_shape = args[0], args[1]
     # for now, only support reshaping to [-1, dim] or [dim, -1]
     axiswise_dim = t._axiswise_dim
     if len(new_shape) == 2:
@@ -146,6 +160,7 @@ def float8_view(aten_op, args, kwargs=None):
                 t._gemm_input_role,
                 new_axiswise_dim,
             )
+
     raise AssertionError(
         f"{aten_op} with axiswise scaling and t.shape {t.shape} t._scale.shape {t._scale.shape} t._axiswise_dim {t._axiswise_dim} new_shape {new_shape} is not supported yet."
     )
