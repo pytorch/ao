@@ -65,6 +65,10 @@ from torchao.quantization.quant_primitives import dequantize_affine
 from torchao.utils import (
     fill_defaults,
 )
+from torchao.dtypes.uintx.int4_xpu_layout import (
+    _linear_bf16_act_uint4_weight_int8_zero_check,
+    _linear_bf16_act_uint4_weight_int8_zero_impl,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +197,10 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_fp_act_uint4_weight_cpu_check,
             _linear_fp_act_uint4_weight_cpu_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_int8_zero_check,
+            _linear_bf16_act_uint4_weight_int8_zero_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
