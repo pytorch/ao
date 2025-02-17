@@ -413,7 +413,6 @@ def _quantize_affine_no_dtype_cast(
     for i in reduction_dims:
         shape_after_reduction[i] = 1
     scale = scale.view(shape_after_reduction)
-    import pdb; pdb.set_trace()
 
     if zero_point is not None and zero_point.numel() > 0:
         zero_point = zero_point.view(shape_after_reduction)

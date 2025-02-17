@@ -141,7 +141,7 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
-    Int4XPULayout: [ZeroPointDomain.FLOAT]
+    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
@@ -974,6 +974,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
 
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = (1, group_size)
+    target_dtype = torch.int32
+    quant_min = 0
+    quant_max = 15
+    eps = 1e-6
+    zero_point_dtype = torch.bfloat16
 
 # for BC
 # TODO maybe change other callsites
@@ -1009,7 +1016,6 @@ def _int4_weight_only_transform(
     quant_min = 0
     quant_max = 15
     eps = 1e-6
-    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     zero_point_dtype = (
         weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
     )
@@ -1026,6 +1032,7 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
+    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)] if zero_point_domain!=ZeroPointDomain.INT else True
     # Sparse Marlin only supports symmetric quantization.
     # NOTE: If we start having lots of layouts that require different configurations,
     # we should consider moving this logic somewhere else.

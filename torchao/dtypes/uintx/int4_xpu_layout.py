@@ -2,10 +2,17 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Union, List
 
 import torch
-from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch.utils._python_dispatch import (
+    is_traceable_wrapper_subclass,
+    return_and_correct_aliasing,
+)
 
-from torchao.dtypes.affine_quantized_tensor import register_layout
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_7,
     fill_defaults,
@@ -13,6 +20,63 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
+def _aqt_is_xpu_layout_uint4(aqt):
+    """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
+    # TODO: use torch.uint4
+    return (
+        aqt.tensor_impl.dtype == torch.int32
+        and aqt.quant_min == 0
+        and aqt.quant_max == 15
+    )
+
+def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
+    return (
+        # input is native bfloat16 tensor
+        not is_traceable_wrapper_subclass(input_tensor)
+        and input_tensor.dtype == torch.bfloat16
+        and
+        # weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor
+        isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_xpu_layout_uint4(weight_tensor)
+        and weight_tensor.dtype == torch.bfloat16
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.zero_point_domain == ZeroPointDomain.INT
+        and isinstance(weight_tensor.tensor_impl.scale_and_zero, list)
+        and weight_tensor.tensor_impl.scale_and_zero[0].dtype == torch.bfloat16
+        and weight_tensor.tensor_impl.scale_and_zero[1].dtype == torch.int8
+        and isinstance(weight_tensor._layout, Int4XPULayout)
+    )
+
+
+def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias):
+    assert (
+        weight_tensor.block_size[0] == 1
+    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+        f"need input_tensor shape: {input_tensor.shape} final"
+        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+    )
+
+    # TODO: check groupsize quantization
+    # avoid circular dep, TODO: move this to a common util.py
+    act_mat = input_tensor.view(-1, input_tensor.shape[-1])
+    # weight is packed from padded (out_features, in_features) weight tensor
+    # (same dimension requirement as F.linear weight)
+    packed_weight = weight_tensor.tensor_impl.packed_weight
+    [scale, zero] = weight_tensor.tensor_impl.scale_and_zero
+
+    orig_act_size = act_mat.size()
+    orig_dtype = act_mat.dtype
+
+    # groupwise int4 quantization
+    groupsize = weight_tensor.block_size[1]
+    y = torch.ops.aten._weight_int4pack_mm_with_scale_and_zeros(
+        act_mat, packed_weight, groupsize, scale.transpose(0,1), zero.transpose(0,1)
+    )
+
+    if bias is not None:
+        y += bias
+    return y.to(orig_dtype)
 
 @dataclass(frozen=True)
 class Int4XPULayout(Layout):
@@ -106,7 +170,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 int_data.dtype == torch.int32
             ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             packed_weight = convert_weight_to_int4pack_xpu(
-                int_data
+                int_data,
+                zero_point.dtype == scale.dtype
             )
         else:
             assert (
@@ -129,7 +194,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             )
         return self.__class__(
             self.packed_weight.to(device),
-            self.scale_and_zero.to(device),
+            self.scale_and_zero.to(device) if not isinstance(self.scale_and_zero, list) else [self.scale_and_zero[0].to(device), self.scale_and_zero[1].to(device)],
             self.transposed,
             self._layout,
         )
@@ -137,7 +202,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.packed_weight),
-            fn(self.scale_and_zero),
+            fn(self.scale_and_zero) if not isinstance(self.scale_and_zero, list) else [fn(self.scale_and_zero[0]), fn(self.scale_and_zero[1])],
             self.transposed,
             self._layout,
         )
@@ -227,27 +292,51 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         quant_min = 0
         quant_max = 15
         assert len(block_size) == 2 and block_size[0] == 1
-        zero_point_domain = ZeroPointDomain.FLOAT
-        dequantized = torch.ops.aten._weight_int4pack_mm(
-            torch.eye(eye_shape, device=device, dtype=original_dtype),
-            self.packed_weight,
-            groupsize,
-            self.scale_and_zero,
-        )
-        dequantized = dequantized.t().contiguous()
-        # TODO: move this to `unpack_xpu_scales_and_zeros`?
-        scale = scale.reshape(scale.shape[:-1]).contiguous()
-        zero = zero.reshape(zero.shape[:-1]).contiguous()
-        int_data = quantize_affine(
-            dequantized,
-            block_size,
-            scale,
-            zero,
-            target_dtype,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-        )
+        if isinstance(self.scale_and_zero, list):
+            zero_point_domain = ZeroPointDomain.INT
+            dequantized = torch.ops.aten._weight_int4pack_mm_with_scale_and_zeros(
+                torch.eye(eye_shape, device=device, dtype=original_dtype),
+                self.packed_weight,
+                groupsize,
+                scale,
+                zero
+            )
+            dequantized = dequantized.t().contiguous()
+            # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
+            scale = scale.reshape(scale.shape[:-1]).contiguous()
+            zero = zero.reshape(zero.shape[:-1]).contiguous()
+            int_data = quantize_affine(
+                dequantized,
+                block_size,
+                scale,
+                zero,
+                target_dtype,
+                quant_min,
+                quant_max,
+                zero_point_domain,
+            )
+        else:
+            zero_point_domain = ZeroPointDomain.FLOAT
+            dequantized = torch.ops.aten._weight_int4pack_mm(
+                torch.eye(eye_shape, device=device, dtype=original_dtype),
+                self.packed_weight,
+                groupsize,
+                self.scale_and_zero,
+            )
+            dequantized = dequantized.t().contiguous()
+            # TODO: move this to `unpack_xpu_scales_and_zeros`?
+            scale = scale.reshape(scale.shape[:-1]).contiguous()
+            zero = zero.reshape(zero.shape[:-1]).contiguous()
+            int_data = quantize_affine(
+                dequantized,
+                block_size,
+                scale,
+                zero,
+                target_dtype,
+                quant_min,
+                quant_max,
+                zero_point_domain,
+            )
         return int_data, scale, zero
 
     def get_layout(self) -> Layout:
