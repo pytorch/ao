@@ -1,0 +1,12 @@
+prefix=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out
+exec_prefix=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libtorchao
+Description: Library to detect essential performance optimization information about host CPU.
+Version: 
+URL: 
+Libs: -L${libdir} -lcpuinfo
+Cflags: -I${includedir}
+

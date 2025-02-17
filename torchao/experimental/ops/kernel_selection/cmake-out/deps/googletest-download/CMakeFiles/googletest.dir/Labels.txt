@@ -1,0 +1,14 @@
+# Target labels
+ googletest
+# Source files and their labels
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/CMakeFiles/googletest
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/CMakeFiles/googletest.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/CMakeFiles/googletest-complete.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-build.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-configure.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-download.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-install.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-mkdir.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-patch.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-test.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/googletest-update.rule

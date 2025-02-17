@@ -1,0 +1,15 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=git
+command=/opt/homebrew/Cellar/cmake/3.30.3/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-subbuild/cpuinfo-populate-prefix/tmp/cpuinfo-populate-gitclone.cmake
+source_dir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-src
+work_dir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps
+repository=https://github.com/pytorch/cpuinfo.git
+remote=origin
+init_submodules=TRUE
+recurse_submodules=--recursive
+submodules=
+CMP0097=NEW
+      

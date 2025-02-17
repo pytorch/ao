@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=/opt/homebrew/Cellar/cmake/3.30.3/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/download-googletest.cmake;COMMAND;/opt/homebrew/Cellar/cmake/3.30.3/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/verify-googletest.cmake;COMMAND;/opt/homebrew/Cellar/cmake/3.30.3/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googletest-download/googletest-prefix/src/googletest-stamp/extract-googletest.cmake
+source_dir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/deps/googletest
+work_dir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/deps
+url(s)=https://github.com/google/googletest/archive/release-1.11.0.zip
+hash=SHA256=353571c2440176ded91c2de6d6cd88ddd41401d14692ec1f99e35d013feda55a
+      no_extract=
+

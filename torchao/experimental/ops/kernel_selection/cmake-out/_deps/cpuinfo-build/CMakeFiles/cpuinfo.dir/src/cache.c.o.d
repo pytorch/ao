@@ -1,0 +1,35 @@
+_deps/cpuinfo-build/CMakeFiles/cpuinfo.dir/src/cache.c.o: \
+  /Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-src/src/cache.c \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/stddef.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_header_macro.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_ptrdiff_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_size_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_wchar_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_null.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/__stddef_offsetof.h \
+  /Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-src/include/cpuinfo.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/stdbool.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/TargetConditionals.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/16/include/stdint.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/stdint.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_int8_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_int16_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_int32_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_int64_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_uint8_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_uint16_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_uint32_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_uint64_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/cdefs.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_symbol_aliasing.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_posix_availability.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/machine/_types.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/arm/_types.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_pthread/_pthread_types.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_intptr_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/sys/_types/_uintptr_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_intmax_t.h \
+  /Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/usr/include/_types/_uintmax_t.h \
+  /Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-src/src/cpuinfo/internal-api.h \
+  /Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/_deps/cpuinfo-src/src/cpuinfo/common.h

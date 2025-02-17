@@ -1,0 +1,14 @@
+# Target labels
+ googlebenchmark
+# Source files and their labels
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark-complete.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-build.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-configure.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-download.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-install.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-mkdir.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-patch.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-test.rule
+/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-update.rule

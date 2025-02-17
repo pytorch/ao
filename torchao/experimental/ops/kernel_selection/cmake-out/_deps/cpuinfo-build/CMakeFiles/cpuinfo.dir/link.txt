@@ -1,0 +1,2 @@
+/Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar qc libcpuinfo.a CMakeFiles/cpuinfo.dir/src/api.c.o CMakeFiles/cpuinfo.dir/src/cache.c.o CMakeFiles/cpuinfo.dir/src/init.c.o CMakeFiles/cpuinfo.dir/src/log.c.o CMakeFiles/cpuinfo.dir/src/arm/uarch.c.o CMakeFiles/cpuinfo.dir/src/arm/cache.c.o CMakeFiles/cpuinfo.dir/src/arm/mach/init.c.o CMakeFiles/cpuinfo.dir/src/mach/topology.c.o
+/Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib libcpuinfo.a

@@ -1,0 +1,2 @@
+/Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar qc libbenchmark_main.a CMakeFiles/benchmark_main.dir/benchmark_main.cc.o
+/Applications/Xcode_16.0.0_16A242d_fb.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib libbenchmark_main.a

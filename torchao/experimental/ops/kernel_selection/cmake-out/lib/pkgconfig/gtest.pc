@@ -1,0 +1,9 @@
+libdir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/lib
+includedir=/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/include
+
+Name: gtest
+Description: GoogleTest (without main() function)
+Version: 1.11.0
+URL: https://github.com/google/googletest
+Libs: -L${libdir} -lgtest 
+Cflags: -I${includedir} -DGTEST_HAS_PTHREAD=1

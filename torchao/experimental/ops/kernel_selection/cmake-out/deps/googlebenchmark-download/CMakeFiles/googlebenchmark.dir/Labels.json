@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/CMakeFiles/googlebenchmark-complete.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-build.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-configure.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-download.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-install.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-mkdir.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-patch.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-test.rule"
+		},
+		{
+			"file" : "/Users/scroy/repos/ao/torchao/experimental/ops/kernel_selection/cmake-out/deps/googlebenchmark-download/googlebenchmark-prefix/src/googlebenchmark-stamp/googlebenchmark-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"googlebenchmark"
+		],
+		"name" : "googlebenchmark"
+	}
+}
