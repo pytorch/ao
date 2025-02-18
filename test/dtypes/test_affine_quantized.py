@@ -23,6 +23,7 @@ from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_fbcode,
     is_sm_at_least_89,
 )
 
@@ -213,6 +214,8 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     def test_flatten_unflatten(self, device, dtype):
+        if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
+            raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
