@@ -168,8 +168,10 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             ):
                 # workaround from https://github.com/pytorch/pytorch/issues/141881
                 # to avoid saving float8 weight from forward to backward when
-                # FSDP is on
-                weight_hp_t = weight_hp_t + (grad_output_reshaped[0, 0] * 0)
+                # FSDP is on: add a fake dependency on `grad_output`.
+                g_reshaped = grad_output.reshape(-1, grad_output.shape[-1]) * 0
+                zero = g_reshaped[:1] * 0
+                weight_hp_t = weight_hp_t + zero
 
             # Note: we need https://github.com/pytorch/pytorch/issues/136267
             # to be solved to have a chance to reuse max(abs(weight, dim=...))

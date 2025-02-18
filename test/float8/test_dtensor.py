@@ -23,7 +23,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 from torch.distributed._tensor import DTensor, Replicate, Shard, distribute_tensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-from torch.distributed.tensor.parallel import parallelize_module
+from torch.distributed.tensor.parallel import (
+    ColwiseParallel,
+    PrepareModuleInput,
+    RowwiseParallel,
+    parallelize_module,
+)
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
     Transformer,
@@ -31,7 +36,13 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 from tqdm import tqdm
 
 from torchao.float8 import Float8LinearConfig
-from torchao.float8.config import CastConfig, ScalingType, e4m3_dtype
+from torchao.float8.config import (
+    CastConfig,
+    Float8LinearRecipeName,
+    ScalingType,
+    e4m3_dtype,
+    recipe_name_to_linear_config,
+)
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
 from torchao.float8.float8_tensor import (
@@ -48,6 +59,8 @@ from torchao.float8.float8_tensor_parallel import (
 from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.float8.dtensor_utils import ToyModel
+
+torch.set_float32_matmul_precision("high")
 
 
 def setup_distributed():
@@ -180,13 +193,17 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
 
 
 def _test_fp8_mlp_tensor_parallelism_base(
-    mesh: DeviceMesh, size=16, compile: bool = False
+    mesh: DeviceMesh, size=16, compile: bool = False, rowwise: bool = False
 ):
     device = mesh.device_type
-    # For now, only supports dynamic scaling of `x` and `dL_dY`.
-    # TODO(future): add support for float8 all-gather with delayed scaling
-    # for activations and gradients.
-    config = Float8LinearConfig(emulate=True)
+
+    if rowwise:
+        config = recipe_name_to_linear_config(Float8LinearRecipeName.ALL_AXISWISE)
+        # hack around config being frozen
+        # TODO(future PR): we should make this nicer at the config level
+        object.__setattr__(config, "emulate", True)
+    else:
+        config = Float8LinearConfig(emulate=True)
 
     toy_model = ToyModel().to(device)
     toy_model_fp8 = convert_to_float8_training(toy_model, config=config)
@@ -196,14 +213,28 @@ def _test_fp8_mlp_tensor_parallelism_base(
     sp_model = copy.deepcopy(toy_model)
     sp_model = convert_to_float8_training(sp_model, config=config)
 
+    # For tensorwise scaling, enable float8 all_gather.
+    # For rowwise scaling, keep high precision all_gather. Motivation for
+    # not doing float8 all-gather for rowwise: tensors need to be scaled both ways,
+    # so for float8 all-gather we'd need to send two float8 copies per tensor,
+    # which is similar # bytes over the wire than just doing bfloat16 all-gather.
+    if rowwise:
+        colwise_parallel_cls = ColwiseParallel
+        rowwise_parallel_cls = RowwiseParallel
+        prepare_input_cls = PrepareModuleInput
+    else:
+        colwise_parallel_cls = Float8ColwiseParallel
+        rowwise_parallel_cls = Float8RowwiseParallel
+        prepare_input_cls = PrepareFloat8ModuleInput
+
     # vanilla TP
     tp_model = parallelize_module(
         tp_model,
         mesh,
         {
-            "ffn.w1": Float8ColwiseParallel(),
-            "ffn.w2": Float8ColwiseParallel(),
-            "ffn.out_proj": Float8RowwiseParallel(),
+            "ffn.w1": colwise_parallel_cls(),
+            "ffn.w2": colwise_parallel_cls(),
+            "ffn.out_proj": rowwise_parallel_cls(),
         },
     )
 
@@ -212,33 +243,41 @@ def _test_fp8_mlp_tensor_parallelism_base(
         sp_model,
         mesh,
         {
-            "ffn": PrepareFloat8ModuleInput(
+            "ffn": prepare_input_cls(
                 input_layouts=Shard(1), desired_input_layouts=Replicate()
             ),
-            "ffn.w1": Float8ColwiseParallel(),
-            "ffn.w2": Float8ColwiseParallel(),
-            "ffn.out_proj": Float8RowwiseParallel(
+            "ffn.w1": colwise_parallel_cls(),
+            "ffn.w2": colwise_parallel_cls(),
+            "ffn.out_proj": rowwise_parallel_cls(
                 output_layouts=Shard(1), use_local_output=False
             ),
         },
     )
 
-    # PrepareFloat8ModuleInput with specific submodule fqn
+    # prepare_input_cls with specific submodule fqn
     sp_model2 = copy.deepcopy(toy_model)
     sp_model2 = convert_to_float8_training(sp_model2, config=config)
+
+    if rowwise:
+        prepare_input = prepare_input_cls(
+            input_layouts=Shard(1),
+            desired_input_layouts=Replicate(),
+        )
+    else:
+        prepare_input = prepare_input_cls(
+            input_layouts=Shard(1),
+            desired_input_layouts=Replicate(),
+            fwd_config_submodule_fqn="w2",
+        )
 
     sp_model2 = parallelize_module(
         sp_model2,
         mesh,
         {
-            "ffn": PrepareFloat8ModuleInput(
-                input_layouts=Shard(1),
-                desired_input_layouts=Replicate(),
-                fwd_config_submodule_fqn="w2",
-            ),
-            "ffn.w1": Float8ColwiseParallel(),
-            "ffn.w2": Float8ColwiseParallel(),
-            "ffn.out_proj": Float8RowwiseParallel(
+            "ffn": prepare_input,
+            "ffn.w1": colwise_parallel_cls(),
+            "ffn.w2": colwise_parallel_cls(),
+            "ffn.out_proj": rowwise_parallel_cls(
                 output_layouts=Shard(1), use_local_output=False
             ),
         },
@@ -278,11 +317,13 @@ def _test_fp8_mlp_tensor_parallelism_base(
 
 
 def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
-    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=False)
+    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=False, rowwise=False)
+    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=False, rowwise=True)
 
 
 def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
-    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True)
+    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True, rowwise=False)
+    _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True, rowwise=True)
 
 
 def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
