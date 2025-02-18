@@ -423,6 +423,35 @@ def nf4_pin_memory(aten_op, args, kwargs=None):
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 
+@implements(
+    [
+        aten.cat.default,
+    ]
+)
+def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
+    tensors_to_cat = args[0]
+    assert all(isinstance(t, torch.Tensor) for t in tensors_to_cat)
+    remaining_args = args[1:]
+
+    ts = []
+    for t in tensors_to_cat:
+        assert isinstance(t, torch.Tensor)
+
+        if isinstance(t, NF4Tensor):
+            ts.append(t.get_original_weight())
+        else:
+            ts.append(t)
+
+    dtype = ts[0].dtype
+    assert all(t.dtype == dtype for t in ts)
+
+    if kwargs is None:
+        kwargs = {}
+
+    tensors = aten_op(ts, *remaining_args, **kwargs)
+    return tensors
+
+
 @dataclass(frozen=True)
 class SubclassTensorArgs:
     original_shape: torch.Size
@@ -1057,4 +1086,5 @@ def nf4_constructor(
 
 
 if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals([NF4Tensor])
     torch.serialization.add_safe_globals([NF4Tensor])
