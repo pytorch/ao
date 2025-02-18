@@ -14,7 +14,6 @@ logging.basicConfig(
 
 
 class TestSupermask(common_utils.TestCase):
-
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @common_utils.parametrize("sparsity_level", [0.25, 0.5])
     @common_utils.parametrize("blocksize", [2, 4, 8])
