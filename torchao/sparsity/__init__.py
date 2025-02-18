@@ -13,9 +13,9 @@ from .sparse_api import (
     semi_sparse_weight,
     sparsify_,
 )
+from .supermask import SupermaskLinear
 from .utils import PerChannelNormObserver  # noqa: F403
 from .wanda import WandaSparsifier  # noqa: F403
-from .supermask import SupermaskLinear
 
 __all__ = [
     "WandaSparsifier",
