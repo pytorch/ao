@@ -1,26 +1,10 @@
-import copy
 import logging
 import unittest
-import math
 
-import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
-from torchao.quantization.quant_api import (
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
-    quantize_,
-)
-from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
-from torchao.sparsity.utils import create_block_sparse_tensor
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
-    TORCH_VERSION_AT_LEAST_2_4,
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-)
+from torchao.sparsity import sparsify_
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -31,7 +15,6 @@ class TestSupermask(common_utils.TestCase):
     @common_utils.parametrize("sparsity_level", [0.25, 0.5])
     @common_utils.parametrize("blocksize", [2, 4, 8])
     def test_supermask(self, sparsity_level, blocksize):
-        input = torch.randn((1, 16)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(16, 16, bias=False),
