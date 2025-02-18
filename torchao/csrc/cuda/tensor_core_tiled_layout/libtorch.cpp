@@ -12,6 +12,7 @@
 #include <ATen/core/stack.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <torch/csrc/inductor/aoti_runtime/utils.h>
 #include <torch/csrc/inductor/aoti_torch/utils.h>
 #include <torch/library.h>
 
@@ -35,6 +36,8 @@ private:
 };
 
 
+using RAIIATH = torch::aot_inductor::RAIIAtenTensorHandle;
+
 class VoidStarConverter: public c10::OperatorKernel {
   public:
     VoidStarConverter(void (*fn)(void **, int64_t, int64_t)) : fn_(fn) {}
@@ -52,8 +55,7 @@ class VoidStarConverter: public c10::OperatorKernel {
         if (arg.isInt()) {
           ministack[idx] = reinterpret_cast<void *>(arg.toInt());
         } else if (arg.isTensor()) {
-          at::Tensor& tensor = const_cast<at::Tensor&>(arg.toTensor());
-          AtenTensorHandle ath = torch::aot_inductor::tensor_pointer_to_tensor_handle(&tensor);
+          AtenTensorHandle ath = torch::aot_inductor::new_tensor_handle(std::move(const_cast<at::Tensor&>(arg.toTensor())));
           ministack[idx] = reinterpret_cast<void *>(ath);
         } else {
           TORCH_CHECK(false, "Other types of IValues not yet handled!");
@@ -73,8 +75,8 @@ class VoidStarConverter: public c10::OperatorKernel {
       for (size_t idx = 0; idx < num_returns; idx++) {
         const c10::TypePtr& ret_type = schema.returns()[idx].type();
         if (*ret_type == *c10::getTypePtr<at::Tensor>()) {
-          AtenTensorHandle ret_ath = reinterpret_cast<AtenTensorHandle>(ministack[num_arguments + idx]);
-          at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_ath);
+          auto ret_raiiath = RAIIATH(reinterpret_cast<AtenTensorHandle>(ministack[num_arguments + idx]));
+          at::Tensor out = *torch::aot_inductor::tensor_handle_to_tensor_pointer(ret_raiiath.get());
           torch::jit::push(stack, c10::IValue(out));
         } else {
           TORCH_CHECK(false, "Only Tensor return types are currently supported!");

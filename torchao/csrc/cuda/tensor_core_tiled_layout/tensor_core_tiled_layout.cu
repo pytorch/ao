@@ -1,5 +1,6 @@
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
 
+#include <torch/csrc/inductor/aoti_runtime/utils.h>
 #include "libtorch.h"
 
 // need to confirm or make the following includes header-only
@@ -7,6 +8,8 @@
 #include <ATen/DeviceGuard.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+
+using RAIIATH = torch::aot_inductor::RAIIAtenTensorHandle;
 
 template <typename U, typename V>
 constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
@@ -167,9 +170,12 @@ __global__ void _dequantize_int4_kernel(
 //  - at::cuda::getCurrentCUDAStream();
 //  - at::GenericPackedTensorAccessor
 //  - at::RestrictPtrTraits
-AtenTensorHandle _ATH_dequantize_tensor_core_tiled_layout(
-    const AtenTensorHandle packed_w, const AtenTensorHandle scales_and_zeros,
+RAIIATH _ATH_dequantize_tensor_core_tiled_layout(
+    const RAIIATH packed_w_raiiath, const RAIIATH scales_and_zeros_raiiath,
     int64_t group_size, int64_t innerKTiles) {
+
+  auto packed_w = packed_w_raiiath.get();
+  auto scales_and_zeros = scales_and_zeros_raiiath.get();
 
   constexpr int32_t kNTileSize = 8;
   constexpr int32_t kKTileSize = 16;
@@ -334,7 +340,7 @@ AtenTensorHandle _ATH_dequantize_tensor_core_tiled_layout(
 #undef DISPATCH_Q_GROUP
 #undef RUN_DEQUANT
 
-  return out;
+  return RAIIATH(out);
 }
 
 
@@ -346,22 +352,23 @@ void voidyvoid_boxed_ATH_dequantize_tensor_core_tiled_layout(void **stack,
   // schema values for now, and run the function and modify the void* stack
   int64_t innerKTiles = reinterpret_cast<int64_t>(stack[3]);
   int64_t group_size = reinterpret_cast<int64_t>(stack[2]);
-  AtenTensorHandle scales_and_zeros_ath =
-      reinterpret_cast<AtenTensorHandle>(stack[1]);
-  AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
+  RAIIATH scales_and_zeros_ath(reinterpret_cast<AtenTensorHandle>(stack[1]));
+  RAIIATH packed_w_ath(reinterpret_cast<AtenTensorHandle>(stack[0]));
 
-  AtenTensorHandle ath_res = _ATH_dequantize_tensor_core_tiled_layout(
-      packed_w_ath, scales_and_zeros_ath, group_size, innerKTiles);
+  RAIIATH raiiath_res = _ATH_dequantize_tensor_core_tiled_layout(
+      std::move(packed_w_ath), std::move(scales_and_zeros_ath), group_size, innerKTiles);
 
-  void *out = reinterpret_cast<void *>(ath_res);
+  void *out = reinterpret_cast<void *>(raiiath_res.release());
   stack[num_args] = out;
 }
 
 
 // output is [n][k] (int32 dtype)
 // input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
-AtenTensorHandle _ATH_unpack_tensor_core_tiled_layout(const AtenTensorHandle packed_w,
+RAIIATH _ATH_unpack_tensor_core_tiled_layout(const RAIIATH packed_w_raiiath,
                                             int64_t innerKTiles) {
+
+  auto packed_w = packed_w_raiiath.get();
 
   int32_t packed_w_device_index;
   aoti_torch_get_device_index(packed_w, &packed_w_device_index);
@@ -451,7 +458,7 @@ AtenTensorHandle _ATH_unpack_tensor_core_tiled_layout(const AtenTensorHandle pac
         <<<grid, kWarpSize, 0, stream>>>(packed_w_pta32, out_pta32);
   }
 
-  return out;
+  return RAIIATH(out);
 }
 
 void voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(void **stack,
@@ -470,10 +477,10 @@ void voidyvoid_boxed_ATH_unpack_tensor_core_tiled_layout(void **stack,
   int64_t innerKTiles = reinterpret_cast<int64_t>(stack[1]);
   AtenTensorHandle packed_w_ath = reinterpret_cast<AtenTensorHandle>(stack[0]);
 
-  AtenTensorHandle ath_res = _ATH_unpack_tensor_core_tiled_layout(
-      packed_w_ath, innerKTiles);
+  RAIIATH raiiath_res = _ATH_unpack_tensor_core_tiled_layout(
+      RAIIATH(packed_w_ath), innerKTiles);
 
-  void *out = reinterpret_cast<void *>(ath_res);
+  void *out = reinterpret_cast<void *>(raiiath_res.release());
   stack[num_args] = out;
 }
 
