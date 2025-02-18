@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Email notification
     needs: [generate-matrix, build]
-    if: failure() && github.event_name == 'schedule'
+    if: failure() #&& github.event_name == 'schedule'
     steps:
       - uses: dawidd6/action-send-mail@v4
         with:
