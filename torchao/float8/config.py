@@ -147,8 +147,6 @@ class Float8GemmConfig:
 
 
 # Pre-made recipes for common configurations
-# TODO(future PR): go through a round of design on this, and eventually expose
-# as a top level public API.
 class Float8LinearRecipeName(enum.Enum):
     TENSORWISE = "tensorwise"
     ROWWISE = "rowwise"
