@@ -147,7 +147,6 @@ def blocksparse_linear_abstract(
 
 
 # bsr wrapper custom op
-# @triton_op("blocksparse::addmm", mutates_args=())
 @torch.library.custom_op("blocksparse::addmm", mutates_args=())
 def blocksparse_addmm(
     x_padded: torch.Tensor,
@@ -282,15 +281,6 @@ class BlockSparseTensor(TorchAOBaseTensor):
         )
 
 
-    def dense(self):
-        return torch.sparse_bsr_tensor(
-            crow_indices=self.bsr_crow_indices,
-            col_indices=self.bsr_col_indices,
-            values=self.bsr_values,
-            size=self.shape,
-        ).to_dense()
-
-
 # Subclass op dispatch registration
 implements = BlockSparseTensor.implements
 
@@ -383,15 +373,6 @@ def block_sparse_linear(func, types, args, kwargs):
     K = w.shape[1]
     N = x.shape[1]
 
-    # if x.size(-1) == 1:
-    #     out = (torch.mul(w.unsqueeze(2), x.unsqueeze(0))).sum(dim=1)
-    #     out_orig = out.t().view(x_orig.shape[:-1] + (M,))
-    #     if bias is None:
-    #         special_ret = out_orig
-    #     else:
-    #         special_ret = out_orig + bias
-    #     return special_ret
-    # else:
     out = torch.ops.blocksparse.addmm(
         x,
         w.crow_indices(),
