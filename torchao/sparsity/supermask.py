@@ -1,17 +1,13 @@
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 
-import torch.nn as nn
 import math
+
 import torch
-from torch.autograd import Variable
+import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-
-# original supermask
-scores_min = None
-scores_max = 9e9
+SCORES_MIN = None
+SCORES_MAX = 9e9
 
 
 def percentile(t, q):
@@ -25,7 +21,7 @@ class GetSubnet(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, scores, zeros, ones, sparsity):
-        clamped_scores = scores.clamp(min=scores_min, max=scores_max)
+        clamped_scores = scores.clamp(min=SCORES_MIN, max=SCORES_MAX)
         k_val = percentile(clamped_scores, sparsity * 100)
         return torch.where(
             clamped_scores < k_val, zeros.to(scores.device), ones.to(scores.device)
@@ -67,7 +63,7 @@ class SupermaskLinear(nn.Linear):
         self.sparsity_level = sparsity_level
         if self.sparsity_level > max_sparsity_level:
             print(
-                f"reducing sparsity from {self.sparsity} to {max_sparsity}",
+                f"reducing sparsity from {self.sparsity} to {max_sparsity_level}",
                 f"(maximum sparsity for layer with shape {self.weight.size()} and tile size {blocksize})",
             )
             self.sparsity_level = max_sparsity_level
