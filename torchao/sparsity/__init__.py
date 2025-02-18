@@ -15,9 +15,11 @@ from .sparse_api import (
 )
 from .utils import PerChannelNormObserver  # noqa: F403
 from .wanda import WandaSparsifier  # noqa: F403
+from .supermask import SupermaskLinear
 
 __all__ = [
     "WandaSparsifier",
+    "SupermaskLinear",
     "PerChannelNormObserver",
     "apply_fake_sparsity",
     "sparsify_",
