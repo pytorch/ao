@@ -45,7 +45,7 @@ jobs:
       ref: ""
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
-      pre-script: packaging/pre_build_script.sh
+      pre-script: packaging/pre_build_script.shv # ERROR
       # post-script: packaging/post_build_script.sh
       smoke-test-script: packaging/smoke_test.py
       package-name: torchao
