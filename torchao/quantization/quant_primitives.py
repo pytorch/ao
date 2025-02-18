@@ -959,6 +959,7 @@ def _choose_qparams_affine(
             if preserve_zero:
                 zero_point = quant_min - torch.round(min_val_neg / scale)
                 zero_point = torch.clamp(zero_point, quant_min, quant_max)
+                zero_point_dtype = torch.int32
             else:
                 assert (
                     zero_point_domain == ZeroPointDomain.FLOAT.name

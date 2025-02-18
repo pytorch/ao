@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 import torch
+from torchao.dtypes import CutlassInt4PackedLayout, Int4XPULayout, Int4CPULayout, SemiSparseLayout
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -42,7 +43,7 @@ from torchao.quantization.quant_api import (
     int8_weight_only,
     uintx_weight_only,
 )
-from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -615,19 +616,21 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    # @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int4(self):
         # use 1024 so that we don't need padding
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
+        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("xpu")
         m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="xpu")
 
         group_size = 32
-        quantize_(m, int4_weight_only(group_size=group_size))
+        quantize_(m, int4_weight_only(group_size=group_size, layout=Int4XPULayout()))
+        # quantize_(m, int4_weight_only(group_size=group_size, zero_point_domain=ZeroPointDomain.INT, layout=Int4XPULayout()))
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
         # reference
+        # _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size, int_zp=True)
         _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
 
         res = m(*example_inputs)

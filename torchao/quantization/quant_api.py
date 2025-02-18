@@ -206,7 +206,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, filter_fn=None
+    model, groupsize=128, inner_k_tiles=8, int_zp = False, filter_fn=None
 ):
     """
     Converts all linear weight tensors to the
@@ -233,6 +233,7 @@ def change_linear_weights_to_int4_woqtensors(
             enable_parametrization=False,
             groupsize=groupsize,
             inner_k_tiles=inner_k_tiles,
+            int_zp=int_zp
         ),
         filter_fn,
     )

@@ -180,9 +180,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        from torchao.quantization.utils import pack_xpu_scales_and_zeros
+        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
-        scale_and_zero = pack_xpu_scales_and_zeros(scale, zero_point)
+        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):
@@ -276,9 +276,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             ZeroPointDomain,
             quantize_affine,
         )
-        from torchao.quantization.utils import unpack_xpu_scales_and_zeros
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
-        scale, zero = unpack_xpu_scales_and_zeros(self.scale_and_zero)
+        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
 
         cur_shape = self.shape
         assert len(cur_shape) == 2
@@ -324,7 +324,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 self.scale_and_zero,
             )
             dequantized = dequantized.t().contiguous()
-            # TODO: move this to `unpack_xpu_scales_and_zeros`?
+            # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
             scale = scale.reshape(scale.shape[:-1]).contiguous()
             zero = zero.reshape(zero.shape[:-1]).contiguous()
             int_data = quantize_affine(
