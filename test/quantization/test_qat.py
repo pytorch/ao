@@ -31,6 +31,9 @@ from torchao.quantization.qat.api import (
 from torchao.quantization.qat.embedding import (
     FakeQuantizedEmbedding,
 )
+from torchao.quantization.qat.fake_quantizer import (
+    FakeQuantizer,
+)
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
     Int4WeightOnlyQATLinear,
@@ -1347,6 +1350,21 @@ class TestQAT(unittest.TestCase):
         out1 = linear1(*x)
         out2 = linear2(*x2)
         torch.testing.assert_close(out1, out2, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
+    )
+    def test_fake_quantizer_repr(self):
+        """
+        Test that `repr(FakeQuantizer(config))` exposes useful config details.
+        """
+        config = FakeQuantizeConfig(torch.int4, group_size=128)
+        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer_repr = repr(fake_quantizer)
+        self.assertTrue("dtype=torch.int4" in fake_quantizer_repr)
+        self.assertTrue("group_size=128" in fake_quantizer_repr)
+        self.assertTrue("PerGroup" in fake_quantizer_repr)
+        self.assertTrue("MappingType.SYMMETRIC" in fake_quantizer_repr)
 
 
 if __name__ == "__main__":
