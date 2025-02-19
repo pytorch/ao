@@ -77,7 +77,6 @@ def blocksparse_addmm(
         out,
         bsr,
         x_padded,
-        (M, K),
         alpha=1,
         beta=0,
         out=out,
