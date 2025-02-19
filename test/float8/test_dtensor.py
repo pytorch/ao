@@ -41,7 +41,6 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingType,
     e4m3_dtype,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8BwDynamic
@@ -198,7 +197,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
     device = mesh.device_type
 
     if rowwise:
-        config = recipe_name_to_linear_config(Float8LinearRecipeName.ROWWISE)
+        config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
         # hack around config being frozen
         # TODO(future PR): we should make this nicer at the config level
         object.__setattr__(config, "emulate", True)

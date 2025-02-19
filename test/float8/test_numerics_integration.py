@@ -28,7 +28,6 @@ from torchao.float8.config import (
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingType,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -210,7 +209,7 @@ class TestFloat8NumericsIntegrationTest:
         self,
         recipe_name: str,
     ):
-        config = recipe_name_to_linear_config(recipe_name)
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_impl(config)
 
 

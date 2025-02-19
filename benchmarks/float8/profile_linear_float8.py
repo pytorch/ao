@@ -39,9 +39,8 @@ from utils import (
 
 from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
-    Float8LinearRecipeName,
+    Float8LinearConfig,
     ScalingType,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -311,8 +310,7 @@ def main(
             emulate=False,
         )
     elif recipe_name is not None:
-        recipe_name = Float8LinearRecipeName(recipe_name)
-        config = recipe_name_to_linear_config(recipe_name)
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
 
     scaling_repr = "_".join(
         [

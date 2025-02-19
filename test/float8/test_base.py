@@ -32,7 +32,6 @@ from torchao.float8.config import (
     ScalingType,
     e4m3_dtype,
     e5m2_dtype,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -442,7 +441,7 @@ class TestFloat8Linear:
         linear_dtype = torch.bfloat16
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
-        config = recipe_name_to_linear_config(recipe_name)
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_linear_impl(
             x,
             m_ref,

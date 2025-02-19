@@ -63,7 +63,6 @@ from torchao.float8 import (
     ScalingType,
     convert_to_float8_training,
 )
-from torchao.float8.config import Float8LinearRecipeName, recipe_name_to_linear_config
 from torchao.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
@@ -349,7 +348,7 @@ def run(
 
         # get the float8 dynamic axiswise scaling gpu kernel time
         torch._dynamo.reset()
-        config = recipe_name_to_linear_config(Float8LinearRecipeName.ROWWISE)
+        config = Float8LinearConfig.from_recipe_name("rowwise")
         m_fp8_dyn_axs = convert_to_float8_training(copy.deepcopy(m_orig), config=config)
         m_fp8_dyn_axs = torch.compile(m_fp8_dyn_axs)
         fp8_dyn_axs_time_actual_s = get_gpu_kernel_time(m_fp8_dyn_axs, x)
@@ -358,7 +357,7 @@ def run(
         # TODO(future PR): enable below once basic performance issues
         # are fixed
         # torch._dynamo.reset()
-        # config = recipe_name_to_linear_config(Float8LinearRecipeName.ROWWISE_WITH_GW_HP)
+        # config = Float8LinearConfig.from_recipe_name("rowwise_with_gw_hp")
         # m_fp8_lw = convert_to_float8_training(m_orig, config=config)
         # m_fp8_lw = torch.compile(m_fp8_lw)
         # fp8_lw_time_actual_s = get_gpu_kernel_time(m_fp8_lw, x)
