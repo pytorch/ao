@@ -66,11 +66,11 @@ Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [To
 For example, if you would like to train a `vit_b_16` from scratch using Supermask, you can use the respective torchvision command found in [TRAINING.md](TRAINING.md) and append the supermask arguments:
 ```
 torchrun --nproc_per_node=8 train.py\
-    --model vit_b_16 --epochs 1 --batch-size 64 --opt adamw --lr 0.003 --wd 0.3\
+    --model vit_h_14 --epochs 3 --batch-size 64 --opt adamw --lr 0.003 --wd 0.3\
     --lr-scheduler cosineannealinglr --lr-warmup-method linear --lr-warmup-epochs 30\
     --lr-warmup-decay 0.033 --amp --label-smoothing 0.11 --mixup-alpha 0.2 \
     --clip-grad-norm 1 --cutmix-alpha 1.0 --model-ema\
-    --sparsity bsr --data-path $IMAGENET_PATH
+    --sparsity semi_structured --data-path $IMAGENET_PATH
 ```
 Through this command, we are training a `vit_b_16` with 90% sparsity to linear layers using 32x32 tiles.
 
