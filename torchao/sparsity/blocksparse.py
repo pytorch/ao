@@ -4,13 +4,14 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.kernel.bsr_triton_ops import broadcast_batch_dims, bsr_dense_addmm
+from torchao.ops import register_custom_op, register_custom_op_impl
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
 
 # quantization support
-@torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
+@register_custom_op_impl("blocksparse::bsr_to_dense")
 def bsr_to_dense(
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
@@ -23,7 +24,7 @@ def bsr_to_dense(
     ).to_dense()
 
 
-@torch.library.register_fake("blocksparse::bsr_to_dense")
+@register_custom_op("blocksparse::bsr_to_dense")
 def bsr_to_dense_abstract(
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
@@ -34,7 +35,7 @@ def bsr_to_dense_abstract(
     return torch.empty((M, K), dtype=values.dtype, device=values.device)
 
 
-@torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
+@register_custom_op_impl("blocksparse::int_addmm")
 def blocksparse_int_addmm(
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
@@ -64,7 +65,7 @@ def blocksparse_int_addmm(
     ).t()
 
 
-@torch.library.register_fake("blocksparse::int_addmm")
+@register_custom_op("blocksparse::int_addmm")
 def blocksparse_int_addmm_abstract(
     crow_indices: torch.Tensor,
     col_indices: torch.Tensor,
@@ -79,7 +80,7 @@ def blocksparse_int_addmm_abstract(
     return torch.empty((M, N), dtype=torch.bfloat16, device=A.device).t()
 
 
-@torch.library.custom_op("blocksparse::addmm", mutates_args=())
+@register_custom_op_impl("blocksparse::addmm")
 def blocksparse_addmm(
     x_padded: torch.Tensor,
     crow_indices: torch.Tensor,
@@ -104,7 +105,7 @@ def blocksparse_addmm(
     return out
 
 
-@torch.library.register_fake("blocksparse::addmm")
+@register_custom_op("blocksparse::addmm")
 def blocksparse_addmm_abstract(
     x_padded: torch.Tensor,
     crow_indices: torch.Tensor,
