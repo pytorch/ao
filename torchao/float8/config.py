@@ -326,9 +326,9 @@ class Float8LinearConfig:
 # TODO(future PR): go through a round of design on this, and eventually expose
 # as a top level public API.
 class Float8LinearRecipeName(enum.Enum):
-    ALL_TENSORWISE = "all_tensorwise"
-    ALL_AXISWISE = "all_axiswise"
-    LW_AXISWISE_WITH_GW_HP = "lw_axiswise_with_gw_hp"
+    TENSORWISE = "tensorwise"
+    ROWWISE = "rowwise"
+    ROWWISE_WITH_GW_HP = "rowwise_with_gw_hp"
 
 
 def recipe_name_to_linear_config(
@@ -339,11 +339,11 @@ def recipe_name_to_linear_config(
     Output: a `Float8LinearConfig` configured to implement the recipe
     """
 
-    if recipe_name is Float8LinearRecipeName.ALL_TENSORWISE:
+    if recipe_name is Float8LinearRecipeName.TENSORWISE:
         # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
         return Float8LinearConfig()
 
-    elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
+    elif recipe_name is Float8LinearRecipeName.ROWWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
         cc_i = CastConfig(
             scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
@@ -363,7 +363,7 @@ def recipe_name_to_linear_config(
             round_scales_to_power_of_2=True,
         )
 
-    elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
+    elif recipe_name is Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
         # lw's recipe for a modification on all-axiswise:
         #
         #   output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1

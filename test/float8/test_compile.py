@@ -218,8 +218,8 @@ def test_inductor_from_config_params(
 @pytest.mark.parametrize(
     "recipe_name",
     [
-        Float8LinearRecipeName.ALL_AXISWISE,
-        Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+        Float8LinearRecipeName.ROWWISE,
+        Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
     ],
 )
 @unittest.skipIf(

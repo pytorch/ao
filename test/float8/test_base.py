@@ -420,8 +420,8 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "recipe_name",
         [
-            Float8LinearRecipeName.ALL_AXISWISE,
-            Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
         ],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
