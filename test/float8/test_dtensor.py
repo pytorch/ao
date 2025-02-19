@@ -198,7 +198,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
     device = mesh.device_type
 
     if rowwise:
-        config = recipe_name_to_linear_config(Float8LinearRecipeName.ALL_AXISWISE)
+        config = recipe_name_to_linear_config(Float8LinearRecipeName.ROWWISE)
         # hack around config being frozen
         # TODO(future PR): we should make this nicer at the config level
         object.__setattr__(config, "emulate", True)
