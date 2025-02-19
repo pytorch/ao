@@ -8,6 +8,7 @@ from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
+
 # quantization support
 @torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
 def bsr_to_dense(
@@ -31,6 +32,7 @@ def bsr_to_dense_abstract(
     K: int,
 ) -> torch.Tensor:
     return torch.empty((M, K), dtype=values.dtype, device=values.device)
+
 
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(

@@ -798,12 +798,14 @@ def main(
 
         if "bsr" in sparsity:
             from torchao.sparsity import SupermaskLinear, block_sparse_weight
+
             # parse "bsr-0.9-64"
             _, sparsity_level, blocksize = sparsity.split("-")
             sparsity_level, blocksize = float(sparsity_level), int(blocksize)
             sparsify_(
                 model,
-                lambda x: SupermaskLinear.from_linear(x, 
+                lambda x: SupermaskLinear.from_linear(
+                    x,
                     sparsity_level=sparsity_level,
                     blocksize=blocksize,
                 ),
@@ -818,9 +820,9 @@ def main(
             print(model)
 
             # Accelerate with triton bsr kernels
-            sparsify_(model,
-                block_sparse_weight(blocksize=blocksize),
-                filter_fn=ffn_only)
+            sparsify_(
+                model, block_sparse_weight(blocksize=blocksize), filter_fn=ffn_only
+            )
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -836,7 +838,10 @@ def main(
         print("Compiling Model")
         global decode_one_token, prefill
         decode_one_token = torch.compile(
-            decode_one_token, mode="reduce-overhead", fullgraph=True, dynamic=True,
+            decode_one_token,
+            mode="reduce-overhead",
+            fullgraph=True,
+            dynamic=True,
         )
 
         if compile_prefill:
