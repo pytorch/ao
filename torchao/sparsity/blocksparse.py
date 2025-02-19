@@ -13,64 +13,6 @@ from torchao.kernel.bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
 
 aten = torch.ops.aten
 
-@triton.jit
-def sum_with_offsets_kernel(values, crow_indices, output, BLOCK_SIZE: tl.constexpr):
-    # For each kernel invokation, we assume we are dealing with a specific row
-
-    pid = tl.program_id(0)
-    
-    # Compute the start and end offset for our given row
-    start = tl.load(crow_indices + pid)
-    end = tl.load(crow_indices + pid + 1)
-
-    # Number of nonzero elements in the row 
-    row_nnz = end - start
-    BLOCK_ELEMENTS = BLOCK_SIZE * BLOCK_SIZE
-
-    row_block_arange = tl.arange(0, BLOCK_SIZE)
-    inner_block_arange = tl.arange(0, BLOCK_SIZE)
-
-    # Calculate correct pointer offset 
-    values += BLOCK_ELEMENTS * start + BLOCK_SIZE * row_block_arange[:, None] + inner_block_arange[None, :]
-
-    # Accumulate rowwise
-    acc = tl.zeros((BLOCK_SIZE, ), dtype=tl.float32)
-
-    # Loop over the block and accumulate the sum using offsets
-    for i in range(row_nnz):
-        # should I be store /loading the sumprod?
-        acc += tl.sum(tl.load(values), axis=1)
-        # tl.device_print("vals", tl.load(values))
-        # tl.device_print("acc", acc)
-
-        # move to next block in values
-        values += BLOCK_ELEMENTS
-
-
-    # Write the result to the output
-    output_arange = tl.arange(0, BLOCK_SIZE)
-    tl.store(output + BLOCK_SIZE * pid + output_arange, acc.to(output.dtype.element_ty))
-
-@triton_op("blocksparse::sum", mutates_args=())
-def sum_with_offsets(
-    values: torch.Tensor,
-    crow_indices: torch.Tensor,
-    M: int,
-) -> torch.Tensor:
-
-    # Define the block size and number of blocks
-    BLOCK_SIZE = values.shape[1]
-    num_offsets = crow_indices.numel() - 1
-    grid = lambda meta: (triton.cdiv(num_offsets, 1), )
-    
-    # Allocate output tensor
-    y = torch.empty((M, 1), dtype=torch.bfloat16, device='cuda')
-
-    # Launch the kernel
-    wrap_triton(sum_with_offsets_kernel)[grid](values, crow_indices, y, BLOCK_SIZE)
-    
-    # Sum the partial results on the CPU
-    return y
 
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(
@@ -117,36 +59,6 @@ def blocksparse_int_addmm_abstract(
     return torch.empty((M, N), dtype=torch.bfloat16, device=A.device).t()
 
 
-# bsr wrapper custom op
-@torch.library.custom_op("blocksparse::linear", mutates_args=())
-def blocksparse_linear(
-    A: torch.Tensor,
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-    bias: torch.Tensor,
-) -> torch.Tensor:
-    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
-    return torch.nn.functional.linear(A, weight_bsr, bias)
-
-
-@torch.library.register_fake("blocksparse::linear")
-def blocksparse_linear_abstract(
-    A: torch.Tensor,
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-    bias: torch.Tensor,
-) -> torch.Tensor:
-    new_shape = A.shape[:-1] + (M,)
-    return torch.empty(new_shape, dtype=A.dtype, device=A.device)
-
-
-# bsr wrapper custom op
 @torch.library.custom_op("blocksparse::addmm", mutates_args=())
 def blocksparse_addmm(
     x_padded: torch.Tensor,
@@ -165,7 +77,7 @@ def blocksparse_addmm(
         out,
         bsr,
         x_padded,
-        # (M, K),
+        (M, K),
         alpha=1,
         beta=0,
         out=out,
@@ -192,15 +104,15 @@ class BlockSparseTensor(TorchAOBaseTensor):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
-    blocksize: int 
+    blocksize: int
 
-    __slots__ = ["bsr_crow_indices", "bsr_col_indices",  "bsr_values"]
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
         cls,
         shape: torch.Size,
-        blocksize: int, 
+        blocksize: int,
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
@@ -249,13 +161,12 @@ class BlockSparseTensor(TorchAOBaseTensor):
         # print("unflatten", outer_size, outer_stride)
         return cls(
             shape=shape,
-            blocksize=blocksize, 
+            blocksize=blocksize,
             bsr_crow_indices=inner_tensors.get("bsr_crow_indices", None),
             bsr_col_indices=inner_tensors.get("bsr_col_indices", None),
             bsr_values=inner_tensors.get("bsr_values", None),
             requires_grad=requires_grad,
         )
-
 
     @classmethod
     def from_dense(cls, dense_tensor, blocksize):
@@ -263,7 +174,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
         # bsr_tensor_t = dense_tensor.t().contiguous().to_sparse_bsr(blocksize)
         return cls(
             shape=dense_tensor.shape,
-            blocksize=blocksize, 
+            blocksize=blocksize,
             bsr_crow_indices=bsr_tensor.crow_indices(),
             bsr_col_indices=bsr_tensor.col_indices(),
             bsr_values=bsr_tensor.values(),
@@ -273,7 +184,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
     def apply_fn_to_shard(self, func):
         return BlockSparseTensor(
             shape=self.shape,
-            blocksize=self.blocksize, 
+            blocksize=self.blocksize,
             bsr_crow_indices=func(self.bsr_crow_indices),
             bsr_col_indices=func(self.bsr_col_indices),
             bsr_values=func(self.bsr_values),
@@ -300,12 +211,14 @@ def block_sparse_unsqueeze(func, types, args, kwargs):
     bsr = args[0]
     assert bsr.dim() == 2
     assert not bsr.requires_grad
-    return BlockSparseTensor(bsr.shape + (1,),
-                             bsr.blocksize, 
-            bsr.crow_indices(),
-            bsr.col_indices(),
-            bsr.values().unsqueeze(-1), 
-            requires_grad=False)
+    return BlockSparseTensor(
+        bsr.shape + (1,),
+        bsr.blocksize,
+        bsr.crow_indices(),
+        bsr.col_indices(),
+        bsr.values().unsqueeze(-1),
+        requires_grad=False,
+    )
 
 
 @implements(aten.mul.Tensor)
@@ -324,11 +237,9 @@ def block_sparse_mul(func, types, args, kwargs):
         t_blocked = t.view(t.size(0), t.size(1) // bsr.blocksize, bsr.blocksize, 1)
         masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
         new_values = bsr.values() * masked_t
-        return BlockSparseTensor(bsr.shape,
-                                 bsr.blocksize,        
-                                 bsr.crow_indices(),
-                                 bsr.col_indices(),
-                                 new_values)
+        return BlockSparseTensor(
+            bsr.shape, bsr.blocksize, bsr.crow_indices(), bsr.col_indices(), new_values
+        )
 
     if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
         return my_mul(t, bsr)
@@ -344,7 +255,7 @@ def block_sparse_sum(func, types, args, kwargs):
     bsr_dim = bsr.dim()
     assert dim == 1
     return torch.ops.blocksparse.sum(bsr.values(), bsr.crow_indices(), bsr.shape[0])
-    
+
 
 @implements(aten.values.default)
 def block_sparse_values(func, types, args, kwargs):
@@ -359,6 +270,7 @@ def block_sparse_crow_indices(func, types, args, kwargs):
 @implements(aten.col_indices.default)
 def block_sparse_col_indices(func, types, args, kwargs):
     return args[0].bsr_col_indices.detach()
+
 
 @implements(aten._nnz.default)
 def block_sparse__nnz(func, types, args, kwargs):

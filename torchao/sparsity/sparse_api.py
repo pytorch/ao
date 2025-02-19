@@ -4,7 +4,9 @@ from functools import partial
 import torch
 from torch.sparse import to_sparse_semi_structured
 
-from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
+    WeightNormSparsifier,
+)
 from torchao.sparsity.blocksparse import BlockSparseTensor
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
