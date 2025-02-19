@@ -33,7 +33,6 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingType,
     e4m3_dtype,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -227,7 +226,7 @@ def test_inductor_from_config_params(
 )
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
-    config = recipe_name_to_linear_config(recipe_name)
+    config = Float8LinearConfig.from_recipe_name(recipe_name)
     fullgraph = True
     dtype = torch.bfloat16
     _test_compile_base(
