@@ -148,8 +148,27 @@ class Float8GemmConfig:
 
 # Pre-made recipes for common configurations
 class Float8LinearRecipeName(enum.Enum):
+
+    # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
     TENSORWISE = "tensorwise"
+
+    # dynamic rowwise scaling with the CUTLASS rowwise kernel
+    # * e4m3 for activations, weights, gradients
+    # * scales rounded (floor) to the nearest power of two for increased accuracy
     ROWWISE = "rowwise"
+
+    # lw's recipe for a modification on rowwise scaling:
+    #
+    #   output_hp = input_fp8_rowwise_dim0 @ weight_t_rowwise_dim1
+    #   grad_input_hp = grad_output_fp8_rowwise_dim0 @ weight_fp8_tensorwise
+    #   grad_weight_hp = input_t_hp @ grad_output_hp
+    #
+    # key characteristics:
+    #   * increased accuracy for grad_weight
+    #   * `input`, `weight` and `grad_output` now only need to be scaled
+    #     rowwise across a single dim compared to vanilla rowwise,
+    #     which is more amenable to fast kernels
+    #   * the e4m3 dtype is used across the board, including for gradients
     ROWWISE_WITH_GW_HP = "rowwise_with_gw_hp"
 
 
@@ -344,11 +363,9 @@ class Float8LinearConfig:
             recipe_name = Float8LinearRecipeName(recipe_name)
 
         if recipe_name is Float8LinearRecipeName.TENSORWISE:
-            # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
             return Float8LinearConfig()
 
         elif recipe_name is Float8LinearRecipeName.ROWWISE:
-            # dynamic axiswise scaling with the CUTLASS rowwise kernel
             cc_i = CastConfig(
                 scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
             )
@@ -368,18 +385,6 @@ class Float8LinearConfig:
             )
 
         elif recipe_name is Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
-            # lw's recipe for a modification on all-axiswise:
-            #
-            #   output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
-            #   grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-            #   grad_weight_hp = input_t_hp @ grad_output_hp
-            #
-            # key characteristics:
-            #   * increased accuracy for grad_weight
-            #   * `input`, `weight` and `grad_output` now only need to be scaled
-            #     axiswise across a single dim compared to vanilla all-axiswise,
-            #     which is more amenable to fast kernels
-            #   * the e4m3 dtype is used across the board, including for gradients
 
             # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
             cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
