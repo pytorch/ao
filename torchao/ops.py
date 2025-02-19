@@ -39,6 +39,16 @@ def register_custom_op(name):
     return decorator
 
 
+def register_custom_op_impl(name):
+    def decorator(func):
+        if TORCH_VERSION_AT_LEAST_2_4:
+            return torch.library.custom_op(f"{name}", mutates_args=())(func)
+        else:
+            return torch.library.impl(f"{name}", "CUDA")(func)
+
+    return decorator
+
+
 def quant_llm_linear(
     EXPONENT: int,
     MANTISSA: int,

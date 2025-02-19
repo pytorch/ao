@@ -85,12 +85,12 @@ model = model.cuda()
 sparsify_(model, semi_sparse_weight())
 ```
 
-### Block sparsity (prototype)
+### Block sparsity
 We offer prototype support for accelerating block sparsity with our triton kernels for bfloat16/float16 workloads.
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_
-from torchao.prototype.sparsity.superblock.blocksparse import block_sparse_weight
+from torchao.sparsity import block_sparse_weight
 
 model = model.cuda()
 sparsify_(model, block_sparse_weight())
