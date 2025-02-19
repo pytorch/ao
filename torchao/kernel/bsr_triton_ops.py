@@ -234,7 +234,8 @@ def bsr_dense_addmm_meta(
         else:
             warn_once(
                 "bsr_dense_addmm uses non-optimal triton kernel parameters"
-                f" for {M=} {K=} {N=} {Ms=}, {Ks=} {beta=} {alpha=} {dtype=} {out_dtype=}"
+                f" for {M=} {K=} {N=} {Ms=}, {Ks=} {beta=} {alpha=} {dtype=} {out_dtype=}. "
+                "To find optimal triton kernel parameters, run with BSR_AUTOTUNE=1"
             )
 
     SPLIT_N = SPLIT_N or max(N // Ms, 1)
