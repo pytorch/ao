@@ -28,6 +28,53 @@ def _aqt_is_xpu_layout_uint4(aqt):
         and aqt.quant_min == 0
         and aqt.quant_max == 15
     )
+def _linear_bf16_act_uint4_weight_float_zero_check(input_tensor, weight_tensor, bias):
+    return (
+        # input is native bfloat16 tensor
+        not is_traceable_wrapper_subclass(input_tensor)
+        and input_tensor.dtype == torch.bfloat16
+        and
+        # weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor
+        isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_xpu_layout_uint4(weight_tensor)
+        and weight_tensor.dtype == torch.bfloat16
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT
+        and isinstance(weight_tensor.tensor_impl.scale_and_zero, torch.Tensor)
+        and weight_tensor.tensor_impl.scale_and_zero.dtype == torch.bfloat16
+        and isinstance(weight_tensor._layout, Int4XPULayout)
+    )
+
+
+def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, bias):
+    assert (
+        weight_tensor.block_size[0] == 1
+    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+        f"need input_tensor shape: {input_tensor.shape} final"
+        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+    )
+
+    # TODO: check groupsize quantization
+    # avoid circular dep, TODO: move this to a common util.py
+    act_mat = input_tensor.view(-1, input_tensor.shape[-1])
+    # weight is packed from padded (out_features, in_features) weight tensor
+    # (same dimension requirement as F.linear weight)
+    packed_weight = weight_tensor.tensor_impl.packed_weight
+    scales_and_zeros = weight_tensor.tensor_impl.scale_and_zero
+
+    orig_act_size = act_mat.size()
+    orig_dtype = act_mat.dtype
+
+    # groupwise int4 quantization
+    groupsize = weight_tensor.block_size[1]
+    y = torch.ops.aten._weight_int4pack_mm(
+        act_mat, packed_weight, groupsize, scales_and_zeros
+    )
+
+    if bias is not None:
+        y += bias
+    return y.to(orig_dtype)
 
 def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
     return (
