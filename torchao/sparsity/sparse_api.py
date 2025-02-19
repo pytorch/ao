@@ -1,14 +1,18 @@
+from functools import partial
 from typing import Callable, Optional
 
 import torch
-from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
 
+from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
+    WeightNormSparsifier,
+)
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
 )
+from torchao.sparsity.blocksparse import BlockSparseTensor
 
 
 # Sparsity helper functions
@@ -29,6 +33,12 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.prepare(model, sparse_config)
     sparsifier.step()
     sparsifier.squash_mask()
+
+
+def block_sparse_weight(blocksize=64):
+    return _get_linear_subclass_inserter(
+        partial(BlockSparseTensor.from_dense, blocksize=blocksize)
+    )
 
 
 def semi_sparse_weight():
