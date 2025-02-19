@@ -8,7 +8,6 @@ The goal is that you can focus on just writing your custom CUDA or C++ kernel an
 
 To learn more about custom ops in PyTorch you can refer to the [PyTorch Custom Operators Landing Page](https://pytorch.org/tutorials/advanced/custom_ops_landing_page.html)
 
-
 ## How to add your own kernel in ao
 
 We've integrated several kernels which you can use as a template for your own kernels. `tensor_core_tiled_layout` is the most straight-forward to get started with.
@@ -22,6 +21,8 @@ We've integrated several kernels which you can use as a template for your own ke
 And that's it! Once CI passes and your code merged you'll be able to point people to `torchao.ops.your_custom_kernel`. If you're working on an interesting kernel and would like someone else to handle the release and package management please feel free to open an issue.
 
 If you'd like to learn more please check out [torch.library](https://pytorch.org/docs/main/library.html)
+
+Note: All CUTLASS-based kernels should have `cutlass` in the name of their `.cu` files e.g. `rowwise_scaled_linear_cutlass_s4s4.cu`
 
 ## Required dependencies
 

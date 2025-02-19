@@ -20,8 +20,13 @@ lib.define(
     "marlin_qqq_gemm(Tensor x, Tensor weight_marlin, Tensor s_tok, Tensor s_ch, Tensor s_group, Tensor workspace, int size_m, int size_n, int size_k) -> Tensor"
 )
 lib.define(
-    "s8s4_linear_cutlass(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
+    "rowwise_scaled_linear_cutlass_s4s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
+lib.define(
+    "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
+)
+lib.define("mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
+lib.define("mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
 
 
 def register_custom_op(name):
@@ -514,7 +519,7 @@ def _(
     return torch.empty((size_m, size_n), dtype=torch.float16, device=x.device)
 
 
-def s8s4_linear_cutlass(
+def rowwise_scaled_linear_cutlass_s8s4(
     input: Tensor,
     input_scale: Tensor,
     weight: Tensor,
@@ -522,23 +527,23 @@ def s8s4_linear_cutlass(
     bias: Tensor,
 ) -> Tensor:
     """
-    CUTLASS-based W4A8 linear operator.
+    CUTLASS-based row-wise scaled W4A8 linear operator.
     Args:
-        input: input tensor, quantized to 8-bit integer values.
+        input: quantized input tensor, in row-major layout.
         input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
-        weight: weight matrix, quantized to 4-bit integer values, in row-major layout.
+        weight: quantized weight matrix, in row-major layout.
         weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
         bias: a vector of size equal to number of rows of weight tensor, or None.
     Returns:
         output: result tensor, in row-major layout.
     """
 
-    return torch.ops.torchao.s8s4_linear_cutlass.default(
+    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s8s4.default(
         input, input_scale, weight, weight_scale, bias
     )
 
 
-@register_custom_op("torchao::s8s4_linear_cutlass")
+@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s8s4")
 def _(
     input: Tensor,
     input_scale: Tensor,
@@ -546,72 +551,124 @@ def _(
     weight_scale: Tensor,
     bias: Tensor,
 ) -> Tensor:
-    # Validate dtypes.
-    torch._check(
-        input.dtype == torch.int8,
-        lambda: f"input dtype {input.dtype} instead of {torch.int8}",
-    )
-    torch._check(
-        input_scale.dtype in (torch.float16, torch.bfloat16),
-        lambda: f"input_scale dtype {input_scale.dtype} instead of {torch.float16} or {torch.bfloat16}",
-    )
-    torch._check(
-        weight.dtype == torch.int8,
-        lambda: f"weight dtype {weight.dtype} instead of {torch.int8}",
-    )
-    torch._check(
-        weight_scale.dtype == input_scale.dtype,
-        lambda: f"weight_scale dtype {weight_scale.dtype} instead of {input_scale.dtype}",
-    )
-    if bias is not None:
-        torch._check(
-            bias.dtype == input_scale.dtype,
-            lambda: f"bias dtype {weight_scale.dtype} instead of {input_scale.dtype}",
-        )
-
-    # Validate dims.
-    torch._check(input.dim() >= 2, lambda: f"input is {input.dim()}D instead of >=2D")
-    torch._check(
-        input_scale.dim() == input.dim() - 1,
-        lambda: f"input_scale is {input_scale.dim()}D instead of {input.dim() - 1}D",
-    )
-    torch._check(weight.dim() == 2, lambda: f"weight is {weight.dim()}D instead of 2D")
-    torch._check(
-        weight_scale.dim() == 1 or weight_scale.dim() == 2,
-        lambda: f"weight_scale is {weight_scale.dim()}D instead of 1D or 2D",
-    )
-    if bias is not None:
-        torch._check(bias.dim() == 1, lambda: f"bias is {bias.dim()}D instead of 1D")
-
-    # Validate shapes.
-    torch._check(
-        input.shape[-1] == 2 * weight.shape[-1],
-        lambda: "input and weight shapes do not match for matrix product",
-    )
-    for i in range(input_scale.dim()):
-        torch._check(
-            input_scale.shape[i] == input.shape[i],
-            lambda: f"input_scale and input shapes do not match at position {i}",
-        )
-    torch._check(
-        weight_scale.numel() == weight.shape[0],
-        lambda: f"weight_scale has {weight_scale.numel()} elements instead of {weight.shape[0]}",
-    )
-    if bias is not None:
-        torch._check(
-            bias.numel() == weight.shape[0],
-            lambda: f"bias has {bias.numel()} elements instead of {weight.shape[0]}",
-        )
-
-    # Validate strides (input, input_scales and weight_scales will be
-    # reshape()-d by the operator, so no need to check strides for
-    # them).
-    torch._check(weight.stride(-1) == 1, lambda: "weight is not in row-major layout")
-    if bias is not None:
-        torch._check(bias.is_contiguous(), lambda: "bias is not contiguous")
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
 
     return torch.empty(
         (*input.shape[:-1], weight.shape[0]),
         dtype=input_scale.dtype,
         device=input.device,
     )
+
+
+def rowwise_scaled_linear_cutlass_s4s4(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    """
+    CUTLASS-based row-wise scaled W4A4 linear operator.
+    Args:
+        input: quantized input tensor, in row-major layout.
+        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
+        weight: quantized weight matrix, in row-major layout.
+        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
+        bias: a vector of size equal to number of rows of weight tensor, or None.
+    Returns:
+        output: result tensor, in row-major layout.
+    """
+
+    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s4s4.default(
+        input, input_scale, weight, weight_scale, bias
+    )
+
+
+@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s4s4")
+def _(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
+
+
+def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Defines a matmul between two fp8 tensors w/ MX scales in E8MO and returns a bf16 tensor.
+
+    This op is prototype subject to change.
+
+    Note: The mx scales are E8MO tensors store in  uint8 tensors  (for now).
+        The layout of the scales is very particular, see:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+    Args:
+        A: fp8 tensor w/ dtype = torch.float8_e4m3fn
+        B: fp8 tensor w/ dtype = torch.float8_e4m3fn
+        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
+        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
+
+    Returns:
+        MXN bf16 Tensor
+
+    """
+    torch._check(
+        A.dtype == torch.float8_e4m3fn,
+        lambda: f"Input tensor A must be float8_e4m3fn, got {A.dtype}",
+    )
+    torch._check(
+        B.dtype == torch.float8_e4m3fn,
+        lambda: f"Input tensor B must be float8_e4m3fn, got {B.dtype}",
+    )
+
+    # TODO - Once e8m0 dtype is added to core udpate
+    # Check scale tensors are uint8
+    torch._check(
+        A_scale.dtype == torch.uint8,
+        lambda: f"A_scale tensor must be uint8, got {A_scale.dtype}",
+    )
+    torch._check(
+        B_scale.dtype == torch.uint8,
+        lambda: f"B_scale tensor must be uint8, got {B_scale.dtype}",
+    )
+    return torch.ops.torchao.mx_fp8_bf16.default(A, B, A_scale, B_scale)
+
+
+@register_custom_op("torchao::mx_fp8_bf16")
+def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Meta impl for mx_fp8_bf16"""
+    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Defines a matmul between two fp4 tensors w/ MX scales in E8MO and returns a bf16 tensor.
+
+    The expected format is fp4_e2m1 specified:
+    https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final.pdf (Section 5.3.3)
+
+    Note: The mx scales are E8MO tensors stored in uint8 tensors (for now).
+        The layout of the scales is very particular, see:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+
+    Args:
+        A: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        B: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
+        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
+
+    Returns:
+        MXN bf16 Tensor
+
+    """
+    return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
+
+
+@register_custom_op("torchao::mx_fp4_bf16")
+def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Meta impl for mx_fp4_bf16"""
+    # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
+    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)

@@ -65,6 +65,8 @@ for _ in range(10):
 
 ## float8 linear with delayed scaling
 
+:warning: <em>We plan to deprecate delayed scaling in a future release, see https://github.com/pytorch/ao/issues/1680 for more details.</em>
+
 This is theoretically the most performant recipe as it minimizes memory reads.
 
 ```python
@@ -81,6 +83,9 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
+
+# Recommended: enable additional torchinductor passes to improve the performance of delayed scaling
+torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()
 
 # create model and sample input
 m = nn.Sequential(
@@ -172,7 +177,7 @@ For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium
 
 ## Scaling type vs speedup
 
-Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements.  Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling, so the observed performance of delayed scaling is close to that of dynamic scaling. As the torch.compile limitations are fixed, we expect delayed scaling to eventually become more performant compared to dynamic scaling.
+Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements. Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling without workarounds.  We have a prototype workaround (API subject to change) with the `torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()` API to improve delayed scaling performance.
 
 ## torch.compile behavior vs speedup
 

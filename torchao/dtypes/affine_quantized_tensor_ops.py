@@ -21,12 +21,18 @@ from torchao.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_impl,
 )
 from torchao.dtypes.uintx.cutlass_int4_packed_layout import (
+    _linear_int4_act_int4_weight_cutlass_check,
+    _linear_int4_act_int4_weight_cutlass_impl,
     _linear_int8_act_int4_weight_cutlass_check,
     _linear_int8_act_int4_weight_cutlass_impl,
 )
 from torchao.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
+)
+from torchao.dtypes.uintx.int4_cpu_layout import (
+    _linear_fp_act_uint4_weight_cpu_check,
+    _linear_fp_act_uint4_weight_cpu_impl,
 )
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
@@ -150,6 +156,14 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_cutlass_check,
             _linear_int8_act_int4_weight_cutlass_impl,
+        ),
+        (
+            _linear_int4_act_int4_weight_cutlass_check,
+            _linear_int4_act_int4_weight_cutlass_impl,
+        ),
+        (
+            _linear_fp_act_uint4_weight_cpu_check,
+            _linear_fp_act_uint4_weight_cpu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)

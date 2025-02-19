@@ -260,11 +260,24 @@ class TestOptim(TestCase):
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
         device = _DEVICES[-1]
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
+        # The first two layers are chosen so that they have a terrible arithmetic density.
+        # this means long transfers and comparatively quick computation, increasing the chances
+        # that missing synchronization will lead to test failures.
+        # The third layer is very small, here to validate non-trainable parameters,
+        # but shouldn't influence the timings
+        model1 = nn.Sequential(
+            nn.Linear(32, 131072),
+            nn.ReLU(),
+            nn.Linear(131072, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128),
+        )
         model1.to(device)
 
         # make sure it can work in the presence of non-trainable params
-        model1[0].requires_grad_(False)
+        model1[2].requires_grad_(False)
         model2 = copy.deepcopy(model1)
 
         optim1 = torch.optim.AdamW(model1.parameters())
@@ -274,17 +287,33 @@ class TestOptim(TestCase):
             offload_gradients=offload_grad,
         )
 
+        scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optim1, 100)
+        scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optim2, 100)
+
+        rng = torch.Generator(device=device)
+        rng.manual_seed(42)
+
+        # make sure to run both models separately; otherwise, model1 gives additional
+        # time for operations in model2 to complete, marking potential race conditions.
         for _ in range(2):
             for _ in range(grad_accum):
-                x = torch.randn(4, 32, device=device)
+                x = torch.randn(4, 32, device=device, generator=rng)
                 model1(x).sum().backward()
-                model2(x).sum().backward()
 
             optim1.step()
             optim1.zero_grad()
+            scheduler1.step()
+
+        # reset the rng
+        rng.manual_seed(42)
+        for _ in range(2):
+            for _ in range(grad_accum):
+                x = torch.randn(4, 32, device=device, generator=rng)
+                model2(x).sum().backward()
 
             optim2.step()
             optim2.zero_grad()
+            scheduler2.step()
 
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)

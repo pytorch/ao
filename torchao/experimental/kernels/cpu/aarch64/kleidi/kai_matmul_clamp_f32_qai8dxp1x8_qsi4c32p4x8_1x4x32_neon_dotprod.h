@@ -108,7 +108,7 @@ void kernel(
       activation_data,
       weight_data,
       output,
-      /*dst_stride_row=*/n * sizeof(float),
+      /*dst_stride_row=*/output_m_stride * sizeof(float),
       /*dst_stride_col=*/sizeof(float),
       clamp_min,
       clamp_max);
