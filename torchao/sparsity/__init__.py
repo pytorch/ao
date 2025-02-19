@@ -8,12 +8,10 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_semi_sparse_weight,
 )
 
-from .supermask import SupermaskLinear
-
 from .sparse_api import (
     apply_fake_sparsity,
-    semi_sparse_weight,
     block_sparse_weight,
+    semi_sparse_weight,
     sparsify_,
 )
 from .supermask import SupermaskLinear

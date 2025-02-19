@@ -1,5 +1,5 @@
-from typing import Callable, Optional
 from functools import partial
+from typing import Callable, Optional
 
 import torch
 from torch.sparse import to_sparse_semi_structured
@@ -7,12 +7,12 @@ from torch.sparse import to_sparse_semi_structured
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
-from torchao.sparsity.blocksparse import BlockSparseTensor
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
 )
+from torchao.sparsity.blocksparse import BlockSparseTensor
 
 
 # Sparsity helper functions

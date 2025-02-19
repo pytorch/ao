@@ -1,15 +1,10 @@
-from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
-import triton
-import triton.language as tl
-from torch.library import wrap_triton, triton_op
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
-from torchao.utils import TorchAOBaseTensor
 
-from torchao.kernel.bsr_triton_ops import bsr_dense_addmm, broadcast_batch_dims
+from torchao.kernel.bsr_triton_ops import broadcast_batch_dims, bsr_dense_addmm
+from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
@@ -274,7 +269,6 @@ def block_sparse_sum(func, types, args, kwargs):
     assert type(dim) == list
     assert len(dim) == 1
     dim = dim[0]
-    bsr_dim = bsr.dim()
     assert dim == 1
     return torch.ops.blocksparse.sum(bsr.values(), bsr.crow_indices(), bsr.shape[0])
 
@@ -305,7 +299,6 @@ def block_sparse_linear(func, types, args, kwargs):
     x = x_orig.reshape(-1, x_orig.size(-1)).t()
     M = w.shape[0]
     K = w.shape[1]
-    N = x.shape[1]
 
     out = torch.ops.blocksparse.addmm(
         x,

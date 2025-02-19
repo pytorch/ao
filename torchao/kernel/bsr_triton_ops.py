@@ -5,14 +5,14 @@ from typing import Optional
 
 import torch
 from torch._dynamo.utils import warn_once
-from torch.sparse._triton_ops_meta import get_meta, minimize, update
 from torch.sparse._triton_ops import (
     broadcast_batch_dims,
+    launch_kernel,
     prepare_inputs,
     ptr_stride_extractor,
     tile_to_blocksize,
-    launch_kernel,
 )
+from torch.sparse._triton_ops_meta import get_meta, minimize, update
 from torch.utils._triton import has_triton
 
 AUTOTUNE = os.getenv("BSR_AUTOTUNE", False)
