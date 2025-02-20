@@ -292,6 +292,10 @@ def main(
     )
     predictor._frame_batch_size = frame_batch_size
     predictor.image_encoder.trunk = predictor.image_encoder.trunk.to(torch.bfloat16)
+    from torchao._models.sam2.modeling.sam.transformer import RoPEAttention
+    rope_attention_modules = [module for module in predictor.modules() if isinstance(module, RoPEAttention)]
+    for r in rope_attention_modules:
+        r.freqs_cis = r.freqs_cis.to(device)
 
     inference_states = []
     for i in range(batch_size):
