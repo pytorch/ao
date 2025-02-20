@@ -40,7 +40,6 @@ jobs:
     with:
       package_type: "wheel"
       version: ${{ inputs.version }}
-      os: "linux"
       channel: ${{ inputs.channel }}
       repository: "pytorch/ao"
       with_cuda: "enable"
