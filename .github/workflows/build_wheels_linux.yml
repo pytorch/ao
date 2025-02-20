@@ -30,6 +30,7 @@ jobs:
       with-cuda: enable
       with-rocm: enable
       with-xpu: enable
+      test-infra-ref: torchao-release0.9
       # please note: excluding 3.13t for aarch64 builds for now
       python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
 
@@ -46,7 +47,7 @@ jobs:
       repository: pytorch/ao
       ref: ""
       test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
+      test-infra-ref: torchao-release0.9
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
       pre-script: packaging/pre_build_script.sh
