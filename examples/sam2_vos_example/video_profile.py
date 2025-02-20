@@ -298,7 +298,7 @@ def main(
         module for module in predictor.modules() if isinstance(module, RoPEAttention)
     ]
     for r in rope_attention_modules:
-        r.freqs_cis = r.freqs_cis.to(device)
+        r.freqs_cis = r.compute_cis(end_x=64, end_y=64, device=device)
 
     inference_states = []
     for i in range(batch_size):
