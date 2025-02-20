@@ -41,9 +41,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
-    if: ${{ matrix.gpu-arch-type != 'rocm' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@enable_linux_job_v2
     with:
+      enabled: ${{ matrix.gpu-arch-type != 'rocm' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main')) }}
       timeout: 120
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
       runner: ${{ matrix.runs-on }}
