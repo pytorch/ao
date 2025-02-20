@@ -113,7 +113,7 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
 
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
-    act_mat = input_tensor.view(-1, input_tensor.shape[-1])
+    act_mat = input_tensor
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
     packed_weight = weight_tensor.tensor_impl.packed_weight
@@ -122,11 +122,19 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
 
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
+
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
+
     y = torch.ops.aten._weight_int4pack_mm_with_scale_and_zeros(
-        act_mat, packed_weight, groupsize, scale.transpose(0,1), zero.transpose(0,1)
+        act_mat, packed_weight, groupsize, scale, zero
     )
+
+    # remove out_feature padding
+    orig_out_features = weight_tensor.shape[-2]
+    y = y[:, :orig_out_features]
+    y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     if bias is not None:
         y += bias
@@ -356,9 +364,6 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 zero
             )
             dequantized = dequantized.t().contiguous()
-            # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
-            scale = scale.reshape(scale.shape[:-1]).contiguous()
-            zero = zero.reshape(zero.shape[:-1]).contiguous()
             int_data = quantize_affine(
                 dequantized,
                 block_size,
