@@ -3,15 +3,18 @@ import torch
 from typing import Dict, List, Any, Tuple
 from pathlib import Path
 from itertools import product
+from utils import get_name_to_shapes_iter  # Import the shape utility
 
 class BenchmarkConfig:
-    def __init__(self, quantization: str, params: Dict[str, Any], matrix_shape: List[int]):
+    def __init__(self, quantization: str, params: Dict[str, Any], shape_name: str, shape: List[int]):
         self.quantization = quantization
-        self.m, self.k, self.n = matrix_shape
+        self.m, self.k, self.n = shape
+        self.shape_name = shape_name
         self.precision = self._parse_precision(params['precision'])
         self.compile = params.get('compile', False)
         self.device = params.get('device', 'cuda')
-        self.name = f'benchmark_{self.quantization}_m{self.m}_k{self.k}_n{self.n}'
+        self.model_type = params.get('model_type', 'linear')
+        self.name = f'benchmark_{self.quantization}_{self.shape_name}_m{self.m}_k{self.k}_n{self.n}'
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -27,8 +30,17 @@ class BenchmarkConfig:
             'n': self.n,
             'precision': self.precision,
             'compile': self.compile,
-            'device': self.device
+            'device': self.device,
+            'model_type': self.model_type,
         }
+
+def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[int]]]:
+    """Get shapes for a given configuration"""
+    name = shape_config['name']
+    if name == "custom":
+        return [(name, shape) for shape in shape_config['shapes']]
+    # else:
+    #     return [(name, shape) for shape in get_name_to_shapes_iter(name, None, None, None)]
 
 def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
     """Load benchmark configurations from YAML file"""
@@ -37,12 +49,14 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
 
     quantizations = config_data['quantizations']
     params = config_data['model_params']
-    matrix_shapes = params['matrix_shapes']
     
     configs = []
-    # Generate all combinations of quantizations and matrix shapes
-    for quant, shape in product(quantizations, matrix_shapes):
-        configs.append(BenchmarkConfig(quant, params, shape))
+    # Process each shape configuration
+    for shape_config in params['matrix_shapes']:
+        shapes = get_shapes_for_config(shape_config)
+        # Generate combinations for each shape
+        for quant, (shape_name, shape) in product(quantizations, shapes):
+            configs.append(BenchmarkConfig(quant, params, shape_name, shape))
     
     return configs
 

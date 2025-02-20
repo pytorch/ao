@@ -1,16 +1,23 @@
-# Default configuration for inference kernel benchmarks
+# Sample configuration for inference kernel benchmarks
 
 # For multiple quantizations and shapes
 quantizations:
+  - "baseline"
   - "int8wo"
   - "int4wo-128"
   - "int4wo-128-hqq"
 
 model_params:
-  matrix_shapes: [
-    [1024, 1024, 1024],  # [m, k, n]
-    [2048, 4096, 1024],
-    [4096, 4096, 1024]
-  ]
+  matrix_shapes:
+    - name: "custom"
+      shapes: [
+        [1024, 1024, 1024],  # [m, k, n]
+        [2048, 4096, 1024],
+        [4096, 4096, 1024]
+      ]
+    # - name: "llama"
+    #   shapes: []  # Will be populated from utils.get_name_to_shapes_iter
   precision: "torch.bfloat16"
   compile: false
+  device: "cuda"
+  model_type: "linear"

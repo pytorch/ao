@@ -1,7 +1,0 @@
-# Will carry all the different values and combinations to perform quantization
-
-quantization: int8wo
-m: 64
-k: 64
-n: 32
-compile: max-autotune

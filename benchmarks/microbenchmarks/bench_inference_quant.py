@@ -24,13 +24,15 @@ def run(
     model_type: str = "linear",
     compile: bool = False,
     device=get_default_device(),
+    output_dir: str = "benchmarks/microbenchmarks/results/",
 ) -> None:
     # TODO: Add more model types here
     clean_caches()
     base_model, input_data = create_model_and_input(
         model_type, m, k, n,
         dtype=precision,
-        device=device,)
+        device=device,
+    )
     print(f"Starting benchmarking for model: {base_model.__class__.__name__} for quantization: {quantization}")
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(device)
@@ -49,16 +51,15 @@ def run(
     # 2. Benchmark time using profiler
     # Profile dtype model evaluation
     # prof_dtype = benchmark_model_op_with_profiler_in_microseconds(m_copy, input_data, quantized_dtype)
-    # prof_dtype.export_chrome_trace(f"dtype_model_{input_data[0].size()[0]}.json")  # Save profiling details
+    # prof_dtype.export_chrome_trace(f"{quantization}_model_{input_data[0].size()[0]}.json")  # Save profiling details
 
-    # Calculate and store GPU kernel times -> op time, overhead time
-    # dtype_gpu_op_time, dtype_gpu_overhead_time = get_gpu_kernel_times(prof_dtype, 'gemm')
-
-    # 3. Benchmark gemm time without profiler
-    # matmul_time (without profiler for a quantized tensor)
+    # 3. Benchmark gemm time using cuda graph
     # gemm_time = benchmark_torch_function_in_microseconds(gemm_op, *args, **kwargs)
 
-    # 6. Create csv file with all the results
+    # 4. Benchmark op with cuda graph
+    # time = benchmark_op_with_cuda_graph(op, args)
+
+    # Last: Create csv file with all the results
     # generate_csv()
 
 
@@ -116,6 +117,13 @@ if __name__ == "__main__":
         help="Device to run the model on",
     )
 
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="benchmarks/microbenchmarks/results/",
+        help="Output directory to save results",
+    )
+
     args = parser.parse_args()
     print(args)
 
@@ -128,4 +136,5 @@ if __name__ == "__main__":
         precision=args.precision,
         compile=args.compile,
         device=args.device,
+        output_dir=args.output_dir,
     )
