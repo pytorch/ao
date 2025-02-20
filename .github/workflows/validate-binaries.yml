@@ -1,6 +1,10 @@
 name: Validate binaries
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/validate-binaries.yml
+
   workflow_call:
     inputs:
       channel:
