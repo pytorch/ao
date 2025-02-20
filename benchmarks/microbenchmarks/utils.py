@@ -1,5 +1,5 @@
 import time
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch.profiler import ProfilerActivity, profile
@@ -245,13 +245,13 @@ def benchmark_model_inference_in_microseconds(model, input_data):
     # Returns model run time in seconds
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-        
+
     # warm up
     for _ in range(2):
         model(input_data)
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-            
+
     num_iters = 5
     start_time = time.perf_counter()
     with torch.no_grad():
@@ -266,15 +266,15 @@ def benchmark_model_inference_in_microseconds(model, input_data):
 
 def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name: str):
     """Benchmarks model inference using PyTorch profiler to measure GPU kernel execution times.
-    
+
     This function profiles the model execution and measures the time spent in specific GPU operations
     versus overhead time. It performs warmup runs before profiling to ensure accurate measurements.
-    
+
     Args:
         model (torch.nn.Module): PyTorch model to benchmark
         input_data (torch.Tensor): Input tensor to run through the model
         op_name (str): Name of the GPU operation to measure time for
-        
+
     Returns:
         tuple[float, float]: A tuple containing:
             - gpu_op_time (float): Time spent in the specified GPU operation in microseconds
@@ -283,11 +283,10 @@ def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name:
     # Warm up
     for _ in range(2):
         model(input_data)
-        
+
     # Profile model execution
     with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
-        record_shapes=True
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True
     ) as prof:
         with torch.no_grad():
             _ = model(input_data)
@@ -307,7 +306,7 @@ def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name:
             gpu_op_time += event[1]
         else:
             gpu_overhead_time += event[1]
-            
+
     return gpu_op_time, gpu_overhead_time
 
 
@@ -337,7 +336,6 @@ def create_model_and_input(
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     return model, input_data
-
 
 
 @torch.no_grad()
@@ -390,15 +388,18 @@ def _is_interpolate_mode(mode):
         return True
     return False
 
+
 def clean_caches():
     import gc
+
     # Clear everything before starting
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     gc.collect()
-    
+
     if compile:
         torch._dynamo.reset()
+
 
 def get_name_to_shapes_iter(
     shape_gen_name: str,
