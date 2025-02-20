@@ -5,6 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+#include <array>
 #include <stddef.h>
 #include <stdint.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
@@ -29,27 +30,24 @@ struct UKernelConfig {
                                   const void *activation_data, float clamp_min,
                                   float clamp_max);
 
-  activation_data_size_fn_type activation_data_size_fn{nullptr};
-  // preferred_activation_data_alignment is only a preferred alignment for
-  // performance reasons.  Integration surfaces are not required to
-  // respect this alignment, and the ukernel must behave correctly no matter
-  // how the prepared_activation_data byte-array is aligned
-  size_t preferred_activation_data_alignment{0};
-  prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
+  struct weight_packing_config_type {
+    weight_data_size_fn_type weight_data_size_fn{nullptr};
+    prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
+  };
+  struct linear_config_type {
+    int mr{0};
+    activation_data_size_fn_type activation_data_size_fn{nullptr};
+    prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
+    kernel_fn_type kernel_fn{nullptr};
+  };
 
-  weight_data_size_fn_type weight_data_size_fn{nullptr};
-  // weight_data_alignment is only a preferred alignment for
-  // performance reasons.  Integration surfaces are not required to
-  // respect this alignment, and the ukernel must behave correctly no matter
-  // how the prepared_weight_data byte-array is aligned
-  size_t preferred_weight_data_alignment{0};
-  prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
-
-  kernel_fn_type kernel_fn{nullptr};
-  int mr{0};
+  // preferred_alignment for activation and weight data
+  // Integration surfaces are not required to respect this alignment, and the
+  // ukernel must behave correctly no matter how buffers are aligned
+  size_t preferred_alignment{0};
   int nr{0};
-
-  torchao::ops::PackedWeightsHeader packed_weights_header;
+  weight_packing_config_type weight_packing_config;
+  std::array<linear_config_type, 4> linear_configs;
 };
 
 // Pack weight functions
@@ -64,12 +62,13 @@ get_default_pack_weight_data_tiling_params(const UKernelConfig &ukernel_config,
 
 inline size_t get_packed_weight_data_size(const UKernelConfig &ukernel_config,
                                           int n, int k, int group_size) {
-  return ukernel_config.weight_data_size_fn(n, k, group_size);
+  return ukernel_config.weight_packing_config.weight_data_size_fn(n, k,
+                                                                  group_size);
 }
 
 inline size_t get_preferred_packed_weight_data_alignment(
     const UKernelConfig &ukernel_config) {
-  return ukernel_config.preferred_weight_data_alignment;
+  return ukernel_config.preferred_alignment;
 }
 
 void pack_weight_data_operator(const UKernelConfig &ukernel_config,
@@ -105,7 +104,7 @@ get_activation_data_buffer_size(const UKernelConfig &ukernel_config,
 
 inline size_t get_preferred_activation_data_buffer_alignment(
     const UKernelConfig &ukernel_config) {
-  return ukernel_config.preferred_activation_data_alignment;
+  return ukernel_config.preferred_alignment;
 }
 
 void linear_operator(const UKernelConfig &ukernel_config,

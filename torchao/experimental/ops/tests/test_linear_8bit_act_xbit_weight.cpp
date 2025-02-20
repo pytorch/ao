@@ -13,40 +13,36 @@
 #include <torchao/experimental/ops/parallel.h>
 
 #if defined(TORCHAO_ENABLE_KLEIDI)
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod.h>
-#if defined(TORCHAO_ENABLE_ARM_I8MM)
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm.h>
-#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm.h>
-#endif // TORCHAO_ENABLE_ARM_I8MM
+#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #endif // TORCHAO_ENABLE_KLEIDI
 
 const float kTol = 1.0e-5;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
+using namespace torchao::kernels::cpu::aarch64::kleidi::
+    kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
-  UKernelConfig config;
-
-  namespace ukernel = torchao::kernels::cpu::aarch64::linear::
+  namespace kernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
-  config.mr = 1;
-  config.nr = 8;
-  config.activation_data_size_fn =
-      &ukernel::activation_data_size<has_weight_zeros>;
-  config.preferred_activation_data_alignment = 16; // size of neon register
-  config.prepare_activation_data_fn =
-      &ukernel::prepare_activation_data<has_weight_zeros>;
-  config.weight_data_size_fn =
-      &ukernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>;
-  config.preferred_weight_data_alignment = 16; // size of neon register
-  config.prepare_weight_data_fn =
-      &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>;
-  config.kernel_fn =
-      &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
-
-  return config;
+  return UKernelConfig{
+      /*preferred_alignment*/ 16,
+      /*nr*/ 8,
+      /*weight_packing_config*/
+      {/*weight_data_size_fn*/
+       &kernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>,
+       /*prepare_weight_data_fn*/
+       &kernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>},
+      /*linear_configs*/
+      {{{/*mr*/ 1,
+         /*activation_data_size_fn*/
+         &kernel::activation_data_size<has_weight_zeros>,
+         /*prepare_activation_data_fn*/
+         &kernel::prepare_activation_data<has_weight_zeros>,
+         /*kernel*/
+         &kernel::kernel<weight_nbit, has_weight_zeros, has_bias,
+                         has_clamp>}}}};
 }
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp,
@@ -129,46 +125,75 @@ enum kai_kernel_id {
   i8mm_8x4x32
 };
 
-#define KAI_GEN_UKERNEL(kernel_ns)                                             \
-  namespace kernel = kernel_ns;                                                \
-  auto uk = kernel::get_ukernel();                                             \
-  config.mr = uk.get_m_step();                                                 \
-  config.nr = uk.get_n_step();                                                 \
-  config.activation_data_size_fn = &kernel::activation_data_size;              \
-  config.weight_data_size_fn = &kernel::weight_data_size;                      \
-  config.preferred_activation_data_alignment =                                 \
-      kernel::get_preferred_alignement();                                      \
-  config.preferred_weight_data_alignment = kernel::get_preferred_alignement(); \
-  config.prepare_activation_data_fn = &kernel::prepare_activation_data;        \
-  config.prepare_weight_data_fn = &kernel::prepare_weight_data;                \
-  config.kernel_fn = &kernel::kernel;
+template <typename kernel_struct, int m_step, int mr, int n_step, int nr,
+          int kr, int sr>
+UKernelConfig get_ukernel_config_kleidi() {
+  namespace op = torchao::kernels::cpu::aarch64::kleidi::
+      kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
+  auto uk = kernel_struct::get_ukernel();
+  assert(m_step == uk.get_m_step());
+  assert(mr == uk.get_mr());
+  assert(n_step == uk.get_n_step());
+  assert(nr == uk.get_nr());
+  assert(kr == uk.get_kr());
+  assert(sr == uk.get_sr());
+  return UKernelConfig{
+      op::get_preferred_alignement(),
+      n_step,
+      {/*weight_data_size_fn*/ &op::weight_data_size<nr, kr, sr>,
+       /*prepare_weight_data_fn*/ &op::prepare_weight_data<nr, kr, sr>},
+      {{{m_step, &op::activation_data_size<mr, kr, sr>,
+         &op::prepare_activation_data<mr, kr, sr>, &kernel_struct::kernel}}}};
+}
 
 template <kai_kernel_id kernel_id> UKernelConfig get_ukernel_config_kleidi() {
-  UKernelConfig config;
 #if defined(TORCHAO_ENABLE_ARM_I8MM)
   if constexpr (kernel_id == i8mm_4x8x32) {
-    KAI_GEN_UKERNEL(
-        torchao::kernels::cpu::aarch64::kleidi::
-            kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_4x8x32);
-    return config;
+    constexpr int m_step = 4;
+    constexpr int mr = 4;
+    constexpr int n_step = 8;
+    constexpr int nr = 8;
+    constexpr int kr = 16;
+    constexpr int sr = 2;
+    return get_ukernel_config_kleidi<
+        matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm, m_step, mr,
+        n_step, nr, kr, sr>();
   }
   if constexpr (kernel_id == i8mm_8x4x32) {
-    KAI_GEN_UKERNEL(
-        torchao::kernels::cpu::aarch64::kleidi::
-            kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_i8mm_8x4x32);
-    return config;
+    constexpr int m_step = 8;
+    constexpr int mr = 8;
+    constexpr int n_step = 4;
+    constexpr int nr = 4;
+    constexpr int kr = 16;
+    constexpr int sr = 2;
+    return get_ukernel_config_kleidi<
+        matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm, m_step, mr,
+        n_step, nr, kr, sr>();
   }
 #endif // TORCHAO_ENABLE_ARM_I8MM
   if constexpr (kernel_id == dotprod_1x8x32) {
-    KAI_GEN_UKERNEL(
-        torchao::kernels::cpu::aarch64::kleidi::
-            kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32);
-    return config;
+    constexpr int m_step = 1;
+    constexpr int mr = 1;
+    constexpr int n_step = 8;
+    constexpr int nr = 8;
+    constexpr int kr = 16;
+    constexpr int sr = 2;
+    return get_ukernel_config_kleidi<
+        matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod, m_step, mr,
+        n_step, nr, kr, sr>();
   }
-  KAI_GEN_UKERNEL(
-      torchao::kernels::cpu::aarch64::kleidi::
-          kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32);
-  return config;
+  if constexpr (kernel_id == dotprod_1x4x32) {
+    constexpr int m_step = 1;
+    constexpr int mr = 1;
+    constexpr int n_step = 4;
+    constexpr int nr = 4;
+    constexpr int kr = 16;
+    constexpr int sr = 2;
+    return get_ukernel_config_kleidi<
+        matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod, m_step, mr,
+        n_step, nr, kr, sr>();
+  }
+  throw std::runtime_error("Unsupported kernel_id");
 }
 
 #endif // TORCHAO_ENABLE_KLEIDI
@@ -253,7 +278,6 @@ TEST(test_linear_8bit_act_xbit_weight, GroupSizeNotDivisibleBy16) {
       std::runtime_error);
 }
 
-// begin
 /* Generated by generate_tests.py */
 /* Do not modify */
 
@@ -338,6 +362,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m1xn222xk32xg32) {
       4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
       false /*has_clamp*/, true /*has_kleidi*/>(
       /*m=*/1, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m1xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x4x32_m1xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x4x32_m1xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m1xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m1xn14xk64xg32) {
@@ -494,6 +552,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m41xn222xk32xg32) {
       /*m=*/41, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m7xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/7, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x4x32_m17xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/17, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x4x32_m23xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/23, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m41xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/41, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x4x32_m19xn14xk64xg32) {
   UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x4x32>();
   test_linear_8bit_act_xbit_weight<
@@ -608,6 +700,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m1xn222xk32xg32) {
       4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
       false /*has_clamp*/, true /*has_kleidi*/>(
       /*m=*/1, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m1xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x8x32_m1xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x8x32_m1xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m1xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m1xn14xk64xg32) {
@@ -764,6 +890,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m41xn222xk32xg32) {
       /*m=*/41, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m7xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/7, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x8x32_m17xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/17, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_dotprod_1x8x32_m23xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/23, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m41xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/41, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_dotprod_1x8x32_m19xn14xk64xg32) {
   UKernelConfig ukernel_config = get_ukernel_config_kleidi<dotprod_1x8x32>();
   test_linear_8bit_act_xbit_weight<
@@ -876,6 +1036,39 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m1xn222xk32xg32) {
       4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
       false /*has_clamp*/, true /*has_kleidi*/>(
       /*m=*/1, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m1xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m1xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_4x8x32_m1xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m1xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m1xn14xk64xg32) {
@@ -1029,6 +1222,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m41xn222xk32xg32) {
       /*m=*/41, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m7xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/7, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_4x8x32_m17xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/17, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_4x8x32_m23xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/23, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m41xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/41, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_4x8x32_m19xn14xk64xg32) {
   UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_4x8x32>();
   test_linear_8bit_act_xbit_weight<
@@ -1142,6 +1369,39 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m1xn222xk32xg32) {
       4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
       false /*has_clamp*/, true /*has_kleidi*/>(
       /*m=*/1, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m1xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m1xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_8x4x32_m1xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m1xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/1, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m1xn14xk64xg32) {
@@ -1293,6 +1553,40 @@ TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m41xn222xk32xg32) {
       4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
       false /*has_clamp*/, true /*has_kleidi*/>(
       /*m=*/41, /*n=*/222, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m7xn11xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/7, /*n=*/11, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_8x4x32_m17xn13xk32xg32_bias) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, true /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/17, /*n=*/13, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight,
+     Kleidi_i8mm_8x4x32_m23xn51xk32xg32_clamp) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      true /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/23, /*n=*/51, /*k=*/32, /*group_size=*/32, &ukernel_config);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m41xn111xk32xg32) {
+  UKernelConfig ukernel_config = get_ukernel_config_kleidi<i8mm_8x4x32>();
+  test_linear_8bit_act_xbit_weight<
+      4 /*weight_nbit*/, false /*has_weight_zeros*/, false /*has_bias*/,
+      false /*has_clamp*/, true /*has_kleidi*/>(
+      /*m=*/41, /*n=*/111, /*k=*/32, /*group_size=*/32, &ukernel_config);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, Kleidi_i8mm_8x4x32_m19xn14xk64xg32) {

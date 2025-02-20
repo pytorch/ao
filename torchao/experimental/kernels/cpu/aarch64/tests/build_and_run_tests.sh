@@ -12,8 +12,6 @@ export CMAKE_OUT=/tmp/cmake-out/torch_ao/kernel_tests
 
 target=${1:-"native"}
 
-IS_ARM64=0
-BUILD_ARM_I8MM=0
 EXTRA_ARGS=""
 if [[ "${target}" == "android" ]]; then
     if [[ -z ${ANDROID_NDK} ]]; then
@@ -38,17 +36,10 @@ if [[ "${target}" == "android" ]]; then
     echo "Building tests for Android (${android_abi}) @ ${CMAKE_OUT}"
 fi
 
-hash arch; retval=$?
-if [[ ${retval} -eq 0 && $(arch) == "arm64" ]]; then
-    IS_ARM64=1
-fi
-
 cmake \
     ${EXTRA_ARGS} \
     -DCMAKE_BUILD_TYPE=Debug \
     -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
-    -DTORCHAO_BUILD_KLEIDIAI=${IS_ARM64} \
-    -DTORCHAO_BUILD_ARM_I8MM=${BUILD_ARM_I8MM} \
     -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/tests \
     -B ${CMAKE_OUT}
 
