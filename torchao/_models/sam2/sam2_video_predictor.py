@@ -8,7 +8,6 @@ import warnings
 from collections import OrderedDict
 
 import torch
-from tqdm import tqdm
 
 from torchao._models.sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
 from torchao._models.sam2.utils.misc import (

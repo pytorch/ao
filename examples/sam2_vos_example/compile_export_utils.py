@@ -4,7 +4,6 @@ from typing import Optional
 
 import torch
 
-from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 from torchao._models.sam2.sam2_video_predictor import SAM2VideoPredictor
 
 # Tools used to avoid compilation cold start and dynamo cache lookups
@@ -128,7 +127,9 @@ def export_model(
 
     example_input_args = ()
     example_input_kwargs = {
-        "backbone_features": torch.randn(batch_size, 256, 64, 64, dtype=torch.float32, device="cuda"),
+        "backbone_features": torch.randn(
+            batch_size, 256, 64, 64, dtype=torch.float32, device="cuda"
+        ),
         # "point_inputs": {
         #     "point_coords": torch.ones(batch_size, 1, 2, dtype=torch.float32, device="cuda"),
         #     "point_labels": torch.ones(batch_size, 1, dtype=torch.int32, device="cuda"),
@@ -226,10 +227,7 @@ def load_exported_model(
     return predictor
 
 
-def set_fast(
-    predictor,
-    loaded_exported_model=False
-):
+def set_fast(predictor, loaded_exported_model=False):
     if not loaded_exported_model:
         predictor.image_encoder.trunk.forward = torch.compile(
             predictor.image_encoder.trunk.forward,

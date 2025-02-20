@@ -1,10 +1,9 @@
-import argparse
-import fire
 import os
 import time
 from datetime import datetime
 from pathlib import Path
 
+import fire
 import numpy as np
 import requests
 import torch
@@ -317,6 +316,7 @@ def main(
             raise ValueError(f"Expected {export_model} to be a directory.")
         timestamped_print(f"Exporting model to {export_model}.")
         from compile_export_utils import export_model as export_model_fn
+
         export_model_fn(
             predictor,
             export_model,
@@ -327,14 +327,14 @@ def main(
 
     if load_exported_model != "":
         from compile_export_utils import load_exported_model as load_exported_model_fn
+
         load_exported_model_fn(
-                predictor,
-                load_exported_model,
-                furious=furious,
-                batch_size=1)
+            predictor, load_exported_model, furious=furious, batch_size=1
+        )
 
     if use_compile:
         from compile_export_utils import set_fast
+
         set_fast(predictor, (load_exported_model != ""))
 
     timestamped_print("Warm-up round and gather outputs.")
