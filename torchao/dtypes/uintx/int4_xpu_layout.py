@@ -57,7 +57,7 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
 
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
-    act_mat = input_tensor.view(-1, input_tensor.shape[-1])
+    act_mat = input_tensor
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
     packed_weight = weight_tensor.tensor_impl.packed_weight
@@ -66,11 +66,18 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
 
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
+
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
     y = torch.ops.aten._weight_int4pack_mm(
         act_mat, packed_weight, groupsize, scales_and_zeros
     )
+
+    # remove out_feature padding
+    orig_out_features = weight_tensor.shape[-2]
+    y = y[:, :orig_out_features]
+    y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     if bias is not None:
         y += bias
@@ -218,7 +225,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             packed_weight = convert_weight_to_int4pack_xpu(
                 int_data,
-                zero_point.dtype == scale.dtype
+                zero_point.dtype != scale.dtype
             )
         else:
             assert (
