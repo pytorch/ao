@@ -232,7 +232,7 @@ def main(
     checkpoint_path: str,
     model_type: str,
     video_dir="/tmp/segment-anything-2/synth_video",
-    profile=False,
+    profile=None,
     radius=50,
     seed=42,
     speed=20,
@@ -250,6 +250,7 @@ def main(
     use_baseline=False,
     export_model="",
     load_exported_model="",
+    furious=False,
 ):
     np.random.seed(seed)
     start_x = np.random.randint(radius, width - radius)
@@ -295,7 +296,6 @@ def main(
 
     inference_states = []
     for i in range(batch_size):
-        timestamped_print("i: ", i)
         inference_state = predictor.init_state(
             video_path=f"{video_dir}_{i}", async_loading_frames=False
         )
@@ -320,7 +320,7 @@ def main(
         export_model_fn(
             predictor,
             export_model,
-            furious=False,
+            furious=furious,
             batch_size=1,
             overwrite=False,
         )
@@ -330,7 +330,7 @@ def main(
         load_exported_model_fn(
                 predictor,
                 load_exported_model,
-                furious=False,
+                furious=furious,
                 batch_size=1)
 
     if use_compile:
@@ -354,10 +354,11 @@ def main(
         global_timer.print_all_timings()
 
     global_timer.reset()
-    timestamped_print("Profile round.")
     if profile is None:
+        timestamped_print("Practice round")
         main_loop(predictor=predictor, inference_state=inference_state)
     else:
+        timestamped_print(f"Saving profile under {profile}")
         profiler_runner(
             profile,
             main_loop,
