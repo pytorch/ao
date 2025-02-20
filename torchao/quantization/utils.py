@@ -356,7 +356,7 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     if zeros.dtype == torch.int32:
         guard_dtype_size(zeros, "zeros", dtype=torch.int32)
         if scales.device.type == "xpu":
-            return [scales.transpose(0, 1).contiguous(), zeros.to(torch.int8).transpose(0, 1).contiguous()]
+            return [scales, zeros.to(torch.int8)]
         else:
             raise AssertionError("Interger Zero Point is only supported on XPU\n")
     elif zeros.dtype == dtype:
@@ -386,19 +386,12 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
 def convert_weight_to_int4pack_xpu(weight, int_zp=False):
     assert weight.device.type == "xpu"
 
-    if int_zp:
-        weight = (weight[::, ::2] << 4 | weight[::, 1::2]).to(torch.uint8)
-        return  torch.ops.aten._convert_weight_to_int4pack(
-            weight,
-            8,  # TODO:remove
-        )
-    else:
-        # First, N * K int32 -> N * K/2 uint8
-        out = weight.to(dtype=torch.uint8)
-        out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
+    # First, N * K int32 -> N * K/2 uint8
+    out = weight.to(dtype=torch.uint8)
+    out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
 
-        # Second, N * K/2 uint8 -> N * K/8 int32
-        return out.view(torch.int32)
+    # Second, N * K/2 uint8 -> N * K/8 int32
+    return out.view(torch.int32)
 
 def groupwise_affine_quantize_tensor_from_qparams(
     w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
