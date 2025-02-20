@@ -26,6 +26,7 @@ jobs:
     with:
       package-type: wheel
       os: macos-arm64
+      test-infra-ref: torchao-release0.9
   build:
     needs: generate-matrix
     if: github.repository_owner == 'pytorch'
@@ -36,6 +37,7 @@ jobs:
       ref: ${{ github.head_ref || github.ref_name }}
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       pre-script: packaging/pre_build_script.sh
+      test-infra-ref: torchao-release0.9
       # post-script: packaging/post_build_script.sh
       package-name: torchao
       runner-type: macos-m1-stable
@@ -70,5 +72,5 @@ jobs:
             Error Information:
             ${{ needs.generate-matrix.result == 'failure' && 'Matrix generation failed' || '' }}
             ${{ needs.build.result == 'failure' && 'Build job failed' || '' }}
-            
+
             This is an automated notification. Please check the GitHub Actions page for more details about the failure.

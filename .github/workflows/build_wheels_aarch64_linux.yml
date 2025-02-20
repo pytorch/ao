@@ -27,7 +27,7 @@ jobs:
       package-type: wheel
       os: linux-aarch64
       test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
+      test-infra-ref: torchao-release0.9
       with-cuda: disable
       # please note: excluding 3.13t for aarch64 builds for now
       python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
@@ -48,6 +48,7 @@ jobs:
       pre-script: packaging/pre_build_script.sh
       # post-script: packaging/post_build_script.sh
       smoke-test-script: packaging/smoke_test.py
+      test-infra-ref: torchao-release0.9
       package-name: torchao
       trigger-event: ${{ github.event_name }}
       architecture: aarch64
@@ -83,5 +84,5 @@ jobs:
             Error Information:
             ${{ needs.generate-matrix.result == 'failure' && 'Matrix generation failed' || '' }}
             ${{ needs.build.result == 'failure' && 'Build job failed' || '' }}
-            
+
             This is an automated notification. Please check the GitHub Actions page for more details about the failure.
