@@ -12,35 +12,36 @@
 
 namespace torchao::ops {
 
-enum class PackedWeightsFormat : uint32_t {
+enum class PackedWeightsType : uint32_t {
   unknown = 0,
   linear_8bit_act_xbit_weight_universal = 1,
-  embedding_xbit_universal = 2
+  embedding_xbit_universal = 2,
+  kleidi_ai = 3
 };
 
 class PackedWeightsHeader {
  public:
   using params_type = std::array<int, 14>;
   const static int magic = 6712;
-  PackedWeightsFormat format;
+  PackedWeightsType type;
 
-  // 14 bytes of format specific params
+  // 14 bytes of type specific params
   params_type params;
 
   PackedWeightsHeader(
-      PackedWeightsFormat format = PackedWeightsFormat::unknown,
+      PackedWeightsType type = PackedWeightsType::unknown,
       params_type params = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-      : format{format}, params{params} {}
+      : type{type}, params{params} {}
 
   inline static constexpr int size() {
-    static_assert(sizeof(magic) + sizeof(format) + sizeof(params) == 64);
+    static_assert(sizeof(magic) + sizeof(type) + sizeof(params) == 64);
     return 64;
   }
 
   inline void write(void* packed_weights) const {
     auto header = reinterpret_cast<int*>(packed_weights);
     header[0] = magic;
-    header[1] = static_cast<int>(format);
+    header[1] = static_cast<int>(type);
     for (int i = 0; i < params.size(); i++) {
       header[i + 2] = params[i];
     }
@@ -54,11 +55,11 @@ class PackedWeightsHeader {
       params[i] = header[i + 2];
     }
     return PackedWeightsHeader(
-        static_cast<PackedWeightsFormat>(header[1]), params);
+        static_cast<PackedWeightsType>(header[1]), params);
   }
 
   bool operator==(const PackedWeightsHeader& other) const {
-    if (format != other.format) {
+    if (type != other.type) {
       return false;
     }
     for (int i = 0; i < params.size(); i++) {
@@ -71,3 +72,16 @@ class PackedWeightsHeader {
 };
 
 } // namespace torchao::ops
+
+namespace std {
+    template <>
+    struct hash<torchao::ops::PackedWeightsHeader> {
+        std::size_t operator()(const torchao::ops::PackedWeightsHeader& f) const {
+          std::size_t hash =  std::hash<int>()(static_cast<int>(f.type));
+          for (int i = 0; i < f.params.size(); i++) {
+            hash ^= std::hash<int>()(f.params[i]);
+          }
+          return hash;
+    };
+};
+}

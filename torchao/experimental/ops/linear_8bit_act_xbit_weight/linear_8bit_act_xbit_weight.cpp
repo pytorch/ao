@@ -31,7 +31,7 @@ PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
   assert(nc >= 1);
 
   // Replace nc with the next number nr divides
-  nc = ((nc + ukernel_config.nr - 1) / ukernel_config.nr) * ukernel_config.nr;
+  nc = ((nc + nr - 1) / nr) * nr;
   tiling_params.nc_by_nr = nc / nr;
 
   return tiling_params;
@@ -59,16 +59,25 @@ void pack_weight_data_operator(const UKernelConfig &ukernel_config,
     int nc_tile_size = std::min(nc, n - n_idx);
 
     int weight_data_offset =
-        (n_idx / nr) * ukernel_config.weight_data_size_fn(nr, k, group_size);
+        (n_idx / nr) * ukernel_config.weight_packing_config.weight_data_size_fn(
+                           nr, k, group_size);
     int weight_qvals_offset = n_idx * k;
     int weight_scales_and_zeros_offset = (n_idx * k / group_size);
-    int bias_offset = n_idx;
 
-    ukernel_config.prepare_weight_data_fn(
+    const int8_t *weight_zeros_ptr = nullptr;
+    if (weight_zeros != nullptr) {
+      weight_zeros_ptr = weight_zeros + weight_scales_and_zeros_offset;
+    }
+    const float *bias_ptr = nullptr;
+    if (bias != nullptr) {
+      bias_ptr = bias + n_idx;
+    }
+
+    ukernel_config.weight_packing_config.prepare_weight_data_fn(
         (char *)weight_data + weight_data_offset,
         /*n=*/nc_tile_size, k, group_size, weight_qvals + weight_qvals_offset,
-        weight_scales + weight_scales_and_zeros_offset,
-        weight_zeros + weight_scales_and_zeros_offset, bias + bias_offset);
+        weight_scales + weight_scales_and_zeros_offset, weight_zeros_ptr,
+        bias_ptr);
   });
 }
 
@@ -86,7 +95,7 @@ get_default_linear_tiling_params(const UKernelConfig &ukernel_config, int m,
   TORCHAO_CHECK(num_threads >= 1, "num_threads must be >= 1");
 
   tiling_params.mc_by_mr = 1;
-  int mc = tiling_params.mc_by_mr * ukernel_config.mr;
+  int mc = tiling_params.mc_by_mr * ukernel_config.linear_configs[0].mr;
   int num_mc_panels = (m + mc - 1) / mc;
 
   int numerator = n * num_mc_panels;
@@ -97,9 +106,10 @@ get_default_linear_tiling_params(const UKernelConfig &ukernel_config, int m,
   assert(nc >= 1);
 
   // Replace nc with next number nr divides
-  nc = ((nc + ukernel_config.nr - 1) / ukernel_config.nr) * ukernel_config.nr;
-  assert(nc % ukernel_config.nr == 0);
-  tiling_params.nc_by_nr = nc / ukernel_config.nr;
+  int nr = ukernel_config.nr;
+  nc = ((nc + nr - 1) / nr) * nr;
+  assert(nc % nr == 0);
+  tiling_params.nc_by_nr = nc / nr;
 
   assert(tiling_params.mc_by_mr >= 1);
   assert(tiling_params.nc_by_nr >= 1);
@@ -112,15 +122,17 @@ inline size_t
 get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
     const UKernelConfig &ukernel_config,
     const LinearTilingParams &tiling_params, int m, int k, int group_size) {
-  return ukernel_config.activation_data_size_fn(
-      tiling_params.mc_by_mr * ukernel_config.mr, k, group_size);
+  return ukernel_config.linear_configs[0].activation_data_size_fn(
+      tiling_params.mc_by_mr * ukernel_config.linear_configs[0].mr, k,
+      group_size);
 }
 
 inline size_t
 get_activation_data_buffer_size_with_tile_schedule_policy_parallel_mc_parallel_nc(
     const UKernelConfig &ukernel_config,
     const LinearTilingParams &tiling_params, int m, int k, int group_size) {
-  return ukernel_config.activation_data_size_fn(m, k, group_size);
+  return ukernel_config.linear_configs[0].activation_data_size_fn(m, k,
+                                                                  group_size);
 }
 
 inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
@@ -134,20 +146,22 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
     // Ignored if has_clamp = false
     float clamp_min, float clamp_max) {
   int nr = ukernel_config.nr;
-  int mc = std::min(m, tiling_params.mc_by_mr * ukernel_config.mr);
-  int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
+  int mc =
+      std::min(m, tiling_params.mc_by_mr * ukernel_config.linear_configs[0].mr);
+  int nc = std::min(n, tiling_params.nc_by_nr * nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
   size_t weight_data_size =
-      ukernel_config.weight_data_size_fn(nr, k, group_size);
+      ukernel_config.weight_packing_config.weight_data_size_fn(nr, k,
+                                                               group_size);
 
   for (int mc_tile_idx = 0; mc_tile_idx < num_mc_panels; mc_tile_idx++) {
     int m_idx = mc_tile_idx * mc;
     int mc_tile_size = std::min(mc, m - m_idx);
     int activations_offset = m_idx * k;
-    ukernel_config.prepare_activation_data_fn(activation_data_buffer,
-                                              /*m=*/mc_tile_size, k, group_size,
-                                              activations + activations_offset);
+    ukernel_config.linear_configs[0].prepare_activation_data_fn(
+        activation_data_buffer,
+        /*m=*/mc_tile_size, k, group_size, activations + activations_offset);
 
     torchao::parallel_1d(0, num_nc_panels, [&](int64_t idx) {
       int nc_tile_idx = idx;
@@ -157,7 +171,7 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
       int output_offset = m_idx * n + n_idx;
       int weight_data_offset = (n_idx / nr) * weight_data_size;
 
-      ukernel_config.kernel_fn(
+      ukernel_config.linear_configs[0].kernel_fn(
           output + output_offset,
           /*output_m_stride=*/n,
           /*m=*/mc_tile_size,
@@ -176,17 +190,19 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     // Inputs
     int m, int n, int k, int group_size, const void *weight_data,
     const float *activations, float clamp_min, float clamp_max) {
-  int mr = ukernel_config.mr;
+  int mr = ukernel_config.linear_configs[0].mr;
   int nr = ukernel_config.nr;
-  int mc = std::min(m, tiling_params.mc_by_mr * ukernel_config.mr);
-  int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
+  int mc = std::min(m, tiling_params.mc_by_mr * mr);
+  int nc = std::min(n, tiling_params.nc_by_nr * nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
 
   size_t weight_data_size =
-      ukernel_config.weight_data_size_fn(nr, k, group_size);
+      ukernel_config.weight_packing_config.weight_data_size_fn(nr, k,
+                                                               group_size);
   size_t activation_data_size =
-      ukernel_config.activation_data_size_fn(mr, k, group_size);
+      ukernel_config.linear_configs[0].activation_data_size_fn(mr, k,
+                                                               group_size);
 
   torchao::parallel_1d(0, num_mc_panels, [&](int64_t idx) {
     int mc_tile_idx = idx;
@@ -195,7 +211,7 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     int activations_offset = m_idx * k;
     int activation_data_offset = (m_idx / mr) * activation_data_size;
 
-    ukernel_config.prepare_activation_data_fn(
+    ukernel_config.linear_configs[0].prepare_activation_data_fn(
         activation_data_buffer + activation_data_offset,
         /*m=*/mc_tile_size, k, group_size, activations + activations_offset);
   });
@@ -213,7 +229,7 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     int output_offset = m_idx * n + n_idx;
     int weight_data_offset = (n_idx / nr) * weight_data_size;
 
-    ukernel_config.kernel_fn(
+    ukernel_config.linear_configs[0].kernel_fn(
         output + output_offset,
         /*output_m_stride=*/n,
         /*m=*/mc_tile_size,
