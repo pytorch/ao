@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import torch
 import torch.distributed as dist
@@ -126,7 +126,7 @@ def convert_to_float8_training(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Float8LinearConfig = None,
+    config: Optional[Float8LinearConfig] = None,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Linear` in `module` with `Float8Linear`.
@@ -178,7 +178,10 @@ def get_float8_layers(model: torch.nn.Module):
 
 
 @torch.no_grad()
-def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) -> None:
+def sync_float8_amax_and_scale_history(
+    model: torch.nn.Module,
+    fp8_layers: Optional[List[Float8Linear]] = None,
+) -> None:
     """
     Manages the float8 amax and scale bookkeeping. In detail, it does the
     following:
