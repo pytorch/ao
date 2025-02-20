@@ -33,7 +33,6 @@ from torchao.float8.config import (
     ScalingType,
     e4m3_dtype,
     e5m2_dtype,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -165,7 +164,10 @@ class TestFloat8Tensor:
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
-    def test_axiswise_dynamic_cast(self, shape, axiswise_dim):
+    @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+    def test_axiswise_dynamic_cast(
+        self, shape, axiswise_dim, round_scales_to_power_of_2
+    ):
         a = torch.randn(*shape, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
         a_fp8 = hp_tensor_to_float8_dynamic(
@@ -174,6 +176,7 @@ class TestFloat8Tensor:
             linear_mm_config,
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=axiswise_dim,
+            round_scales_to_power_of_2=round_scales_to_power_of_2,
         )
         a_dq = a_fp8.to_original_precision()
         sqnr = compute_error(a, a_dq)
@@ -417,8 +420,8 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "recipe_name",
         [
-            Float8LinearRecipeName.ALL_AXISWISE,
-            Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+            Float8LinearRecipeName.ROWWISE,
+            Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
         ],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
@@ -440,7 +443,7 @@ class TestFloat8Linear:
         linear_dtype = torch.bfloat16
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
-        config = recipe_name_to_linear_config(recipe_name)
+        config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_linear_impl(
             x,
             m_ref,

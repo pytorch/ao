@@ -10,17 +10,21 @@ from torchao.quantization.quant_api import (
 
 from .sparse_api import (
     apply_fake_sparsity,
+    block_sparse_weight,
     semi_sparse_weight,
     sparsify_,
 )
+from .supermask import SupermaskLinear
 from .utils import PerChannelNormObserver  # noqa: F403
 from .wanda import WandaSparsifier  # noqa: F403
 
 __all__ = [
     "WandaSparsifier",
+    "SupermaskLinear",
     "PerChannelNormObserver",
     "apply_fake_sparsity",
     "sparsify_",
     "semi_sparse_weight",
+    "block_sparse_weight",
     "int8_dynamic_activation_int8_semi_sparse_weight",
 ]

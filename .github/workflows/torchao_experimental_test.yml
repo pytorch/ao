@@ -35,8 +35,24 @@ jobs:
           conda activate venv
           pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
           pip install numpy
+          pip install pytest
           USE_CPP=1 pip install .
-      - name: Run tests
+      - name: Run python tests
         run: |
           conda activate venv
-          python torchao/experimental/tests/test_packed_linear_int8_dynamic_activation_intx_weight_layout.py
+          pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
+          python torchao/experimental/tests/test_embedding_xbit_quantizer.py
+      - name: Run kernels/cpu/aarch64/tests
+        run: |
+          conda activate venv
+          pushd torchao/experimental/kernels/cpu/aarch64/tests
+          sh build_and_run_tests.sh
+          rm -rf /tmp/cmake-out
+          popd
+      - name: Run torchao/experimental/ops/tests
+        run: |
+          conda activate venv
+          pushd torchao/experimental/ops/tests
+          sh build_and_run_tests.sh
+          rm -rf /tmp/cmake-out
+          popd

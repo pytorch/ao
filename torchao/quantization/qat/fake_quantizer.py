@@ -134,3 +134,9 @@ class FakeQuantizer(torch.nn.Module):
         Return whether we need to compute new scales and zero points.
         """
         return self.config.is_dynamic or self.scale is None or self.zero_point is None
+
+    def __repr__(self) -> str:
+        """
+        Return a human readable representation of this `FakeQuantizer` with config details.
+        """
+        return "FakeQuantizer(%s)" % self.config

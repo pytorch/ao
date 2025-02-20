@@ -5,12 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 
 import pytest
 import torch
 import torch.nn as nn
 
-from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.constants import DTYPE_FP4, SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
@@ -41,13 +43,18 @@ def run_around_tests():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize(
+    "elem_dtype", itertools.product(SUPPORTED_ELEM_DTYPES, repeat=3)
+)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
-    Smoke test for training linear module with mx weight
+    Smoke test for training linear module with mx weight, compares the following:
+    * baseline: float32
+    * experiment: emulated MX
     """
+    # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
     grad_shape[-1] = 6
 
@@ -55,8 +62,13 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         nn.Linear(8, 6, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(
+        block_size=2,
+        elem_dtype=elem_dtype[0],
+        elem_dtype_weight_override=elem_dtype[1],
+        elem_dtype_grad_output_override=elem_dtype[2],
+    )
+    swap_linear_with_mx_linear(m_mx, config=config)
 
     x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
     x = copy.deepcopy(x_ref)
@@ -72,7 +84,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     w_g_sqnr = compute_error(m[0].weight.grad, getattr(m_mx, "0").weight.grad)
     x_g_sqnr = compute_error(x_ref.grad, x.grad)
 
-    if elem_dtype is torch.float8_e4m3fn:
+    if elem_dtype == (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn):
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
         assert x_g_sqnr >= 12.0
@@ -80,6 +92,49 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         assert y_sqnr >= 8.0
         assert w_g_sqnr >= 10.0
         assert x_g_sqnr >= 8.0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+)
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, DTYPE_FP4])
+@pytest.mark.parametrize("mkn", [(128, 256, 512), (256, 512, 128), (512, 128, 256)])
+def test_linear_eager_emulated_vs_real_gemm(elem_dtype, mkn):
+    M, K, N = 128, 128, 128
+    M, K, N = mkn
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda").requires_grad_()
+    x_copy = copy.deepcopy(x)
+    g = torch.randn(M, N, device="cuda", dtype=torch.bfloat16)
+    m_emulated = nn.Sequential(
+        nn.Linear(K, N, bias=False, device="cuda", dtype=torch.bfloat16),
+    )
+    m_real = copy.deepcopy(m_emulated)
+
+    config_emulated = MXLinearConfig(block_size=32, elem_dtype=elem_dtype)
+    config_real = MXLinearConfig(
+        block_size=32,
+        elem_dtype=elem_dtype,
+        gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+    )
+
+    swap_linear_with_mx_linear(m_emulated, config=config_emulated)
+    swap_linear_with_mx_linear(m_real, config=config_real)
+
+    y_emulated = m_emulated(x)
+    y_emulated.backward(g)
+
+    y_real = m_real(x_copy)
+    y_real.backward(g)
+
+    with torch.no_grad():
+        y_sqnr = compute_error(y_real, y_emulated)
+        w_sqnr = compute_error(m_real[0].weight.grad, m_emulated[0].weight.grad)
+        g_sqnr = compute_error(x_copy.grad, x.grad)
+        assert y_sqnr > 100.0, f"y_sqnr {y_sqnr} too low!"
+        assert w_sqnr > 100.0, f"w_sqnr {w_sqnr} too low!"
+        assert g_sqnr > 100.0, f"g_sqnr {g_sqnr} too low!"
 
 
 # TODO(future): enable compile support
@@ -93,8 +148,8 @@ def test_activation_checkpointing():
         nn.Linear(4, 6, bias=True, device="cuda"),
         nn.Linear(6, 6, bias=True, device="cuda"),
     )
-    block_size = 2
-    swap_linear_with_mx_linear(m, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_linear(m, config=config)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
     g = torch.randn(*grad_shape, device="cuda")
@@ -129,8 +184,8 @@ def test_linear_compile(elem_dtype, bias, use_autocast):
     m_mx = nn.Sequential(
         nn.Linear(K, N, bias=bias, device="cuda"),
     )
-    block_size = 2
-    swap_linear_with_mx_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_linear(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
@@ -177,8 +232,8 @@ def test_inference_linear(elem_dtype, bias, input_shape):
     m = nn.Sequential(nn.Linear(4, 6, bias=bias, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_inference_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_inference_linear(m_mx, config=config)
 
     x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
     y_ref = m(x)
@@ -205,8 +260,8 @@ def test_inference_compile_simple(elem_dtype):
     m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    block_size = 2
-    swap_linear_with_mx_inference_linear(m_mx, elem_dtype, block_size)
+    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    swap_linear_with_mx_inference_linear(m_mx, config=config)
     m_mx = torch.compile(m_mx, fullgraph="true")
 
     x = torch.randn(2, 4, device="cuda", dtype=torch.bfloat16)
@@ -227,10 +282,11 @@ def test_filter_fn():
     m2 = copy.deepcopy(m1)
     filter_fn = lambda mod, fqn: fqn != "1"  # noqa: E731
 
-    swap_linear_with_mx_linear(m1, torch.float8_e4m3fn, 32, filter_fn)
+    config = MXLinearConfig(block_size=32)
+    swap_linear_with_mx_linear(m1, config=config, filter_fn=filter_fn)
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    swap_linear_with_mx_inference_linear(m2, torch.float8_e4m3fn, 32, filter_fn)  # noqa: E501
+    swap_linear_with_mx_inference_linear(m2, config=config, filter_fn=filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
