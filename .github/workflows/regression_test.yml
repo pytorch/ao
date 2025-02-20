@@ -35,7 +35,6 @@ jobs:
             gpu-arch-version: ""
           - name: ROCM Nightly
             runs-on: linux.rocm.gpu.torchao
-            if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
@@ -43,6 +42,7 @@ jobs:
       id-token: write
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    if: ${{ matrix.gpu-arch-type != 'rocm' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
     with:
       timeout: 120
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
