@@ -383,7 +383,7 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
         assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
         return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
-def convert_weight_to_int4pack_xpu(weight, int_zp=True):
+def convert_weight_to_int4pack_xpu(weight, int_zp=False):
     assert weight.device.type == "xpu"
 
     if int_zp:
