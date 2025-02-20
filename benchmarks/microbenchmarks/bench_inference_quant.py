@@ -6,16 +6,16 @@ from typing import List
 
 import torch
 from utils import (
-    ToyLinearModel,
     benchmark_model_inference_in_microseconds,
-    benchmark_model_inference_in_microseconds_with_profiler,
+    benchmark_model_op_with_profiler_in_microseconds,
     create_model_and_input,
     get_default_device,
     quantize_model,
+    clean_caches,
 )
 
 
-def main(
+def run(
     quantization: str,
     m,
     k,
@@ -26,18 +26,20 @@ def main(
     device=get_default_device(),
 ) -> None:
     # TODO: Add more model types here
+    clean_caches()
     base_model, input_data = create_model_and_input(
         model_type, m, k, n,
         dtype=precision,
         device=device,)
-    print(f"Starting benchmarking for model: {base_model.__class__.__name__}......")
+    print(f"Starting benchmarking for model: {base_model.__class__.__name__} for quantization: {quantization}")
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(device)
     m_copy = quantize_model(m_copy, quantization)
     # quantized_dtype = .....
 
     if compile:
-        m_copy = torch.compile(m_copy)
+        print("Compiling model....")
+        m_copy = torch.compile(m_copy, mode=compile, fullgraph=True)
 
     # Run benchmarks
     # 1. Benchmark time to run an inference call for quantized model
@@ -45,9 +47,8 @@ def main(
     print(f"Time to run a {base_model.__class__.__name__}: {model_time * 1e6:.2f} microseconds quantized with {quantization}")
 
     # 2. Benchmark time using profiler
-    
     # Profile dtype model evaluation
-    # prof_dtype = benchmark_model_inference_in_microseconds_with_profiler(m_copy, input_data, quantized_dtype)
+    # prof_dtype = benchmark_model_op_with_profiler_in_microseconds(m_copy, input_data, quantized_dtype)
     # prof_dtype.export_chrome_trace(f"dtype_model_{input_data[0].size()[0]}.json")  # Save profiling details
 
     # Calculate and store GPU kernel times -> op time, overhead time
@@ -101,8 +102,11 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--compile",
-        action="store_true",
-        help="Whether to compile the model",
+        type=str,
+        nargs='?',
+        const="default",
+        default=None,
+        help="Whether to compile the model and optionally specify compile mode (default: max-autotune)",
     )
 
     parser.add_argument(
@@ -116,7 +120,7 @@ if __name__ == "__main__":
     print(args)
 
     # Run benchmarks
-    main(
+    run(
         quantization=args.quantization,
         m=args.m,
         k=args.k,

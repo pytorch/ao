@@ -1,0 +1,16 @@
+# Default configuration for inference kernel benchmarks
+
+# For multiple quantizations and shapes
+quantizations:
+  - "int8wo"
+  - "int4wo-128"
+  - "int4wo-128-hqq"
+
+model_params:
+  matrix_shapes: [
+    [1024, 1024, 1024],  # [m, k, n]
+    [2048, 4096, 1024],
+    [4096, 4096, 1024]
+  ]
+  precision: "torch.bfloat16"
+  compile: false

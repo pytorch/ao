@@ -2,7 +2,7 @@ import time
 from typing import List
 
 import torch
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import ProfilerActivity, profile
 
 from torchao.quantization import (
     MappingType,
@@ -18,7 +18,11 @@ from torchao.quantization import (
     quantize_,
     uintx_weight_only,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+    unwrap_tensor_subclass,
+)
 
 
 # TODO: add more models
@@ -237,31 +241,73 @@ def quantize_model(
 # Function to benchmark model evaluation - e2e eval run
 def benchmark_model_inference_in_microseconds(model, input_data):
     # Returns model run time in seconds
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        
     # warm up
     for _ in range(2):
         model(input_data)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            
     num_iters = 5
     start_time = time.perf_counter()
     with torch.no_grad():
         for _ in range(num_iters):
             _ = model(input_data)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
     end_time = time.perf_counter()
 
     return (end_time - start_time) / num_iters
 
-def benchmark_model_inference_in_microseconds_with_profiler(model, input_data, kernels_to_benchmark: List[str]):
-    # warm up
+
+def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name: str):
+    """Benchmarks model inference using PyTorch profiler to measure GPU kernel execution times.
+    
+    This function profiles the model execution and measures the time spent in specific GPU operations
+    versus overhead time. It performs warmup runs before profiling to ensure accurate measurements.
+    
+    Args:
+        model (torch.nn.Module): PyTorch model to benchmark
+        input_data (torch.Tensor): Input tensor to run through the model
+        op_name (str): Name of the GPU operation to measure time for
+        
+    Returns:
+        tuple[float, float]: A tuple containing:
+            - gpu_op_time (float): Time spent in the specified GPU operation in microseconds
+            - gpu_overhead_time (float): Time spent in other GPU operations in microseconds
+    """
+    # Warm up
     for _ in range(2):
         model(input_data)
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        # with record_function("model_inference"):
-        for _ in range(1):  # Run the model multiple times to warm up the cache
-            with torch.no_grad():
-                _ = model(*input_data)
-                torch.cuda.synchronize()
+        
+    # Profile model execution
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
+        record_shapes=True
+    ) as prof:
+        with torch.no_grad():
+            _ = model(input_data)
+            torch.cuda.synchronize()
 
-    # Return the profiler output
-    return prof
+    # Get event data from profiler
+    event_data = [
+        (event.key, event.device_time)
+        for event in prof.key_averages()
+        if event.device_type == torch.autograd.DeviceType.CUDA
+    ]
+
+    # Calculate op time and overhead time
+    gpu_op_time, gpu_overhead_time = 0, 0
+    for event in event_data:
+        if op_name in event[0]:
+            gpu_op_time += event[1]
+        else:
+            gpu_overhead_time += event[1]
+            
+    return gpu_op_time, gpu_overhead_time
+
 
 def create_model_and_input(
     model_type: str,
@@ -290,17 +336,64 @@ def create_model_and_input(
         raise ValueError(f"Unknown model type: {model_type}")
     return model, input_data
 
-def get_gpu_kernel_times(profiler_chrome_trace, gpu_op_name):
-    # Filter CUDA events
-    event_data = [(event.key, event.device_time)
-                  for event in profiler_chrome_trace.key_averages()
-                  if event.device_type == torch.autograd.DeviceType.CUDA]
 
-    # Calculate overhead time and op time
-    gpu_op_time, gpu_overhead_time = 0, 0
-    for event in event_data:
-        if gpu_op_name in event[0]:
-            gpu_op_time += event[1]
+
+@torch.no_grad()
+def benchmark_op_with_cuda_graph(op, *args, **kwargs):
+    """
+    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
+    """
+    rep = kwargs.pop("rep", 100)
+    warmup = kwargs.pop("warmup", 25)
+    with torch.no_grad():
+        torch.cuda.synchronize()
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            op(*args, **kwargs)
+        stream.synchronize()
+        torch.cuda.current_stream().wait_stream(stream)
+        torch.cuda.synchronize()
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph, stream=stream):
+            op(*args, **kwargs)
+        if TORCH_VERSION_AT_LEAST_2_5:
+            from torch._inductor.runtime.benchmarking import benchmarker
+
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
+        elif TORCH_VERSION_AT_LEAST_2_3:
+            from torch._inductor.runtime.runtime_utils import do_bench_gpu
+
+            res = do_bench_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
         else:
-            gpu_overhead_time += event[1]
-    return gpu_op_time, gpu_overhead_time
+            from torch._inductor.utils import do_bench
+
+            res = do_bench(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
+    return res
+
+
+def _is_interpolate_mode(mode):
+    if (
+        isinstance(mode, list)
+        and mode[0] == "interpolate"
+        and len(mode) == 2
+        and isinstance(mode[1], float)
+    ):
+        return True
+    return False
+
+def clean_caches():
+    import gc
+    # Clear everything before starting
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    gc.collect()
+    
+    if compile:
+        torch._dynamo.reset()
