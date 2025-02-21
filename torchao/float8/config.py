@@ -148,7 +148,6 @@ class Float8GemmConfig:
 
 # Pre-made recipes for common configurations
 class Float8LinearRecipeName(enum.Enum):
-
     # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
     TENSORWISE = "tensorwise"
 
@@ -385,7 +384,6 @@ class Float8LinearConfig:
             )
 
         elif recipe_name is Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
-
             # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
             cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
             cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
