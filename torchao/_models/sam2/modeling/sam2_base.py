@@ -670,18 +670,20 @@ class SAM2Base(torch.nn.Module):
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
 
-        current_vision_feats = [c.clone() for c in current_vision_feats]
-        current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
-        memory = memory.clone()
-        memory_pos_embed = memory_pos_embed.clone()
-        pix_feat_with_mem = self.memory_attention(
-            curr=current_vision_feats,
-            curr_pos=current_vision_pos_embeds,
-            memory=memory,
-            memory_pos=memory_pos_embed,
-            num_obj_ptr_tokens=num_obj_ptr_tokens,
-        )
-        pix_feat_with_mem = pix_feat_with_mem.clone()
+        with torch.autograd.profiler.record_function("self.memory_attention"):
+            current_vision_feats = [c.clone() for c in current_vision_feats]
+            current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
+            memory = memory.clone()
+            memory_pos_embed = memory_pos_embed.clone()
+            pix_feat_with_mem = self.memory_attention(
+                curr=current_vision_feats,
+                curr_pos=current_vision_pos_embeds,
+                memory=memory,
+                memory_pos=memory_pos_embed,
+                num_obj_ptr_tokens=num_obj_ptr_tokens,
+            )
+            pix_feat_with_mem = pix_feat_with_mem.clone()
+
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem
@@ -719,11 +721,12 @@ class SAM2Base(torch.nn.Module):
             mask_for_mem = mask_for_mem * self.sigmoid_scale_for_mem_enc
         if self.sigmoid_bias_for_mem_enc != 0.0:
             mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
-        maskmem_out = self.memory_encoder(
-            pix_feat,
-            mask_for_mem,
-            skip_mask_sigmoid=True,  # sigmoid already applied
-        )
+        with torch.autograd.profiler.record_function("self.memory_encoder"):
+            maskmem_out = self.memory_encoder(
+                pix_feat,
+                mask_for_mem,
+                skip_mask_sigmoid=True,  # sigmoid already applied
+            )
         maskmem_features = maskmem_out["vision_features"].clone()
         maskmem_pos_enc = [m.clone() for m in maskmem_out["vision_pos_enc"]]
         # add a no-object embedding to the spatial memory to indicate that the frame
@@ -794,13 +797,14 @@ class SAM2Base(torch.nn.Module):
             assert multimask_output
             if point_inputs is not None:
                 point_inputs = {k: point_inputs[k].contiguous() for k in point_inputs}
-            sam_outputs = self._forward_sam_heads(
-                backbone_features=pix_feat.contiguous(),
-                point_inputs=point_inputs,
-                mask_inputs=mask_inputs,
-                high_res_features=[h.contiguous() for h in high_res_features],
-                multimask_output=multimask_output,
-            )
+            with torch.autograd.profiler.record_function("self._forward_sam_heads"):
+                sam_outputs = self._forward_sam_heads(
+                    backbone_features=pix_feat.contiguous(),
+                    point_inputs=point_inputs,
+                    mask_inputs=mask_inputs,
+                    high_res_features=[h.contiguous() for h in high_res_features],
+                    multimask_output=multimask_output,
+                )
 
         return current_out, sam_outputs, high_res_features, pix_feat
 
