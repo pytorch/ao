@@ -74,7 +74,6 @@ def _scaled_int8_mm_kernel(
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
-    EVEN_K: tl.constexpr = True,
     COL_SCALE_SCALAR: tl.constexpr = False,
 ):
     # based on triton.ops.matmul
@@ -176,7 +175,6 @@ def scaled_int8_mm_cuda(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tens
         *A.stride(),
         *B.stride(),
         *C.stride(),
-        EVEN_K=K % 2 == 0,
         COL_SCALE_SCALAR=col_scale.numel() == 1,
     )
     return C
