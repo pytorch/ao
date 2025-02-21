@@ -31,8 +31,6 @@ from torchao.float8.config import (
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_utils import IS_ROCM, compute_error
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
@@ -115,7 +113,7 @@ class TestFloat8NumericsIntegrationTest:
         # Note: you need two different inputs to properly test numerics
         # of delayed scaling, because the first time around the initialization
         # logic of delayed scaling behaves as dynamic scaling
-        # TODO(future): also make unit tests do this properly
+        # TODO(future PR): delete ^, since we deleted delayed scaling
         shape = (1, 8192, 4096)
         data1 = torch.randn(*shape, device="cuda", dtype=data_dtype)
         data2 = torch.randn(*shape, device="cuda", dtype=data_dtype)
@@ -127,36 +125,21 @@ class TestFloat8NumericsIntegrationTest:
         model_ref_out = model_ref(data2)
         model_ref_out.sum().backward()
 
-        if linear_requires_sync(config):
-            sync_float8_amax_and_scale_history(model_fp8)
         model_fp8(data1).sum().backward()
         # zero out grads without stepping, since we just want to compare grads
         # of the second datum
         optim_fp8.zero_grad()
-        if linear_requires_sync(config):
-            sync_float8_amax_and_scale_history(model_fp8)
         model_fp8_out = model_fp8(data2)
         model_fp8_out.sum().backward()
 
         out_sqnr = compute_error(model_ref_out, model_fp8_out)
-        any_static_scaling = (
-            config.cast_config_input.scaling_type is ScalingType.STATIC
-            or config.cast_config_weight.scaling_type is ScalingType.STATIC
-            or config.cast_config_grad_output.scaling_type is ScalingType.STATIC
-        )
-        if any_static_scaling:
-            assert out_sqnr > 10.0
-        else:
-            assert out_sqnr > 20.0
+        assert out_sqnr > 20.0
 
         ref_name_to_grad = {
             name: param.grad for name, param in model_ref.named_parameters()
         }
 
-        if any_static_scaling:
-            grad_sqnr_threshold = 10.0
-        else:
-            grad_sqnr_threshold = 20.0
+        grad_sqnr_threshold = 20.0
 
         for name, param in model_fp8.named_parameters():
             ref_grad = ref_name_to_grad[name]
@@ -166,15 +149,15 @@ class TestFloat8NumericsIntegrationTest:
 
     @pytest.mark.parametrize(
         "scaling_type_input",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_weight",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.skipif(
         not is_sm_at_least_89(), reason="requires SM89 compatible machine"
