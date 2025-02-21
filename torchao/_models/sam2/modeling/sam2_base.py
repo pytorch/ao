@@ -352,8 +352,8 @@ class SAM2Base(torch.nn.Module):
             object_score_logits,
         ) = self.sam_mask_decoder(
             image_embeddings=backbone_features,
-            image_pe=self.sam_prompt_encoder.get_dense_pe(),
-            sparse_prompt_embeddings=sparse_embeddings,
+            image_pe=self.sam_prompt_encoder.get_dense_pe().to(torch.bfloat16),
+            sparse_prompt_embeddings=sparse_embeddings.to(torch.bfloat16),
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
             repeat_image=False,  # the image is already batched
@@ -639,7 +639,7 @@ class SAM2Base(torch.nn.Module):
                             .to(device=device, non_blocking=True)
                         )
                         obj_pos = get_1d_sine_pe(obj_pos / t_diff_max, dim=tpos_dim)
-                        obj_pos = self.obj_ptr_tpos_proj(obj_pos)
+                        obj_pos = self.obj_ptr_tpos_proj(obj_pos.to(torch.bfloat16))
                         obj_pos = obj_pos.unsqueeze(1).expand(-1, B, self.mem_dim)
                     else:
                         obj_pos = obj_ptrs.new_zeros(len(pos_list), B, self.mem_dim)
@@ -672,10 +672,10 @@ class SAM2Base(torch.nn.Module):
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
 
         with torch.autograd.profiler.record_function("self.memory_attention"):
-            current_vision_feats = [c.clone() for c in current_vision_feats]
-            current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
-            memory = memory.clone()
-            memory_pos_embed = memory_pos_embed.clone()
+            current_vision_feats = [c.clone().to(torch.bfloat16) for c in current_vision_feats]
+            current_vision_pos_embeds = [c.clone().to(torch.bfloat16) for c in current_vision_pos_embeds]
+            memory = memory.clone().to(torch.bfloat16)
+            memory_pos_embed = memory_pos_embed.clone().to(torch.bfloat16)
             pix_feat_with_mem = self.memory_attention(
                 curr=current_vision_feats,
                 curr_pos=current_vision_pos_embeds,
@@ -726,8 +726,8 @@ class SAM2Base(torch.nn.Module):
             # pix_feat = pix_feat.clone()
             # mask_for_mem = mask_for_mem.clone()
             maskmem_out = self.memory_encoder(
-                pix_feat,
-                mask_for_mem,
+                pix_feat.to(torch.bfloat16),
+                mask_for_mem.to(torch.bfloat16),
                 skip_mask_sigmoid=True,  # sigmoid already applied
             )
         maskmem_features = maskmem_out["vision_features"].clone()
@@ -802,7 +802,7 @@ class SAM2Base(torch.nn.Module):
                 point_inputs = {k: point_inputs[k].contiguous() for k in point_inputs}
             with torch.autograd.profiler.record_function("self._forward_sam_heads"):
                 sam_outputs = self._forward_sam_heads(
-                    backbone_features=pix_feat.contiguous(),
+                    backbone_features=pix_feat.contiguous().to(torch.bfloat16),
                     point_inputs=point_inputs,
                     mask_inputs=mask_inputs,
                     high_res_features=[h.contiguous() for h in high_res_features],
