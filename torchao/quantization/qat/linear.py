@@ -75,9 +75,6 @@ class FakeQuantizedLinear(torch.nn.Linear):
             *args,
             **kwargs,
         )
-        if bias:
-            raise NotImplementedError("bias not supported yet")
-
         # initialize activation fake quantizer
         if activation_config is not None:
             self.activation_fake_quantizer = FakeQuantizer(activation_config)
@@ -103,17 +100,21 @@ class FakeQuantizedLinear(torch.nn.Linear):
             w = self.weight_fake_quantizer(self.weight)
         else:
             w = self.weight
-        return F.linear(x, w)
+        return F.linear(x, w, self.bias)
 
     def to_linear(self) -> torch.nn.Linear:
         new_linear = torch.nn.Linear(
-            self.in_features, self.out_features, self.bias, device=self.weight.device
+            self.in_features,
+            self.out_features,
+            self.bias is not None,
+            device=self.weight.device,
         )
         # In distributed training, the model may be instantiated
         # on the meta device, in which case there is no need to
         # copy the weights, and doing so will result in an error
         if self.weight.device != torch.device("meta"):
             new_linear.weight = self.weight
+            new_linear.bias = self.bias
         return new_linear
 
     @classmethod
@@ -126,7 +127,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
         new_linear = FakeQuantizedLinear(
             mod.in_features,
             mod.out_features,
-            mod.bias,
+            mod.bias is not None,
             activation_config=activation_config,
             weight_config=weight_config,
             device=mod.weight.device,
@@ -136,6 +137,7 @@ class FakeQuantizedLinear(torch.nn.Linear):
         # copy the weights, and doing so will result in an error
         if mod.weight.device != torch.device("meta"):
             new_linear.weight = mod.weight
+            new_linear.bias = mod.bias
         return new_linear
 
 
