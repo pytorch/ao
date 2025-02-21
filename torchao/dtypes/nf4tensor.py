@@ -2,7 +2,7 @@ import functools
 import math
 import sys
 from dataclasses import dataclass, replace
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
@@ -268,19 +268,35 @@ def nf4_slice(aten_op, args, kwargs=None):
         aten.view.default,
     ]
 )
-@expect_args_len_at_k(1, CompareOp.EQ, 1, "aten.view(NF4Tensor) with len(size)=")
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.view(NF4Tensor) with len(size)=")
 def nf4_view(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     size = args[1]
-    if size[0] != -1:
-        raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
-    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
-    updated_attrs.update(
-        {
-            "size": [nf4tensor.numel()],
-            "stride": (1,),
-        }
-    )
+    if len(size) == 1:
+        if size[0] != -1:
+            raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
+        else:
+            updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
+            updated_attrs.update(
+                {
+                    "size": [nf4tensor.numel()],
+                    "stride": (1,),
+                }
+            )
+    else:
+        updated_attrs = {}
+        if nf4tensor.numel() != nf4tensor.size()[0] * nf4tensor.size()[1]:
+            raise NotImplementedError("NF4Tensor size does not match numel.")
+        for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+            attr_size = [getattr(nf4tensor, attr).size()]
+            updated_attrs[attr] = aten_op(
+                getattr(nf4tensor, attr), *attr_size, **kwargs
+            )
+            updated_attrs.update(
+                {
+                    "stride": (nf4tensor.size()[1], 1),
+                }
+            )
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 
@@ -464,35 +480,12 @@ def all_gather_into_tensor(func, *args, **kwargs):
     updated_attrs = {}
     for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         updated_attrs[attr] = func(getattr(nf4tensor, attr), group_size, name)
+    updated_attrs.update(
+        {
+            "size": torch.Size((nf4tensor.size()[0] * group_size, nf4tensor.size()[1])),
+        }
+    )
     updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-    tensor_meta = SubclassTensorArgs(
-        updatedNF4Tensor.size(),
-        updatedNF4Tensor.stride(),
-        updatedNF4Tensor.storage_offset(),
-        updatedNF4Tensor.dtype,
-        updatedNF4Tensor.device,
-        updatedNF4Tensor.requires_grad,
-    )
-    if len(tensor_meta.original_shape) != 2:
-        raise NotImplementedError(
-            f"only support 2D shape but got dim={len(tensor_meta.original_shape)}"
-        )
-
-    new_shape = torch.Size(
-        (tensor_meta.original_shape[0] * group_size, tensor_meta.original_shape[1])
-    )
-    new_tensor_meta = replace(tensor_meta, original_shape=new_shape)
-    updatedNF4Tensor = nf4_constructor(
-        new_tensor_meta,
-        updatedNF4Tensor.block_size,
-        updatedNF4Tensor.n_blocks,
-        updatedNF4Tensor.scaler_block_size,
-        updatedNF4Tensor.quantized_scalers,
-        updatedNF4Tensor.quantization_factor,
-        updatedNF4Tensor.scaler_mean,
-        updatedNF4Tensor.quantized_data,
-        updatedNF4Tensor.nf4,
-    )
     return updatedNF4Tensor
 
 
@@ -508,6 +501,34 @@ def wait_tensor(func, *args, **kwargs):
         updated_attrs[attr] = func(getattr(nf4tensor, attr))
     updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
     return updatedNF4Tensor
+
+
+@implements([torch.ops.c10d.scatter_.default])
+def scatter_nf4tensor(func, *args, **kwargs):
+    output_tensor = args[0][0][0]
+    input_tensors = args[0][1]
+    process_group = args[0][2]
+    src = args[0][3]
+    asyncOp = args[0][4]
+    timeout = args[0][5]
+    new_attr, update_work = [], []
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        input_attrs = []
+        if input_tensors:
+            for input_tensor in input_tensors[0]:
+                if hasattr(input_tensor, attr):
+                    input_attrs.append(getattr(input_tensor, attr))
+            input_attrs = [input_attrs]
+        new_attr, update_work = func(
+            [getattr(output_tensor, attr)],
+            input_attrs,
+            process_group,
+            src,
+            asyncOp,
+            timeout,
+        )
+    # there are 3 works, return one of them, same as the tensor to fit the required output format
+    return new_attr, update_work
 
 
 @dataclass(frozen=True)
@@ -532,8 +553,8 @@ def get_block_absmax(input_tensor: torch.Tensor, block_size: int) -> torch.Tenso
     """
     assert input_tensor.dim() == 1, "Input tensor must be flattened"
     assert (
-        (input_tensor.numel() % block_size) == 0
-    ), f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
+        input_tensor.numel() % block_size
+    ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
 
     n_blocks = input_tensor.numel() // block_size
     blocks = input_tensor.view(n_blocks, block_size)
@@ -703,8 +724,8 @@ class NF4Tensor(torch.Tensor):
         """
         assert input_tensor.dim() == 1, "Input tensor must be flattened"
         assert (
-            (input_tensor.numel() % scaler_block_size) == 0
-        ), f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
 
         # First round of quantization
         # Produces: A tensor of size (n_blocks) of input_tensor.dtype
@@ -757,8 +778,8 @@ class NF4Tensor(torch.Tensor):
         """
         assert input_tensor.dim() == 1, "Input tensor must be flattened"
         assert (
-            (input_tensor.numel() % scaler_block_size) == 0
-        ), f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
         n_scaler_blocks = input_tensor.numel() // scaler_block_size
         input_tensor = input_tensor.view(n_scaler_blocks, scaler_block_size)
         dequantized = (input_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
