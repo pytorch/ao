@@ -18,8 +18,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_and_quantize_affine_qqq,
 )
-
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
+
+
 @skip_if_rocm("ROCm enablement in progress")
 class TestMarlinQQQ(TestCase):
     def setUp(self):
