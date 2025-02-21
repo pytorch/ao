@@ -615,7 +615,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.sparsity.marlin</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">unpack_from_marlin_24</span><span class="p">,</span>
-        <span class="p">)</span>  <span class="c1"># avoid circular import</span>
+        <span class="p">)</span>
 
         <span class="n">int_data_expanded</span><span class="p">,</span> <span class="n">scales_expanded</span> <span class="o">=</span> <span class="n">unpack_from_marlin_24</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span>
@@ -640,7 +640,7 @@
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.sparsity.marlin</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">const</span><span class="p">,</span>
             <span class="n">pack_to_marlin_24</span><span class="p">,</span>
-        <span class="p">)</span>  <span class="c1"># avoid circular import</span>
+        <span class="p">)</span>
 
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_layout</span><span class="p">,</span> <span class="n">MarlinSparseLayout</span><span class="p">)</span>
 
