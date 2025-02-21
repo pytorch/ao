@@ -60,6 +60,8 @@ def latencies_statistics(data):
     mean = np.mean(data_array)
     # Calculate the median
     median = np.median(data_array)
+    # Calculate the 90th percentile
+    p90 = np.percentile(data_array, 90)
     # Calculate the 95th percentile
     p95 = np.percentile(data_array, 95)
     # Calculate the 99th percentile
@@ -74,6 +76,7 @@ def latencies_statistics(data):
         {
             "mean": mean,
             "median": median,
+            "p90": p90,
             "p95": p95,
             "p99": p99,
             "p999": p999,
@@ -548,7 +551,7 @@ def main(
         sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
     )
     if export_model != "":
-        if not Path(output_folder).is_dir():
+        if not Path(export_model).is_dir():
             raise ValueError(f"Expected {export_model} to be a directory.")
         print(f"Exporting model to {export_model}.")
         from compile_export_utils import export_model as export_model_fn

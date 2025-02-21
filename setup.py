@@ -180,7 +180,8 @@ class TorchAOBuildExt(BuildExtension):
                 "cmake",
                 ext.sourcedir,
                 "-DCMAKE_BUILD_TYPE=" + build_type,
-                "-DTORCHAO_BUILD_EXECUTORCH_OPS=OFF",
+                # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
+                "-DTORCHAO_BUILD_KLEIDIAI=OFF",
                 "-DTorch_DIR=" + torch_dir,
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             ],
@@ -219,11 +220,8 @@ def get_extensions():
     use_rocm = torch.cuda.is_available() and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
 
-    nvcc_args = [
-        "-O3" if not debug_mode else "-O0",
-        "-t=0",
-    ]
-    rocm_args = ["-O3" if not debug_mode else "-O0"]
+    nvcc_args = ["-O3" if not debug_mode else "-O0", "-t=0", "-std=c++17"]
+    rocm_args = ["-O3" if not debug_mode else "-O0", "-std=c++17"]
 
     extra_link_args = []
     extra_compile_args = {
@@ -293,12 +291,16 @@ def get_extensions():
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_tools_include_dir = os.path.join(
+            cutlass_dir, "tools", "util", "include"
+        )
         cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
     if use_cutlass:
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
                 "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
                 "-I" + cutlass_extensions_include_dir,
             ]
         )
@@ -346,7 +348,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions() if use_cpp != "0" else None,
+    ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),

@@ -28,6 +28,8 @@ lib.define(
 lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
 )
+lib.define("mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
+lib.define("mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
 
 
 def register_custom_op(name):
@@ -36,6 +38,16 @@ def register_custom_op(name):
             return torch.library.register_fake(f"{name}")(func)
         else:
             return torch.library.impl_abstract(f"{name}")(func)
+
+    return decorator
+
+
+def register_custom_op_impl(name):
+    def decorator(func):
+        if TORCH_VERSION_AT_LEAST_2_4:
+            return torch.library.custom_op(f"{name}", mutates_args=())(func)
+        else:
+            return torch.library.impl(f"{name}", "CUDA")(func)
 
     return decorator
 
@@ -610,3 +622,80 @@ def swizzle_mm(mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizz
 @register_custom_op("torchao::swizzle_mm")
 def _(mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool) -> Tensor:
     return mat1.new_empty(mat1.shape[0], mat2.shape[1])
+
+def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Defines a matmul between two fp8 tensors w/ MX scales in E8MO and returns a bf16 tensor.
+
+    This op is prototype subject to change.
+
+    Note: The mx scales are E8MO tensors store in  uint8 tensors  (for now).
+        The layout of the scales is very particular, see:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+    Args:
+        A: fp8 tensor w/ dtype = torch.float8_e4m3fn
+        B: fp8 tensor w/ dtype = torch.float8_e4m3fn
+        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
+        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
+
+    Returns:
+        MXN bf16 Tensor
+
+    """
+    torch._check(
+        A.dtype == torch.float8_e4m3fn,
+        lambda: f"Input tensor A must be float8_e4m3fn, got {A.dtype}",
+    )
+    torch._check(
+        B.dtype == torch.float8_e4m3fn,
+        lambda: f"Input tensor B must be float8_e4m3fn, got {B.dtype}",
+    )
+
+    # TODO - Once e8m0 dtype is added to core udpate
+    # Check scale tensors are uint8
+    torch._check(
+        A_scale.dtype == torch.uint8,
+        lambda: f"A_scale tensor must be uint8, got {A_scale.dtype}",
+    )
+    torch._check(
+        B_scale.dtype == torch.uint8,
+        lambda: f"B_scale tensor must be uint8, got {B_scale.dtype}",
+    )
+    return torch.ops.torchao.mx_fp8_bf16.default(A, B, A_scale, B_scale)
+
+
+@register_custom_op("torchao::mx_fp8_bf16")
+def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Meta impl for mx_fp8_bf16"""
+    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Defines a matmul between two fp4 tensors w/ MX scales in E8MO and returns a bf16 tensor.
+
+    The expected format is fp4_e2m1 specified:
+    https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final.pdf (Section 5.3.3)
+
+    Note: The mx scales are E8MO tensors stored in uint8 tensors (for now).
+        The layout of the scales is very particular, see:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+
+    Args:
+        A: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        B: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
+        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
+        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
+
+    Returns:
+        MXN bf16 Tensor
+
+    """
+    return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
+
+
+@register_custom_op("torchao::mx_fp4_bf16")
+def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
+    """Meta impl for mx_fp4_bf16"""
+    # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
+    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)

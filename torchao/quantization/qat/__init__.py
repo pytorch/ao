@@ -1,6 +1,8 @@
 from .api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
+    FromIntXQuantizationAwareTrainingConfig,
+    IntXQuantizationAwareTrainingConfig,
     from_intx_quantization_aware_training,
     intx_quantization_aware_training,
 )
@@ -20,4 +22,6 @@ __all__ = [
     "Int8DynActInt4WeightQATQuantizer",
     "intx_quantization_aware_training",
     "from_intx_quantization_aware_training",
+    "FromIntXQuantizationAwareTrainingConfig",
+    "IntXQuantizationAwareTrainingConfig",
 ]

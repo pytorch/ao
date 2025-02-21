@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from torchao.prototype.mx_formats import config
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -18,6 +18,7 @@ from torchao.prototype.mx_formats.custom_cast import pack_uint4
 from torchao.prototype.mx_formats.mx_tensor import (
     E8M0_EXPONENT_NAN_VAL,
     MXTensor,
+    ScaleCalculationMode,
     to_dtype,
 )
 from torchao.quantization.utils import compute_error
@@ -47,8 +48,10 @@ def run_before_and_after_tests():
     torch._dynamo.reset()
 
 
-def _test_mx(data_hp, elem_dtype, block_size):
-    data_mx = MXTensor.to_mx(data_hp, elem_dtype, block_size)
+def _test_mx(
+    data_hp, elem_dtype, block_size, scale_calculation_mode=ScaleCalculationMode.FLOOR
+):
+    data_mx = MXTensor.to_mx(data_hp, elem_dtype, block_size, scale_calculation_mode)
     data_mx_dq = data_mx.to_dtype(data_hp.dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
@@ -61,7 +64,7 @@ def _test_mx(data_hp, elem_dtype, block_size):
             assert sqnr >= threshold
 
     if elem_dtype is torch.float8_e4m3fn:
-        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 20.0)
+        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 18.0)
     else:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
 
@@ -72,6 +75,15 @@ def test_hello_world(elem_dtype):
     data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
     block_size = 2
     _test_mx(data, elem_dtype, block_size)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("scale_calculation_mode", [s for s in ScaleCalculationMode])
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_realistic_numerics(elem_dtype, scale_calculation_mode):
+    data = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    block_size = 32
+    _test_mx(data, elem_dtype, block_size, scale_calculation_mode)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -127,8 +139,15 @@ def test_exponent_nan_out(elem_dtype):
     else:
         raise AssertionError("unsupported")
     block_size = 2
+    use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
-        scale_e8m0_bits, data_bits, elem_dtype, block_size, torch.float
+        scale_e8m0_bits,
+        data_bits,
+        elem_dtype,
+        block_size,
+        torch.float,
+        use_fp4_custom_triton_dequant_kernel,
+        MXGemmKernelChoice.EMULATED,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp[0:1]))
@@ -176,15 +195,16 @@ def test_transpose(elem_dtype, fp4_triton):
     M, K = 128, 256
     block_size = 32
     tensor_hp = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-    tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    config.use_fp4_custom_triton_dequant_kernel = fp4_triton
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        elem_dtype,
+        block_size,
+        use_fp4_custom_triton_dequant_kernel=fp4_triton,
+    )
     tensor_mx_dq_t = tensor_mx.to_dtype(tensor_hp.dtype).t()
-    config.use_fp4_custom_triton_dequant_kernel = False
 
     tensor_mx_t = tensor_mx.t()
-    config.use_fp4_custom_triton_dequant_kernel = fp4_triton
     tensor_mx_t_dq = tensor_mx_t.to_dtype(tensor_hp.dtype)
-    config.use_fp4_custom_triton_dequant_kernel = False
 
     assert tensor_mx_dq_t.shape == tensor_mx_t_dq.shape
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
@@ -246,12 +266,14 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
+    use_fp4_custom_triton_dequant_kernel = False
     x_mx_dq = to_dtype(
         x_mx._data,
         x_mx._scale_e8m0,
         x_mx._elem_dtype,
         x_mx._block_size,
         hp_dtype,  # noqa: E501
+        use_fp4_custom_triton_dequant_kernel,
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c._data,
@@ -259,5 +281,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx_c._elem_dtype,
         x_mx_c._block_size,
         hp_dtype,
+        use_fp4_custom_triton_dequant_kernel,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)

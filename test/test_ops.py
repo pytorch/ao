@@ -18,15 +18,10 @@ from torchao.quantization.marlin_qqq import (
 )
 from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, compute_max_diff, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
-
-if is_fbcode():
-    pytest.skip(
-        "Skipping the test in fbcode since we don't have TARGET file for kernels"
-    )
 
 try:
     import torchao.ops
