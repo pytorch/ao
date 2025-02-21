@@ -27,8 +27,7 @@ from torchao.float8.float8_tensor import GemmInputRole
 
 
 def _float8_linear_supports_float8_allgather(m):
-    # TODO(future): add support for delayed scaling for activations
-    # and gradients
+    # TODO(future PR): also gate this by granularity
     return (
         m.scaling_type_input == ScalingType.DYNAMIC
         and m.scaling_type_grad_output == ScalingType.DYNAMIC
