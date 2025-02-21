@@ -99,7 +99,7 @@ def _scaled_int8_mm_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
     for k in range(K, 0, -BLOCK_K):
-        if EVEN_K:
+        if K % BLOCK_K == 0:
             a = tl.load(A)
             b = tl.load(B)
         else:
