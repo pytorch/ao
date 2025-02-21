@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -30,6 +30,7 @@ if not TORCH_VERSION_AT_LEAST_2_5:
         # ("largest subnormal number", [2**-126 * (1 - 2**-23), 1.1754943508222875e-38]),
     ],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_round_scale_down_to_power_of_2_valid_inputs(
     test_case: dict,
 ):

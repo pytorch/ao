@@ -11,6 +11,8 @@ except ImportError:
 import torch
 from galore_test_utils import get_kernel, make_copy, make_data
 
+from torchao.utils import skip_if_rocm
+
 torch.manual_seed(0)
 MAX_DIFF_no_tf32 = 1e-5
 MAX_DIFF_tf32 = 1e-3
@@ -104,6 +106,7 @@ TEST_CONFIGS = list(
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize("kernel, dtype, M, N, rank, allow_tf32", TEST_CONFIGS)
+@skip_if_rocm("ROCm enablement in progress")
 def test_galore_fused_kernels(kernel, dtype, M, N, rank, allow_tf32):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32
 

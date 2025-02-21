@@ -27,7 +27,7 @@ from torchao.quantization import (
     fpx_weight_only,
     quantize_,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode, skip_if_rocm
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
@@ -109,6 +109,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
         device = "cuda"

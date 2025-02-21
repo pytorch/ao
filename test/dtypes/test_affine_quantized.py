@@ -25,6 +25,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     is_fbcode,
     is_sm_at_least_89,
+    skip_if_rocm,
 )
 
 is_cusparselt_available = (
@@ -104,6 +105,7 @@ class TestAffineQuantized(TestCase):
         "apply_quant",
         get_quantization_functions(is_cusparselt_available, True, "cuda", True),
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_weights_only(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         if isinstance(apply_quant, AOBaseConfig):
@@ -196,6 +198,7 @@ class TestAffineQuantized(TestCase):
         "apply_quant", get_quantization_functions(is_cusparselt_available, True)
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_print_quantized_module(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         if isinstance(apply_quant, AOBaseConfig):
@@ -213,6 +216,7 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
         if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
             raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")

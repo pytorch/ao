@@ -33,6 +33,7 @@ from torchao.dtypes.nf4tensor import (
     nf4_weight_only,
     to_nf4,
 )
+from torchao.utils import skip_if_rocm
 
 bnb_available = False
 
@@ -111,6 +112,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not bnb_available, "Need bnb availble")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
@@ -133,6 +135,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not bnb_available, "Need bnb availble")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_nf4_bnb_linear(self, dtype: torch.dtype):
         """

@@ -11,6 +11,7 @@ from torchao.quantization import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
+    skip_if_rocm,
 )
 
 cuda_available = torch.cuda.is_available()
@@ -109,6 +110,7 @@ class TestHQQ(unittest.TestCase):
             ref_dot_product_error=0.000704,
         )
 
+    @skip_if_rocm("ROCm enablement in progress")
     def test_hqq_plain_4bit(self):
         self._test_hqq(
             dtype=torch.uint4,

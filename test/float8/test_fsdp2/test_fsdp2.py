@@ -43,6 +43,9 @@ from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parit
 if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
+if torch.version.hip is not None:
+    pytest.skip("ROCm enablement in progress", allow_module_level=True)
+
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
