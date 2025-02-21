@@ -20,6 +20,9 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
+
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):

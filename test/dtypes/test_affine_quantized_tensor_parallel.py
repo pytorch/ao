@@ -1,5 +1,6 @@
 import unittest
 
+import pytest
 import torch
 from torch.distributed._tensor import DeviceMesh, DTensor, Replicate, Shard
 from torch.testing._internal import common_utils
@@ -26,6 +27,9 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
+
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
