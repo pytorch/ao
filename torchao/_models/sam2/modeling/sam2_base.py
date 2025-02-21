@@ -469,7 +469,8 @@ class SAM2Base(torch.nn.Module):
 
     def forward_image(self, img_batch: torch.Tensor):
         """Get the image feature on the input batch."""
-        backbone_out = self.image_encoder(img_batch)
+        backbone_out = self.image_encoder(img_batch.clone())
+        backbone_out = {k: [c.clone() for c in backbone_out[k]] if type(backbone_out[k]) == list else backbone_out[k].clone() for k in backbone_out}
         if self.use_high_res_features_in_sam:
             # precompute projected level 0 and level 1 features in SAM decoder
             # to avoid running it again on every SAM click
@@ -722,6 +723,8 @@ class SAM2Base(torch.nn.Module):
         if self.sigmoid_bias_for_mem_enc != 0.0:
             mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
         with torch.autograd.profiler.record_function("self.memory_encoder"):
+            # pix_feat = pix_feat.clone()
+            # mask_for_mem = mask_for_mem.clone()
             maskmem_out = self.memory_encoder(
                 pix_feat,
                 mask_for_mem,
@@ -858,7 +861,7 @@ class SAM2Base(torch.nn.Module):
         current_out, sam_outputs, _, _ = self._track_step(
             frame_idx,
             is_init_cond_frame,
-            current_vision_feats,
+            [c.clone() for c in current_vision_feats],
             current_vision_pos_embeds,
             feat_sizes,
             point_inputs,
@@ -890,7 +893,7 @@ class SAM2Base(torch.nn.Module):
         # Finally run the memory encoder on the predicted mask to encode
         # it into a new memory feature (that can be used in future frames)
         self._encode_memory_in_output(
-            current_vision_feats,
+            [c.clone() for c in current_vision_feats],
             feat_sizes,
             point_inputs,
             run_mem_encoder,
