@@ -56,6 +56,7 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
+    skip_if_rocm,
 )
 
 try:
@@ -819,6 +820,7 @@ class TestQuantFlow(TestCase):
             uintx_weight_only(dtype=torch.uint4),
         ],
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
         Simple test of e2e int4_weight_only workflow, comparing numerics
