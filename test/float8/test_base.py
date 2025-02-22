@@ -26,7 +26,6 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 
 from torchao.float8.config import (
-    CastConfig,
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingGranularity,
@@ -37,8 +36,6 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
@@ -55,11 +52,9 @@ from torchao.float8.float8_tensor import (
 from torchao.float8.float8_utils import (
     FP8_TYPES,
     compute_error,
-    config_has_stateful_scaling,
     fp8_tensor_statistics,
     tensor_to_scale,
 )
-from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 random.seed(0)
@@ -285,16 +280,10 @@ class TestFloat8Linear:
         config: Float8LinearConfig,
         use_ac: bool = False,
     ):
-        if config_has_stateful_scaling(config):
-            m_fp8 = StatefulFloat8Linear.from_float(
-                copy.deepcopy(m_ref),
-                config,
-            )
-        else:
-            m_fp8 = Float8Linear.from_float(
-                copy.deepcopy(m_ref),
-                config,
-            )
+        m_fp8 = Float8Linear.from_float(
+            copy.deepcopy(m_ref),
+            config,
+        )
 
         for _ in range(2):
             if use_ac:
@@ -302,8 +291,6 @@ class TestFloat8Linear:
             else:
                 y_fp8 = m_fp8(x)
             y_fp8.sum().backward()
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m_fp8)
 
             if use_ac:
                 y_ref = torch.utils.checkpoint.checkpoint(m_ref, x, use_reentrant=False)
@@ -321,65 +308,21 @@ class TestFloat8Linear:
         if m_ref.bias is not None:
             torch.testing.assert_close(m_ref.bias.grad, m_fp8.bias.grad)
 
-        # verify all of the amax buffers got updated
-        if linear_requires_sync(config):
-            # only check buffers that are actually used, based on per-tensor
-            # scaling settings
-            amax_buffer_names = []
-            amax_history_buffer_names = []
-            scale_buffer_names = []
-            if config.cast_config_input.scaling_type is ScalingType.DELAYED:
-                amax_buffer_names.append("fp8_amax_input")
-                amax_history_buffer_names.append("fp8_amax_history_input")
-                scale_buffer_names.append("fp8_scale_input")
-            if config.cast_config_weight.scaling_type is ScalingType.DELAYED:
-                amax_buffer_names.append("fp8_amax_weight")
-                amax_history_buffer_names.append("fp8_amax_history_weight")
-                scale_buffer_names.append("fp8_scale_weight")
-            if config.cast_config_grad_output.scaling_type is ScalingType.DELAYED:
-                amax_buffer_names.append("fp8_amax_grad_output")
-                amax_history_buffer_names.append("fp8_amax_history_grad_output")
-                scale_buffer_names.append("fp8_scale_grad_output")
-
-            # verify all of the amax buffers got updated
-            max_float8_pos = {torch.finfo(dtype).max for dtype in FP8_TYPES}
-            for buffer_name in amax_buffer_names:
-                buffer_value = getattr(m_fp8, buffer_name)
-                for init_val in max_float8_pos:
-                    assert torch.ne(
-                        buffer_value, torch.tensor(init_val)
-                    ), f"{buffer_name} not filled, current value {buffer_value}"
-
-            # verify all of the amax history buffers got updated
-            for buffer_name in amax_history_buffer_names:
-                buffer_value = getattr(m_fp8, buffer_name)
-                assert torch.max(buffer_value) > 0.0, f"{buffer_name} not filled"
-
-            # verify all of the scale buffers got updated
-            for buffer_name in scale_buffer_names:
-                buffer_value = getattr(m_fp8, buffer_name)
-                assert torch.ne(
-                    buffer_value, torch.tensor(1.0)
-                ), f"{buffer_name} not filled, current value {buffer_value}"
-
-            # verify initialization flags got updated
-            assert m_fp8.is_amax_initialized, "Amax was not properly initialized"
-
     @pytest.mark.parametrize(
         "emulate", [True, False] if is_sm_at_least_89() else [True]
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
         "scaling_type_input",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_weight",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC],
+        [ScalingType.DYNAMIC],
     )
     @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("linear_bias", [False, True])
@@ -467,9 +410,6 @@ class TestFloat8Linear:
             nn.Linear(32, 32, device="cuda", dtype=linear_dtype),
         )
         config = Float8LinearConfig(
-            cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
             emulate=emulate,
         )
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
@@ -477,21 +417,15 @@ class TestFloat8Linear:
         # autocast off
         x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
         y = m(x)
-        if linear_requires_sync(config):
-            sync_float8_amax_and_scale_history(m)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
         # autocast on
         with torch.autocast("cuda"):
             y = m(x)
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m)
         assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
             y = m(x)
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m)
         assert (
             y.dtype == torch.bfloat16
         ), f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
@@ -510,40 +444,18 @@ class TestFloat8Linear:
 
         # Cast the module to dtype
         m = m.to(dtype=linear_dtype)
-        if linear_requires_sync(config):
-            # Check amax buffer types
-            for key in [
-                "fp8_amax_input",
-                "fp8_amax_history_input",
-                "fp8_scale_input",
-                "fp8_amax_weight",
-                "fp8_amax_history_weight",
-                "fp8_scale_weight",
-                "fp8_amax_grad_output",
-                "fp8_amax_history_grad_output",
-                "fp8_scale_grad_output",
-            ]:
-                assert (
-                    m._buffers[key].dtype == torch.float32
-                ), f"{key}.dtype is {m._buffers[key].dtype}, expected torch.float32"
 
         # autocast off
         x = torch.randn(16, 32, device="cuda", dtype=linear_dtype)
-        if linear_requires_sync(config):
-            sync_float8_amax_and_scale_history(m)
         y = m(x)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
         # autocast on
         with torch.autocast("cuda"):
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m)
             y = m(x)
         assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(m)
             y = m(x)
         assert (
             y.dtype == torch.bfloat16
@@ -552,7 +464,6 @@ class TestFloat8Linear:
     def test_repr(self):
         m = nn.Linear(32, 16)
         config = Float8LinearConfig(
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
             emulate=True,
         )
         m = Float8Linear.from_float(
@@ -560,7 +471,7 @@ class TestFloat8Linear:
             config=config,
         )
         s = m.__repr__()
-        assert "i:dyn_ten_e4m3,w:del_ten_e4m3,go:dyn_ten_e5m2" in s
+        assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
     @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
