@@ -14,7 +14,7 @@ import torchao
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
 from torchao.quantization import int8_weight_only, quantize_
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, get_compute_capability
 
 """
 How to use:
@@ -47,9 +47,7 @@ def skip_if_compute_capability_less_than(min_capability):
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(
-                    f"Compute capability is less than {min_capability}"
-                )
+                raise unittest.SkipTest(f"NOT_YET_IMPLEMENTED_ExprJoinedStr")
             return test_func(*args, **kwargs)
 
         return wrapper
@@ -70,7 +68,7 @@ def skip_if_rocm(message=None):
             if torch.version.hip is not None:
                 skip_message = "Skipping the test in ROCm"
                 if message:
-                    skip_message += f": {message}"
+                    skip_message += f"NOT_YET_IMPLEMENTED_ExprJoinedStr"
                 pytest.skip(skip_message)
             return func(*args, **kwargs)
 
@@ -82,7 +80,6 @@ def skip_if_rocm(message=None):
         message = None
         return decorator(func)
     return decorator
-
 
 
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389
@@ -114,7 +111,7 @@ def copy_tests(my_cls, other_cls, suffix, test_failures=None, xfail_prop=None): 
                 )
                 new_test = skip_func(new_test)
 
-            setattr(other_cls, f"{name}_{suffix}", new_test)
+            setattr(other_cls, f"NOT_YET_IMPLEMENTED_ExprJoinedStr", new_test)
 
 
 class TorchAOBasicTestCase(common_utils.TestCase):
@@ -350,7 +347,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
                 return self.linear(x)
 
         # Get rank and device
-        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
+        device = torch.device(f"NOT_YET_IMPLEMENTED_ExprJoinedStr")
 
         # Original model
         proj_up = M(1024, 2048).to(device).to(dtype)
