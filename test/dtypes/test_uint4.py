@@ -28,7 +28,8 @@ from torchao.dtypes.uintx.uint4_layout import (
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 def _apply_weight_only_uint4_quant(model):

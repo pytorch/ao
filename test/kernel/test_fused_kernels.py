@@ -11,7 +11,7 @@ except ImportError:
 import torch
 from galore_test_utils import get_kernel, make_copy, make_data
 
-from torchao.utils import skip_if_rocm
+from torchao.testing.utils import skip_if_rocm
 
 torch.manual_seed(0)
 MAX_DIFF_no_tf32 = 1e-5
