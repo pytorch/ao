@@ -47,7 +47,7 @@ def skip_if_compute_capability_less_than(min_capability):
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(f"NOT_YET_IMPLEMENTED_ExprJoinedStr")
+                raise unittest.SkipTest(f"Compute capability is less than {min_capability}")
             return test_func(*args, **kwargs)
 
         return wrapper
@@ -69,7 +69,7 @@ def skip_if_rocm(message=None):
             if torch.version.hip is not None:
                 skip_message = "Skipping the test in ROCm"
                 if message:
-                    skip_message += f"NOT_YET_IMPLEMENTED_ExprJoinedStr"
+                    skip_message += f": {message}"
                 pytest.skip(skip_message)
             return func(*args, **kwargs)
 
@@ -112,7 +112,7 @@ def copy_tests(my_cls, other_cls, suffix, test_failures=None, xfail_prop=None): 
                 )
                 new_test = skip_func(new_test)
 
-            setattr(other_cls, f"NOT_YET_IMPLEMENTED_ExprJoinedStr", new_test)
+            setattr(other_cls, f"{name}_{suffix}", new_test)
 
 
 class TorchAOBasicTestCase(common_utils.TestCase):
@@ -348,7 +348,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
                 return self.linear(x)
 
         # Get rank and device
-        device = torch.device(f"NOT_YET_IMPLEMENTED_ExprJoinedStr")
+        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
 
         # Original model
         proj_up = M(1024, 2048).to(device).to(dtype)
