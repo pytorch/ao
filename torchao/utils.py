@@ -7,7 +7,6 @@ from importlib.metadata import version
 from math import gcd
 from typing import Any, Callable, Tuple
 
-import pytest
 import torch
 import torch.nn.utils.parametrize as parametrize
 
@@ -16,7 +15,6 @@ __all__ = [
     "profiler_runner",
     "get_available_devices",
     "get_compute_capability",
-    "skip_if_compute_capability_less_than",
     "benchmark_torch_function_in_microseconds",
     "find_multiple",
     "_register_custom_op",
@@ -144,49 +142,6 @@ def get_compute_capability():
         capability = torch.cuda.get_device_capability()
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
-
-
-def skip_if_compute_capability_less_than(min_capability):
-    import unittest
-
-    def decorator(test_func):
-        def wrapper(*args, **kwargs):
-            if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(
-                    f"Compute capability is less than {min_capability}"
-                )
-            return test_func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-def skip_if_rocm(message=None):
-    """Decorator to skip tests on ROCm platform with custom message.
-
-    Args:
-        message (str, optional): Additional information about why the test is skipped.
-    """
-
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if torch.version.hip is not None:
-                skip_message = "Skipping the test in ROCm"
-                if message:
-                    skip_message += f": {message}"
-                pytest.skip(skip_message)
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    # Handle both @skip_if_rocm and @skip_if_rocm() syntax
-    if callable(message):
-        func = message
-        message = None
-        return decorator(func)
-    return decorator
 
 
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:

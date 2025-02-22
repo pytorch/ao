@@ -76,6 +76,7 @@ from torchao.quantization.utils import (
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
@@ -85,7 +86,6 @@ from torchao.utils import (
     benchmark_model,
     is_fbcode,
     is_sm_at_least_90,
-    skip_if_rocm,
     unwrap_tensor_subclass,
 )
 

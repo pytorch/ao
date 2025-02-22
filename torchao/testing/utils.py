@@ -14,7 +14,7 @@ import torchao
 from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
 from torchao.quantization import int8_weight_only, quantize_
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, get_compute_capability
 
 """
 How to use:
@@ -39,6 +39,50 @@ copy_tests(TorchAOBasicTestCase, MyTestCase, "my_test_case")
 if __name__ == "__main__":
     unittest.main()
 """
+
+
+def skip_if_compute_capability_less_than(min_capability):
+    import unittest
+
+    def decorator(test_func):
+        def wrapper(*args, **kwargs):
+            if get_compute_capability() < min_capability:
+                raise unittest.SkipTest(
+                    f"Compute capability is less than {min_capability}"
+                )
+            return test_func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def skip_if_rocm(message=None):
+    """Decorator to skip tests on ROCm platform with custom message.
+
+    Args:
+        message (str, optional): Additional information about why the test is skipped.
+    """
+    import pytest
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if torch.version.hip is not None:
+                skip_message = "Skipping the test in ROCm"
+                if message:
+                    skip_message += f": {message}"
+                pytest.skip(skip_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    # Handle both @skip_if_rocm and @skip_if_rocm() syntax
+    if callable(message):
+        func = message
+        message = None
+        return decorator(func)
+    return decorator
 
 
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389

@@ -33,7 +33,7 @@ from torchao.dtypes.nf4tensor import (
     nf4_weight_only,
     to_nf4,
 )
-from torchao.utils import skip_if_rocm
+from torchao.testing.utils import skip_if_rocm
 
 bnb_available = False
 

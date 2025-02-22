@@ -15,7 +15,8 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
 from torchao.sparsity.sparse_api import apply_fake_sparsity
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, skip_if_rocm
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class SparseMarlin24(TestCase):
