@@ -955,6 +955,13 @@ def linear_forward_8da4w(
         precision,
     )
 
+    print(f"w_dq dequantized: {w_dq}")
+    q_tensors = torch.load("/home/jackzhxng/torchrepos/executorch/fake_quantized_and_original_weights.pt")
+    correct_dequantized = q_tensors['q_after_quant_dequant']
+    torch.testing.assert_close(correct_dequantized, w_dq)
+    print("Weights quantized properly")
+    exit()
+
     # x = x.to(torch.float16)
     # w_dq = w_dq.to(torch.float16)
     c = torch.nn.functional.linear(x, w_dq)
