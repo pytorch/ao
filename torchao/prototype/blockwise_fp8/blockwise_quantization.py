@@ -61,7 +61,8 @@ def fp8_blockwise_quant_weight_kernel(x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.
     mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
     s = tl.max(tl.abs(x)) / 448.
-    y = (x / s).to(y_ptr.dtype.element_ty)
+    y = x / s
+    y = y.to(y_ptr.dtype.element_ty)
     tl.store(y_ptr + offs, y, mask=mask)
     tl.store(s_ptr + pid_m * n + pid_n, s)
 

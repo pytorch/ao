@@ -1,8 +1,13 @@
+from typing import Optional
+
 import torch
 from torch import nn
-from typing import Optional
-from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import blockwise_fp8_gemm 
-from torchao.prototype.blockwise_fp8.blockwise_quantization import fp8_blockwise_act_quant
+
+from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import blockwise_fp8_gemm
+from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+    fp8_blockwise_act_quant,
+)
+
 
 def linear(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor] = None, block_size = 128) -> torch.Tensor:
     x, scale = fp8_blockwise_act_quant(x, block_size)
