@@ -18,7 +18,7 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     is_sm_at_least_89,
-    is_sm_at_least_90
+    is_sm_at_least_90,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
