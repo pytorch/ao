@@ -7,7 +7,6 @@ from importlib.metadata import version
 from math import gcd
 from typing import Any, Callable, Tuple
 
-import pytest
 import torch
 import torch.nn.utils.parametrize as parametrize
 

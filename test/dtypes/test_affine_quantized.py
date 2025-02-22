@@ -20,13 +20,13 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_fbcode,
     is_sm_at_least_89,
 )
-from torchao.testing.utils import skip_if_rocm
 
 is_cusparselt_available = (
     hasattr(torch.backends, "cusparselt") and torch.backends.cusparselt.is_available()
