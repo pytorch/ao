@@ -1,3 +1,5 @@
+import functools
+
 import torch
 from torch import Tensor
 
@@ -606,6 +608,27 @@ def _(
     return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
 
 
+@functools.lru_cache()
+def _get_dtypes():
+    """TODO: when e8m0 is hardened and major release lets remove uint8 support"""
+    if hasattr(torch, "float8_e8m0fnu"):
+        return (torch.uint8, torch.float8_e8m0fnu)
+    return (torch.uint8,)
+
+
+def _check_scale_dtypes(A_scale, B_scale):
+    allowed_dtypes = _get_dtypes()
+
+    torch._check(
+        A_scale.dtype in allowed_dtypes,
+        lambda: f"A_scale tensor must be uint8 or float8_e8m0fnu, got {A_scale.dtype}",
+    )
+    torch._check(
+        B_scale.dtype in allowed_dtypes,
+        lambda: f"B_scale tensor must be uint8 or float8_e8m0fnu, got {B_scale.dtype}",
+    )
+
+
 def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Defines a matmul between two fp8 tensors w/ MX scales in E8MO and returns a bf16 tensor.
 
@@ -625,25 +648,7 @@ def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
         MXN bf16 Tensor
 
     """
-    torch._check(
-        A.dtype == torch.float8_e4m3fn,
-        lambda: f"Input tensor A must be float8_e4m3fn, got {A.dtype}",
-    )
-    torch._check(
-        B.dtype == torch.float8_e4m3fn,
-        lambda: f"Input tensor B must be float8_e4m3fn, got {B.dtype}",
-    )
-
-    # TODO - Once e8m0 dtype is added to core udpate
-    # Check scale tensors are uint8
-    torch._check(
-        A_scale.dtype == torch.uint8,
-        lambda: f"A_scale tensor must be uint8, got {A_scale.dtype}",
-    )
-    torch._check(
-        B_scale.dtype == torch.uint8,
-        lambda: f"B_scale tensor must be uint8, got {B_scale.dtype}",
-    )
+    _check_scale_dtypes(A_scale, B_scale)
     return torch.ops.torchao.mx_fp8_bf16.default(A, B, A_scale, B_scale)
 
 
@@ -674,6 +679,7 @@ def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
         MXN bf16 Tensor
 
     """
+    _check_scale_dtypes(A_scale, B_scale)
     return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
 
 
