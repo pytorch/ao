@@ -54,12 +54,12 @@ class TestFP8Gemm(TestCase):
             y_fp16.reshape(-1), y_triton.reshape(-1), dim=0
         )
 
-        assert cos_sim_torch > 0.99, (
-            f"fp16 vs torch cos_sim is too low: {cos_sim_torch}"
-        )
-        assert cos_sim_triton > 0.99, (
-            f"fp16 vs triton cos_sim is too low: {cos_sim_triton}"
-        )
+        assert (
+            cos_sim_torch > 0.99
+        ), f"fp16 vs torch cos_sim is too low: {cos_sim_torch}"
+        assert (
+            cos_sim_triton > 0.99
+        ), f"fp16 vs triton cos_sim is too low: {cos_sim_triton}"
 
     # https://pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html
     @skip_if_compute_capability_less_than(9.0)
