@@ -41,6 +41,50 @@ if __name__ == "__main__":
 """
 
 
+def skip_if_compute_capability_less_than(min_capability):
+    import unittest
+
+    def decorator(test_func):
+        def wrapper(*args, **kwargs):
+            if get_compute_capability() < min_capability:
+                raise unittest.SkipTest(
+                    f"Compute capability is less than {min_capability}"
+                )
+            return test_func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def skip_if_rocm(message=None):
+    """Decorator to skip tests on ROCm platform with custom message.
+
+    Args:
+        message (str, optional): Additional information about why the test is skipped.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if torch.version.hip is not None:
+                skip_message = "Skipping the test in ROCm"
+                if message:
+                    skip_message += f": {message}"
+                pytest.skip(skip_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    # Handle both @skip_if_rocm and @skip_if_rocm() syntax
+    if callable(message):
+        func = message
+        message = None
+        return decorator(func)
+    return decorator
+
+
+
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389
 def copy_tests(my_cls, other_cls, suffix, test_failures=None, xfail_prop=None):  # noqa: B902
     for name, value in my_cls.__dict__.items():
