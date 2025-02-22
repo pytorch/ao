@@ -7,7 +7,6 @@ from importlib.metadata import version
 from math import gcd
 from typing import Any, Callable, Tuple
 
-import pytest
 import torch
 import torch.nn.utils.parametrize as parametrize
 
@@ -168,6 +167,7 @@ def skip_if_rocm(message=None):
     Args:
         message (str, optional): Additional information about why the test is skipped.
     """
+    import pytest
 
     def decorator(func):
         @functools.wraps(func)
