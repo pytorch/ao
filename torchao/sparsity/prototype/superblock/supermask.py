@@ -1,11 +1,7 @@
-from torchao.prototype.sparsity.superblock.supermask import (
-    GetSubnet,
-    SupermaskConv2d,
+from torchao.sparsity.supermask import (
     SupermaskLinear,
 )
 
 __all__ = [
-    "GetSubnet",
-    "SupermaskConv2d",
     "SupermaskLinear",
 ]

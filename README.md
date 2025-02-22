@@ -29,16 +29,16 @@ For inference, we have the option of
 ```python
 from torchao.quantization.quant_api import (
     quantize_,
-    int8_dynamic_activation_int8_weight,
-    int4_weight_only,
-    int8_weight_only
+    Int8DynamicActivationInt8WeightConfig,
+    Int4WeightOnlyConfig,
+    Int8WeightOnlyConfig
 )
-quantize_(m, int4_weight_only())
+quantize_(m, Int4WeightOnlyConfig())
 ```
 
-For gpt-fast `int4_weight_only()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
+For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
 
-If you don't have enough VRAM to quantize your entire model on GPU and you find CPU quantization to be too slow then you can use the device argument like so `quantize_(model, int8_weight_only(), device="cuda")` which will send and quantize each layer individually to your GPU.
+If you don't have enough VRAM to quantize your entire model on GPU and you find CPU quantization to be too slow then you can use the device argument like so `quantize_(model, Int8WeightOnlyConfig(), device="cuda")` which will send and quantize each layer individually to your GPU.
 
 If you see slowdowns with any of these techniques or you're unsure which option to use, consider using [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers and pick the best way to quantize each layer.
 
@@ -63,12 +63,12 @@ Post-training quantization can result in a fast and compact model, but may also 
 ```python
 from torchao.quantization import (
     quantize_,
-    int8_dynamic_activation_int4_weight,
+    Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.qat import (
     FakeQuantizeConfig,
-    from_intx_quantization_aware_training,
-    intx_quantization_aware_training,
+    FromIntXQuantizationAwareTrainingConfig,
+    IntXQuantizationAwareTrainingConfig,
 )
 
 # Insert fake quantization
@@ -76,14 +76,14 @@ activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=Fal
 weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
 quantize_(
     my_model,
-    intx_quantization_aware_training(activation_config, weight_config),
+    IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
 )
 
 # Run training... (not shown)
 
 # Convert fake quantization to actual quantized operations
-quantize_(my_model, from_intx_quantization_aware_training())
-quantize_(my_model, int8_dynamic_activation_int4_weight(group_size=32))
+quantize_(my_model, FromIntXQuantizationAwareTrainingConfig())
+quantize_(my_model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 ```
 
 ### Float8
@@ -139,7 +139,7 @@ The best example we have combining the composability of lower bit dtype with com
 
 We've added support for authoring and releasing [custom ops](./torchao/csrc/) that do not graph break with `torch.compile()` so if you love writing kernels but hate packaging them so they work all operating systems and cuda versions, we'd love to accept contributions for your custom ops. We have a few examples you can follow
 
-1. [fp6](torchao/dtypes/floatx) for 2x faster inference over fp16 with an easy to use API `quantize_(model, fpx_weight_only(3, 2))`
+1. [fp6](torchao/dtypes/floatx) for 2x faster inference over fp16 with an easy to use API `quantize_(model, FPXWeightOnlyConfig(3, 2))`
 2. [2:4 Sparse Marlin GEMM](https://github.com/pytorch/ao/pull/733) 2x speedups for FP16xINT4 kernels even at batch sizes up to 256
 3. [int4 tinygemm unpacker](https://github.com/pytorch/ao/pull/415) which makes it easier to switch quantized backends for inference
 

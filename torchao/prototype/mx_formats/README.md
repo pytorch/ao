@@ -2,8 +2,8 @@
 
 This is a POC of training and inference with tensors in the MX format from the OCP spec (https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) in native PyTorch.
 
-Note that the current version of the code is written for readability and 
-numerical correctness and not yet for optimal performance. We welcome 
+Note that the current version of the code is written for readability and
+numerical correctness and not yet for optimal performance. We welcome
 contributions on performance improvements.
 
 Note that there are no BC guarantees at the moment and we plan to evolve
@@ -41,11 +41,22 @@ This is a module to do MX training, the MX matmul is currently emulated.
 
 ```python
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
+from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
+from torchao.utils import is_sm_at_least_100
+
+# early prototype: on MX-enabled hardware, you can use the real MX gemm backed by
+# torchao's CUTLASS kernels. In the future, we will also add cuBLAS kernel support.
+gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+if is_sm_at_least_100():
+    gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-elem_dtype = torch.float8_e4m3fn
-block_size = 32
-swap_linear_with_mx_linear(m, elem_dtype, block_size)
+config = MXLinearConfig(
+    elem_dtype=torch.float8_e4m3fn, 
+    block_size=32, 
+    gemm_kernel_choice=gemm_kernel_choice,
+)
+swap_linear_with_mx_linear(m, config=config)
 
 # training loop (not shown)
 ```
@@ -56,11 +67,11 @@ This is a module to do MX inference, weights are in MX and matmul is in high pre
 
 ```python
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_inference_linear
+from torchao.prototype.mx_formats.config import MXLinearConfig
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-elem_dtype = torch.float8_e4m3fn
-block_size = 32
-swap_linear_with_mx_inference_linear(m, elem_dtype, block_size)
+config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
+swap_linear_with_mx_inference_linear(m, config=config)
 
 # do inference (not shown)
 ```
@@ -93,7 +104,7 @@ python torchao/prototype/mx_formats/benchmarks/bench_qdq.py
 
 ## floating point format convenience functions
 
-We have a convenience script which summarizes the various properties of 
+We have a convenience script which summarizes the various properties of
 floating point formats:
 
 ```bash

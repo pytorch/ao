@@ -41,3 +41,34 @@ jobs:
       runner-type: macos-m1-stable
       smoke-test-script: test/smoke_test.py
       trigger-event: ${{ github.event_name }}
+  notify:
+    runs-on: ubuntu-latest
+    name: Email notification
+    needs: [generate-matrix, build]
+    if: failure() && github.event_name == 'schedule'
+    steps:
+      - uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: torchao.notify
+          password: ${{ secrets.TORCHAO_NOTIFY_PASSWORD }}
+          from: torchao.notify@gmail.com
+          to: ${{ secrets.TORCHAO_NOTIFY_RECIPIENT }}
+          subject: Scheduled Build Failure for TorchAO
+          body: |
+            Build Failure Notification for TorchAO
+            A failure occurred in the Build Linux Wheels workflow.
+            Run Details:
+            - Workflow: ${{ github.workflow }}
+            - Run Type: ${{ github.event_name }}
+            - Repository: ${{ github.repository }}
+            - Branch/PR: ${{ github.ref }}
+            - Commit: ${{ github.sha }}
+            You can view the full run details here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Error Information:
+            ${{ needs.generate-matrix.result == 'failure' && 'Matrix generation failed' || '' }}
+            ${{ needs.build.result == 'failure' && 'Build job failed' || '' }}
+            
+            This is an automated notification. Please check the GitHub Actions page for more details about the failure.

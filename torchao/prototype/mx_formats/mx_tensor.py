@@ -16,11 +16,12 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
   * Zeros: N/A
 """
 
+from enum import Enum, auto
 from typing import Dict, Union
 
 import torch
 
-import torchao.prototype.mx_formats.config as config
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP4,
@@ -53,11 +54,38 @@ from torchao.prototype.mx_formats.custom_cast import (
     unpack_uint4,
 )
 
+# TODO(later): read from somewhere else?
+SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
+EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
+EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
+EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
+EBITS_F8_E4M3, MBITS_F8_E4M3 = 4, 3
+EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
+
+
+class ScaleCalculationMode(Enum):
+    """
+    Enum representing the different methods for calculating MX block scaling.
+    There are three methods available:
+    FLOOR: This method is recommended by the OCP MX Spec 1.0 and uses X = 2^floor(log2(max_abs(v))-max_exp).
+           It result in overflow issues for large values and bad for gradient quantization.
+    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
+           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
+    EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
+           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+    By default, we use the EVEN method for better accuracy.
+    """
+
+    FLOOR = auto()
+    CEIL = auto()
+    EVEN = auto()
+
 
 def to_mx(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -88,25 +116,45 @@ def to_mx(
     # where the values are zero.
     eps = F32_MIN_NORMAL * (max_abs == 0).type(max_abs.dtype)
 
-    # Find largest power of 2 less than or equal to max_abs.
-    largest_p2_lt_max_abs = torch.floor(torch.log2(max_abs + eps))
-
     # Set X to be the largest power-of-two less than or equal to
     # max_abs(v), divided by the largest power of two representable
-    # in the element data type
+    # in the element data type, and get the mbits at the same time
     if elem_dtype == torch.float8_e4m3fn:
         target_max_pow2 = F8E4M3_MAX_POW2
+        mbits = MBITS_F8_E4M3
     elif elem_dtype == torch.float8_e5m2:
         target_max_pow2 = F8E5M2_MAX_POW2
+        mbits = MBITS_F8_E5M2
     elif elem_dtype == DTYPE_FP6_E2M3:
         target_max_pow2 = F6_E2M3_MAX_POW2
+        mbits = MBITS_F6_E2M3
     elif elem_dtype == DTYPE_FP6_E3M2:
         target_max_pow2 = F6_E3M2_MAX_POW2
+        mbits = MBITS_F6_E3M2
     elif elem_dtype == DTYPE_FP4:
         target_max_pow2 = F4_E2M1_MAX_POW2
+        mbits = MBITS_F4_E2M1
     else:
-        raise AssertionError("unsupported")
-    scale_e8m0_unbiased = largest_p2_lt_max_abs - target_max_pow2
+        raise AssertionError("unsupported element dtype")
+
+    # rounding before calculating the largest power of 2
+    # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
+    if scaling_mode == ScaleCalculationMode.EVEN:
+        nan_mask = torch.isnan(max_abs)
+        max_abs = max_abs.to(torch.float32).view(torch.int32)
+        val_to_add = 1 << (MBITS_F32 - mbits - 1)
+        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+        max_abs = (max_abs + val_to_add) & mask
+        max_abs = max_abs.view(torch.float32)
+        max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
+
+    # Calculate the scale for different modes
+    if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
+        scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + eps)) - target_max_pow2
+    elif scaling_mode == ScaleCalculationMode.CEIL:
+        scale_e8m0_unbiased = torch.ceil(torch.log2(max_abs + eps)) - target_max_pow2
+    else:
+        raise AssertionError("unsupported scaling calculation mode")
 
     # Clamp to exponents that can be represented in e8m0
     scale_e8m0_unbiased = torch.clamp(
@@ -191,7 +239,14 @@ def get_fp_scale(scale_e8m0):
     return s_fp
 
 
-def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
+def to_dtype(
+    data_lp,
+    scale_e8m0,
+    elem_dtype,
+    block_size,
+    target_dtype,
+    use_fp4_custom_triton_dequant_kernel,
+):
     orig_shape = data_lp.shape
     is_transposed = not data_lp.is_contiguous()
     # if the underlying data is transposed, convert to row major before
@@ -210,7 +265,7 @@ def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
         data_hp = f6_e3m2_unpacked_to_f32(data_lp)
         data_hp = data_hp.to(target_dtype)
     elif elem_dtype == DTYPE_FP4:
-        if config.use_fp4_custom_triton_dequant_kernel:
+        if use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
                 data_lp,
                 scale_e8m0,
@@ -270,15 +325,31 @@ class ToMXConstrFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, data_hp, elem_dtype, block_size):
-        scale_e8m0_biased, data_lp = to_mx(data_hp, elem_dtype, block_size)
+    def forward(
+        ctx,
+        data_hp,
+        elem_dtype,
+        block_size,
+        scaling_mode,
+        use_fp4_custom_triton_dequant_kernel,
+        gemm_kernel_choice,
+    ):
+        scale_e8m0_biased, data_lp = to_mx(
+            data_hp, elem_dtype, block_size, scaling_mode
+        )
         return MXTensor(
-            scale_e8m0_biased, data_lp, elem_dtype, block_size, data_hp.dtype
+            scale_e8m0_biased,
+            data_lp,
+            elem_dtype,
+            block_size,
+            data_hp.dtype,
+            use_fp4_custom_triton_dequant_kernel,
+            gemm_kernel_choice,
         )
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None
+        return g, None, None, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -295,6 +366,7 @@ class FromMXConstrFunc(torch.autograd.Function):
             tensor_lp._elem_dtype,
             tensor_lp._block_size,
             target_dtype,
+            tensor_lp._use_fp4_custom_triton_dequant_kernel,
         )
 
     @staticmethod
@@ -310,6 +382,8 @@ class MXTensor(torch.Tensor):
         elem_dtype,
         block_size,
         orig_dtype,
+        use_fp4_custom_triton_dequant_kernel,
+        gemm_kernel_choice,
     ):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
@@ -367,6 +441,10 @@ class MXTensor(torch.Tensor):
         self._elem_dtype = elem_dtype
         self._block_size = block_size
         self._orig_dtype = orig_dtype
+        self._use_fp4_custom_triton_dequant_kernel = (
+            use_fp4_custom_triton_dequant_kernel
+        )
+        self._gemm_kernel_choice = gemm_kernel_choice
         return self
 
     def __repr__(self):
@@ -392,14 +470,26 @@ class MXTensor(torch.Tensor):
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+        use_fp4_custom_triton_dequant_kernel: bool = False,
+        gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
     ):
-        return ToMXConstrFunc.apply(data_hp, elem_dtype, block_size)
+        return ToMXConstrFunc.apply(
+            data_hp,
+            elem_dtype,
+            block_size,
+            scaling_mode,
+            use_fp4_custom_triton_dequant_kernel,
+            gemm_kernel_choice,
+        )
 
     def __tensor_flatten__(self):
         ctx = {
             "_elem_dtype": self._elem_dtype,
             "_block_size": self._block_size,
             "_orig_dtype": self._orig_dtype,
+            "_use_fp4_custom_triton_dequant_kernel": self._use_fp4_custom_triton_dequant_kernel,
+            "_gemm_kernel_choice": self._gemm_kernel_choice,
         }
         return ["_scale_e8m0", "_data"], ctx
 
@@ -416,6 +506,8 @@ class MXTensor(torch.Tensor):
             metadata["_elem_dtype"],
             metadata["_block_size"],
             metadata["_orig_dtype"],
+            metadata["_use_fp4_custom_triton_dequant_kernel"],
+            metadata["_gemm_kernel_choice"],
         )
 
     # Do not force the MXTensor type on the returned tensor

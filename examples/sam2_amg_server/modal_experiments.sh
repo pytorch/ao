@@ -2,28 +2,45 @@
 
 set -ex
 
-# outputdir="/Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1"
-# while IFS= read -r filepath; do
-#   filename=$(basename "$filepath")
-#   dirname=$(basename "$(dirname "$filepath")")
-#   mkdir -p "${outputdir}"/"${dirname}"
-#   echo curl -w "\"%{time_total}s\\\\n\"" -s -X POST https://cpuhrsch--torchao-sam-2-cli-model-upload-rle.modal.run -F "image=@${filepath}" -o "${outputdir}"/"${dirname}"/"${filename}.json"
-#   echo "${filepath}" >> cmds_input_paths
-#   echo "${outputdir}"/"${dirname}"/"${filename}.json" >> cmds_output_paths
-# done < ~/data/sav_val_image_paths_shuf_1000
+# amg baseline
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-amg-baseline
+mkdir -p ~/blogs/outputs/amg_baseline
+time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/amg_baseline --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-amg-baseline --baseline
+modal app stop torchao-sam-2-cli-amg-baseline
 
-# time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_amg --output-rle False --meta-paths ~/blogs/cmds_meta_paths
-# time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_sps --output-rle False --meta-paths ~/blogs/cmds_meta_paths
-# time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory /Users/cpuhrsch/blogs/tmp/sam2_amg_example_run_1_mps --output-rle False --meta-paths ~/blogs/cmds_meta_paths
+# sps baseline
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-sps-baseline
+mkdir -p ~/blogs/outputs/sps_baseline
+time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/sps_baseline --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-sps-baseline --baseline
+modal app stop torchao-sam-2-cli-sps-baseline
 
-# # amg
-# modal deploy cli_on_modal.py
-# time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_amg --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/amg_latencies
+# mps baseline
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-mps-baseline
+mkdir -p ~/blogs/outputs/mps_baseline
+time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/mps_baseline --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-mps-baseline --baseline
+modal app stop torchao-sam-2-cli-mps-baseline
 
-# # sps
-# modal deploy cli_on_modal.py
-# time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_sps --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/sps_latencies
+# amg
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-amg
+mkdir -p ~/blogs/outputs/amg
+time python cli_on_modal.py --task-type amg --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/amg --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-amg
+modal app stop torchao-sam-2-cli-amg
+
+# sps
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-sps
+mkdir -p ~/blogs/outputs/sps
+time python cli_on_modal.py --task-type sps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/sps --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-sps
+modal app stop torchao-sam-2-cli-sps
 
 # mps
-modal deploy cli_on_modal.py
-time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/tmp/sam2_amg_example_run_1_mps --output-rle True --meta-paths ~/blogs/cmds_meta_paths | tee ~/blogs/mps_latencies
+modal deploy cli_on_modal.py --name torchao-sam-2-cli-mps
+mkdir -p ~/blogs/outputs/mps
+time python cli_on_modal.py --task-type mps --input-paths ~/blogs/cmds_input_paths --output_directory ~/blogs/outputs/mps --output-rle True --meta-paths ~/blogs/cmds_meta_paths --name torchao-sam-2-cli-mps
+modal app stop torchao-sam-2-cli-mps
+
+echo "amg vs baseline"
+python compare_rle_lists.py ~/blogs/outputs/amg  ~/blogs/outputs/amg_baseline --compare-folders --strict
+echo "sps vs baseline"                                               
+python compare_rle_lists.py ~/blogs/outputs/sps  ~/blogs/outputs/sps_baseline --compare-folders --strict
+echo "mps vs baseline"                                               
+python compare_rle_lists.py ~/blogs/outputs/mps  ~/blogs/outputs/mps_baseline --compare-folders --strict

@@ -31,6 +31,9 @@ from torchao.quantization.qat.api import (
 from torchao.quantization.qat.embedding import (
     FakeQuantizedEmbedding,
 )
+from torchao.quantization.qat.fake_quantizer import (
+    FakeQuantizer,
+)
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
     Int4WeightOnlyQATLinear,
@@ -127,6 +130,21 @@ class M3(torch.nn.Module):
         x = self.linear1(x)
         x = self.linear2(x)
         x = self.relu(x)
+        return x
+
+
+class ModelWithLinearBias(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(512, 256, bias=True)
+        self.linear2 = torch.nn.Linear(256, 512, bias=True)
+
+    def example_inputs(self):
+        return (torch.randn(1, 512),)
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -1185,7 +1203,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_quantize_api(self):
+    def test_quantize_api_standalone(self):
         """
         Test that the following:
 
@@ -1347,6 +1365,40 @@ class TestQAT(unittest.TestCase):
         out1 = linear1(*x)
         out2 = linear2(*x2)
         torch.testing.assert_close(out1, out2, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or lower"
+    )
+    def test_fake_quantizer_repr(self):
+        """
+        Test that `repr(FakeQuantizer(config))` exposes useful config details.
+        """
+        config = FakeQuantizeConfig(torch.int4, group_size=128)
+        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer_repr = repr(fake_quantizer)
+        self.assertTrue("dtype=torch.int4" in fake_quantizer_repr)
+        self.assertTrue("group_size=128" in fake_quantizer_repr)
+        self.assertTrue("PerGroup" in fake_quantizer_repr)
+        self.assertTrue("MappingType.SYMMETRIC" in fake_quantizer_repr)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_linear_bias(self):
+        """
+        Test that QAT supports linear bias.
+        """
+        m = ModelWithLinearBias()
+        activation_config = FakeQuantizeConfig(
+            torch.int8, "per_token", is_symmetric=False
+        )
+        weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=32)
+        quantize_(
+            m,
+            intx_quantization_aware_training(activation_config, weight_config),
+        )
+        example_inputs = m.example_inputs()
+        m(*example_inputs)
 
 
 if __name__ == "__main__":

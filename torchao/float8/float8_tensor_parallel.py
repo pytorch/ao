@@ -36,6 +36,11 @@ def _float8_linear_supports_float8_allgather(m):
 
 
 class Float8ColwiseParallel(ColwiseParallel):
+    """
+    Like `ColwiseParallel`, but with all-gather in float8. This
+    currently assumes tensorwise scaling.
+    """
+
     @staticmethod
     def _prepare_input_fn(
         input_layouts, desired_input_layouts, mod, inputs, device_mesh
@@ -96,6 +101,11 @@ class Float8ColwiseParallel(ColwiseParallel):
 
 
 class Float8RowwiseParallel(RowwiseParallel):
+    """
+    Like `RowwiseParallel`, but with all-gather in float8. This
+    currently assumes tensorwise scaling.
+    """
+
     @staticmethod
     def _prepare_input_fn(
         input_layouts, desired_input_layouts, mod, inputs, device_mesh
@@ -154,18 +164,23 @@ class Float8RowwiseParallel(RowwiseParallel):
 
 
 class PrepareFloat8ModuleInput(PrepareModuleInput):
-    # subclass the PrepareModuleInput classes to implement fp8 specific logic, the only difference is that
-    # after we prepare the input DTensor, we cast the input to DTensor(Float8Tensor)
-    # This is to ensure the float8 cast happens before the all-gather (i.e. Shard -> Replicate)
-    # so that if there are multiple float8 users of the input activation, we perform fp8 allgather
-    # only once.
-    # FP8 Args:
-    #   float8_dtype (torch.dtype, optional): control what float8 dtype to cast to when prepare the module input,
-    #       we currently only support torch.float8_e4m3fn. default: torch.float8_e4m3fn
-    #   fwd_config_submodule_fqn (str, optional): the fqn of the submodule that contains the forward config used
-    #       for the float8 cast. If not specified, we will search for the Float8Linear in the submodules
-    #       and use the forward config from that module, in this case all module's forward config must be
-    #       the same.
+    """
+    Like `PrepareModuleInput`, but with all-gather in float8. This
+    currently assumes tensorwise scaling.
+
+    The only difference from `PrepareModuleInput` is that
+    after we prepare the input DTensor, we cast the input to DTensor(Float8Tensor)
+    This is to ensure the float8 cast happens before the all-gather (i.e. Shard -> Replicate)
+    so that if there are multiple float8 users of the input activation, we perform fp8 allgather
+    only once.
+    FP8 Args:
+      float8_dtype (torch.dtype, optional): control what float8 dtype to cast to when prepare the module input,
+          we currently only support torch.float8_e4m3fn. default: torch.float8_e4m3fn
+      fwd_config_submodule_fqn (str, optional): the fqn of the submodule that contains the forward config used
+          for the float8 cast. If not specified, we will search for the Float8Linear in the submodules
+          and use the forward config from that module, in this case all module's forward config must be
+          the same.
+    """
 
     def __init__(
         self,

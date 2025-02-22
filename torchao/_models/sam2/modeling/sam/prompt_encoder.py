@@ -186,6 +186,12 @@ class PromptEncoder(nn.Module):
           torch.Tensor: dense embeddings for the masks, in the shape
             Bx(embed_dim)x(embed_H)x(embed_W)
         """
+        # if boxes is not None:
+        #     raise ValueError("Currently do not support boxes. "
+        #                      "Please create an issue on pytorch/ao.")
+        # if masks is not None:
+        #     raise ValueError("Currently do not support masks. "
+        #                      "Please create an issue on pytorch/ao.")
         bs = self._get_batch_size(points, boxes, masks)
         sparse_embeddings = torch.empty(
             (bs, 0, self.embed_dim), device=self._get_device()

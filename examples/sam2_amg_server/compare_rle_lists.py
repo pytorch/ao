@@ -1,10 +1,26 @@
 import json
 from pathlib import Path
+from typing import Any, Dict
 
 import fire
+import numpy as np
 import torch
 
-from torchao._models.sam2.utils.amg import rle_to_mask
+
+# from torchao._models.sam2.utils.amg import rle_to_mask
+def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
+    """Compute a binary mask from an uncompressed RLE."""
+    h, w = rle["size"]
+    mask = np.empty(h * w, dtype=bool)
+    idx = 0
+    parity = False
+    for count in rle["counts"]:
+        mask[idx : idx + count] = parity
+        idx += count
+        parity ^= True
+    mask = mask.reshape(w, h)
+    return mask.transpose()  # Put in C order
+
 
 """
 Script to calculate mIoU given two lists of rles from upload_rle endpoint
@@ -20,6 +36,10 @@ def iou(mask1, mask2):
     return intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2))
 
 
+def area_from_rle(rle: Dict[str, Any]) -> int:
+    return sum(rle["counts"][1::2])
+
+
 def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
     v0_areas = []
     v1_areas = []
@@ -27,8 +47,6 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
     v1_masks = []
     for k0 in ref_masks:
         assert k0 in masks, f"Expected {k0} to be in return data"
-        from torchao._models.sam2.utils.amg import area_from_rle
-
         v0_area = area_from_rle(ref_masks[k0])
         v1_area = area_from_rle(masks[k0])
         v0_areas.append(v0_area)
