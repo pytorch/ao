@@ -35,11 +35,9 @@ from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
 )
 
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.config import Float8LinearConfig
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_utils import compute_error
 
@@ -77,19 +75,13 @@ def get_model(K, N, base_dtype=torch.float32):
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
     torch.cuda.set_device(rank)
+    print("args", args)
 
-    emulate, base_dtype, compile, use_weight_dynamic_scaling = args
+    emulate, base_dtype, compile = args
     model = get_model(K, N, base_dtype=base_dtype).to(rank)
     model_fp8 = copy.deepcopy(model)
 
-    scaling_type_weight = (
-        ScalingType.DYNAMIC if use_weight_dynamic_scaling else ScalingType.DELAYED
-    )
-    config = Float8LinearConfig(
-        cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-        # TODO(future): delete this arg as it's always False
-        emulate=False,
-    )
+    config = Float8LinearConfig()
 
     # Note: we only iterate over `scaling_type_weight` because FSDP only interacts
     # with weights.
@@ -110,6 +102,7 @@ def fsdp_main(rank, world_size, args):
     # Note: we need two different inputs to properly measure the impact of
     # delayed scaling, before the first input uses dynamic scaling to
     # populate the buffers
+    # TODO(future PR): delete ^, since we deleted delayed scaling
     ref_input_global = [
         torch.randn(B, M, K).cuda().to(base_dtype),
         torch.randn(B, M, K).cuda().to(base_dtype),
@@ -133,16 +126,10 @@ def fsdp_main(rank, world_size, args):
             ref_grad_global[idx][bsz_local_start:bsz_local_end].to(rank)
         )
 
-    sync_float8_func = sync_float8_amax_and_scale_history
-    if compile:
-        sync_float8_func = torch.compile(sync_float8_amax_and_scale_history)
-
     def forward_backward(model, optim, is_fp8, i):
         optim.zero_grad()
         y_local = model(ref_input_local[i])
         y_local.backward(ref_grad_local[i])
-        if is_fp8 and linear_requires_sync(config):
-            sync_float8_func(model)
         optim.step()
         return y_local
 
@@ -193,7 +180,7 @@ def fsdp_main(rank, world_size, args):
     cleanup()
 
 
-def run(compile_fsdp: bool = False, use_weight_dynamic_scaling: bool = False):
+def run(compile_fsdp: bool = False):
     base_dtype = torch.bfloat16
 
     emulate = False
@@ -207,7 +194,7 @@ def run(compile_fsdp: bool = False, use_weight_dynamic_scaling: bool = False):
         emulate = True
 
     WORLD_SIZE = torch.cuda.device_count()
-    args = (emulate, base_dtype, compile_fsdp, use_weight_dynamic_scaling)
+    args = (emulate, base_dtype, compile_fsdp)
     mp.spawn(fsdp_main, args=(WORLD_SIZE, args), nprocs=WORLD_SIZE, join=True)
 
 

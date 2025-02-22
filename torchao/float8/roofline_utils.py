@@ -38,78 +38,30 @@ def get_tensor_memory_traffic_bytes(
     # assumes input bf16, output f8
     numel = dim0 * dim1
 
-    if scaling_type == "dynamic":
-        # x_bf16 = ...
-        # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
-        # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
-        # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8
+    assert scaling_type == "dynamic", "unsupported"
+    # x_bf16 = ...
+    # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
+    # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
+    # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8
 
-        if fuse_with_prev:
-            kernel_1_rw = 0
-        else:
-            # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
-            kernel_1_rw = BYTES_PER_EL_BF16 * numel
-
-        # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
-        kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
-
-        if model_torch_compile_limitations:
-            # today, the kernel to do cast_to_fp8_row_major_and_col_major(input_bf16, ...)
-            # has an extra memory read of the input in fp8
-            # context: https://github.com/pytorch/pytorch/issues/130015
-            tc_adjustment = numel * BYTES_PER_EL_FLOAT8
-        else:
-            tc_adjustment = 0
-
-        return kernel_1_rw + kernel_3_rw + tc_adjustment
-
+    if fuse_with_prev:
+        kernel_1_rw = 0
     else:
-        assert scaling_type == "delayed", "unsupported"
-        # x_bf16 = ...
-        # kernel 1:               x_bf16 -> max_abs_stage_1_and_to_float8 -> x_float8, tmp
-        # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
-        # kernel 3 (not modeled): scale -> reciprocal -> inv_scale
+        # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
+        kernel_1_rw = BYTES_PER_EL_BF16 * numel
 
-        if fuse_with_prev:
-            kernel_1_r = 0
-        else:
-            kernel_1_r = numel * BYTES_PER_EL_BF16
-        # write twice: once in row major, once in col-major
-        kernel_1_w = numel * BYTES_PER_EL_FLOAT8 * 2
+    # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
+    kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
 
-        if model_torch_compile_limitations:
-            # today, the kernel to do cast_to_fp8_row_major_and_col_major(input_bf16, ...)
-            # has an extra memory read of the input in fp8
-            # context: https://github.com/pytorch/pytorch/issues/130015
-            tc_adjustment = numel * BYTES_PER_EL_FLOAT8
+    if model_torch_compile_limitations:
+        # today, the kernel to do cast_to_fp8_row_major_and_col_major(input_bf16, ...)
+        # has an extra memory read of the input in fp8
+        # context: https://github.com/pytorch/pytorch/issues/130015
+        tc_adjustment = numel * BYTES_PER_EL_FLOAT8
+    else:
+        tc_adjustment = 0
 
-            # https://github.com/pytorch/pytorch/issues/128063
-            # instead of
-            #   kernel 1: x_bf16 -> max(abs(x)), x_fp8
-            #   kernel 2: not modeled
-            #   kernel 3: not modeled
-            # we get
-            #   kernel 1: x_bf16 -> max(abs(x))
-            #     reads: same as before
-            #     writes: 0
-            #   ...
-            #   kernel 4: x_bf16, scale -> x_fp8
-            #     reads: numel * BYTES_PER_EL_BF16
-            #     writes: 2 * numel * BYTES_PER_EL_FLOAT8
-            # Note that assuming worst case, this issue brings the memory
-            # traffic for delayed scaling to be equal to that of dynamic scaling.
-            tc_adjustment += (
-                # subtract writes from kernel 1
-                -1 * 2 * numel * BYTES_PER_EL_FLOAT8
-                # add reads for kernel 4
-                + numel * BYTES_PER_EL_BF16
-                # add writes for kernel 4
-                + 2 * numel * BYTES_PER_EL_FLOAT8
-            )
-        else:
-            tc_adjustment = 0
-
-        return kernel_1_r + kernel_1_w + tc_adjustment
+    return kernel_1_rw + kernel_3_rw + tc_adjustment
 
 
 def get_gemm_time_sympy(M, K, N, dtype):
@@ -131,9 +83,9 @@ def get_float8_mem_sympy(
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
 ):
-    assert scaling_type_input in ("dynamic", "delayed"), "unsupported"
-    assert scaling_type_weight in ("dynamic", "delayed"), "unsupported"
-    assert scaling_type_grad_output in ("dynamic", "delayed"), "unsupported"
+    assert scaling_type_input in ("dynamic",), "unsupported"
+    assert scaling_type_weight in ("dynamic",), "unsupported"
+    assert scaling_type_grad_output in ("dynamic",), "unsupported"
 
     # there are three gemms in the fwd/bwd of a linear:
     #
@@ -207,26 +159,11 @@ def get_float8_mem_sympy(
     if scaling_type_input == "dynamic":
         # second stage of max-abs reduction
         num_extra_kernels += 1
-    elif scaling_type_input == "delayed":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
-        # reciprocal of scale
-        num_extra_kernels += 1
     if scaling_type_weight == "dynamic":
         # second stage of max-abs reduction
         num_extra_kernels += 1
-    elif scaling_type_weight == "delayed":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
-        # reciprocal of scale
-        num_extra_kernels += 1
     if scaling_type_grad_output == "dynamic":
         # second stage of max-abs reduction
-        num_extra_kernels += 1
-    elif scaling_type_grad_output == "delayed":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
-        # reciprocal of scale
         num_extra_kernels += 1
 
     extra_kernel_overhead_s = num_extra_kernels * TRITON_KERNEL_1_ELEMENT_TIME_SEC

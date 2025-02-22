@@ -33,19 +33,15 @@ from utils import (
     kernel_name_to_category,
     parse_bw_and_kernel_name,
     profiler_output_to_filtered_time_by_kernel_name,
-    profiler_output_to_gpu_time_for_key,
     update_triton_kernels_in_prof_chome_trace_with_torch_logs,
 )
 
-from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
@@ -286,9 +282,7 @@ def main(
     model_type: str = "linear",
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
-    enable_sync_amax_history: bool = True,
     enable_activation_checkpointing: bool = False,
-    enable_float8_delayed_scaling_inductor_passes: bool = False,
 ):
     assert model_type in (
         "linear",
@@ -325,12 +319,6 @@ def main(
     print(
         f"enable_activation_checkpointing is set to {enable_activation_checkpointing}"
     )
-    print(
-        f"enable_float8_delayed_scaling_inductor_passes is set to {enable_float8_delayed_scaling_inductor_passes}"
-    )
-
-    if enable_float8_delayed_scaling_inductor_passes:
-        _prototype_register_float8_delayed_scaling_inductor_passes()
 
     device = "cuda"
     ref_dtype = torch.bfloat16
@@ -388,17 +376,9 @@ def main(
             out = m_float8(x)
         return out
 
-    sync_amax_history = sync_float8_amax_and_scale_history
-
     def float8_forw_backward_wrapper(x):
-        # sync_float8_amax_and_scale_history is not full graph torch
-        # compile friendly, so we add a high level wrapper to allow
-        # inspection of the fw+bw torch.compile without the scale
-        # syncing code
-        # TODO(future): make this better
-        if linear_requires_sync(config) and enable_sync_amax_history:
-            with record_function("scale_amax_and_scales"):
-                sync_amax_history(m_float8)
+        # TODO(future PR): this wrapper is for delayed scaling, we can clean it
+        # up now that delayed scaling is deprecated.
         out = float8_forw(x)
 
         # out.sum().backward() is also not torch.compile fullgraph
@@ -409,11 +389,6 @@ def main(
     if compile:
         m_ref = torch.compile(m_ref, fullgraph=True)
         float8_forw = torch.compile(float8_forw, fullgraph=True)
-        # Note: it's faster to compile the combination of sync_amax_history wit
-        # forward because we only look up from dynamo cache once.
-        # However, compiling the sync function separately makes it more
-        # convenient to analyze the total time spent on it.
-        sync_amax_history = torch.compile(sync_amax_history)
 
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
@@ -529,13 +504,6 @@ def main(
                         ]
                     )
 
-                # get the time spent per user annotation
-                sync_time_us = profiler_output_to_gpu_time_for_key(
-                    p, "scale_amax_and_scales"
-                )
-                sync_time_ms = sync_time_us / profile_iters / 1e3
-                print(f"Sync time ms: {sync_time_ms}")
-
     finally:
         if f is not None:
             # print the redirected stdout back to regular stdout
@@ -585,14 +553,6 @@ def main(
     if dtype_filter == "both":
         df_p["f8_div_ref"] = df_p["1_float8"] / df_p["0_ref"]
         df_p["ref_div_f8"] = df_p["0_ref"] / df_p["1_float8"]
-
-        # calculate sync time as pct of total float time
-        # note: this time is not useful if TORCHINDUCTOR_PROFILE is on
-        total_float8_ms = df_p.iloc[3]["1_float8"]
-        sync_approx_ratio = sync_time_ms / total_float8_ms
-        print(
-            f"\nFloat8 amax/scale sync approx ratio of total time: {sync_approx_ratio:.3f}"
-        )
 
     print("\nSummary of time (ms) by kernel category\n\n", df_p)
 
