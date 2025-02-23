@@ -22,14 +22,16 @@ def fp8_blockwise_quant_act_kernel(x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr
     pid = tl.program_id(axis=0)
     offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     x = tl.load(x_ptr + offs).to(tl.float32)
-    s = tl.max(tl.abs(x)) / 448.
+    s = tl.max(tl.abs(x)) / 448.0
     y = x / s
     y = y.to(y_ptr.dtype.element_ty)
     tl.store(y_ptr + offs, y)
     tl.store(s_ptr + pid, s)
 
 
-def fp8_blockwise_act_quant(x: torch.Tensor, block_size: int = 128) -> Tuple[torch.Tensor, torch.Tensor]:
+def fp8_blockwise_act_quant(
+    x: torch.Tensor, block_size: int = 128
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantizes the input tensor `x` using block-wise quantization with block size being BLOCK_SIZEx1.
 
@@ -42,16 +44,21 @@ def fp8_blockwise_act_quant(x: torch.Tensor, block_size: int = 128) -> Tuple[tor
             - The quantized tensor with dtype `torch.float8_e4m3fn`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
-    assert x.is_contiguous(), 'Input tensor must be contiguous'
-    assert x.size(-1) % block_size == 0, f'Last dimension size must be divisible by block_size (block_size={block_size})'
+    assert x.is_contiguous(), "Input tensor must be contiguous"
+    assert (
+        x.size(-1) % block_size == 0
+    ), f"Last dimension size must be divisible by block_size (block_size={block_size})"
     y = torch.empty_like(x, dtype=torch.float8_e4m3fn)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
-    grid = lambda meta: (triton.cdiv(x.numel(), meta['BLOCK_SIZE']), )
+    grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
     fp8_blockwise_quant_act_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
     return y, s
 
+
 @triton.jit
-def fp8_blockwise_quant_weight_kernel(x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr):
+def fp8_blockwise_quant_weight_kernel(
+    x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr
+):
     """
     Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factors in `s_ptr`.
 
@@ -71,7 +78,7 @@ def fp8_blockwise_quant_weight_kernel(x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.
     offs = offs_m[:, None] * N + offs_n[None, :]
     mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
-    s = tl.max(tl.abs(x)) / 448.
+    s = tl.max(tl.abs(x)) / 448.0
     y = x / s
     y = y.to(y_ptr.dtype.element_ty)
     tl.store(y_ptr + offs, y, mask=mask)
@@ -91,19 +98,26 @@ def fp8_blockwise_weight_quant(x: torch.Tensor, block_size: int = 128):
             - The quantized weight tensor with dtype `torch.float8_e4m3fn`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
-    assert x.is_contiguous(), 'Input tensor must be contiguous'
-    assert x.dim() == 2, 'Input tensor must have 2 dimensions'
-    assert x.size(0) % block_size == 0 and x.size(1) % block_size == 0, \
-        f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
+    assert x.is_contiguous(), "Input tensor must be contiguous"
+    assert x.dim() == 2, "Input tensor must have 2 dimensions"
+    assert (
+        x.size(0) % block_size == 0 and x.size(1) % block_size == 0
+    ), f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
     M, N = x.size()
     y = torch.empty_like(x, dtype=torch.float8_e4m3fn)
     s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
-    grid = lambda meta: (triton.cdiv(M, meta['BLOCK_SIZE']), triton.cdiv(N, meta['BLOCK_SIZE']))
+    grid = lambda meta: (
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(N, meta["BLOCK_SIZE"]),
+    )
     fp8_blockwise_quant_weight_kernel[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
     return y, s
 
+
 @triton.jit
-def fp8_blockwise_dequant_weight_kernel(x_ptr, s_ptr, y_ptr, M, N, BLOCK_SIZE: tl.constexpr):
+def fp8_blockwise_dequant_weight_kernel(
+    x_ptr, s_ptr, y_ptr, M, N, BLOCK_SIZE: tl.constexpr
+):
     """
     Dequantizes weights using the provided scaling factors and stores the result.
 
@@ -131,7 +145,9 @@ def fp8_blockwise_dequant_weight_kernel(x_ptr, s_ptr, y_ptr, M, N, BLOCK_SIZE: t
     tl.store(y_ptr + offs, y, mask=mask)
 
 
-def fp8_blockwise_weight_dequant(x: torch.Tensor, s: torch.Tensor, block_size: int = 128) -> torch.Tensor:
+def fp8_blockwise_weight_dequant(
+    x: torch.Tensor, s: torch.Tensor, block_size: int = 128
+) -> torch.Tensor:
     """
     Dequantizes the given weight tensor using the provided scale tensor.
 
@@ -146,10 +162,13 @@ def fp8_blockwise_weight_dequant(x: torch.Tensor, s: torch.Tensor, block_size: i
     Raises:
         AssertionError: If `x` or `s` are not contiguous or if their dimensions are not 2.
     """
-    assert x.is_contiguous() and s.is_contiguous(), 'Input tensors must be contiguous'
-    assert x.dim() == 2 and s.dim() == 2, 'Input tensors must have 2 dimensions'
+    assert x.is_contiguous() and s.is_contiguous(), "Input tensors must be contiguous"
+    assert x.dim() == 2 and s.dim() == 2, "Input tensors must have 2 dimensions"
     M, N = x.size()
     y = torch.empty_like(x, dtype=torch.get_default_dtype())
-    grid = lambda meta: (triton.cdiv(M, meta['BLOCK_SIZE']), triton.cdiv(N, meta['BLOCK_SIZE']))
+    grid = lambda meta: (
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(N, meta["BLOCK_SIZE"]),
+    )
     fp8_blockwise_dequant_weight_kernel[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
     return y

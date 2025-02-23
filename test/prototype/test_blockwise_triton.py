@@ -17,6 +17,7 @@ ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK = [
     (67, 6656, 1408),
 ]
 
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("_, N, K", ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK)
 def test_blockwise_quant_dequant(_, N, K):
@@ -27,6 +28,7 @@ def test_blockwise_quant_dequant(_, N, K):
     print(f"Relative Error: {error.item():.6f}")
 
     assert error < 0.05, "Quant-Dequant error is too high"
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("M, N, K", ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK)
