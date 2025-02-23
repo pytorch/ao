@@ -4,6 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+# This is a convenience script to profile fwd+bwd of individual layers with
+# float8 training or mx training on a single GPU.
+# TODO(future PR): make it clearer that it now supports float8 and MX, ideally
+# rename.
+
 import copy
 import functools
 import io
@@ -44,6 +49,9 @@ from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
+from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
+from torchao.utils import is_sm_at_least_100
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -278,7 +286,8 @@ def main(
     scaling_type_input: str = "dynamic",
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
-    recipe_name: Optional[str] = None,
+    float8_recipe_name: Optional[str] = None,
+    mx_recipe_name: Optional[str] = None,
     model_type: str = "linear",
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
@@ -296,15 +305,20 @@ def main(
     scaling_type_weight = ScalingType(scaling_type_weight)
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
 
-    if recipe_name is None:
+    assert not (float8_recipe_name is not None and mx_recipe_name is not None), \
+        "either float8_recipe_name or mx_recipe_name can be specified, but not both"
+
+    if float8_recipe_name is None and mx_recipe_name is None:
         config = get_test_float8_linear_config(
             scaling_type_input,
             scaling_type_weight,
             scaling_type_grad_output,
             emulate=False,
         )
-    elif recipe_name is not None:
-        config = Float8LinearConfig.from_recipe_name(recipe_name)
+    elif float8_recipe_name is not None:
+        config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
+    elif mx_recipe_name is not None:
+        config = MXLinearConfig.from_recipe_name(mx_recipe_name)
 
     scaling_repr = "_".join(
         [
@@ -319,6 +333,7 @@ def main(
     print(
         f"enable_activation_checkpointing is set to {enable_activation_checkpointing}"
     )
+    print(f"config: {config}")
 
     device = "cuda"
     ref_dtype = torch.bfloat16
@@ -359,15 +374,25 @@ def main(
 
     m_ref = m_ref.to(device).to(ref_dtype)
 
+    # get gradient shape
+    with torch.no_grad():
+        _ = m_ref(input_tensor)
+        grad_output = torch.ones_like(_)
+
+    # TODO(fix var names since now we have float8 and mx)
     m_float8 = copy.deepcopy(m_ref)
-    convert_to_float8_training(m_float8, config=config)
+    if mx_recipe_name is None:
+        convert_to_float8_training(m_float8, config=config)
+    else:
+        swap_linear_with_mx_linear(m_float8, config=config)
 
     def ref_forw_backward(x):
         if enable_activation_checkpointing:
             out = checkpoint(m_ref, x, use_reentrant=False, context_fn=context_fn)
         else:
             out = m_ref(x)
-        out.sum().backward()
+        # out.sum().backward()
+        out.backward(grad_output)
 
     def float8_forw(x):
         if enable_activation_checkpointing:
@@ -384,7 +409,8 @@ def main(
         # out.sum().backward() is also not torch.compile fullgraph
         # friendly
         with record_function("backward"):
-            out.sum().backward()
+            # out.sum().backward()
+            out.backward(grad_output)
 
     if compile:
         m_ref = torch.compile(m_ref, fullgraph=True)
