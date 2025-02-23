@@ -110,23 +110,8 @@ def kernel_name_to_category(k):
         "torchao::mx_fp4_bf16",
     ):
         return "0_gemm"
-    elif (
-        # max(abs(tensor))
-        ("abs" in k and "max" in k)
-        or
-        # casting pointwise to float8
-        ("clamp" in k)
-        or
-        # things related to scaled_mm
-        ("scaled_mm" in k)
-        or
-        # syncing amaxes and scales
-        ("roll" in k)
-    ):
-        # note: the above filter is approximate and will give false
-        # positives if model code contains other code to abs/max/clamp
-        return "1_f8_overhead"
-    return "2_other"
+    else:
+        return "1_other"
 
 
 def parse_bw_and_kernel_name(line):
