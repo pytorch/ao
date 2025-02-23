@@ -109,6 +109,8 @@ class MXLinearConfig:
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
             return MXLinearConfig(elem_dtype=DTYPE_FP4)
         elif recipe_name is MXLinearRecipeName.MXFP8_CUTLASS:
-            return MXLinearConfig(elem_dtype=DTYPE_FP4, gemm_kernel_choice=MXGemmKernelChoice.CUTLASS)
+            return MXLinearConfig(
+                elem_dtype=DTYPE_FP4, gemm_kernel_choice=MXGemmKernelChoice.CUTLASS
+            )
         else:
             raise AssertionError(f"unknown recipe_name {recipe_name}")

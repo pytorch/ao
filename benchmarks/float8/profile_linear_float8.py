@@ -48,10 +48,9 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
-from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.prototype.mx_formats.config import MXLinearConfig
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
-from torchao.utils import is_sm_at_least_100
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -305,8 +304,9 @@ def main(
     scaling_type_weight = ScalingType(scaling_type_weight)
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
 
-    assert not (float8_recipe_name is not None and mx_recipe_name is not None), \
-        "either float8_recipe_name or mx_recipe_name can be specified, but not both"
+    assert not (
+        float8_recipe_name is not None and mx_recipe_name is not None
+    ), "either float8_recipe_name or mx_recipe_name can be specified, but not both"
 
     if float8_recipe_name is None and mx_recipe_name is None:
         config = get_test_float8_linear_config(

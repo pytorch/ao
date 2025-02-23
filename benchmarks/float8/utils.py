@@ -102,7 +102,13 @@ def profiler_output_to_gpu_time_for_key(prof, key):
 
 def kernel_name_to_category(k):
     # number prefix is for easy sorting
-    if k in ("aten::mm", "aten::addmm", "aten::_scaled_mm", "torchao::mx_fp8_bf16", "torchao::mx_fp4_bf16"):
+    if k in (
+        "aten::mm",
+        "aten::addmm",
+        "aten::_scaled_mm",
+        "torchao::mx_fp8_bf16",
+        "torchao::mx_fp4_bf16",
+    ):
         return "0_gemm"
     elif (
         # max(abs(tensor))
