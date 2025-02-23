@@ -6,8 +6,6 @@
 
 # This is a convenience script to profile fwd+bwd of individual layers with
 # float8 training or mx training on a single GPU.
-# TODO(future PR): make it clearer that it now supports float8 and MX, ideally
-# rename.
 
 import copy
 import functools
