@@ -5,10 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import torch
 
+from torchao.core.config import AOBaseConfig
 from torchao.quantization.granularity import (
     Granularity,
     PerAxis,
@@ -21,6 +22,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     TorchAODType,
     ZeroPointDomain,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
 )
 from torchao.quantization.unified import TwoStepQuantizer
 
@@ -241,12 +245,26 @@ class FakeQuantizeConfig:
             super().__setattr__(name, value)
 
 
-def intx_quantization_aware_training(
-    activation_config: Optional[FakeQuantizeConfig] = None,
-    weight_config: Optional[FakeQuantizeConfig] = None,
-) -> Callable:
+@dataclass
+class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
+    activation_config: Optional[FakeQuantizeConfig] = None
+    weight_config: Optional[FakeQuantizeConfig] = None
+
+
+# for BC
+intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
+
+
+@register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
+def _intx_quantization_aware_training_transform(
+    module: torch.nn.Module,
+    config: IntXQuantizationAwareTrainingConfig,
+) -> torch.nn.Module:
     """
-    Return a function that applies fake quantization to a `torch.nn.Module`.
+    THIS IS NOT A PUBLIC API - any usage of this outside of torchao
+    can break at any time.
+
+    Apply fake quantization to a `torch.nn.Module`.
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
     Example usage::
@@ -261,7 +279,7 @@ def intx_quantization_aware_training(
         )
         quantize_(
             model,
-            intx_quantization_aware_training(activation_config, weight_config),
+            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
 
     Note: If the returned function is applied on a module that is not
@@ -269,37 +287,32 @@ def intx_quantization_aware_training(
     `torch.nn.Embedding` with an activation config, then we will raise
     ValueError as these are not supported.
     """
+    from .embedding import FakeQuantizedEmbedding
+    from .linear import FakeQuantizedLinear
 
-    def _insert_fake_quantize(mod: torch.nn.Module):
-        """
-        Swap the given module with its corresponding fake quantized version.
-        """
-        from .embedding import FakeQuantizedEmbedding
-        from .linear import FakeQuantizedLinear
+    mod = module
+    activation_config = config.activation_config
+    weight_config = config.weight_config
 
-        if isinstance(mod, torch.nn.Linear):
-            return FakeQuantizedLinear.from_linear(
-                mod,
-                activation_config,
-                weight_config,
-            )
-        elif isinstance(mod, torch.nn.Embedding):
-            if activation_config is not None:
-                raise ValueError(
-                    "Activation fake quantization is not supported for embedding"
-                )
-            return FakeQuantizedEmbedding.from_embedding(mod, weight_config)
-        else:
+    if isinstance(mod, torch.nn.Linear):
+        return FakeQuantizedLinear.from_linear(
+            mod,
+            activation_config,
+            weight_config,
+        )
+    elif isinstance(mod, torch.nn.Embedding):
+        if activation_config is not None:
             raise ValueError(
-                "Module of type '%s' does not have QAT support" % type(mod)
+                "Activation fake quantization is not supported for embedding"
             )
+        return FakeQuantizedEmbedding.from_embedding(mod, weight_config)
+    else:
+        raise ValueError("Module of type '%s' does not have QAT support" % type(mod))
 
-    return _insert_fake_quantize
 
-
-def from_intx_quantization_aware_training() -> Callable:
+class FromIntXQuantizationAwareTrainingConfig(AOBaseConfig):
     """
-    Return a function that converts a model with fake quantized modules,
+    Object that knows how to convert a model with fake quantized modules,
     such as :func:`~torchao.quantization.qat.linear.FakeQuantizedLinear`
     and :func:`~torchao.quantization.qat.linear.FakeQuantizedEmbedding`,
     back to model with the original, corresponding modules without
@@ -311,26 +324,35 @@ def from_intx_quantization_aware_training() -> Callable:
         from torchao.quantization import quantize_
         quantize_(
             model_with_fake_quantized_linears,
-            from_intx_quantization_aware_training(),
+            FromIntXQuantizationAwareTrainingConfig(),
         )
     """
 
-    def _remove_fake_quantize(mod: torch.nn.Module):
-        """
-        If the given module is a fake quantized module, return the original
-        corresponding version of the module without fake quantization.
-        """
-        from .embedding import FakeQuantizedEmbedding
-        from .linear import FakeQuantizedLinear
+    pass
 
-        if isinstance(mod, FakeQuantizedLinear):
-            return mod.to_linear()
-        elif isinstance(mod, FakeQuantizedEmbedding):
-            return mod.to_embedding()
-        else:
-            return mod
 
-    return _remove_fake_quantize
+# for BC
+from_intx_quantization_aware_training = FromIntXQuantizationAwareTrainingConfig
+
+
+@register_quantize_module_handler(FromIntXQuantizationAwareTrainingConfig)
+def _from_intx_quantization_aware_training_transform(
+    mod: torch.nn.Module,
+    config: FromIntXQuantizationAwareTrainingConfig,
+) -> torch.nn.Module:
+    """
+    If the given module is a fake quantized module, return the original
+    corresponding version of the module without fake quantization.
+    """
+    from .embedding import FakeQuantizedEmbedding
+    from .linear import FakeQuantizedLinear
+
+    if isinstance(mod, FakeQuantizedLinear):
+        return mod.to_linear()
+    elif isinstance(mod, FakeQuantizedEmbedding):
+        return mod.to_embedding()
+    else:
+        return mod
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):

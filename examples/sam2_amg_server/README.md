@@ -1,3 +1,29 @@
+# Reproducing experiments locally
+
+You can simply run `python reproduce_experiments.py <path/to/image_paths_file> <path/to/output_folder>`
+
+`image_paths_file` needs to be a flat list of paths to images, for example
+
+```
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_044979/00349.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_006751/00204.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_053118/00239.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_053391/00517.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_018487/00001.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_028552/00153.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_013729/00103.jpg
+/home/$USER/data/sav_val/JPEGImages_24fps/sav_014662/00339.jpg
+```
+
+or whichever other files you'd like to use for study. For example you may consider the Segment Anything Video (SA-V) [Dataset](https://github.com/facebookresearch/sam2/tree/main/sav_dataset#download-the-dataset).
+
+The experimental results will then be saved under `output_folder` in result.csv
+
+# Reproducing experiments on Modal
+
+For this you can run `modal_experiments.sh` after, but you'll want to experiments locally first to produce the meta annotations and exported ahead-of-time compiled binaries.
+
+# Using the server locally
 ## Example curl command
 ```
 curl -X POST http://127.0.0.1:5000/upload -F 'image=@/path/to/file.jpg' --output path/to/output.png

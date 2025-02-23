@@ -33,6 +33,7 @@ from typing import Any, Dict, Tuple
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
@@ -47,6 +48,9 @@ from torchao.quantization import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 from torchao.quantization.utils import compute_error
 
 torch.manual_seed(0)
@@ -252,36 +256,42 @@ def prepare_model_for_optimization_(model):
     )
 
 
+class ApplyActivationStaticWeightQuantConfig(AOBaseConfig):
+    pass
+
+
 # using a function to align with the API in quant_api
-def apply_activation_static_weight_quant():
-    def _apply_activation_static_weight_quant(observed_linear):
-        target_dtype = torch.uint8
+@register_quantize_module_handler(ApplyActivationStaticWeightQuantConfig)
+def _apply_activation_static_weight_quant_transform(
+    module: torch.nn.Module,
+    config: ApplyActivationStaticWeightQuantConfig,
+):
+    observed_linear = module
+    target_dtype = torch.uint8
 
-        # we can quantize the weight here as well
+    # we can quantize the weight here as well
 
-        # activation quantization
-        act_scale, act_zero_point = (
-            observed_linear.input_scale,
-            observed_linear.input_zp,
-        )
-        input_quant_func = lambda x: to_affine_quantized_intx_static(
-            x, act_scale, act_zero_point, x.shape, target_dtype
-        )
-        # for demo purpose only, we quantize the weight here
-        weight = observed_linear.weight
-        weight = to_affine_quantized_intx(
-            weight, MappingType.SYMMETRIC, (1, weight.shape[-1]), torch.int8
-        )
-        observed_linear.weight = torch.nn.Parameter(
-            to_linear_activation_quantized(weight, input_quant_func),
-            requires_grad=False,
-        )
+    # activation quantization
+    act_scale, act_zero_point = (
+        observed_linear.input_scale,
+        observed_linear.input_zp,
+    )
+    input_quant_func = lambda x: to_affine_quantized_intx_static(
+        x, act_scale, act_zero_point, x.shape, target_dtype
+    )
+    # for demo purpose only, we quantize the weight here
+    weight = observed_linear.weight
+    weight = to_affine_quantized_intx(
+        weight, MappingType.SYMMETRIC, (1, weight.shape[-1]), torch.int8
+    )
+    observed_linear.weight = torch.nn.Parameter(
+        to_linear_activation_quantized(weight, input_quant_func),
+        requires_grad=False,
+    )
 
-        del observed_linear.input_scale
-        del observed_linear.input_zp
-        return observed_linear
-
-    return _apply_activation_static_weight_quant
+    del observed_linear.input_scale
+    del observed_linear.input_zp
+    return observed_linear
 
 
 example_inputs = (torch.randn(32, 64),)
@@ -298,7 +308,7 @@ out = m(mt_input)
 
 # just quantizing activation since we only observed quantization, this could be extended to support
 # quantizing weight as well
-quantize_(m, apply_activation_static_weight_quant(), _is_linear)
+quantize_(m, ApplyActivationStaticWeightQuantConfig(), _is_linear)
 for l in m.modules():
     if isinstance(l, torch.nn.Linear):
         assert isinstance(l.weight, LinearActivationQuantizedTensor)

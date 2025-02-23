@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 from torchao.kernel import (
     int_scaled_matmul,
     safe_int_mm,
@@ -45,6 +46,17 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8StaticActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
+    FPXWeightOnlyConfig,
+    GemliteUIntXWeightOnlyConfig,
+    Int4DynamicActivationInt4WeightConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
+    UIntXWeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
     float8_weight_only,
@@ -85,6 +97,7 @@ from .smoothquant import (
     swap_linear_with_smooth_fq_linear,
 )
 from .subclass import *  # noqa: F403
+from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
@@ -117,6 +130,17 @@ __all__ = [
     "fpx_weight_only",
     "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
+    "Int4DynamicActivationInt4WeightConfig",
+    "Int8DynamicActivationInt4WeightConfig",
+    "Int8DynamicActivationInt8WeightConfig",
+    "Int4WeightOnlyConfig",
+    "Int8WeightOnlyConfig",
+    "Float8WeightOnlyConfig",
+    "Float8DynamicActivationFloat8WeightConfig",
+    "Float8StaticActivationFloat8WeightConfig",
+    "UIntXWeightOnlyConfig",
+    "FPXWeightOnlyConfig",
+    "GemliteUIntXWeightOnlyConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -144,6 +168,8 @@ __all__ = [
     # operators/kernels
     "safe_int_mm",
     "int_scaled_matmul",
+    # registration of module transforms for quantize_
+    "register_quantize_module_handler",
     # dataclasses and types
     "MappingType",
     "ZeroPointDomain",

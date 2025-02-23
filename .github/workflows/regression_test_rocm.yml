@@ -1,0 +1,49 @@
+name: Run Regression Tests on ROCm
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - ciflow/rocm/*
+
+concurrency:
+  group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test-nightly:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ROCM Nightly
+            runs-on: linux.rocm.gpu.torchao
+            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
+            gpu-arch-type: "rocm"
+            gpu-arch-version: "6.3"
+
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 120
+      no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        python -m pip install --upgrade pip
+        pip install ${{ matrix.torch-spec }}
+        pip install -r dev-requirements.txt
+        pip install .
+        export CONDA=$(dirname $(dirname $(which conda)))
+        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
+        pytest test --verbose -s

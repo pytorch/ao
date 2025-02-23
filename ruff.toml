@@ -2,3 +2,9 @@
 # Add linting rules here
 lint.select = ["F", "I"]
 lint.ignore = ["E731"]
+
+
+# Exclude third-party modules
+exclude = [
+    "third_party/*",
+]

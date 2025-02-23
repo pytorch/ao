@@ -51,6 +51,11 @@ def get_test_block(kernel):
     tests += add_test_string(kernel, 1, 2 * 13, 32, 32, True, False)
     tests += add_test_string(kernel, 1, 2 * 51, 32, 32, False, True)
     tests += add_test_string(kernel, 1, 2 * 111, 32, 32, False, False)
+    ## larger: n (odd)
+    tests += add_test_string(kernel, 1, 11, 32, 32, False, False)
+    tests += add_test_string(kernel, 1, 13, 32, 32, True, False)
+    tests += add_test_string(kernel, 1, 51, 32, 32, False, True)
+    tests += add_test_string(kernel, 1, 111, 32, 32, False, False)
     ## larger: k, g - must be multiple of 32
     tests += add_test_string(kernel, 1, 2 * 7, 64, 32, False, False)
     tests += add_test_string(kernel, 1, 2 * 11, 128, 32, True, False)
@@ -75,6 +80,11 @@ def get_test_block(kernel):
     tests += add_test_string(kernel, 17, 2 * 13, 32, 32, True, False)
     tests += add_test_string(kernel, 23, 2 * 51, 32, 32, False, True)
     tests += add_test_string(kernel, 41, 2 * 111, 32, 32, False, False)
+    ## larger: n (odd)
+    tests += add_test_string(kernel, 7, 11, 32, 32, False, False)
+    tests += add_test_string(kernel, 17, 13, 32, 32, True, False)
+    tests += add_test_string(kernel, 23, 51, 32, 32, False, True)
+    tests += add_test_string(kernel, 41, 111, 32, 32, False, False)
     ## larger: k, g - must be multiple of 32
     tests += add_test_string(kernel, 19, 2 * 7, 64, 32, False, False)
     tests += add_test_string(kernel, 23, 2 * 11, 128, 32, True, False)
