@@ -73,14 +73,6 @@ def profiler_output_to_filtered_time_by_kernel_name(
             # forward pass sum
             assert e.count == num_iter, f"unexpected number of iter for {e.key}"
             continue
-        elif e.key == "aten::fill_":
-            # filling the forward pass sum with 1.0
-            assert e.count == num_iter, f"unexpected number of iter for {e.key}"
-            continue
-        elif e.key == "aten::copy_":
-            # copying 1.0 from grad_out of `sum` to grad_out of next op
-            assert e.count == num_iter, f"unexpected number of iter for {e.key}"
-            continue
         elif e.key == "aten::add_":
             # accumulating gradients into leaf tensors
             assert e.count == (
@@ -110,25 +102,16 @@ def profiler_output_to_gpu_time_for_key(prof, key):
 
 def kernel_name_to_category(k):
     # number prefix is for easy sorting
-    if k in ("aten::mm", "aten::addmm", "aten::_scaled_mm"):
-        return "0_gemm"
-    elif (
-        # max(abs(tensor))
-        ("abs" in k and "max" in k)
-        or
-        # casting pointwise to float8
-        ("clamp" in k)
-        or
-        # things related to scaled_mm
-        ("scaled_mm" in k)
-        or
-        # syncing amaxes and scales
-        ("roll" in k)
+    if k in (
+        "aten::mm",
+        "aten::addmm",
+        "aten::_scaled_mm",
+        "torchao::mx_fp8_bf16",
+        "torchao::mx_fp4_bf16",
     ):
-        # note: the above filter is approximate and will give false
-        # positives if model code contains other code to abs/max/clamp
-        return "1_f8_overhead"
-    return "2_other"
+        return "0_gemm"
+    else:
+        return "1_other"
 
 
 def parse_bw_and_kernel_name(line):
