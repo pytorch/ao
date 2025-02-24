@@ -48,6 +48,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.prototype.mx_formats.config import MXLinearConfig
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.utils import to_blocked
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -298,11 +299,15 @@ def main(
         "lowp",
         "ref",
     ), "experiment_filter must be one of `both`, `lowp`, `ref`"
-    assert mode_filter in (
-        "fwd_bwd",
-        "fwd",
-        "cast_only",
-    ), "mode_filter must be one of `fwd_bwd`, `fwd`, `cast_only`"
+    assert (
+        mode_filter
+        in (
+            "fwd_bwd",
+            "fwd",
+            "cast_only",
+            "cast_with_to_blocked",
+        )
+    ), "mode_filter must be one of `fwd_bwd`, `fwd`, `cast_only`, `cast_with_to_blocked`"
     if mode_filter == "cast_only":
         assert experiment_filter == "lowp", "unsupported"
 
@@ -378,6 +383,18 @@ def main(
     # this function is only used for cast_only
     to_mx_func = MXTensor.to_mx
 
+    # this function is used for cast_with_to_blocked
+    def cast_with_to_blocked(x_hp):
+        x_mx = MXTensor.to_mx(
+            x_hp,
+            config.elem_dtype,
+            config.block_size,
+            gemm_kernel_choice=config.gemm_kernel_choice,
+        )
+        m, k = x_hp.shape
+        scale_blocked = to_blocked(x_mx._scale_e8m0.reshape(m, k // config.block_size))
+        return x_mx._data, scale_blocked
+
     print("m_ref", m_ref)
     print("m_lowp", m_lowp)
     print("input_tensor.shape", input_tensor.shape)
@@ -385,7 +402,7 @@ def main(
     print()
 
     def ref_forw_backward(x):
-        assert mode_filter != "cast_only", "unsupported"
+        assert mode_filter not in ("cast_only", "cast_with_to_blocked"), "unsupported"
         if enable_activation_checkpointing:
             out = checkpoint(m_ref, x, use_reentrant=False, context_fn=context_fn)
         else:
@@ -403,6 +420,9 @@ def main(
                 gemm_kernel_choice=config.gemm_kernel_choice,
             )
             return
+        elif mode_filter == "cast_with_to_blocked":
+            _input_tensor_mx, scale = cast_with_to_blocked(input_tensor)
+            return
 
         if enable_activation_checkpointing:
             out = checkpoint(m_lowp, x, use_reentrant=False, context_fn=context_fn)
@@ -416,6 +436,7 @@ def main(
         m_ref = torch.compile(m_ref, fullgraph=True)
         m_lowp = torch.compile(m_lowp, fullgraph=True)
         to_mx_func = torch.compile(to_mx_func, fullgraph=True)
+        cast_with_to_blocked = torch.compile(cast_with_to_blocked, fullgraph=True)
 
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
