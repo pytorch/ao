@@ -4,11 +4,17 @@ from typing import Any, Optional
 
 import torch
 from torch import Tensor
-from torch.distributed.tensor import DTensor
 from torch.optim import Optimizer
 
 from ..quant import LSBQuantizer, Quantizer
 from .proxmap import ProxMap
+
+try:
+    from torch.distributed.tensor import DTensor
+
+    HAS_DTENSOR = True
+except ImportError:
+    HAS_DTENSOR = False
 
 
 class QuantOptimizer(Optimizer):
@@ -178,7 +184,7 @@ class QuantOptimizer(Optimizer):
                     )  # pyre-ignore[6]
 
                 # avoid type mismatch between sharded and full tensors
-                if isinstance(p, DTensor):
+                if HAS_DTENSOR and isinstance(p, DTensor):
                     p = p.full_tensor()
 
                 dim = -1 if per_channel else None

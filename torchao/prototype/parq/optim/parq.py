@@ -8,6 +8,13 @@ from ..utils import channel_bucketize
 from .proxmap import ProxMap
 
 
+def amp_custom_fwd(func, cast_inputs: Optional[torch.types._dtype] = None):
+    try:
+        return torch.amp.custom_fwd(func, device_type="cuda", cast_inputs=cast_inputs)
+    except AttributeError:
+        return torch.cuda.amp.custom_fwd(func, cast_inputs=cast_inputs)
+
+
 def normalized_mirror_sigmoid(t: float, t1: float, t2: float, s: float) -> float:
     """Sigmoid-like function decreasing from 1 to 0 over interval [t1, t2).
     s is steepness of the sigmoid-like function, almost linear for s < 1.
@@ -32,7 +39,7 @@ class ProxPARQ(ProxMap):
         self.steepness = steepness
 
     @torch.no_grad()
-    @torch.amp.custom_fwd(device_type="cuda", cast_inputs=torch.float32)
+    @amp_custom_fwd(cast_inputs=torch.float32)
     def apply_(
         self,
         p: Tensor,
