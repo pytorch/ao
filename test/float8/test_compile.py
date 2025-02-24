@@ -7,7 +7,6 @@ import copy
 import random
 import sys
 import unittest
-from dataclasses import replace
 from io import StringIO
 
 import pytest
@@ -26,7 +25,6 @@ import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
-from torchao.float8 import _prototype_register_float8_delayed_scaling_inductor_passes
 from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
@@ -35,20 +33,11 @@ from torchao.float8.config import (
     e4m3_dtype,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import (
-    convert_to_float8_training,
-    get_float8_layers,
-    sync_float8_amax_and_scale_history,
-)
 from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
-from torchao.float8.float8_utils import config_has_stateful_scaling
-from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
-from torchao.utils import is_fbcode
 
 
 def _test_compile_base(
@@ -66,16 +55,10 @@ def _test_compile_base(
     x_ref = copy.deepcopy(x)
     m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
 
-    if config_has_stateful_scaling(config):
-        m_fp8 = StatefulFloat8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
-    else:
-        m_fp8 = Float8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
+    m_fp8 = Float8Linear.from_float(
+        copy.deepcopy(m_ref),
+        config,
+    )
 
     m_fp8 = torch.compile(m_fp8, backend=backend, fullgraph=fullgraph)
     m_ref = torch.compile(m_ref, backend=backend, fullgraph=fullgraph)
@@ -94,16 +77,14 @@ def _test_compile_base(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
@@ -133,16 +114,14 @@ def test_eager_only(
 
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -171,16 +150,14 @@ def test_aot_eager(
 
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @unittest.skipIf(
     not torch.cuda.is_available() or not is_sm_at_least_89(),
@@ -241,16 +218,12 @@ class TestGraphBreaks(DynamoTestCase):
     class MockLinear(torch.nn.Module):
         def __init__(self, graph_break: bool):
             super().__init__()
-            self.register_buffer("fp8_amax_x", torch.tensor(1.0))
-            self.register_buffer("fp8_scale_x", torch.tensor(1.0))
             self.graph_break = graph_break
 
         def forward(self, x):
-            x_fp8 = hp_tensor_to_float8_delayed(
+            x_fp8 = hp_tensor_to_float8_dynamic(
                 x,
-                self.fp8_scale_x,
                 e4m3_dtype,
-                self.fp8_amax_x,
                 LinearMMConfig(),
             )
             if self.graph_break:
@@ -330,30 +303,6 @@ class TestGraphBreaks(DynamoTestCase):
         )
 
 
-@unittest.skipIf(
-    not torch.cuda.is_available() or not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
-)
-def test_sync_amax_func():
-    torch._dynamo.reset()
-    cnts = CompileCounterWithBackend("inductor")
-    module = torch.nn.Sequential(
-        nn.Linear(16, 32, bias=True), nn.ReLU(), nn.Linear(32, 16, bias=True)
-    )
-    config = Float8LinearConfig(
-        cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-    )
-    float8_mod = convert_to_float8_training(
-        module,
-        config=config,
-    )
-    compiled_swap_func = torch.compile(sync_float8_amax_and_scale_history, backend=cnts)
-    compiled_swap_func(float8_mod)
-    assert cnts.frame_count == 1, "Compiled graph should have 1 frame!"
-
-
 class capture_stderr(list):
     """
     Replace sys.stderr with a temporary StringIO
@@ -369,38 +318,6 @@ class capture_stderr(list):
         self.append(str(self.stringio.getvalue()))
         del self.stringio
         sys.stderr = self.sys_stderr
-
-
-@unittest.skipIf(
-    not torch.cuda.is_available() or not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
-)
-def test_sync_amax_func_cuda_graph_success():
-    torch._dynamo.reset()
-    with capture_stderr() as stderr:
-        my_module = nn.Sequential(
-            nn.Linear(16, 32, bias=True), nn.ReLU(), nn.Linear(32, 16, bias=True)
-        ).to("cuda")
-        config = Float8LinearConfig(
-            cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-        )
-        convert_to_float8_training(
-            my_module,
-            config=config,
-        )
-        inpt = torch.randn(
-            16, 16, device="cuda", dtype=torch.float32, requires_grad=True
-        )
-        sync_func = torch.compile(
-            sync_float8_amax_and_scale_history, mode="reduce-overhead", fullgraph=True
-        )
-        fp8_layers = get_float8_layers(my_module)
-        my_module(inpt)
-        sync_func(my_module, fp8_layers)
-
-    assert "skipping cudagraphs due to mutaton on input" not in stderr[0]
 
 
 @unittest.skipIf(
@@ -473,71 +390,6 @@ def test_dynamic_scale_numeric_parity(
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)
-
-
-@unittest.skipIf(
-    not is_sm_at_least_89() or not is_fbcode(),
-    "CUDA with float8 support not available; or not on fbcode (the test needs be run with the latest pytorch package)",
-)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-def test_delayed_scaling_pattern_replacement(dtype: torch.dtype):
-    from torch._inductor import config as inductor_config
-    from torch._inductor import metrics
-
-    inductor_config.loop_ordering_after_fusion = True
-
-    def clear_all():
-        metrics.reset()
-        from torch._inductor.fx_passes.post_grad import (
-            pass_patterns as post_grad_patterns_all,
-        )
-
-        post_grad_patterns_all[1].clear()
-        post_grad_patterns_all[1].seen_patterns.clear()
-
-    def compile_and_run_single_layer():
-        random.seed(0)
-        torch.manual_seed(0)
-        x_shape = (2048, 3072)
-        linear_dtype = dtype
-
-        x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype).requires_grad_()
-        m_ref = nn.Linear(3072, 2048, bias=True, device="cuda", dtype=linear_dtype)
-
-        config = get_test_float8_linear_config(
-            ScalingType.DELAYED,
-            ScalingType.DELAYED,
-            ScalingType.DELAYED,
-            False,
-        )
-
-        config = replace(config, enable_amax_init=False)
-
-        m_fp8 = StatefulFloat8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
-
-        m_fp8 = torch.compile(m_fp8, backend="inductor", fullgraph=True)
-        m_ref = torch.compile(m_ref, backend="inductor", fullgraph=True)
-
-        y_fp8 = m_fp8(x)
-        y_fp8.sum().backward()
-
-        return m_fp8.weight.grad
-
-    clear_all()
-    ref_output = compile_and_run_single_layer()
-    ref_count_kernel = metrics.generated_kernel_count
-
-    clear_all()
-    _prototype_register_float8_delayed_scaling_inductor_passes()
-    new_output = compile_and_run_single_layer()
-    new_count_kernel = metrics.generated_kernel_count
-
-    torch.equal(ref_output, new_output)
-    # With the pattern replacement workaround, amax reduction kernels for the 3 tensors (weight, activation, gradient) are fused.
-    assert ref_count_kernel == new_count_kernel + 3
 
 
 if __name__ == "__main__":

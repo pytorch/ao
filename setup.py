@@ -179,7 +179,8 @@ class TorchAOBuildExt(BuildExtension):
                 "cmake",
                 ext.sourcedir,
                 "-DCMAKE_BUILD_TYPE=" + build_type,
-                "-DTORCHAO_BUILD_EXECUTORCH_OPS=OFF",
+                # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
+                "-DTORCHAO_BUILD_KLEIDIAI=OFF",
                 "-DTorch_DIR=" + torch_dir,
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             ],
@@ -311,7 +312,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions() if use_cpp != "0" else None,
+    ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),

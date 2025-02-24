@@ -8,10 +8,6 @@ from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
 )
-from torchao.float8.float8_linear_utils import (
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
-)
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 
 
@@ -37,9 +33,6 @@ def check_parity_no_mp(
                 for param in model.parameters():
                     dist.all_reduce(param.grad)
                     param.grad.div_(dist.get_world_size())
-
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(model)
 
             optim.step()
             if (
@@ -82,7 +75,6 @@ def check_parity_bf16_mp(
                     param_bf16.grad.div_(dist.get_world_size())
                     param_fp32.grad = param_bf16.grad.float()
                     param_bf16.grad = None
-            # TODO(future): add amax syncing once delayed scaling is supported
             optim.step()
             for param_fp32, param_bf16 in zip(
                 ref_model.parameters(), ref_model_bf16.parameters()
