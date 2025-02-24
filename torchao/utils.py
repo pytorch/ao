@@ -616,6 +616,22 @@ def is_MI300():
     return False
 
 
+def is_MI350():
+    if torch.cuda.is_available() and torch.version.hip:
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx950" in archName:
+            return True
+    return False
+
+
+def is_Navi4():
+    if torch.cuda.is_available() and torch.version.hip:
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx1200" or "gfx1201" in archName:
+            return True
+    return False
+
+
 def is_sm_at_least_89():
     return (
         torch.cuda.is_available()
