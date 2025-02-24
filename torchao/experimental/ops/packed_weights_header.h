@@ -51,7 +51,7 @@ class PackedWeightsHeader {
     auto header = reinterpret_cast<const int*>(packed_weights);
     assert(header[0] == PackedWeightsHeader::magic);
     params_type params;
-    for (int i = 0; i < params.size(); i++) {
+    for (size_t i = 0; i < params.size(); i++) {
       params[i] = header[i + 2];
     }
     return PackedWeightsHeader(
@@ -62,7 +62,7 @@ class PackedWeightsHeader {
     if (type != other.type) {
       return false;
     }
-    for (int i = 0; i < params.size(); i++) {
+    for (size_t i = 0; i < params.size(); i++) {
       if (params[i] != other.params[i]) {
         return false;
       }
