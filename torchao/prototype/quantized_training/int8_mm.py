@@ -79,7 +79,7 @@ def _scaled_int8_mm_kernel(
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
-    EVEN_K: tl.constexpr = False,
+    EVEN_K: tl.constexpr = True,
     COL_SCALE_SCALAR: tl.constexpr = False,
 ):
     # based on triton.ops.matmul
