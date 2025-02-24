@@ -152,15 +152,15 @@ class TestAffineQuantized(TestCase):
             return module
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.to(device)
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.to(device=device)
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = apply_quant(linear)
+        ql = _apply(linear, apply_quant)
         ql.to(device)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -213,16 +213,6 @@ class TestAffineQuantized(TestCase):
 
     @common_utils.parametrize("device", GPU_DEVICES)
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    @common_utils.parametrize("apply_quant", get_quantization_functions(is_cusparselt_available, True))
-    def test_print_quantized_module(self, apply_quant, device):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
-        if isinstance(apply_quant, AOBaseConfig):
-            quantize_(linear, apply_quant)
-            ql = linear
-        else:
-            # TODO(#1690): delete this once config migration is done
-            ql = apply_quant(linear)
-        assert "AffineQuantizedTensor" in str(ql)
     def test_print_quantized_module(self, device):
         apply_quant_list = get_quantization_functions(True, True, device, True)
         for apply_quant in apply_quant_list:

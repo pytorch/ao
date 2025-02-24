@@ -360,8 +360,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
                 groupsize,
-                scale,
-                zero
+                self.scale_and_zero[0],
+                self.scale_and_zero[1],
             )
             dequantized = dequantized.t().contiguous()
             int_data = quantize_affine(
