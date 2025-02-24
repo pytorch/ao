@@ -396,7 +396,7 @@ def convert_weight_to_int4pack_xpu(weight, int_zp=False):
     else:
         out = weight.to(dtype=torch.uint8)
         out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
-        packed_weight = out.review(torch.int32)
+        packed_weight = out.view(torch.int32)
 
     # Second, N * K/2 uint8 -> N * K/8 int32
     return packed_weight
