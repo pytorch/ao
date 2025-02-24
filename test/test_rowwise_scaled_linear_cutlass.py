@@ -57,7 +57,7 @@ def run_test_for_op(op, xq_bits, wq_bits, dtype, batch_size, size_mnk, use_bias)
     )
     assert torch.all(wq_zeros == 0)
     if wq_bits == 4:
-        wq = (wq_s8[:, 1::2] << 4) | (wq_s8[:, 0::2] & 0xF)
+        wq = (wq_s8[..., 1::2] << 4) | (wq_s8[..., 0::2] & 0xF)
     else:
         wq = wq_s8
 

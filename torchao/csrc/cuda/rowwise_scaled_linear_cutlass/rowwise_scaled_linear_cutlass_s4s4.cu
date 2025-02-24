@@ -13,15 +13,16 @@ rowwise_scaled_linear_cutlass_s4s4(
               __func__, " : The input datatypes combination ", xq.dtype(),
               " for xq and ", wq.dtype(), " for wq is not supported");
 
+#if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
   // Dispatch to appropriate kernel template.
-  #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
-  // We get ElementA/ElementB types from the header
-  return rowwise_scaled_linear_cutlass<cutlass::int4b_t, cutlass::int4b_t>(
-      xq, x_scale, wq, w_scale, bias);
-  #else
-    TORCH_CHECK(false, "CUTLASS kernels not built - rowwise_scaled_linear_cutlass_s4s4 not available");
-    return at::Tensor{};
-  #endif
+  using ElementA = cutlass::int4b_t;
+  using ElementB = cutlass::int4b_t;
+  return rowwise_scaled_linear_cutlass<ElementA, ElementB>(
+    xq, x_scale, wq, w_scale, bias);
+#else
+  TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
+  return at::Tensor{};
+#endif
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
