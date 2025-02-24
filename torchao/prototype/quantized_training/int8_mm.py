@@ -56,7 +56,7 @@ configs = [
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.heuristics(
     {
-        "EVEN_K": lambda args: args["K"] % args["BLOCK_M"] == 0
+        "EVEN_K": lambda args: args["K"] % args["BLOCK_K"] == 0
     }
 )
 @triton.jit
