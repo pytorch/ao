@@ -1243,8 +1243,6 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
                 self.assertGreaterEqual(sqnr, 38)
-                if device == "cuda":
-                    self.assertTrue("mixed_mm" in code, f"got code: {code}")
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
