@@ -356,7 +356,7 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     if zeros.dtype == torch.int32:
         guard_dtype_size(zeros, "zeros", dtype=torch.int32)
         if scales.device.type == "xpu":
-            return [scales, zeros.to(torch.int8)]
+            return [scales.transpose(0, 1).contiguous(), zeros.transpose(0, 1).contiguous().to(torch.int8)]
         else:
             raise AssertionError("Interger Zero Point is only supported on XPU\n")
     elif zeros.dtype == dtype:
@@ -378,7 +378,7 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     if isinstance(scales_and_zeros, list):
         assert len(scales_and_zeros) == 2
-        return [scales_and_zeros[0], scales_and_zeros[1]]
+        return [scales_and_zeros[0].transpose(0, 1).contiguous(), scales_and_zeros[1].transpose(0, 1).contiguous()]
     else:
         assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
         return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
@@ -386,12 +386,20 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
 def convert_weight_to_int4pack_xpu(weight, int_zp=False):
     assert weight.device.type == "xpu"
 
-    # First, N * K int32 -> N * K/2 uint8
-    out = weight.to(dtype=torch.uint8)
-    out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
+    if int_zp:
+        # int_data = weight.to(dtype=torch.uint8)
+        int_data = (weight[::, 1::2] << 4 | weight[::, ::2]).to(torch.uint8)
+        packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+                int_data,
+                8,  # TODO:remove
+            )
+    else:
+        out = weight.to(dtype=torch.uint8)
+        out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
+        packed_weight = out.review(torch.int32)
 
     # Second, N * K/2 uint8 -> N * K/8 int32
-    return out.view(torch.int32)
+    return packed_weight
 
 def groupwise_affine_quantize_tensor_from_qparams(
     w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
