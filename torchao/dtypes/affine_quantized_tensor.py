@@ -357,7 +357,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 target_dtype=target_dtype,
                 quant_min=math.ceil(torch.finfo(target_dtype).min),
                 quant_max=math.ceil(torch.finfo(target_dtype).max),
-                eps=torch.finfo(torch.float32).eps,
+                eps=torch.finfo(target_dtype).tiny,
                 scale_dtype=scale_dtype,
                 zero_point_dtype=None,
                 preserve_zero=True,
