@@ -47,6 +47,7 @@ from torchao.float8.float8_linear_utils import (
 )
 from torchao.prototype.mx_formats.config import MXLinearConfig
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -283,6 +284,7 @@ def main(
     experiment_filter: str = "both",
     add_inductor_metadata_to_trace: bool = False,
     enable_activation_checkpointing: bool = False,
+    mode_filter: str = "fwd_bwd",
     forward_only: bool = False,
 ):
     assert model_type in (
@@ -296,6 +298,13 @@ def main(
         "lowp",
         "ref",
     ), "experiment_filter must be one of `both`, `lowp`, `ref`"
+    assert mode_filter in (
+        "fwd_bwd",
+        "fwd",
+        "cast_only",
+    ), "mode_filter must be one of `fwd_bwd`, `fwd`, `cast_only`"
+    if mode_filter == "cast_only":
+        assert experiment_filter == "lowp", "unsupported"
 
     assert not (
         float8_recipe_name is not None and mx_recipe_name is not None
@@ -313,7 +322,7 @@ def main(
     print(
         f"enable_activation_checkpointing is set to {enable_activation_checkpointing}"
     )
-    print(f"forward_only is set to {forward_only}")
+    print(f"mode_filter is set to {mode_filter}")
     print(f"config: {config}")
 
     device = "cuda"
@@ -366,6 +375,9 @@ def main(
     else:
         swap_linear_with_mx_linear(m_lowp, config=config)
 
+    # this function is only used for cast_only
+    to_mx_func = MXTensor.to_mx
+
     print("m_ref", m_ref)
     print("m_lowp", m_lowp)
     print("input_tensor.shape", input_tensor.shape)
@@ -373,32 +385,37 @@ def main(
     print()
 
     def ref_forw_backward(x):
+        assert mode_filter != "cast_only", "unsupported"
         if enable_activation_checkpointing:
             out = checkpoint(m_ref, x, use_reentrant=False, context_fn=context_fn)
         else:
             out = m_ref(x)
-        if not forward_only:
+        if mode_filter == "fwd_bwd":
             out.backward(grad_output)
 
-    def lowp_forw(x):
+    def lowp_forw_backward_wrapper(x):
+        if mode_filter == "cast_only":
+            # just cast and return early
+            _input_tensor_mx = to_mx_func(
+                input_tensor,
+                config.elem_dtype,
+                config.block_size,
+                gemm_kernel_choice=config.gemm_kernel_choice,
+            )
+            return
+
         if enable_activation_checkpointing:
             out = checkpoint(m_lowp, x, use_reentrant=False, context_fn=context_fn)
         else:
             out = m_lowp(x)
-        return out
-
-    def lowp_forw_backward_wrapper(x):
-        # TODO(future PR): this wrapper is for delayed scaling, we can clean it
-        # up now that delayed scaling is deprecated.
-        out = lowp_forw(x)
-
-        if not forward_only:
+        if mode_filter == "fwd_bwd":
             with record_function("backward"):
                 out.backward(grad_output)
 
     if compile:
         m_ref = torch.compile(m_ref, fullgraph=True)
-        lowp_forw = torch.compile(lowp_forw, fullgraph=True)
+        m_lowp = torch.compile(m_lowp, fullgraph=True)
+        to_mx_func = torch.compile(to_mx_func, fullgraph=True)
 
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
@@ -410,7 +427,9 @@ def main(
         context = redirect_stdout(f)
 
     # if we are skipping forward, enable torch.no_grad()
-    maybe_no_grad_context = torch.no_grad() if forward_only else nullcontext()
+    maybe_no_grad_context = (
+        torch.no_grad() if mode_filter != "fwd_bwd" else nullcontext()
+    )
 
     try:
         with context, maybe_no_grad_context:
