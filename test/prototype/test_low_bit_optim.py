@@ -26,6 +26,7 @@ from torchao.prototype.low_bit_optim.quant_utils import (
 from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -42,6 +43,8 @@ try:
 except ImportError:
     lpmm = None
 
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 _DEVICES = get_available_devices()
 
@@ -112,6 +115,7 @@ class TestOptim(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda":
             if not TORCH_VERSION_AT_LEAST_2_4:
@@ -185,6 +189,7 @@ class TestOptim(TestCase):
         not torch.cuda.is_available(),
         reason="bitsandbytes 8-bit Adam only works for CUDA",
     )
+    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
@@ -260,11 +265,24 @@ class TestOptim(TestCase):
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
         device = _DEVICES[-1]
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
+        # The first two layers are chosen so that they have a terrible arithmetic density.
+        # this means long transfers and comparatively quick computation, increasing the chances
+        # that missing synchronization will lead to test failures.
+        # The third layer is very small, here to validate non-trainable parameters,
+        # but shouldn't influence the timings
+        model1 = nn.Sequential(
+            nn.Linear(32, 131072),
+            nn.ReLU(),
+            nn.Linear(131072, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128),
+        )
         model1.to(device)
 
         # make sure it can work in the presence of non-trainable params
-        model1[0].requires_grad_(False)
+        model1[2].requires_grad_(False)
         model2 = copy.deepcopy(model1)
 
         optim1 = torch.optim.AdamW(model1.parameters())
@@ -274,17 +292,33 @@ class TestOptim(TestCase):
             offload_gradients=offload_grad,
         )
 
+        scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optim1, 100)
+        scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optim2, 100)
+
+        rng = torch.Generator(device=device)
+        rng.manual_seed(42)
+
+        # make sure to run both models separately; otherwise, model1 gives additional
+        # time for operations in model2 to complete, marking potential race conditions.
         for _ in range(2):
             for _ in range(grad_accum):
-                x = torch.randn(4, 32, device=device)
+                x = torch.randn(4, 32, device=device, generator=rng)
                 model1(x).sum().backward()
-                model2(x).sum().backward()
 
             optim1.step()
             optim1.zero_grad()
+            scheduler1.step()
+
+        # reset the rng
+        rng.manual_seed(42)
+        for _ in range(2):
+            for _ in range(grad_accum):
+                x = torch.randn(4, 32, device=device, generator=rng)
+                model2(x).sum().backward()
 
             optim2.step()
             optim2.zero_grad()
+            scheduler2.step()
 
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
@@ -384,6 +418,7 @@ class TestFSDP2(FSDPTest):
         not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
@@ -494,6 +529,7 @@ class TestFSDP2(FSDPTest):
         not TORCH_VERSION_AT_LEAST_2_5, reason="PyTorch>=2.5 is required."
     )
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @skip_if_rocm("ROCm enablement in progress")
     def test_uneven_shard(self):
         in_dim = 512
         out_dim = _FSDP_WORLD_SIZE * 16 + 1

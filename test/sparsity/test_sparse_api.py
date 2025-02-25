@@ -132,8 +132,9 @@ class TestBlockSparseWeight(common_utils.TestCase):
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    def test_sparse(self, compile):
-        input = torch.rand((1024, 1024)).half().cuda()
+    @common_utils.parametrize("input_shape", [1, 1024])
+    def test_sparse(self, compile, input_shape):
+        input = torch.rand((input_shape, 1024)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(1024, 2048),
@@ -152,9 +153,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
         model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
         dense_result = model(input)
 
-        from torchao.prototype.sparsity.superblock.blocksparse import (
-            block_sparse_weight,
-        )
+        from torchao.sparsity import block_sparse_weight
 
         sparsify_(model, block_sparse_weight(blocksize=64))
         # if compile:

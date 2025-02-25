@@ -420,10 +420,9 @@ def main(
             else:
                 quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
+            use_hqq = False
             if "hqq" in quantization:
                 use_hqq = True
-            else:
-                use_hqq = False
             group_size = int(quantization.split("-")[1])
             assert (
                 group_size
@@ -434,7 +433,7 @@ def main(
                     256,
                 ]
             ), f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-            quantize_(model, int4_weight_only(group_size=group_size))
+            quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
         elif "int8adq-int4w-symm" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -794,8 +793,36 @@ def main(
         from torchao.sparsity import semi_sparse_weight, sparsify_
 
         if "semi" in sparsity:
-            # TODO there is a bug here, need to fix
+            # Fixed sparsity level for 2:4
             sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
+
+        if "bsr" in sparsity:
+            from torchao.sparsity import SupermaskLinear, block_sparse_weight
+
+            # parse "bsr-0.9-64"
+            _, sparsity_level, blocksize = sparsity.split("-")
+            sparsity_level, blocksize = float(sparsity_level), int(blocksize)
+            sparsify_(
+                model,
+                lambda x: SupermaskLinear.from_linear(
+                    x,
+                    sparsity_level=sparsity_level,
+                    blocksize=blocksize,
+                ),
+                filter_fn=ffn_only,
+            )
+            print(model)
+            sparsify_(
+                model,
+                SupermaskLinear.to_linear,
+                filter_fn=ffn_only,
+            )
+            print(model)
+
+            # Accelerate with triton bsr kernels
+            sparsify_(
+                model, block_sparse_weight(blocksize=blocksize), filter_fn=ffn_only
+            )
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -811,7 +838,10 @@ def main(
         print("Compiling Model")
         global decode_one_token, prefill
         decode_one_token = torch.compile(
-            decode_one_token, mode="reduce-overhead", fullgraph=True
+            decode_one_token,
+            mode="reduce-overhead",
+            fullgraph=True,
+            dynamic=True,
         )
 
         if compile_prefill:
@@ -850,7 +880,7 @@ def main(
                 prompt = f"{B_INST} {prompt.strip()} {E_INST}"
             encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
-        if interactive and i >= 0:
+        if interactive and i >= 0 and prefill_size is None:
             buffer = []
             period_id = tokenizer.encode(".")[0]
             done_generating = False
@@ -920,7 +950,7 @@ def main(
         device_sync(device=device)  # MKG
         t = time.perf_counter() - t0
 
-        if not interactive and demo_summarize_prompt is None:
+        if not interactive and demo_summarize_prompt is None and prefill_size is None:
             tok_list = y[0].tolist()
             # truncate text after end of string token
             tokens = (

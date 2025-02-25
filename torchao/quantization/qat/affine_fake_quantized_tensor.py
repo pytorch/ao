@@ -41,6 +41,9 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> "AffineFakeQuantizedTensor":
+        if zero_point_domain is None:
+            raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+
         def apply_fake_quant_fn(t: torch.Tensor):
             assert isinstance(t, AffineFakeQuantizedTensor)
             qmin, qmax = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
@@ -158,6 +161,8 @@ class AffineFakeQuantizedTensor(TorchAOBaseTensor):
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ):
+        if zero_point_domain is None:
+            raise ValueError("Please use ZeroPointDomain.NONE instead of None")
         return _ToAffineFakeQuantized.apply(
             original_input,
             mapping_type,

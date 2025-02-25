@@ -31,25 +31,12 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingType,
     e4m3_dtype,
-    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import (
-    convert_to_float8_training,
-    get_float8_layers,
-    sync_float8_amax_and_scale_history,
-)
 from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import (
-    GemmInputRole,
-    LinearMMConfig,
-    ScaledMMConfig,
-)
-from torchao.float8.float8_utils import config_has_stateful_scaling
-from torchao.float8.stateful_float8_linear import StatefulFloat8Linear
+from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
 from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 
@@ -68,16 +55,10 @@ def _test_compile_base(
     x_ref = copy.deepcopy(x)
     m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
 
-    if config_has_stateful_scaling(config):
-        m_fp8 = StatefulFloat8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
-    else:
-        m_fp8 = Float8Linear.from_float(
-            copy.deepcopy(m_ref),
-            config,
-        )
+    m_fp8 = Float8Linear.from_float(
+        copy.deepcopy(m_ref),
+        config,
+    )
 
     m_fp8 = torch.compile(m_fp8, backend=backend, fullgraph=fullgraph)
     m_ref = torch.compile(m_ref, backend=backend, fullgraph=fullgraph)
@@ -96,16 +77,14 @@ def _test_compile_base(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
@@ -135,16 +114,14 @@ def test_eager_only(
 
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -173,16 +150,14 @@ def test_aot_eager(
 
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False])
-@pytest.mark.parametrize(
-    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-)
+@pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output",
-    [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    [ScalingType.DYNAMIC],
 )
 @unittest.skipIf(
     not torch.cuda.is_available() or not is_sm_at_least_89(),
@@ -219,8 +194,8 @@ def test_inductor_from_config_params(
 @pytest.mark.parametrize(
     "recipe_name",
     [
-        Float8LinearRecipeName.ALL_AXISWISE,
-        Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+        Float8LinearRecipeName.ROWWISE,
+        Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
     ],
 )
 @unittest.skipIf(
@@ -228,7 +203,7 @@ def test_inductor_from_config_params(
 )
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
-    config = recipe_name_to_linear_config(recipe_name)
+    config = Float8LinearConfig.from_recipe_name(recipe_name)
     fullgraph = True
     dtype = torch.bfloat16
     _test_compile_base(
@@ -243,16 +218,12 @@ class TestGraphBreaks(DynamoTestCase):
     class MockLinear(torch.nn.Module):
         def __init__(self, graph_break: bool):
             super().__init__()
-            self.register_buffer("fp8_amax_x", torch.tensor(1.0))
-            self.register_buffer("fp8_scale_x", torch.tensor(1.0))
             self.graph_break = graph_break
 
         def forward(self, x):
-            x_fp8 = hp_tensor_to_float8_delayed(
+            x_fp8 = hp_tensor_to_float8_dynamic(
                 x,
-                self.fp8_scale_x,
                 e4m3_dtype,
-                self.fp8_amax_x,
                 LinearMMConfig(),
             )
             if self.graph_break:
@@ -332,30 +303,6 @@ class TestGraphBreaks(DynamoTestCase):
         )
 
 
-@unittest.skipIf(
-    not torch.cuda.is_available() or not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
-)
-def test_sync_amax_func():
-    torch._dynamo.reset()
-    cnts = CompileCounterWithBackend("inductor")
-    module = torch.nn.Sequential(
-        nn.Linear(16, 32, bias=True), nn.ReLU(), nn.Linear(32, 16, bias=True)
-    )
-    config = Float8LinearConfig(
-        cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-    )
-    float8_mod = convert_to_float8_training(
-        module,
-        config=config,
-    )
-    compiled_swap_func = torch.compile(sync_float8_amax_and_scale_history, backend=cnts)
-    compiled_swap_func(float8_mod)
-    assert cnts.frame_count == 1, "Compiled graph should have 1 frame!"
-
-
 class capture_stderr(list):
     """
     Replace sys.stderr with a temporary StringIO
@@ -374,38 +321,6 @@ class capture_stderr(list):
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
-)
-def test_sync_amax_func_cuda_graph_success():
-    torch._dynamo.reset()
-    with capture_stderr() as stderr:
-        my_module = nn.Sequential(
-            nn.Linear(16, 32, bias=True), nn.ReLU(), nn.Linear(32, 16, bias=True)
-        ).to("cuda")
-        config = Float8LinearConfig(
-            cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-        )
-        convert_to_float8_training(
-            my_module,
-            config=config,
-        )
-        inpt = torch.randn(
-            16, 16, device="cuda", dtype=torch.float32, requires_grad=True
-        )
-        sync_func = torch.compile(
-            sync_float8_amax_and_scale_history, mode="reduce-overhead", fullgraph=True
-        )
-        fp8_layers = get_float8_layers(my_module)
-        my_module(inpt)
-        sync_func(my_module, fp8_layers)
-
-    assert "skipping cudagraphs due to mutaton on input" not in stderr[0]
-
-
-@unittest.skipIf(
     not is_sm_at_least_89(),
     "CUDA not available",
 )
@@ -417,13 +332,23 @@ def test_sync_amax_func_cuda_graph_success():
         torch.float16,
     ],
 )
-def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
+@pytest.mark.parametrize(
+    "round_scales_to_power_of_2",
+    [
+        True,
+        False,
+    ],
+)
+def test_dynamic_scale_numeric_parity(
+    dtype: torch.dtype, round_scales_to_power_of_2: bool
+):
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
     hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
     hp_tensor2 = hp_tensor1.detach().clone()
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     linear_mm_config = LinearMMConfig(
         # output
@@ -453,6 +378,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
@@ -460,6 +386,7 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
         e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
+        round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
     assert torch.equal(float8_eager._data, float8_compile._data)

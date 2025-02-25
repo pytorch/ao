@@ -6,8 +6,10 @@ from torchao.quantization import (
     MappingType,
     ZeroPointDomain,
     int4_weight_only,
+    quantize_,
     uintx_weight_only,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
 )
@@ -51,13 +53,11 @@ def _eval_hqq(dtype):
     )
     dummy_linear.weight.data = W
     if dtype == torch.uint4:
-        q_tensor_hqq = int4_weight_only(group_size=max(block_size), use_hqq=True)(
-            dummy_linear
-        ).weight
+        config = int4_weight_only(group_size=max(block_size), use_hqq=True)
     else:
-        q_tensor_hqq = uintx_weight_only(
-            dtype, group_size=max(block_size), use_hqq=True
-        )(dummy_linear).weight
+        config = uintx_weight_only(dtype, group_size=max(block_size), use_hqq=True)
+    quantize_(dummy_linear, config)
+    q_tensor_hqq = dummy_linear.weight
 
     quant_linear_layer = torch.nn.Linear(
         W.shape[1], W.shape[0], bias=False, device=W.device
@@ -110,6 +110,7 @@ class TestHQQ(unittest.TestCase):
             ref_dot_product_error=0.000704,
         )
 
+    @skip_if_rocm("ROCm enablement in progress")
     def test_hqq_plain_4bit(self):
         self._test_hqq(
             dtype=torch.uint4,

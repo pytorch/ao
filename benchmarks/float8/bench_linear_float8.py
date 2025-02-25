@@ -23,10 +23,6 @@ from torchao.float8.config import (
     ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.float8_linear_utils import (
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
-)
 from torchao.float8.float8_tensor import ScaledMMConfig
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
@@ -122,39 +118,18 @@ def main(
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
     scaling_granularity = ScalingGranularity(scaling_granularity)
 
-    if scaling_type_input is ScalingType.STATIC:
-        cast_config_input = CastConfig(
-            scaling_type=scaling_type_input,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_input = CastConfig(
-            scaling_type=scaling_type_input,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_weight is ScalingType.STATIC:
-        cast_config_weight = CastConfig(
-            scaling_type=scaling_type_weight,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_weight = CastConfig(
-            scaling_type=scaling_type_weight,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_grad_output is ScalingType.STATIC:
-        cast_config_grad_output = CastConfig(
-            scaling_type=scaling_type_grad_output,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_grad_output = CastConfig(
-            scaling_type=scaling_type_grad_output,
-            scaling_granularity=scaling_granularity,
-        )
+    cast_config_input = CastConfig(
+        scaling_type=scaling_type_input,
+        scaling_granularity=scaling_granularity,
+    )
+    cast_config_weight = CastConfig(
+        scaling_type=scaling_type_weight,
+        scaling_granularity=scaling_granularity,
+    )
+    cast_config_grad_output = CastConfig(
+        scaling_type=scaling_type_grad_output,
+        scaling_granularity=scaling_granularity,
+    )
 
     config = Float8LinearConfig(
         cast_config_input=cast_config_input,
@@ -185,7 +160,7 @@ def main(
             copy.deepcopy(linear_ref),
             config=config,
         )
-        scaling_repr = f"{linear_float8.scaling_type_repr()},{linear_float8.scaling_granularity_repr()}"
+        scaling_repr = linear_float8.extra_repr()
 
         if fast_accum:
             linear_float8.forward_config = ScaledMMConfig(False, True, False)
@@ -196,8 +171,6 @@ def main(
         ref_forw_backward = lambda: linear_ref(input_tensor).sum().backward()
 
         def float8_forw_backward():
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(linear_float8)
             linear_float8(input_tensor).sum().backward()
 
         def n_times(n, fn, *args, **kwargs):

@@ -430,12 +430,15 @@ class SAM2ImagePredictor(torch.nn.Module):
                 for feat_level in high_res_feats
             ]
             image_embed_input = image_embed[img_idx].unsqueeze(0).clone()
+            assert boxes is None
+            assert mask_input is None
+            assert multimask_output is True
             low_res_masks, iou_predictions = self._predict_masks(
-                high_res_feats_input,
-                image_embed_input,
-                image_pe,
-                point_coords,
-                point_labels,
+                [t.contiguous() for t in high_res_feats_input],
+                image_embed_input.contiguous(),
+                image_pe.contiguous(),
+                point_coords.contiguous(),
+                point_labels.contiguous(),
                 boxes=boxes,
                 mask_input=mask_input,
                 multimask_output=multimask_output,
@@ -498,6 +501,10 @@ class SAM2ImagePredictor(torch.nn.Module):
         # ]
         high_res_features = high_res_feats_input
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
+            # if not multimask_output:
+            #     raise ValueError("Expected multimask_output.")
+            # if batched_mode:
+            #     raise ValueError("Did not expected repeat_image.")
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
                 # image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0).clone(),
                 # image_embeddings=image_embed[img_idx].unsqueeze(0).clone(),
