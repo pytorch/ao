@@ -26,6 +26,8 @@ def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[
     name = shape_config["name"]
     if name == "custom":
         return [(name, shape) for shape in shape_config["shapes"]]
+    else:
+        NotImplementedError(f"Shape config {name} not supported. Currently only supports custom shapes.")
 
 
 def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
