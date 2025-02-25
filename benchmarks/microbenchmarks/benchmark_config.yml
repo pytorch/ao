@@ -15,5 +15,5 @@ model_params:
       ]
   precision: "torch.bfloat16"
   compile: false
-  device: "cpu"  # Change this to "cuda", "mps", "xpu", or "cpu" as needed
+  device: "cuda"  # Change this to "cuda", "mps", "xpu", or "cpu" as needed
   model_type: "linear"

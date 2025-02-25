@@ -7,17 +7,18 @@ This script runs inference benchmarks and generates a micro-benchmarking report 
 from copy import deepcopy
 import json
 from pathlib import Path
+from typing import Dict
 
 import torch
 from utils import (
-    benchmark_model_inference_in_seconds,
+    benchmark_model_inference_in_microseconds,
     clean_caches,
     create_model_and_input,
     quantize_model,
     BenchmarkConfig,
 )
 
-def run(config: BenchmarkConfig) -> None:
+def run(config: BenchmarkConfig) -> Dict[str, float]:
     """Run inference benchmarks"""
     clean_caches()  # Clean caches
     
@@ -48,23 +49,23 @@ def run(config: BenchmarkConfig) -> None:
     results = {}
     
     # Benchmark time to run an inference call for quantized model
-    model_time = benchmark_model_inference_in_seconds(
+    model_time = benchmark_model_inference_in_microseconds(
         model=m_copy, input_data=input_data
     )
-    results[f"benchmark_model_inference_in_seconds"] = model_time
+    results[f"benchmark_model_inference_in_microseconds"] = model_time
     print(
-        f"Time to run a {base_model.__class__.__name__}: {model_time:.2f} seconds quantized with {config.quantization}"
+        f"Time to run a {base_model.__class__.__name__}: {model_time:.2f} microseconds quantized with {config.quantization}"
     )
 
-    # 2. Benchmark time using profiler
+    # TODO: Benchmark time using profiler
     # Profile dtype model evaluation
     # prof_dtype = benchmark_model_op_with_profiler_in_microseconds(m_copy, input_data, quantized_dtype)
     # prof_dtype.export_chrome_trace(f"{quantization}_model_{input_data[0].size()[0]}.json")  # Save profiling details
 
-    # 3. Benchmark gemm time using cuda graph
+    # TODO: Benchmark gemm time using cuda graph
     # gemm_time = benchmark_torch_function_in_microseconds(gemm_op, *args, **kwargs)
 
-    # 4. Benchmark op with cuda graph
+    # TODO: Benchmark op with cuda graph
     # time = benchmark_op_with_cuda_graph(op, args)
 
     return results

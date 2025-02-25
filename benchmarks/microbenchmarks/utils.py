@@ -8,16 +8,18 @@ from torchao.quantization import (
     MappingType,
     PerRow,
     PerTensor,
-    float8_dynamic_activation_float8_weight,
-    float8_weight_only,
-    fpx_weight_only,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
     quantize_,
-    uintx_weight_only,
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
+    FPXWeightOnlyConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int4DynamicActivationInt4WeightConfig,
+    Int8WeightOnlyConfig,
+    UIntXWeightOnlyConfig,
 )
+from torchao.quantization.quant_api import Float8WeightOnlyConfig
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
@@ -155,25 +157,25 @@ def quantize_model(
     if "baseline" in quantization:
         return model
     if "int8wo" in quantization:
-        quantize_(model, int8_weight_only())
+        quantize_(model, Int8WeightOnlyConfig())
     if "int8dq" in quantization:
         if sparsity and "semi" in sparsity:
             from torchao.dtypes import SemiSparseLayout
 
             quantize_(
                 model,
-                int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
+                Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
                 filter_fn=ffn_only,
             )
             quantize_(
-                model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only
+                model, Int8DynamicActivationInt8WeightConfig(), filter_fn=not_ffn_only
             )
         elif "int8dq_prefill_wo_decode" in quantization:
             quantize_(
-                model, int8_dynamic_activation_int8_weight(weight_only_decode=True)
+                model, Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
             )
         else:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            quantize_(model, Int8DynamicActivationInt8WeightConfig())
     if "int4wo" in quantization:
         use_hqq = False
         if "hqq" in quantization:
@@ -185,13 +187,13 @@ def quantize_model(
             128,
             256,
         ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+        quantize_(model, Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq))
     elif "int8adq-int4w-symm" in quantization:
         from torchao.dtypes import CutlassInt4PackedLayout
 
         quantize_(
             model,
-            int8_dynamic_activation_int4_weight(
+            Int8DynamicActivationInt4WeightConfig(
                 group_size=None,
                 mapping_type=MappingType.SYMMETRIC,
                 act_mapping_type=MappingType.SYMMETRIC,
@@ -204,7 +206,7 @@ def quantize_model(
 
             quantize_(
                 model,
-                int8_dynamic_activation_int4_weight(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=128,
                     mapping_type=MappingType.SYMMETRIC,
                     act_mapping_type=MappingType.SYMMETRIC,
@@ -216,15 +218,15 @@ def quantize_model(
 
             quantize_(
                 model,
-                int4_weight_only(layout=MarlinSparseLayout()),
+                Int4WeightOnlyConfig(layout=MarlinSparseLayout()),
                 filter_fn=ffn_or_attn_only,
             )
     if "fp6" in quantization:
-        quantize_(model, fpx_weight_only(3, 2))
+        quantize_(model, FPXWeightOnlyConfig(3, 2))
     elif "embed-int8wo" in quantization:
         quantize_(
             model,
-            int8_weight_only(group_size=64),
+            Int8WeightOnlyConfig(group_size=64),
             filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
         )
     elif "uintx" in quantization:
@@ -249,7 +251,7 @@ def quantize_model(
         }
         dtype = _NBITS_TO_DTYPE[nbits]
         group_size = int(_quant_args[2])
-        quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        quantize_(model, UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq))
     elif "int8_dynamic_activation_intx_weight" in quantization:
         from torchao.experimental.quant_api import (
             int8_dynamic_activation_intx_weight,
@@ -274,7 +276,7 @@ def quantize_model(
             ),
         )
     elif "float8wo" in quantization:
-        quantize_(model, float8_weight_only())
+        quantize_(model, Float8WeightOnlyConfig())
     elif "float8dq" in quantization:
         granularity = str(quantization.split("-")[-1])
         if granularity == "tensor":
@@ -284,7 +286,7 @@ def quantize_model(
         else:
             granularity = PerTensor()
         quantize_(
-            model, float8_dynamic_activation_float8_weight(granularity=granularity)
+            model, Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         )
     else:
         if not TORCH_VERSION_AT_LEAST_2_5:
@@ -293,7 +295,7 @@ def quantize_model(
 
 
 # Function to benchmark model evaluation - e2e eval run
-def benchmark_model_inference_in_seconds(model, input_data):
+def benchmark_model_inference_in_microseconds(model, input_data):
     # Returns model run time in seconds
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -313,7 +315,7 @@ def benchmark_model_inference_in_seconds(model, input_data):
                 torch.cuda.synchronize()
     end_time = time.perf_counter()
 
-    return (end_time - start_time) / num_iters
+    return ((end_time - start_time) / num_iters) * 1e6
 
 
 def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name: str):

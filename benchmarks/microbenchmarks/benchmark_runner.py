@@ -67,8 +67,13 @@ def run_benchmarks_from_config(config_path: str) -> None:
         results.append(result)
 
     # TODO: Convert results to csv
-    # 1. For different shapes for same model
+    # Speedups:
+    # 1. For different shapes for same model and quantization
     # 2. For different quantizations for same model and shape
+    # 3. For different models for same quantization
+
+
+    
     
 
 if __name__ == "__main__":
