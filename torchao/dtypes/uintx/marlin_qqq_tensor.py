@@ -29,8 +29,7 @@ aten = torch.ops.aten
 
 
 class MarlinQQQTensor(AffineQuantizedTensor):
-    """
-    MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
+    """MarlinQQQ quantized tensor subclass which inherits AffineQuantizedTensor class.
 
     To see what happens during choose_qparams_and_quantize_affine_qqq, quantization and dequantization for marlin qqq quantization,
     please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
@@ -55,9 +54,12 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         block_size: Tuple[int, ...],
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Optional[Layout] = None,
     ):
+        """Converts a floating point tensor to a Marlin QQQ quantized tensor."""
+        if zero_point_domain is None:
+            raise ValueError("Please use ZeroPointDomain.NONE instead of None")
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
         nbits = int(math.log2(quant_max - quant_min + 1))
@@ -81,6 +83,8 @@ class MarlinQQQTensor(AffineQuantizedTensor):
 
 @dataclass(frozen=True)
 class MarlinQQQLayout(Layout):
+    """MarlinQQQLayout is a layout class for Marlin QQQ quantization."""
+
     pass
 
 
@@ -179,7 +183,7 @@ class MarlinQQQAQTTensorImpl(AQTTensorImpl):
     def get_plain(self):
         from torchao.quantization.marlin_qqq import (
             unpack_from_marlin_qqq,
-        )  # avoid circular import
+        )
 
         int_data_expanded, s_group_expanded, s_channel_expanded = (
             unpack_from_marlin_qqq(
@@ -207,7 +211,7 @@ class MarlinQQQAQTTensorImpl(AQTTensorImpl):
         from torchao.quantization.marlin_qqq import (
             const,
             pack_to_marlin_qqq,
-        )  # avoid circular import
+        )
 
         assert isinstance(_layout, MarlinQQQLayout)
 

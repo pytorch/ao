@@ -14,6 +14,8 @@ from setuptools import Extension, find_packages, setup
 
 current_date = datetime.now().strftime("%Y%m%d")
 
+PY3_9_HEXCODE = "0x03090000"
+
 
 def get_git_commit_id():
     try:
@@ -180,7 +182,8 @@ class TorchAOBuildExt(BuildExtension):
                 "cmake",
                 ext.sourcedir,
                 "-DCMAKE_BUILD_TYPE=" + build_type,
-                "-DTORCHAO_BUILD_EXECUTORCH_OPS=OFF",
+                # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
+                "-DTORCHAO_BUILD_KLEIDIAI=OFF",
                 "-DTorch_DIR=" + torch_dir,
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             ],
@@ -220,17 +223,14 @@ def get_extensions():
 
     extra_link_args = []
     extra_compile_args = {
-        "nvcc": [
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-        ]
+        "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
+        "nvcc": ["-O3" if not debug_mode else "-O0", "-t=0", "-std=c++17"],
     }
 
     if not IS_WINDOWS:
-        extra_compile_args["cxx"] = [
-            "-O3" if not debug_mode else "-O0",
-            "-fdiagnostics-color=always",
-        ]
+        extra_compile_args["cxx"].extend(
+            ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -238,23 +238,43 @@ def get_extensions():
                 extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
-        extra_compile_args["cxx"] = ["/O2" if not debug_mode else "/Od", "/permissive-"]
+        extra_compile_args["cxx"].extend(
+            ["/O2" if not debug_mode else "/Od", "/permissive-"]
+        )
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    this_dir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+
+    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+    cuda_sources = list(
+        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    )
+
+    if use_cuda:
+        sources += cuda_sources
+
     use_cutlass = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_tools_include_dir = os.path.join(
+            cutlass_dir, "tools", "util", "include"
+        )
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
     if use_cutlass:
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
                 "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
+                "-I" + cutlass_extensions_include_dir,
             ]
         )
 
@@ -276,6 +296,16 @@ def get_extensions():
 
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
+    else:
+        # Remove CUTLASS-based kernels from the cuda_sources list.  An
+        # assumption is that these files will have "cutlass" in its
+        # name.
+        cutlass_sources = list(
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
+        sources = [s for s in sources if s not in cutlass_sources]
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
     if IS_ROCM and use_cuda:
@@ -325,7 +355,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions() if use_cpp != "0" else None,
+    ext_modules=get_extensions(),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),

@@ -25,9 +25,9 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <torch/all.h>
 #include <torch/library.h>
 
 

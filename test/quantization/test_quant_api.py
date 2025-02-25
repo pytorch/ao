@@ -30,23 +30,41 @@ from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
+    float8_dynamic_activation_float8_weight,
+    float8_static_activation_float8_weight,
+    float8_weight_only,
+    fpx_weight_only,
+    gemlite_uintx_weight_only,
+    int4_dynamic_activation_int4_weight,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_weight_only,
+    uintx_weight_only,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
 )
+from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_89,
+    is_sm_at_least_90,
     unwrap_tensor_subclass,
 )
+
+try:
+    import gemlite  # noqa: F401
+
+    has_gemlite = True
+except ModuleNotFoundError:
+    has_gemlite = False
 
 
 def dynamic_quant(model, example_inputs):
@@ -760,6 +778,98 @@ class TestQuantFlow(TestCase):
         for param in m.parameters():
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
+    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
+    @common_utils.parametrize("x_dim", [2, 3])
+    def test_int4wo_cpu(self, dtype, x_dim):
+        from torchao.dtypes import Int4CPULayout
+
+        device = "cpu"
+        m = ToyLinearModel().eval().to(dtype).to(device)
+        example_inputs = m.example_inputs(dtype=dtype, device=device)
+        if x_dim == 3:
+            example_inputs = (example_inputs[0].unsqueeze(0),)
+
+        with torch.no_grad():
+            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            # ensure the expected op is in the code
+            _, code = torch._inductor.utils.run_and_get_code(
+                torch.compile(m, fullgraph=True, dynamic=True),
+                *example_inputs,
+            )
+            assert "_weight_int4pack_mm_for_cpu" in code[0]
+            assert "aten.mm.default" not in code[0]
+
+    # TODO(#1690): move to new config names
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "config",
+        [
+            int4_weight_only(),
+            float8_weight_only(),
+            float8_dynamic_activation_float8_weight(),
+            float8_static_activation_float8_weight(scale=torch.tensor([1.0])),
+            int4_dynamic_activation_int4_weight(),
+            int8_dynamic_activation_int8_weight(),
+            int8_dynamic_activation_int4_weight(),
+            int8_weight_only(),
+            fpx_weight_only(ebits=4, mbits=3),
+            gemlite_uintx_weight_only(),
+            uintx_weight_only(dtype=torch.uint4),
+        ],
+    )
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_workflow_e2e_numerics(self, config):
+        """
+        Simple test of e2e int4_weight_only workflow, comparing numerics
+        to a bfloat16 baseline.
+        """
+        if (
+            isinstance(
+                config,
+                (
+                    float8_dynamic_activation_float8_weight,
+                    float8_static_activation_float8_weight,
+                ),
+            )
+            and not is_sm_at_least_89()
+        ):
+            return unittest.skip("requires CUDA capability 8.9 or greater")
+        elif (
+            isinstance(config, int4_dynamic_activation_int4_weight)
+            and is_sm_at_least_90()
+        ):
+            return unittest.skip("only supported on CUDA capability 8.9, not greater")
+        elif isinstance(config, gemlite_uintx_weight_only) and not has_gemlite:
+            return unittest.skip("gemlite not available")
+
+        # scale has to be moved to cuda here because the parametrization init
+        # code happens before gating for cuda availability
+        if isinstance(config, float8_static_activation_float8_weight):
+            config.scale = config.scale.to("cuda")
+
+        dtype = torch.bfloat16
+        if isinstance(config, gemlite_uintx_weight_only):
+            dtype = torch.float16
+
+        # set up inputs
+        x = torch.randn(128, 128, device="cuda", dtype=dtype)
+        # TODO(future): model in float32 leads to error: https://gist.github.com/vkuzo/63b3bcd7818393021a6e3fb4ccf3c469
+        # is that expected?
+        m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).cuda().to(dtype)
+        m_q = copy.deepcopy(m_ref)
+
+        # quantize
+        quantize_(m_q, config)
+
+        with torch.no_grad():
+            y_ref = m_ref(x)
+            y_q = m_q(x)
+
+        sqnr = compute_error(y_ref, y_q)
+        assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
 
 class TestMultiTensorFlow(TestCase):

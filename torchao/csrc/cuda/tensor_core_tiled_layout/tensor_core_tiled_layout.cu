@@ -5,7 +5,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/DeviceGuard.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <torch/extension.h>
+#include <torch/library.h>
 
 #if defined(USE_ROCM)
 #include <hip/hip_bf16.h>

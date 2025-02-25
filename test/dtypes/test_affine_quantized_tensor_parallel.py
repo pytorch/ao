@@ -1,5 +1,6 @@
 import unittest
 
+import pytest
 import torch
 from torch.distributed._tensor import DeviceMesh, DTensor, Replicate, Shard
 from torch.testing._internal import common_utils
@@ -13,6 +14,7 @@ from torchao.quantization import (
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
     int4_weight_only,
+    int8_dynamic_activation_int8_weight,
     int8_weight_only,
 )
 from torchao.quantization.observer import PerRow, PerTensor
@@ -25,6 +27,9 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
+
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
@@ -166,9 +171,21 @@ class TestGemliteLayoutTensorParallel(TestAffineQuantizedTensorParallel):
                     return self._test_tp(dtype)
 
 
+class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
+    QUANT_METHOD_FN = staticmethod(int8_dynamic_activation_int8_weight)
+    COMMON_DTYPES = [torch.bfloat16]
+
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @with_comms
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_tp(self, dtype):
+        return self._test_tp(dtype)
+
+
 common_utils.instantiate_parametrized_tests(TestInt8woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestGemliteLayoutTensorParallel)
+common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParallel)
 
 # Run only on H100
 if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):

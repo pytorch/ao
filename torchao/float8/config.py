@@ -7,7 +7,7 @@
 import enum
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -15,20 +15,14 @@ logger: logging.Logger = logging.getLogger()
 
 
 class ScalingType(enum.Enum):
-    DELAYED = "delayed"
     DYNAMIC = "dynamic"
-    STATIC = "static"
     # ScalingType.DISABLED means "skip scaling for this tensor, leave it in
     # its original precision.
     DISABLED = "disabled"
 
     def short_str(self):
-        if self is ScalingType.DELAYED:
-            return "del"
-        elif self is ScalingType.DYNAMIC:
+        if self is ScalingType.DYNAMIC:
             return "dyn"
-        elif self is ScalingType.STATIC:
-            return "sta"
         else:
             assert self is ScalingType.DISABLED
             return "dis"
@@ -90,7 +84,6 @@ class CastConfig:
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
-    static_scale: Optional[torch.Tensor] = None
     target_dtype: Optional[torch.dtype] = None
 
     def short_str(self):
@@ -98,10 +91,6 @@ class CastConfig:
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
-        if self.scaling_type is ScalingType.STATIC:
-            assert (
-                self.static_scale is not None
-            ), "static_scale must be specified for static scaling"
         if self.scaling_granularity is ScalingGranularity.AXISWISE:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
@@ -109,30 +98,6 @@ class CastConfig:
         assert self.target_dtype is None or (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
-
-
-@dataclass(frozen=True)
-class DelayedScalingConfig:
-    """
-    Configuration for delayed scaling.
-
-    Note: for now, `history_len` values must be the same for all layers in the
-    model using delayed scaling.
-
-    TODO(future): serialization for recipes
-    """
-
-    # Controls the history length of amax buffers
-    history_len: int = 16
-
-    # Controls the way to calculate current scale from amax history
-    # TODO(future): add other functions as needed, hardcoded or user defined
-    scale_fn_name: str = "max"
-
-    def __post_init__(self):
-        assert (
-            self.scale_fn_name == "max"
-        ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
 
 
 @dataclass(frozen=True)
@@ -144,6 +109,31 @@ class Float8GemmConfig:
     # If True, fast accumulation in lower precision is used.
     # Note: this flag is currently a no-op if emulation is turned on.
     use_fast_accum: bool = False
+
+
+# Pre-made recipes for common configurations
+class Float8LinearRecipeName(enum.Enum):
+    # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
+    TENSORWISE = "tensorwise"
+
+    # dynamic rowwise scaling with the CUTLASS rowwise kernel
+    # * e4m3 for activations, weights, gradients
+    # * scales rounded (floor) to the nearest power of two for increased accuracy
+    ROWWISE = "rowwise"
+
+    # lw's recipe for a modification on rowwise scaling:
+    #
+    #   output_hp = input_fp8_rowwise_dim0 @ weight_t_rowwise_dim1
+    #   grad_input_hp = grad_output_fp8_rowwise_dim0 @ weight_fp8_tensorwise
+    #   grad_weight_hp = input_t_hp @ grad_output_hp
+    #
+    # key characteristics:
+    #   * increased accuracy for grad_weight
+    #   * `input`, `weight` and `grad_output` now only need to be scaled
+    #     rowwise across a single dim compared to vanilla rowwise,
+    #     which is more amenable to fast kernels
+    #   * the e4m3 dtype is used across the board, including for gradients
+    ROWWISE_WITH_GW_HP = "rowwise_with_gw_hp"
 
 
 @dataclass(frozen=True)
@@ -190,14 +180,6 @@ class Float8LinearConfig:
     # Per-linear configuration
     #
 
-    # This configuration option is deprecated and no longer has an effect. It may
-    # be removed in a future release.
-    enable_amax_init: bool = True
-
-    # This configuration option is deprecated and no longer has an effect. It may
-    # be removed in a future release.
-    enable_pre_and_post_forward: bool = True
-
     # If True, then uses a tensor subclass for the float8 linear module's weight that
     # implements pre/post-all-gather methods to do float8 all-gather with FSDP2.
     enable_fsdp_float8_all_gather: bool = False
@@ -210,13 +192,6 @@ class Float8LinearConfig:
 
     # If True, emulation is used instead of hardware accelerated gemm
     emulate: bool = False
-
-    # Configuration for delayed scaling
-    # Note: this is actually applied per-tensor, but only using the same
-    # configuration for all tensors and layers in the model is currently
-    # supported. If in the future we add support for a more fine grained
-    # configuration, this field may move to per-tensor configs.
-    delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
 
     # If the option is enabled, fp8_weight will always be re-computed in backward.
     # It's recommended to enable this flag when using FSDP.
@@ -233,6 +208,13 @@ class Float8LinearConfig:
     # TODO(future PR): either enable by default or have a warning and set up the
     # tests so that the warning does not spam the CI stdout.
     force_recompute_fp8_weight_in_bwd: bool = False
+
+    # If this option is enabled, the scaling factor used for float8 quantization
+    # will be rounded down to the nearest power of 2. This has been shown to help
+    # reduce quantization error by avoiding rounding errors when multiplying/dividing
+    # by the scaling factor, as well as ensuring large values are quantized to the
+    # same value in the forward pass as the backward passes.
+    round_scales_to_power_of_2: bool = False
 
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
@@ -304,78 +286,68 @@ class Float8LinearConfig:
                 "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
             )
 
+    @staticmethod
+    def from_recipe_name(
+        recipe_name: Union[Float8LinearRecipeName, str],
+    ) -> "Float8LinearConfig":
+        """
+        Input: `Float8LinearRecipeName` value, or a string representing a `Float8LinearRecipeName` value
+        Output: a `Float8LinearConfig` configured to implement the specified recipe
+        """
+        if type(recipe_name) == str:
+            valid_names = [n.value for n in Float8LinearRecipeName]
+            assert (
+                recipe_name in valid_names
+            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            recipe_name = Float8LinearRecipeName(recipe_name)
 
-# Pre-made recipes for common configurations
-# TODO(future PR): go through a round of design on this, and eventually expose
-# as a top level public API.
-class Float8LinearRecipeName(enum.Enum):
-    ALL_TENSORWISE = "all_tensorwise"
-    ALL_AXISWISE = "all_axiswise"
-    LW_AXISWISE_WITH_GW_HP = "lw_axiswise_with_gw_hp"
+        if recipe_name is Float8LinearRecipeName.TENSORWISE:
+            return Float8LinearConfig()
 
+        elif recipe_name is Float8LinearRecipeName.ROWWISE:
+            cc_i = CastConfig(
+                scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+            )
+            cc_w = CastConfig(
+                scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+            )
+            cc_go = CastConfig(
+                scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+            )
 
-def recipe_name_to_linear_config(
-    recipe_name: Float8LinearRecipeName,
-) -> Float8LinearConfig:
-    """
-    Input: `Float8LinearRecipeName` value
-    Output: a `Float8LinearConfig` configured to implement the recipe
-    """
+            return Float8LinearConfig(
+                cast_config_input=cc_i,
+                cast_config_weight=cc_w,
+                cast_config_grad_output=cc_go,
+                # enable power of 2 scaling factors by default for row-wise scaling
+                round_scales_to_power_of_2=True,
+            )
 
-    if recipe_name is Float8LinearRecipeName.ALL_TENSORWISE:
-        # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
-        return Float8LinearConfig()
+        elif recipe_name is Float8LinearRecipeName.ROWWISE_WITH_GW_HP:
+            # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
+            cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+            cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
 
-    elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
-        # dynamic axiswise scaling with the CUTLASS rowwise kernel
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+            # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
+            cc_go = CastConfig(
+                scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
+            )
+            cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
-        return Float8LinearConfig(
-            cast_config_input=cc_i,
-            cast_config_weight=cc_w,
-            cast_config_grad_output=cc_go,
-        )
+            # grad_weight_hp = input_t_hp @ grad_output_hp
+            cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
+            cc_go_gw = CastConfig(
+                scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
+            )
 
-    elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
-        # lw's recipe for a modification on all-axiswise:
-        #
-        #   output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
-        #   grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-        #   grad_weight_hp = input_t_hp @ grad_output_hp
-        #
-        # key characteristics:
-        #   * increased accuracy for grad_weight
-        #   * `input`, `weight` and `grad_output` now only need to be scaled
-        #     axiswise across a single dim compared to vanilla all-axiswise,
-        #     which is more amenable to fast kernels
-        #   * the e4m3 dtype is used across the board, including for gradients
+            return Float8LinearConfig(
+                cast_config_input=cc_i,
+                cast_config_weight=cc_w,
+                cast_config_grad_output=cc_go,
+                cast_config_input_for_grad_weight=cc_i_gw,
+                cast_config_weight_for_grad_input=cc_w_gi,
+                cast_config_grad_output_for_grad_weight=cc_go_gw,
+            )
 
-        # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
-        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-
-        # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
-        cc_go = CastConfig(
-            scaling_granularity=ScalingGranularity.AXISWISE, target_dtype=e4m3_dtype
-        )
-        cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
-
-        # grad_weight_hp = input_t_hp @ grad_output_hp
-        cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
-        cc_go_gw = CastConfig(
-            scaling_type=ScalingType.DISABLED, target_dtype=e4m3_dtype
-        )
-
-        return Float8LinearConfig(
-            cast_config_input=cc_i,
-            cast_config_weight=cc_w,
-            cast_config_grad_output=cc_go,
-            cast_config_input_for_grad_weight=cc_i_gw,
-            cast_config_weight_for_grad_input=cc_w_gi,
-            cast_config_grad_output_for_grad_weight=cc_go_gw,
-        )
-
-    else:
-        raise AssertionError(f"unknown recipe_name {recipe_name}")
+        else:
+            raise AssertionError(f"unknown recipe_name {recipe_name}")

@@ -15,7 +15,6 @@ __all__ = [
     "profiler_runner",
     "get_available_devices",
     "get_compute_capability",
-    "skip_if_compute_capability_less_than",
     "benchmark_torch_function_in_microseconds",
     "find_multiple",
     "_register_custom_op",
@@ -143,22 +142,6 @@ def get_compute_capability():
         capability = torch.cuda.get_device_capability()
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
-
-
-def skip_if_compute_capability_less_than(min_capability):
-    import unittest
-
-    def decorator(test_func):
-        def wrapper(*args, **kwargs):
-            if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(
-                    f"Compute capability is less than {min_capability}"
-                )
-            return test_func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
@@ -512,6 +495,27 @@ def _get_tensor_impl_constructor(
     return tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class]
 
 
+def _get_to_kwargs(self, *args, **kwargs):
+    # `torch._C._nn._parse_to` can't handle `layout` argument
+    for arg in args:
+        if isinstance(arg, torch.layout):
+            args.remove(arg)
+    if "layout" in kwargs:
+        kwargs.pop("layout")
+    # ignoring `non_blocking` and `memory_format` args since these are not
+    # very useful for most of the tensor subclasses
+    # if in the future there are use cases that need these, we'd recommend
+    # to override `_get_to_kwargs` and return these args
+    device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
+    device = self.device if device is None else device
+    dtype = self.dtype if dtype is None else dtype
+    kwargs = {
+        "device": device,
+        "dtype": dtype,
+    }
+    return kwargs
+
+
 class TorchAOBaseTensor(torch.Tensor):
     """A util tensor subclass that provides commonly used functions
        new tensor subclass can inherit it to get all the utility functions
@@ -552,26 +556,24 @@ class TorchAOBaseTensor(torch.Tensor):
     __torch_function__ = classmethod(_dispatch__torch_function__)
     register_layout = classmethod(_register_layout)
     get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
+    _get_to_kwargs = _get_to_kwargs
 
-    def _get_to_kwargs(self, *args, **kwargs):
-        # `torch._C._nn._parse_to` can't handle `layout` argument
-        for arg in args:
-            if isinstance(arg, torch.layout):
-                args.remove(arg)
-        if "layout" in kwargs:
-            kwargs.pop("layout")
-        # ignoring `non_blocking` and `memory_format` args since these are not
-        # very useful for most of the tensor subclasses
-        # if in the future there are use cases that need these, we'd recommend
-        # to override `_get_to_kwargs` and return these args
-        device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        kwargs = {
-            "device": device,
-            "dtype": dtype,
-        }
-        return kwargs
+    def __tensor_flatten__(self):
+        raise NotImplementedError("Subclasses must implement __tensor_flatten__")
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        raise NotImplementedError("Subclasses must implement __tensor_unflatten__")
+
+    def __repr__(self):
+        raise NotImplementedError("Subclasses must implement __repr__")
+
+    def get_layout(self):
+        if not hasattr(self, "_layout"):
+            return None
+        return self._layout
 
 
 def fill_defaults(args, n, defaults_tail):
@@ -607,7 +609,7 @@ def _torch_version_at_least(min_version):
 def is_MI300():
     if torch.cuda.is_available() and torch.version.hip:
         mxArchName = ["gfx940", "gfx941", "gfx942"]
-        archName = torch.cuda.get_device_properties().gcnArchName
+        archName = torch.cuda.get_device_properties(0).gcnArchName
         for arch in mxArchName:
             if arch in archName:
                 return True
@@ -627,6 +629,15 @@ def is_sm_at_least_90():
         torch.cuda.is_available()
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (9, 0)
+    )
+
+
+# TODO(future PR): rename to 8_9, 9_0, 10_0 instead of 89, 10, 100
+def is_sm_at_least_100():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() >= (10, 0)
     )
 
 

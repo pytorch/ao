@@ -64,8 +64,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
     * if the arguments are in high precision, they are cast to float8 according
       to the specified config
     * if the arguments are in float8, we assume the cast honored the config
-
-    Only supports dynamic scaling, does not support delayed/static scaling.
     """
 
     @staticmethod
@@ -96,6 +94,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_input.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -112,6 +111,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -151,6 +151,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_grad_output.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -159,6 +160,17 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
+            if (
+                c.cast_config_weight_for_grad_input.scaling_granularity
+                is ScalingGranularity.AXISWISE
+            ):
+                # workaround from https://github.com/pytorch/pytorch/issues/141881
+                # to avoid saving float8 weight from forward to backward when
+                # FSDP is on: add a fake dependency on `grad_output`.
+                g_reshaped = grad_output.reshape(-1, grad_output.shape[-1]) * 0
+                zero = g_reshaped[:1] * 0
+                weight_hp_t = weight_hp_t + zero
+
             # Note: we need https://github.com/pytorch/pytorch/issues/136267
             # to be solved to have a chance to reuse max(abs(weight, dim=...))
             # from the forward to get max(abs(weight)) here without reading
@@ -172,6 +184,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     -1, c.cast_config_weight_for_grad_input.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         grad_input = torch.mm(
@@ -207,6 +220,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_grad_output_for_grad_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
@@ -224,6 +238,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(
                     0, c.cast_config_input_for_grad_weight.scaling_granularity
                 ),
+                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         grad_weight = torch.mm(
@@ -242,8 +257,7 @@ class Float8Linear(torch.nn.Linear):
     inside of this repository. Please file an issue if you would benefit
     from this being a public API.
 
-    A wrapper around a `torch.nn.Linear` module which does fp8 compute, and tracks
-    scales in way friendly to delayed scaling.
+    A wrapper around a `torch.nn.Linear` module which does fp8 compute.
     """
 
     def __init__(self, *args, **kwargs):
@@ -394,6 +408,7 @@ class Float8Linear(torch.nn.Linear):
         # 1. weight needs to be on the correct device to create the buffers
         # 2. buffers need to be already created for the delayed scaling version
         #    of the weight wrapper to be initialized
+        # TODO(future PR): see if we can simplify ^ now that delayed scaling is deleted
         if config.enable_fsdp_float8_all_gather:
             assert config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
             new_mod.weight = torch.nn.Parameter(
