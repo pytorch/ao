@@ -30,8 +30,8 @@ jobs:
       with-cuda: enable
       with-rocm: enable
       with-xpu: enable
-      # please note: excluding 3.13t for aarch64 builds for now
-      python-versions: '["3.9", "3.10", "3.11", "3.12", "3.13"]'
+      # Note: if free-threaded python is required add py3.13t here
+      python-versions: '["3.9"]'
 
   build:
     needs: generate-matrix
