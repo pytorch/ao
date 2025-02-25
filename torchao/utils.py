@@ -15,7 +15,6 @@ __all__ = [
     "profiler_runner",
     "get_available_devices",
     "get_compute_capability",
-    "skip_if_compute_capability_less_than",
     "benchmark_torch_function_in_microseconds",
     "find_multiple",
     "_register_custom_op",
@@ -143,22 +142,6 @@ def get_compute_capability():
         capability = torch.cuda.get_device_capability()
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
-
-
-def skip_if_compute_capability_less_than(min_capability):
-    import unittest
-
-    def decorator(test_func):
-        def wrapper(*args, **kwargs):
-            if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(
-                    f"Compute capability is less than {min_capability}"
-                )
-            return test_func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
@@ -626,7 +609,7 @@ def _torch_version_at_least(min_version):
 def is_MI300():
     if torch.cuda.is_available() and torch.version.hip:
         mxArchName = ["gfx940", "gfx941", "gfx942"]
-        archName = torch.cuda.get_device_properties().gcnArchName
+        archName = torch.cuda.get_device_properties(0).gcnArchName
         for arch in mxArchName:
             if arch in archName:
                 return True

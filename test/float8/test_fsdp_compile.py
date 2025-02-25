@@ -26,10 +26,8 @@ import torch.nn as nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from torchao.float8 import Float8LinearConfig
-from torchao.float8.config import CastConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
-    sync_float8_amax_and_scale_history,
 )
 
 torch.manual_seed(0)
@@ -63,10 +61,6 @@ def get_model(K, N, is_fp8, emulate, base_dtype=torch.float32):
     # https://gist.github.com/vkuzo/ed8e168fd9f7463f1fce34301334ab55
     # to get around this, we can disable amax init
     config = Float8LinearConfig(
-        enable_amax_init=False,
-        cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-        cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
         emulate=emulate,
     )
 
@@ -102,7 +96,6 @@ def fsdp_main(rank, world_size, args):
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr * world_size)
     input_local = torch.randn(B, M, K, N, device="cuda")
-    sync_float8_func = torch.compile(sync_float8_amax_and_scale_history)
 
     model = torch.compile(model)
 
@@ -111,7 +104,6 @@ def fsdp_main(rank, world_size, args):
         with torch.autocast("cuda"):
             y_local = model(input_local)
         y_local.sum().backward()
-        sync_float8_func(model)
         optimizer.step()
 
     print("done!")

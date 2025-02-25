@@ -48,6 +48,7 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
@@ -819,6 +820,7 @@ class TestQuantFlow(TestCase):
             uintx_weight_only(dtype=torch.uint4),
         ],
     )
+    @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
         Simple test of e2e int4_weight_only workflow, comparing numerics
