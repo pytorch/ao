@@ -9,19 +9,43 @@ import torch
 BYTES_PER_EL_FLOAT8 = 1
 BYTES_PER_EL_BF16 = 2
 
-# https://www.nvidia.com/en-us/data-center/h100/, divide by 2 because no sparsity
-H100_BF16_PEAK_TOPS = 989e12
-H100_FP8_PEAK_TOPS = 1979e12
+gpu_name_to_specs = {
+    "NVIDIA H100": {
+        # https://www.nvidia.com/en-us/data-center/h100/, divide by 2 because no sparsity
+        "bf16_peak_tops": 989e12,
+        "fp8_peak_tops": 1979e12,
+        # 2.4 TB per second, custom to Meta's H100 variant
+        "peak_mem_bw_bytes_sec": 2.4e12,
+        # based on quick experimental observation with sample large inputs
+        "pct_achievable_gemm_tops": 0.6,
+        # based on previous experience looking at pointwise triton kernels with large inputs,
+        # which would hit about 2.2k GBPS on Meta's H100 variant
+        "pct_achievable_mem_bw": 0.92,
+    },
+    "NVIDIA B200": {
+        # https://resources.nvidia.com/en-us-blackwell-architecture, page 19,
+        # divide by 2 because no sparsity
+        "bf16_peak_tops": 2.25e15,
+        "fp8_peak_tops": 4.5e15,
+        "fp4_peak_tops": 9.0e15,
+        # https://resources.nvidia.com/en-us-blackwell-architecture, page 20
+        # 8.0 TB per second
+        "peak_mem_bw_bytes_sec": 8.0e12,
+        # for now, copy over from H100
+        # TODO(future): measure once we have the hardware
+        "pct_achievable_gemm_tops": 0.6,
+        # for now, copy over from H100
+        # TODO(future): measure once we have the hardware
+        "pct_achievable_mem_bw": 0.92,
+    },
+    # TODO(future): more GPU names
+}
 
-# 2.4 TB per second, custom to Meta's H100 variant
-H100_PEAK_MEM_BW_BYTES_SEC = 2.4e12
 
-# based on quick experimental observation with sample large inputs
-H100_PCT_ACHIEVABLE_GEMM_TOPS = 0.6
+def get_specs():
+    gpu_name = torch.cuda.get_device_name(0)
+    return gpu_name_to_specs[gpu_name]
 
-# based on previous experience looking at pointwise triton kernels with large inputs,
-# which would hit about 2.2k GBPS on Meta's H100 variant
-H100_PCT_ACHIEVABLE_MEM_BW = 0.92
 
 # Source: run a triton kernel with a single element read/write on an H100 and
 # measure GPU time from the trace
@@ -65,12 +89,13 @@ def get_tensor_memory_traffic_bytes(
 
 
 def get_gemm_time_sympy(M, K, N, dtype):
+    specs = get_specs()
     gemm_ops = 2 * M * K * N + 2 * M * N * K + 2 * K * M * N
     if dtype is torch.bfloat16:
-        peak_tops = H100_BF16_PEAK_TOPS
+        peak_tops = specs["bf16_peak_tops"]
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        peak_tops = H100_FP8_PEAK_TOPS
-    gemm_time_s = gemm_ops / peak_tops / H100_PCT_ACHIEVABLE_GEMM_TOPS
+        peak_tops = specs["fp8_peak_tops"]
+    gemm_time_s = gemm_ops / peak_tops / specs["pct_achievable_gemm_tops"]
     return gemm_time_s
 
 
@@ -86,6 +111,8 @@ def get_float8_mem_sympy(
     assert scaling_type_input in ("dynamic",), "unsupported"
     assert scaling_type_weight in ("dynamic",), "unsupported"
     assert scaling_type_grad_output in ("dynamic",), "unsupported"
+
+    specs = get_specs()
 
     # there are three gemms in the fwd/bwd of a linear:
     #
@@ -148,7 +175,7 @@ def get_float8_mem_sympy(
     )
     fp8_total_mem = fwd_fp8_total_mem + bwd_fp8_total_mem
     fp8_mem_time_s = (
-        fp8_total_mem / H100_PEAK_MEM_BW_BYTES_SEC / H100_PCT_ACHIEVABLE_MEM_BW
+        fp8_total_mem / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
     )
 
     # Adjust final estimate for small kernel launches
