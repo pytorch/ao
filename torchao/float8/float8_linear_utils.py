@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import torch.nn as nn
 
@@ -85,7 +85,7 @@ def convert_to_float8_training(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Float8LinearConfig = None,
+    config: Optional[Float8LinearConfig] = None,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Linear` in `module` with `Float8Linear`.
