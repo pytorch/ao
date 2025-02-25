@@ -202,3 +202,4 @@ python test/float8/test_fsdp2/test_fsdp2.py
 # make sure to turn on torch.compile to get the best performance
 ./benchmarks/float8/bench_linear_float8.py -o ../tmp/test.txt --compile
 ```
+test
