@@ -1,8 +1,8 @@
 import math
+from functools import partial
 from typing import Optional
 
 import torch
-from functools import partial
 from torch import Tensor
 
 from ..utils import channel_bucketize
