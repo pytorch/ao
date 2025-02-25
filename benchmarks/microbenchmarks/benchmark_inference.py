@@ -4,27 +4,28 @@ Inference benchmark runner
 This script runs inference benchmarks and generates a micro-benchmarking report for it.
 - run() function is the main entry point for running inference benchmarks.
 """
+
 from copy import deepcopy
-import json
 from pathlib import Path
 from typing import Dict
 
 import torch
 from utils import (
+    BenchmarkConfig,
     benchmark_model_inference_in_microseconds,
     clean_caches,
     create_model_and_input,
     quantize_model,
-    BenchmarkConfig,
 )
+
 
 def run(config: BenchmarkConfig) -> Dict[str, float]:
     """Run inference benchmarks"""
     clean_caches()  # Clean caches
-    
+
     # Create output directory if it doesn't exist
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
-    
+
     base_model, input_data = create_model_and_input(
         config.model_type,
         config.m,
@@ -33,10 +34,7 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
         dtype=config.precision,
         device=config.device,
     )
-    print(
-        f"Starting benchmarking for model: {base_model.__class__.__name__} for quantization: {config.quantization}"
-    )
-    
+
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
     m_copy = quantize_model(m_copy, config.quantization)
@@ -46,16 +44,13 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
         m_copy = torch.compile(m_copy, mode=config.compile, fullgraph=True)
 
     # Run benchmarks
-    results = {}
-    
+    result = {**config.__dict__}
+
     # Benchmark time to run an inference call for quantized model
     model_time = benchmark_model_inference_in_microseconds(
         model=m_copy, input_data=input_data
     )
-    results[f"benchmark_model_inference_in_microseconds"] = model_time
-    print(
-        f"Time to run a {base_model.__class__.__name__}: {model_time:.2f} microseconds quantized with {config.quantization}"
-    )
+    result["benchmark_model_inference_in_microseconds"] = model_time
 
     # TODO: Benchmark time using profiler
     # Profile dtype model evaluation
@@ -68,4 +63,4 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
     # TODO: Benchmark op with cuda graph
     # time = benchmark_op_with_cuda_graph(op, args)
 
-    return results
+    return result

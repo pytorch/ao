@@ -13,13 +13,13 @@ Usage:
 
 The YAML file should contain all necessary configuration parameters for the benchmarks.
 """
+
 from itertools import product
 from typing import Any, Dict, List, Tuple
 
-import torch
 import yaml
+from utils import BenchmarkConfig, generate_results_csv
 
-from utils import BenchmarkConfig
 
 def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[int]]]:
     """Get shapes for a given configuration"""
@@ -43,13 +43,16 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
         shapes = get_shapes_for_config(shape_config)
         # Generate combinations for each shape
         for quant, (shape_name, shape) in product(quantizations, shapes):
-            configs.append(BenchmarkConfig(
-                quantization=quant,
-                params=params,
-                shape_name=shape_name,
-                shape=shape,
-                output_dir=output_dir,
-                ))
+            configs.append(
+                BenchmarkConfig(
+                    quantization=quant,
+                    params=params,
+                    shape_name=shape_name,
+                    shape=shape,
+                    output_dir=output_dir,
+                )
+            )
+    print("Configs: ", configs[0].__dict__)
 
     return configs
 
@@ -60,21 +63,20 @@ def run_benchmarks_from_config(config_path: str) -> None:
 
     configs = load_benchmark_configs(config_path)
     results = []
-    print(f"Benchmarking Inference ......")
+    print("Benchmarking Inference ......")
     for config in configs:
         print(f"Running: {config.name}")
         result = run_inference(config)  # Pass the config object directly
         results.append(result)
 
-    # TODO: Convert results to csv
-    # Speedups:
+    # Add results to csv
+    generate_results_csv(results, configs[0].output_dir)
+
+    # TODO: Process results: Speedups:
     # 1. For different shapes for same model and quantization
     # 2. For different quantizations for same model and shape
     # 3. For different models for same quantization
 
-
-    
-    
 
 if __name__ == "__main__":
     import argparse

@@ -10,4 +10,6 @@ from utils import BenchmarkConfig
 
 def run(config: BenchmarkConfig) -> None:
     """Run training benchmarks"""
-    raise NotImplementedError("Training benchmarks are not implemented yet. This is a placeholder function.")
+    raise NotImplementedError(
+        "Training benchmarks are not implemented yet. This is a placeholder function."
+    )

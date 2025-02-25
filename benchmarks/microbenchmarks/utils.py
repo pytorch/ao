@@ -1,33 +1,32 @@
+import csv
+import os
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List
 
 import torch
-from torch.profiler import ProfilerActivity, profile
 
 from torchao.quantization import (
-    MappingType,
-    PerRow,
-    PerTensor,
-    quantize_,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
-    Int4DynamicActivationInt4WeightConfig,
     Int8WeightOnlyConfig,
+    MappingType,
+    PerRow,
+    PerTensor,
     UIntXWeightOnlyConfig,
+    quantize_,
 )
-from torchao.quantization.quant_api import Float8WeightOnlyConfig
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     unwrap_tensor_subclass,
 )
 
 try:
-    import triton
+    import triton  # noqa: F401
+
     HAS_TRITON = True
 except ImportError:
     HAS_TRITON = False
@@ -50,7 +49,7 @@ class BenchmarkConfig:
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
-        self.name = f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}"
+        self.name = f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.compile else ''}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -72,7 +71,6 @@ class BenchmarkConfig:
         }
 
 
-# TODO: add more models
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, k=64, n=32, dtype=torch.bfloat16):
         super().__init__()
@@ -98,25 +96,15 @@ class LNLinearSigmoid(torch.nn.Module):
 
 
 def get_default_device() -> str:
-    try:
-        if torch.cuda.is_available():
-            return "cuda"
-        elif torch.xpu.is_available():
-            return "xpu"
-        elif torch.backends.mps.is_available():
-            return "mps"
-    except (AssertionError, AttributeError):
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.xpu.is_available():
+        return "xpu"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    else:
         print("Warning: Running on CPU as no GPU support was found")
         return "cpu"
-
-
-def benchmark_func_call(func, *args, **kwargs):
-    start_time = time.time()
-    result = func(*args, **kwargs)
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"Time taken to run {func.__name__}: {elapsed_time:.2f} seconds")
-    return result
 
 
 def ffn_only(mod, fqn):
@@ -148,7 +136,7 @@ def quantize_model(
     if "int4wo" in quantization and not HAS_TRITON:
         print("Warning: Triton not available, falling back to baseline")
         return model
-    
+
     # Define kwargs
     sparsity = kwargs.get("sparsity", None)
     precision = kwargs.get("precision", None)
@@ -318,52 +306,6 @@ def benchmark_model_inference_in_microseconds(model, input_data):
     return ((end_time - start_time) / num_iters) * 1e6
 
 
-def benchmark_model_op_with_profiler_in_microseconds(model, input_data, op_name: str):
-    """Benchmarks model inference using PyTorch profiler to measure GPU kernel execution times.
-
-    This function profiles the model execution and measures the time spent in specific GPU operations
-    versus overhead time. It performs warmup runs before profiling to ensure accurate measurements.
-
-    Args:
-        model (torch.nn.Module): PyTorch model to benchmark
-        input_data (torch.Tensor): Input tensor to run through the model
-        op_name (str): Name of the GPU operation to measure time for
-
-    Returns:
-        tuple[float, float]: A tuple containing:
-            - gpu_op_time (float): Time spent in the specified GPU operation in microseconds
-            - gpu_overhead_time (float): Time spent in other GPU operations in microseconds
-    """
-    # Warm up
-    for _ in range(2):
-        model(input_data)
-
-    # Profile model execution
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True
-    ) as prof:
-        with torch.no_grad():
-            _ = model(input_data)
-            torch.cuda.synchronize()
-
-    # Get event data from profiler
-    event_data = [
-        (event.key, event.device_time)
-        for event in prof.key_averages()
-        if event.device_type == torch.autograd.DeviceType.CUDA
-    ]
-
-    # Calculate op time and overhead time
-    gpu_op_time, gpu_overhead_time = 0, 0
-    for event in event_data:
-        if op_name in event[0]:
-            gpu_op_time += event[1]
-        else:
-            gpu_overhead_time += event[1]
-
-    return gpu_op_time, gpu_overhead_time
-
-
 def create_model_and_input(
     model_type: str,
     m: int,
@@ -392,57 +334,6 @@ def create_model_and_input(
     return model, input_data
 
 
-@torch.no_grad()
-def benchmark_op_with_cuda_graph(op, *args, **kwargs):
-    """
-    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
-    """
-    rep = kwargs.pop("rep", 100)
-    warmup = kwargs.pop("warmup", 25)
-    with torch.no_grad():
-        torch.cuda.synchronize()
-        stream = torch.cuda.Stream()
-        stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(stream):
-            op(*args, **kwargs)
-        stream.synchronize()
-        torch.cuda.current_stream().wait_stream(stream)
-        torch.cuda.synchronize()
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph, stream=stream):
-            op(*args, **kwargs)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            from torch._inductor.runtime.benchmarking import benchmarker
-
-            res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        elif TORCH_VERSION_AT_LEAST_2_3:
-            from torch._inductor.runtime.runtime_utils import do_bench_gpu
-
-            res = do_bench_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-        else:
-            from torch._inductor.utils import do_bench
-
-            res = do_bench(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
-    return res
-
-
-def _is_interpolate_mode(mode):
-    if (
-        isinstance(mode, list)
-        and mode[0] == "interpolate"
-        and len(mode) == 2
-        and isinstance(mode[1], float)
-    ):
-        return True
-    return False
-
-
 def clean_caches():
     import gc
 
@@ -453,70 +344,33 @@ def clean_caches():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
-    if hasattr(torch, '_dynamo'):
+    if hasattr(torch, "_dynamo"):
         torch._dynamo.reset()
 
 
-def get_name_to_shapes_iter(
-    shape_gen_name: str,
-    M: Optional[int],
-    K: Optional[int],
-    N: Optional[int],
+def generate_results_csv(
+    results: List[Dict[str, Any]],
+    output_dir: str,
+    file_name: str = "results.csv",
 ):
-    if shape_gen_name == "llama":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
-        bsz, seq_len = 4, 4096
-        M = bsz * seq_len
-        # LLaMa 2 70B single-node weight shapes
-        # assumes fused attn.wqkv and ffn.w13
-        # source: https://fburl.com/gsheet/g8onr7rh
-        name_to_shapes_70b = {
-            "attn.wqkv": (M, 8192, 1280),
-            "attn.w0": (M, 1024, 8192),
-            "ffn.w13": (M, 8192, 7168),
-            "ffn.w2": (M, 3584, 8192),
-        }
-        return name_to_shapes_70b.items()
+    """Generate a CSV file with the results of the benchmarking.
 
-    elif shape_gen_name == "square":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
-        name_to_shapes = {}
-        min_power_of_2 = 8  # 256
-        max_power_of_2 = 15  # 32,768
-        for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
-            val = 2**power_of_2
-            name_to_shapes[idx] = val, val, val
-        return name_to_shapes.items()
+    Args:
+        results (List[Dict[str, Any]]): List Dictionary containing the results of the benchmarking with the config.
+        output_dir (str): Directory to save the CSV file.
+        file_name (str, optional): Name of the CSV file. Defaults to "results.csv".
+    """
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = os.path.join(output_dir, file_name)
 
-    elif shape_gen_name == "sweep":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
-        name_to_shapes = {}
-        min_p2 = 8  # 256
-        max_p2 = 15  # 32,768
-        counter = 0
-        for M_p2 in range(min_p2, max_p2 + 1):
-            M = 2**M_p2
-            for K_p2 in range(min_p2, max_p2 + 1):
-                K = 2**K_p2
-                for N_p2 in range(min_p2, max_p2 + 1):
-                    N = 2**N_p2
-                    name_to_shapes[counter] = M, K, N
-                    counter += 1
-        return name_to_shapes.items()
+    # Create a CSV file with the results
+    with open(file_path, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        # Write the header row
+        header = results[0].keys()
+        writer.writerow(header)
+        for result in results:
+            writer.writerow(result.values())
 
-    elif shape_gen_name == "custom":
-        assert (
-            M is not None and K is not None and N is not None
-        ), "M, K, N must be specified for custom shape_gen"
-        name_to_shapes = {
-            1: (M, K, N),
-        }
-        return name_to_shapes.items()
-
-    raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
+    print(f"Results saved to {file_path}")
