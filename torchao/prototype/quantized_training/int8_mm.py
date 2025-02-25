@@ -54,11 +54,7 @@ configs = [
 
 
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
-@triton.heuristics(
-    {
-        "EVEN_K": lambda args: args["K"] % args["BLOCK_K"] == 0
-    }
-)
+@triton.heuristics({"EVEN_K": lambda args: args["K"] % args["BLOCK_K"] == 0})
 @triton.jit
 def _scaled_int8_mm_kernel(
     A_ptr,
