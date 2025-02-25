@@ -2,17 +2,20 @@ import math
 from typing import Optional
 
 import torch
+from functools import partial
 from torch import Tensor
 
 from ..utils import channel_bucketize
 from .proxmap import ProxMap
 
 
-def amp_custom_fwd(func, cast_inputs: Optional[torch.types._dtype] = None):
+def amp_custom_fwd(cast_inputs: Optional[torch.types._dtype] = None):
     try:
-        return torch.amp.custom_fwd(func, device_type="cuda", cast_inputs=cast_inputs)
+        return partial(
+            torch.amp.custom_fwd, device_type="cuda", cast_inputs=cast_inputs
+        )
     except AttributeError:
-        return torch.cuda.amp.custom_fwd(func, cast_inputs=cast_inputs)
+        return partial(torch.cuda.amp.custom_fwd, cast_inputs=cast_inputs)
 
 
 def normalized_mirror_sigmoid(t: float, t1: float, t2: float, s: float) -> float:
