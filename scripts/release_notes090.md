@@ -92,12 +92,14 @@ Configuration for prototype workflows using `quantize_` will be migrated at a la
 1. If you are a user of existing `quantize_` API workflows and are passing in config by a positional argument (`quantize_(model, int8_weight_only(group_size=128))`), **you are not affected**.  This syntax will keep working going forward.  You have the option to migrate your callsite to the new config name (`quantize_(model, Int8WeightOnlyConfig(group_size=128))` at your own pace.
 2. If you are a user of existing `quantize_` API workflows and are passing in config by a keyword argument (`quantize_(model, tensor_subclass_inserter=int8_weight_only(group_size=128))`), your callsite will break.  You will need to change your callsite to `quantize_(model, config=int8_weight_only(group_size=128))`.  We don't expect many people to be in this bucket.
 3. If you are a developer writing new workflows for the `quantize_` API, you will need to use the new configuration system.  Please see https://github.com/pytorch/ao/issues/1690 for details.
+4. If you are a user of `sparsify_`, you are not affected for now and a similar change will happen in a future version of torchao.
 
 This migration will be a two step process:
 * in torchao v0.9.0, we will enable the new syntax while starting the deprecation process for the old syntax.
 * in torchao v.0.10.0 or later, we will remove the old syntax
 
 Please see https://github.com/pytorch/ao/issues/1690 for more details.
+
 
 
 ### Block Sparsity imports after moved out of prototype (https://github.com/pytorch/ao/pull/1734)
