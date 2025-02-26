@@ -476,7 +476,7 @@ def main(
                 filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
             )
         elif quantization.startswith("awq"):
-            from torchao._eval import TransformerEvalWrapper
+            from benchmarks._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
             if not TORCH_VERSION_AT_LEAST_2_3:
@@ -576,7 +576,7 @@ def main(
             )
         elif "autoquant_v2" in quantization:
             from benchmarks._models.llama.model import prepare_inputs_for_model
-            from torchao._eval import InputRecorder
+            from benchmarks._models._eval import InputRecorder
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
@@ -666,7 +666,7 @@ def main(
             model.finalize_autoquant()
         elif "autoquant" in quantization:
             from benchmarks._models.llama.model import prepare_inputs_for_model
-            from torchao._eval import InputRecorder
+            from benchmarks._models._eval import InputRecorder
 
             calibration_seq_length = 256
             inputs = (

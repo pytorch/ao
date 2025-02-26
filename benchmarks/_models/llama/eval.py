@@ -120,7 +120,7 @@ def run_evaluation(
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
-            from torchao._eval import MultiTensorInputRecorder
+            from benchmarks._models._eval import MultiTensorInputRecorder
             from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
 
             groupsize = int(quantization.split("-")[-2])
@@ -242,7 +242,7 @@ def run_evaluation(
     with torch.no_grad():
         print("Running evaluation ...")
         # avoid circular imports
-        from torchao._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
 
         TransformerEvalWrapper(
             model=model.to(device),
