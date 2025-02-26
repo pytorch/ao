@@ -4,7 +4,7 @@
 
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype, added 
+We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype, added a cutlass kernel
 
 ## Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
@@ -182,7 +182,7 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 
 #### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515) 
 
-You can try the new kernel by using
+This kernel which adds support for 4 bit dynamic activation quantization + 4 bit weight quantization can be used as follows.
 
 ```python
 from torchao.quantization import int4_dynamic_activation_int4_weight
@@ -191,7 +191,7 @@ quantize_(model, int4_dynamic_activation_int4_weight)
 
 ## Improvements
 
-### Early prototype MXFP8 and MXFP4 training and inference support for NVIDIA Blackwell GPUs
+#### Early prototype MXFP8 and MXFP4 training and inference support for NVIDIA Blackwell GPUs
 
 In torchao v0.9.0, we include **very early** support for training and inference on the NVIDIA Blackwell GPUs following the microscaling recipes from https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf, and backed by real MX gemms.
 
@@ -250,7 +250,7 @@ The additional features for MX support in v0.9.0 were enabled by:
 * Clean up linear_int8_dynamic_activation_intx_weight_subclass (https://github.com/pytorch/ao/pull/1553)
 
 
-### experimental
+### Experimental
 
 * Q dq layout (https://github.com/pytorch/ao/pull/1642)
 * Add support for kleidiai quantization schemes (https://github.com/pytorch/ao/pull/1447)
@@ -269,7 +269,7 @@ The additional features for MX support in v0.9.0 were enabled by:
 * Float8 training: make the "config from recipe" API polished (https://github.com/pytorch/ao/pull/1731)
 * Make FakeQuantizer expose useful config details when printed (https://github.com/pytorch/ao/pull/1717)
 
-### other
+### Other
 
 * Relax dtype requirements for int4 and float8 quants in autoquant (https://github.com/pytorch/ao/pull/1571)
 * Update __init__.py to load experimental ops even if other C++ ops are not found (https://github.com/pytorch/ao/pull/1565)
