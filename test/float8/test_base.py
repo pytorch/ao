@@ -37,7 +37,7 @@ from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
-from torchao.float8.float8_python_api import addmm_float8_unwrapped
+from torchao.float8.float8_ops import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
