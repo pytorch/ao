@@ -5,7 +5,7 @@ This script runs training benchmarks and generates a micro-benchmarking report f
     - run() function is the main entry point for running training benchmarks.
 """
 
-from utils import BenchmarkConfig
+from benchmarks.microbenchmarks.utils import BenchmarkConfig
 
 
 def run(config: BenchmarkConfig) -> None:

@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Dict
 
 import torch
-from utils import (
+
+from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     benchmark_model_inference_in_microseconds,
     clean_caches,

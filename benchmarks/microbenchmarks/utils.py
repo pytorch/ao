@@ -246,9 +246,9 @@ def quantize_model(
         )
         from torchao.quantization.granularity import PerGroup
 
-        assert (
-            precision == torch.float32
-        ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
+        assert precision == torch.float32, (
+            "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
+        )
 
         # Quantize model
         _quant_args = quantization.split("-")

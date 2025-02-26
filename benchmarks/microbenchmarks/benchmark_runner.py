@@ -18,7 +18,8 @@ from itertools import product
 from typing import Any, Dict, List, Tuple
 
 import yaml
-from utils import BenchmarkConfig, generate_results_csv
+
+from benchmarks.microbenchmarks.utils import BenchmarkConfig, generate_results_csv
 
 
 def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[int]]]:
@@ -27,7 +28,9 @@ def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[
     if name == "custom":
         return [(name, shape) for shape in shape_config["shapes"]]
     else:
-        NotImplementedError(f"Shape config {name} not supported. Currently only supports custom shapes.")
+        raise NotImplementedError(
+            f"Shape config {name} not supported. Currently only supports custom shapes."
+        )
 
 
 def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
@@ -54,14 +57,12 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
                     output_dir=output_dir,
                 )
             )
-    print("Configs: ", configs[0].__dict__)
-
     return configs
 
 
 def run_benchmarks_from_config(config_path: str) -> None:
     """Run benchmarks using configurations from YAML file"""
-    from benchmark_inference import run as run_inference
+    from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 
     configs = load_benchmark_configs(config_path)
     results = []
