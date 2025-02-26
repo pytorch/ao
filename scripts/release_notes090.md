@@ -1,8 +1,10 @@
 ### TODO get blocksparse numbers
+### update BC config stuff to add sparsity
+### ask about new kernel feature?
 
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release adds support for !
+We are excited to announce the 0.9.0 release of torchao! This release adds support for supermask, !
 
 ## Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
@@ -164,17 +166,20 @@ complexity tax for supporting these features.
 
 #### Supermask for sparse training and finetuning (https://github.com/pytorch/ao/pull/1729)
 
+Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. To prepare a model for training you can use the following:
+
+During inference, the binary mask is applied element-wise to the weights, pruning the weights that correspond to a 0 in the mask, resulting in a sparse network that can be efficiently computed.
 Before:
 
 ```python
-from torchao.sparsity import SupermaskLinear
+from torchao.sparsity import SupermaskLinear, block_sparse_weight
 sparsify_(model, lambda x: SupermaskLinear.from_linear(x, block_size=64, sparsity_level=0.9)
 # training here
 
-# for inference speedup then collapse supermask back into a normal linear layer
+# for inference speedup then collapse supermask back into a linear layer and then into a block sparse weight
 sparsify_(model, lambda x: SupermaskLinear.to_linear(x, sparsity_level=0.9)
+sparsify_(model, block_sparse_weight(blocksize=64))
 ```
-
 
 #### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515)
 
