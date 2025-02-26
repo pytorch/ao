@@ -1,5 +1,4 @@
 ### TODO get blocksparse numbers
-### Should MX be under new features? Feels like not actually an imporovement, especially with all these 'here is how you use this new features' details in the notes
 
 # Highlights
 
@@ -175,6 +174,7 @@ sparsify_(model, lambda x: SupermaskLinear.from_linear(x, block_size=64, sparsit
 # for inference speedup then collapse supermask back into a normal linear layer
 sparsify_(model, lambda x: SupermaskLinear.to_linear(x, sparsity_level=0.9)
 ```
+
 
 #### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515)
 
