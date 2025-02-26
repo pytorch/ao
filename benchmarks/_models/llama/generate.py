@@ -476,7 +476,7 @@ def main(
                 filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
             )
         elif quantization.startswith("awq"):
-            from torchao._models._eval import TransformerEvalWrapper
+            from torchao._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
             if not TORCH_VERSION_AT_LEAST_2_3:
@@ -575,7 +575,7 @@ def main(
                 model, float8_dynamic_activation_float8_weight(granularity=granularity)
             )
         elif "autoquant_v2" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
@@ -665,7 +665,7 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
