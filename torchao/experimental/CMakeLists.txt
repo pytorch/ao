@@ -16,6 +16,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
+option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
 
 
 if(NOT TORCHAO_INCLUDE_DIRS)
@@ -51,6 +52,12 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
         torchao_ops_linear_8bit_act_xbit_weight_aten
         torchao_ops_embedding_xbit_aten
     )
+    if (TORCHAO_BUILD_MPS_OPS)
+        message(STATUS "Building with MPS support")
+        add_subdirectory(ops/mps)
+        target_link_libraries(torchao_ops_aten PRIVATE torchao_ops_mps_aten)
+    endif()
+
     install(
         TARGETS torchao_ops_aten
         EXPORT _targets
