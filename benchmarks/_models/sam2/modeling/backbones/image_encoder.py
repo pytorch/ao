@@ -29,7 +29,7 @@ class ImageEncoder(nn.Module):
     def forward(self, sample: torch.Tensor):
         # Forward through backbone
         with torch.autograd.profiler.record_function("self.neck(self.trunk(sample))"):
-            from torchao._models.sam2.map_tensor import MapTensor, to_map_tensor
+            from benchmarks._models.sam2.map_tensor import MapTensor, to_map_tensor
 
             if isinstance(sample, MapTensor):
                 features, pos = self.neck(self.trunk(sample.elems.flatten(0, 1)))

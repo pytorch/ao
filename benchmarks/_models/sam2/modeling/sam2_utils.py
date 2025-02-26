@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchao._models.sam2.utils.misc import mask_to_box
+from benchmarks._models.sam2.utils.misc import mask_to_box
 
 
 def select_closest_cond_frames(frame_idx, cond_frame_outputs, max_cond_frame_num):

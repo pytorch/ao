@@ -22,8 +22,8 @@ from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
+from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
+from benchmarks._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (

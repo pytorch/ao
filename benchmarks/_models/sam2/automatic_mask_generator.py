@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
 
-from torchao._models.sam2.modeling.sam2_base import SAM2Base
-from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
-from torchao._models.sam2.utils.amg import (
+from benchmarks._models.sam2.modeling.sam2_base import SAM2Base
+from benchmarks._models.sam2.sam2_image_predictor import SAM2ImagePredictor
+from benchmarks._models.sam2.utils.amg import (
     MaskData,
     _mask_to_rle_pytorch_2_0,
     _mask_to_rle_pytorch_2_1,
@@ -33,7 +33,7 @@ from torchao._models.sam2.utils.amg import (
     uncrop_masks,
     uncrop_points,
 )
-from torchao._models.sam2.utils.misc import (
+from benchmarks._models.sam2.utils.misc import (
     crop_image,
     get_image_size,
 )

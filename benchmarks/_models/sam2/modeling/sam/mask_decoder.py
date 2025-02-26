@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple, Type
 import torch
 from torch import nn
 
-from torchao._models.sam2.modeling.sam2_utils import MLP, LayerNorm2d
+from benchmarks._models.sam2.modeling.sam2_utils import MLP, LayerNorm2d
 
 
 class MaskDecoder(nn.Module):

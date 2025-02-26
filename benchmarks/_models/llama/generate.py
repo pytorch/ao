@@ -14,7 +14,7 @@ import torch._dynamo.config
 import torch._inductor.config
 
 import torchao
-from torchao._models.utils import (
+from benchmarks._models.utils import (
     get_arch_name,
     write_json_result_local,
     write_json_result_ossci,
@@ -72,8 +72,8 @@ default_device = (
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
+from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
+from benchmarks._models.llama.tokenizer import get_tokenizer
 
 
 def multinomial_sample_one_no_sync(
@@ -575,8 +575,8 @@ def main(
                 model, float8_dynamic_activation_float8_weight(granularity=granularity)
             )
         elif "autoquant_v2" in quantization:
+            from benchmarks._models.llama.model import prepare_inputs_for_model
             from torchao._eval import InputRecorder
-            from torchao._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
@@ -665,8 +665,8 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
+            from benchmarks._models.llama.model import prepare_inputs_for_model
             from torchao._eval import InputRecorder
-            from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (

@@ -10,8 +10,8 @@ from collections import OrderedDict
 import torch
 from tqdm import tqdm
 
-from torchao._models.sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
-from torchao._models.sam2.utils.misc import (
+from benchmarks._models.sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
+from benchmarks._models.sam2.utils.misc import (
     concat_points,
     fill_holes_in_mask_scores,
     load_video_frames,
@@ -52,7 +52,7 @@ class SAM2VideoPredictor(SAM2Base):
 
         batched_inference_state = copy.copy(inference_states[0])
 
-        from torchao._models.sam2.map_tensor import to_map_tensor
+        from benchmarks._models.sam2.map_tensor import to_map_tensor
 
         # NOTE: Making a build assumption only images differ
         all_images = torch.stack([state["images"] for state in inference_states])

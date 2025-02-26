@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
-from torchao._models.sam2.modeling.sam2_base import SAM2Base
-from torchao._models.sam2.utils.misc import get_image_size
-from torchao._models.sam2.utils.transforms import SAM2Transforms
+from benchmarks._models.sam2.modeling.sam2_base import SAM2Base
+from benchmarks._models.sam2.utils.misc import get_image_size
+from benchmarks._models.sam2.utils.transforms import SAM2Transforms
 
 
 class SAM2ImagePredictor(torch.nn.Module):

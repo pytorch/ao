@@ -9,10 +9,10 @@ import torch.distributed
 import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 
-from torchao._models.sam2.modeling.sam.mask_decoder import MaskDecoder
-from torchao._models.sam2.modeling.sam.prompt_encoder import PromptEncoder
-from torchao._models.sam2.modeling.sam.transformer import TwoWayTransformer
-from torchao._models.sam2.modeling.sam2_utils import (
+from benchmarks._models.sam2.modeling.sam.mask_decoder import MaskDecoder
+from benchmarks._models.sam2.modeling.sam.prompt_encoder import PromptEncoder
+from benchmarks._models.sam2.modeling.sam.transformer import TwoWayTransformer
+from benchmarks._models.sam2.modeling.sam2_utils import (
     MLP,
     get_1d_sine_pe,
     select_closest_cond_frames,
