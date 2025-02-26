@@ -1,6 +1,5 @@
 ### TODO get blocksparse numbers
-### move supersparse to new feature
-### move set inductor config to deprecations
+### Should MX be under new features? Feels like not actually an imporovement, especially with all these 'here is how you use this new features' details in the notes
 
 # Highlights
 
@@ -15,10 +14,12 @@ from torchao.sparsity import sparsify, block_sparse_weight
 sparsify_(model, block_sparse_weight(blocksize=64))
 ```
 
+DETAILS ON HOW TO GENERATE THESE NUMBERS
+
 ### Blocksparse Benchmarks
 | `-q parameter` | Average tokens/sec | Average Bandwidth in GB/s | Peak Memory Usage in GB | Model Size in GB |
 | :--- | ---: | ---: | ---: | ---: |
-| | 95.24 | 258.55 | 13.90 | 13.21 |
+| 2:4 sparsity | 95.24 | 258.55 | 13.90 | 13.21 |
 | `-q int8wo` | 155.31 | 1028.37 | 8.97 | 6.62 |
 | `-q int4wo-32` | 186.70 | 774.98 | 5.31 | 4.15 |
 | `-q int4wo-hqq` | 186.47 | 774.01 | 5.04 | 4.15 |
@@ -111,19 +112,6 @@ After:
 from torchao.sparsity import block_sparse_weight
 ```
 
-### Supermask imports after moved out of prototype (https://github.com/pytorch/ao/pull/1729)
-
-Before:
-
-```python
-from  torchao.prototype.sparsity.superblock.supermask import SupermaskLinear
-
-```
-
-After:
-```python
-from torchao.sparsity import SupermaskLinear
-```
 
 ## Deprecations
 
@@ -170,13 +158,25 @@ Please see https://github.com/pytorch/ao/issues/1715 for more details.
 We plan to deprecate delayed and static scaling from torchao.float8 training codebase due to lack of real world use cases for delayed/static scaling (dynamic scaling is required for higher accuracy) and 
 complexity tax for supporting these features.
 * for torchao v0.9.0: add deprecation warning for delayed and static scaling
-* for torchao v0.10.0: depcreate delayed and static scaling
+* for torchao v0.10.0: deprecate delayed and static scaling
 
 
 ## New Features
 
+#### Supermask for sparse training and finetuning (https://github.com/pytorch/ao/pull/1729)
 
-* Add CUTLASS-based W4A4 (https://github.com/pytorch/ao/pull/1515)
+Before:
+
+```python
+from torchao.sparsity import SupermaskLinear
+sparsify_(model, lambda x: SupermaskLinear.from_linear(x, block_size=64, sparsity_level=0.9)
+# training here
+
+# for inference speedup then collapse supermask back into a normal linear layer
+sparsify_(model, lambda x: SupermaskLinear.to_linear(x, sparsity_level=0.9)
+```
+
+#### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515)
 
 
 
