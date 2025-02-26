@@ -6,13 +6,14 @@
 
 """
 This is a script to estimate the benefit from converting a `torch.nn.Linear`
-layer to float8, by estimating the difference in e2e GPU kernel time between:
+layer to float8 given a single saturated GPU, by estimating the difference
+in e2e GPU kernel time between:
 1. bf16 gemms in fwd and bwd, and
 2. float8 gemms in fwd and bwd, and float8 overhead
 
 The gemm times are estimated either from direct measurements via benchmarks,
 or with a roofline estimation based on TOPS and peak compute bandwidth of an
-NVIDIA H100.
+NVIDIA H100 or B200.
 
 The float8 overhead times are estimated by counting memory reads and writes
 based on the specified float8 scaling, and estimating that we can achieve
@@ -58,7 +59,7 @@ from utils import (
 from torchao.float8 import (
     convert_to_float8_training,
 )
-from torchao.float8.roofline_utils import (
+from torchao.testing.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
@@ -196,21 +197,26 @@ def run(
         "fwd_M",
         "fwd_K",
         "fwd_N",
-        # gemm time - roofline
+        # roofline - gemm time (fwd + bwd, 3 gemms)
         "r_bf16_gemm_s",
         "r_fp8_gemm_s",
-        # gemm time - microbenchmarks
+        # roofline - fp8 overhead time (by counting reads/writes in the ideal case)
+        "r_fp8_ovhd_s",
+        # roofline - fp8 gemm + fp8 overhead time (does not include LN or sigmoid)
+        "r_fp8_gemm_and_ovhd_s",
+        "r_fp8_gemm_and_ovhd_spdp",
+        # benchmarks - gemm time (fwd + bwd, 3 gemms)
         "b_bf16_gemm_s",
         "b_fp8_gemm_s",
-        # memory overhead - roofline
-        "r_fp8_ovhd",
-        # gemm + overhead roofline estimations (does not include prev/next ops)
-        "r_gemm_and_ovhd_fp8_s",
-        "r_gemm_and_ovhd_fp8_spdp",
-        # actual e2e measurements
-        "b_e2e_bf16_s",
-        "b_e2e_fp8_s",
-        "b_e2e_fp8_spdp",
+        # benchmarks - e2e LNLinearSigmoid time fwd + bwd
+        "b_bf16_e2e_s",
+        "b_fp8_e2e_s",
+        # note that e2e speedup is not the same as the roofline speedup:
+        # 1. roofline speedup: (bf16_gemm_time) / (fp8_gemm_time + fp8_ovhd_time)
+        # 2. e2e speedup: (ln + bf16_gemm_time + sigmoid) / (ln + fp8_gemm_time + fp8_ovhd_time + sigmoid)
+        # the difference is the fwd+bwd ln and sigmoid terms, for now to keep things simple
+        # we don't break them out and don't have a roofline for them.
+        "b_fp8_e2e_spdp",
     ]
     results = []
 
@@ -221,10 +227,11 @@ def run(
             break
 
         # use roofline model to estimate gemm time
-        r_bf16_gemm_time_s = (
+        # note: cast from sympy.core.numbers.Float to float to make pandas formatting work
+        r_bf16_gemm_time_s = float(
             bf16_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
-        r_fp8_gemm_time_s = (
+        r_fp8_gemm_time_s = float(
             fp8_gemm_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
 
@@ -243,11 +250,12 @@ def run(
             b_bf16_gemm_time_s = bf16_g1 + bf16_g2 + bf16_g3
             b_fp8_gemm_time_s = f8_g1 + f8_g2 + f8_g3
 
-        r_fp8_mem_time_dyn_nolimit_s = (
+        # note: cast from sympy.core.numbers.Float to float to make pandas formatting work
+        r_fp8_ovhd_time_s = float(
             fp8_mem_time_sympy_dyn_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
 
-        bf16_time_actual_s, fp8_dyn_time_actual_s = 0, 0
+        b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
         if do_benchmarks:
             # create the model
             m_orig = LNLinearSigmoid(K_val, N_val).cuda().bfloat16()
@@ -258,38 +266,39 @@ def run(
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
             m_bf16 = torch.compile(copy.deepcopy(m_orig))
-            bf16_time_actual_s = get_gpu_kernel_time(m_bf16, x)
+            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x)
 
             # get the float8 dynamic scaling gpu kernel time
 
             torch._dynamo.reset()
             m_fp8_dyn = convert_to_float8_training(copy.deepcopy(m_orig))
             m_fp8_dyn = torch.compile(m_fp8_dyn)
-            fp8_dyn_time_actual_s = get_gpu_kernel_time(m_fp8_dyn, x)
+            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x)
 
         results.append(
             [
                 M_val,
                 K_val,
                 N_val,
-                # gemm roofline
+                # roofline - gemm
                 r_bf16_gemm_time_s,
                 r_fp8_gemm_time_s,
-                # gemm benchmarks
+                # roofline - fp8 overhead
+                r_fp8_ovhd_time_s,
+                # roofline - gemm + overhead, and speedup
+                r_fp8_gemm_time_s + r_fp8_ovhd_time_s,
+                r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s),
+                # benchmarks - gemm
                 b_bf16_gemm_time_s,
                 b_fp8_gemm_time_s,
-                # roofline overhead estimates
-                r_fp8_mem_time_dyn_nolimit_s,
-                # e2e roofline estimations
-                r_fp8_gemm_time_s + r_fp8_mem_time_dyn_nolimit_s,
-                r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_mem_time_dyn_nolimit_s),
-                # e2e benchmark numbers
-                bf16_time_actual_s,
-                fp8_dyn_time_actual_s,
-                bf16_time_actual_s / (fp8_dyn_time_actual_s + 1e-20),
+                # benchmarks - e2e, and speedup
+                b_bf16_e2e_time_s,
+                b_fp8_e2e_time_s,
+                b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
             ]
         )
 
+    pd.set_option("display.precision", 2)
     df = pd.DataFrame(results, columns=headers)
     print(df)
     df.to_csv(outfile)
