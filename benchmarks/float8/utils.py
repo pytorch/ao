@@ -81,6 +81,8 @@ def profiler_output_to_filtered_time_by_kernel_name(
             continue
         elif e.key == "cudaDeviceSynchronize":
             continue
+        elif e.key == "Activity Buffer Request":
+            continue
 
         kernel_name_to_gpu_time_us[e.key] = e.self_device_time_total
     return kernel_name_to_gpu_time_us
