@@ -1,12 +1,12 @@
-### TODO get blocksparse numbers
-### update BC config stuff to add sparsity
-### ask about new kernel feature?
+TODO get blocksparse numbers
+update BC config stuff to add sparsity
+A4W4 cutlass kernel blurb?
 
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype, added a cutlass kernel
+We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including a new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization and more!
 
-## Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
+### Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
 You can accelerate your models with block sparsity as follows:
 
@@ -17,7 +17,7 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 
 DETAILS ON HOW TO GENERATE THESE NUMBERS
 
-### Blocksparse Benchmarks
+##### Blocksparse Benchmarks
 | `-q parameter` | Average tokens/sec | Average Bandwidth in GB/s | Peak Memory Usage in GB | Model Size in GB |
 | :--- | ---: | ---: | ---: | ---: |
 | 2:4 sparsity | 95.24 | 258.55 | 13.90 | 13.21 |
@@ -164,7 +164,7 @@ complexity tax for supporting these features.
 
 ## New Features
 
-#### Supermask for sparse training and finetuning (https://github.com/pytorch/ao/pull/1729)
+#### Supermask for improving accuracy for sparse models (https://github.com/pytorch/ao/pull/1729)
 
 Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. To prepare a model for training you can use the following:
 
@@ -182,7 +182,7 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 
 #### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515) 
 
-This kernel which adds support for 4 bit dynamic activation quantization + 4 bit weight quantization can be used as follows.
+This kernel which adds support for 4 bit dynamic activation quantization + 4 bit weight quantization can be used as follows:
 
 ```python
 from torchao.quantization import int4_dynamic_activation_int4_weight
@@ -253,7 +253,7 @@ The additional features for MX support in v0.9.0 were enabled by:
 ### Experimental
 
 * Q dq layout (https://github.com/pytorch/ao/pull/1642)
-* Add support for kleidiai quantization schemes (https://github.com/pytorch/ao/pull/1447)
+* Add support for kleidi AI quantization schemes (https://github.com/pytorch/ao/pull/1447)
 
 ### SAM2
 
