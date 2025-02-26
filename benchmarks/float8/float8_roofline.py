@@ -57,8 +57,11 @@ from utils import (
 )
 
 from torchao.float8 import (
+    Float8LinearConfig,
     convert_to_float8_training,
 )
+from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
 from torchao.testing.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
@@ -167,6 +170,8 @@ def run(
     shape_gen_name: str = "square",
     gemm_cache_filename: Optional[str] = None,
     n_limit: Optional[int] = None,
+    float8_recipe_name: Optional[str] = None,
+    mx_recipe_name: Optional[str] = None,
 ):
     """
     Args:
@@ -176,21 +181,32 @@ def run(
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
     """
 
+    assert not (
+        (float8_recipe_name is not None) and (mx_recipe_name is not None)
+    ), "unsupported"
+    if float8_recipe_name is None and mx_recipe_name is None:
+        float8_recipe_name = "tensorwise"
+
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"do_benchmarks: {do_benchmarks}")
     print(f"shape_gen_name: {shape_gen_name}")
+    print(f"float8_recipe_name: {float8_recipe_name}")
+    print(f"mx_recipe_name: {mx_recipe_name}")
 
     M, K, N = sympy.symbols("M K N")
 
-    fp8_mem_time_sympy_dyn_nolimit = get_float8_mem_sympy(
+    fp8_ovhd_time_sympy = get_float8_mem_sympy(
         M,
         K,
         N,
+        float8_recipe_name,
+        mx_recipe_name,
     )
-
     bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16)
-    print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     fp8_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.float8_e4m3fn)
+    print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
+    print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
     print()
 
     headers = [
@@ -252,7 +268,7 @@ def run(
 
         # note: cast from sympy.core.numbers.Float to float to make pandas formatting work
         r_fp8_ovhd_time_s = float(
-            fp8_mem_time_sympy_dyn_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            fp8_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
@@ -271,7 +287,16 @@ def run(
             # get the float8 dynamic scaling gpu kernel time
 
             torch._dynamo.reset()
-            m_fp8_dyn = convert_to_float8_training(copy.deepcopy(m_orig))
+            if float8_recipe_name is not None:
+                config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
+                m_fp8_dyn = convert_to_float8_training(
+                    copy.deepcopy(m_orig), config=config
+                )
+            else:
+                assert mx_recipe_name is not None
+                config = MXLinearConfig.from_recipe_name(mx_recipe_name)
+                m_fp8_dyn = copy.deepcopy(m_orig)
+                swap_linear_with_mx_linear(m_fp8_dyn, config=config)
             m_fp8_dyn = torch.compile(m_fp8_dyn)
             b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x)
 

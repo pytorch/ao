@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Optional
+
 import torch
 
 BYTES_PER_EL_FLOAT8 = 1
@@ -55,29 +57,67 @@ TRITON_KERNEL_1_ELEMENT_TIME_SEC = 0.002 * 0.001
 def get_tensor_memory_traffic_bytes(
     dim0,
     dim1,
+    float8_recipe_name: Optional[str],
+    mx_recipe_name: Optional[str],
     fuse_with_prev=False,
 ):
     # assumes input bf16, output f8
     numel = dim0 * dim1
 
-    # x_bf16 = ...
-    # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
-    # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
-    # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8
+    if float8_recipe_name == "tensorwise":
+        # x_bf16 = ...
+        # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
+        # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
+        # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8
 
-    if fuse_with_prev:
-        kernel_1_rw = 0
+        if fuse_with_prev:
+            kernel_1_rw = 0
+        else:
+            # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel
+
+        # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
+        kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
+
+        return kernel_1_rw + kernel_3_rw
+
+    elif float8_recipe_name == "rowwise":
+        # x_bf16 = ...
+        # kernel 1:               x_bf16 -> x_float8_dim0
+        # kernel 2:               x_bf16 -> x_float8_dim1
+
+        # assume that we can't fuse 1 and 2 because that would require loading
+        # the entire tensor to shared memory
+
+        if fuse_with_prev:
+            # assume we can fuse one of the reads with previous op
+            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+        else:
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+
+        kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+
+        return kernel_1_rw + kernel_2_rw
+
     else:
-        # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
-        kernel_1_rw = BYTES_PER_EL_BF16 * numel
+        assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
 
-    # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
-    kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
+        # x_bf16 = ...
+        # kernel 1:               x_bf16 -> x_mxfp8_dim0, x_mxfp8_dim1
 
-    return kernel_1_rw + kernel_3_rw
+        if fuse_with_prev:
+            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel * 2
+        else:
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel * 2
+
+        return kernel_1_rw
 
 
 def get_gemm_time_sympy(M, K, N, dtype):
+    # currently this assumes gemm is compute bound
+    # TODO(future): maybe make more accurate for small shapes by taking max of
+    # time to read/write and time to do the dot product, this might also
+    # slightly differ for MX since scales are larger
     specs = get_specs()
     gemm_ops = 2 * M * K * N + 2 * M * N * K + 2 * K * M * N
     if dtype is torch.bfloat16:
@@ -89,9 +129,7 @@ def get_gemm_time_sympy(M, K, N, dtype):
 
 
 def get_float8_mem_sympy(
-    M,
-    K,
-    N,
+    M, K, N, float8_recipe_name: Optional[str], mx_recipe_name: Optional[str]
 ):
     specs = get_specs()
 
@@ -112,11 +150,15 @@ def get_float8_mem_sympy(
     fwd_fp8_input_mem = get_tensor_memory_traffic_bytes(
         M,
         K,
+        float8_recipe_name,
+        mx_recipe_name,
         fuse_with_prev=True,
     )
     fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
         K,
         N,
+        float8_recipe_name,
+        mx_recipe_name,
         fuse_with_prev=False,
     )
     fwd_fp8_total_mem = fwd_fp8_input_mem + fwd_fp8_weight_mem
@@ -127,6 +169,8 @@ def get_float8_mem_sympy(
     gi_fp8_grad_output_mem = get_tensor_memory_traffic_bytes(
         M,
         N,
+        float8_recipe_name,
+        mx_recipe_name,
         fuse_with_prev=True,
     )
     # already casted, assuming that we save weight from fw to bw
@@ -158,12 +202,20 @@ def get_float8_mem_sympy(
     # kernel overhead in the units of seconds, and the per-gemm-input memory
     # estimations are in the units of bytes.
     num_extra_kernels = 0
-    # second stage of max-abs reduction for input
-    num_extra_kernels += 1
-    # second stage of max-abs reduction for weight
-    num_extra_kernels += 1
-    # second stage of max-abs reduction for grad_output
-    num_extra_kernels += 1
+    if float8_recipe_name == "tensorwise":
+        # second stage of max-abs reduction for input
+        num_extra_kernels += 1
+        # second stage of max-abs reduction for weight
+        num_extra_kernels += 1
+        # second stage of max-abs reduction for grad_output
+        num_extra_kernels += 1
+    elif float8_recipe_name == "rowwise":
+        # for simplicity, assume all rowwise kernels are large and bandwidth bound
+        pass
+    else:
+        assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
+        # for simplicity, assume all mxfp8 kernels are large and bandwidth bound
+        pass
 
     extra_kernel_overhead_s = num_extra_kernels * TRITON_KERNEL_1_ELEMENT_TIME_SEC
 
