@@ -967,9 +967,9 @@ template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_s
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
 sdpa_int8_kernel_one_loop_impl(
     const at::Tensor& output,
-    const at::Tensor& q,
-    const at::Tensor& k,
-    const at::Tensor& v,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
     double dropout_p,
     bool is_causal,
     at::Tensor& attention_mask,
@@ -984,15 +984,9 @@ sdpa_int8_kernel_one_loop_impl(
     float a_scale,
     int32_t o_zp,
     float o_scale) {
-  // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
-  //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
-  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  at::Tensor query = q.transpose(1, 2);
-  at::Tensor key = k.transpose(1, 2);
-  at::Tensor value = v.transpose(1, 2);
+  // Query (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
+  // Key   (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Value (Batch x KV_seq_len x Num_heads  x Dim_per_head)
 
   const auto accumulate_dtype = at::kFloat;
 
@@ -1190,12 +1184,10 @@ sdpa_int8_kernel_one_loop_impl(
           for (int64_t n = 0; n < kvSize; n += kvSplitSize) {
             if (n + kvSplitSize < kvSize) {
               for (int64_t b = 0; b < rndkvSplitSize; b += block_64) {
-                bool tail = kvSplitSize - b < block_64;
                 do_transpose(
-                // do_copy(
                     k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
                     B_blocked_xform_u8,
-                    tail ? kvSplitSize - b : block_64,
+                    std::min(int(kvSplitSize - b), block_64),
                     headSize,
                     kStrideN,
                     block_64);
@@ -1240,11 +1232,10 @@ sdpa_int8_kernel_one_loop_impl(
               auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
               int64_t b = 0;
               while (b < rndkvTail) {
-                bool tail = kvTail - b < block_size;
                 do_transpose(
                     k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
                     B_blocked_xform_u8,
-                    tail ? kvTail - b : block_size,
+                    std::min(kvTail - b, block_size),
                     headSize,
                     kStrideN,
                     block_size);
@@ -1259,29 +1250,16 @@ sdpa_int8_kernel_one_loop_impl(
                     );
                 }
                 // Pack
-                if (block_size == block_64) {
-                  at::native::cpublas::pack(
-                      qk_gemm_K,
-                      block_64,
-                      block_64,
-                      block_64,
-                      u8_dt,
-                      u8_dt,
-                      B_blocked_xform_u8,
-                      key_reorder_ptr + n * qk_gemm_K +
-                          b * qk_gemm_K);
-                } else {
-                  at::native::cpublas::pack(
-                      qk_gemm_K,
-                      kv_tail_tail_block_size,
-                      kv_tail_tail_block_size,
-                      kv_tail_tail_block_size,
-                      u8_dt,
-                      u8_dt,
-                      B_blocked_xform_u8,
-                      key_reorder_ptr + n * qk_gemm_K +
-                          b * qk_gemm_K);
-                }
+                at::native::cpublas::pack(
+                    qk_gemm_K,
+                    block_size,
+                    block_size,
+                    block_size,
+                    u8_dt,
+                    u8_dt,
+                    B_blocked_xform_u8,
+                    key_reorder_ptr + n * qk_gemm_K +
+                        b * qk_gemm_K);
                 b += block_size;
                 block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
               }
@@ -1356,29 +1334,16 @@ sdpa_int8_kernel_one_loop_impl(
                   auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
                   int64_t b = 0;
                   while (b < kvTail) {
-                    if (block_size == block_64) {
-                      at::native::cpublas::brgemm(
-                            qSplitSize, block_64, qk_gemm_K,
-                            qk_gemm_K, // lda
-                            block_64, //ldb
-                            rndkvTail, //ldc
-                            false,
-                            query_t_padding_ptr,
-                            key_reorder_ptr + n * qk_gemm_K +
-                                b * qk_gemm_K,
-                            qk_s32_data + b);
-                    } else {
-                      at::native::cpublas::brgemm(
-                            qSplitSize, kv_tail_tail_block_size, qk_gemm_K,
-                            qk_gemm_K, // lda
-                            kv_tail_tail_block_size, //ldb
-                            rndkvTail, //ldc
-                            false,
-                            query_t_padding_ptr,
-                            key_reorder_ptr + n * qk_gemm_K +
-                                b * qk_gemm_K,
-                            qk_s32_data + b);
-                    }
+                    at::native::cpublas::brgemm(
+                          qSplitSize, block_size, qk_gemm_K,
+                          qk_gemm_K, // lda
+                          block_size, //ldb
+                          rndkvTail, //ldc
+                          false,
+                          query_t_padding_ptr,
+                          key_reorder_ptr + n * qk_gemm_K +
+                              b * qk_gemm_K,
+                          qk_s32_data + b);
                     b += block_size;
                     block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
                   }
@@ -1402,29 +1367,16 @@ sdpa_int8_kernel_one_loop_impl(
                   auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
                   int64_t b = 0;
                   while (b < kvTail) {
-                    if (block_size == block_64) {
-                      at::native::cpublas::brgemm(
-                            qTail, block_64, qk_gemm_K,
-                            qk_gemm_K, // lda
-                            block_64, //ldb
-                            rndkvTail, //ldc
-                            false,
-                            query_t_padding_ptr,
-                            key_reorder_ptr + n * qk_gemm_K +
-                                b * qk_gemm_K,
-                            qk_s32_data + b);
-                    } else {
-                      at::native::cpublas::brgemm(
-                            qSplitSize, kv_tail_tail_block_size, qk_gemm_K,
-                            qk_gemm_K, // lda
-                            kv_tail_tail_block_size, //ldb
-                            rndkvTail, //ldc
-                            false,
-                            query_t_padding_ptr,
-                            key_reorder_ptr + n * qk_gemm_K +
-                                b * qk_gemm_K,
-                            qk_s32_data + b);
-                    }
+                    at::native::cpublas::brgemm(
+                          qTail, block_size, qk_gemm_K,
+                          qk_gemm_K, // lda
+                          block_size, //ldb
+                          rndkvTail, //ldc
+                          false,
+                          query_t_padding_ptr,
+                          key_reorder_ptr + n * qk_gemm_K +
+                              b * qk_gemm_K,
+                          qk_s32_data + b);
                   b += block_size;
                   block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
                   }
@@ -1555,9 +1507,9 @@ template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_s
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
 sdpa_int8_kernel_several_loops_impl(
     const at::Tensor& output,
-    const at::Tensor& q,
-    const at::Tensor& k,
-    const at::Tensor& v,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
     double dropout_p,
     bool is_causal,
     at::Tensor& attention_mask,
@@ -1572,15 +1524,9 @@ sdpa_int8_kernel_several_loops_impl(
     float a_scale,
     int32_t o_zp,
     float o_scale) {
-  // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
-  //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
-  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  at::Tensor query = q.transpose(1, 2);
-  at::Tensor key = k.transpose(1, 2);
-  at::Tensor value = v.transpose(1, 2);
+  // Query (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
+  // Key   (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Value (Batch x KV_seq_len x Num_heads  x Dim_per_head)
 
   const auto accumulate_dtype = at::kFloat;
 
@@ -1781,11 +1727,10 @@ sdpa_int8_kernel_several_loops_impl(
                       j * kvSlice * v_reorder_strideL + n * rndHeadSize;
         if (n + kvSplitSize < kvSize) {
           for (int64_t b = 0; b < rndkvSplitSize; b += block_64) {
-            bool tail = kvSplitSize - b < block_64;
             do_transpose(
                 k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
                 B_blocked_xform_u8,
-                tail ? kvSplitSize - b : block_64,
+                std::min(int(kvSplitSize - b), block_64),
                 headSize,
                 kStrideN,
                 block_64);
@@ -1827,11 +1772,10 @@ sdpa_int8_kernel_several_loops_impl(
           auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
           int64_t b = 0;
           while (b < rndkvTail) {
-            bool tail = kvTail - b < block_size;
             do_transpose(
                 k_data + i * kStrideB + j * kStrideH + n * kStrideN + b * kStrideN,
                 B_blocked_xform_u8,
-                tail ? kvTail - b : block_size,
+                std::min(kvTail - b, block_size),
                 headSize,
                 kStrideN,
                 block_size);
@@ -1846,27 +1790,15 @@ sdpa_int8_kernel_several_loops_impl(
                 );
             }
             // Pack
-            if (block_size == block_64) {
-              at::native::cpublas::pack(
-                      qk_gemm_K,
-                      block_64,
-                      block_64,
-                      block_64,
-                      u8_dt,
-                      u8_dt,
-                      B_blocked_xform_u8,
-                      k_reorder + b * qk_gemm_K);
-            } else {
-              at::native::cpublas::pack(
-                      qk_gemm_K,
-                      kv_tail_tail_block_size,
-                      kv_tail_tail_block_size,
-                      kv_tail_tail_block_size,
-                      u8_dt,
-                      u8_dt,
-                      B_blocked_xform_u8,
-                      k_reorder + b * qk_gemm_K);
-            }
+            at::native::cpublas::pack(
+                    qk_gemm_K,
+                    block_size,
+                    block_size,
+                    block_size,
+                    u8_dt,
+                    u8_dt,
+                    B_blocked_xform_u8,
+                    k_reorder + b * qk_gemm_K);
             b += block_size;
             block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
           }
@@ -1980,27 +1912,15 @@ sdpa_int8_kernel_several_loops_impl(
                 auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
                 int64_t b = 0;
                 while (b < kvTail) {
-                  if (block_size == block_64) {
-                    at::native::cpublas::brgemm(
-                          qSplitSize, block_64, qk_gemm_K,
-                          qk_gemm_K, // lda
-                          block_64, //ldb
-                          rndkvTail, //ldc
-                          false,
-                          query_t_padding_ptr,
-                          k_reorder + b * qk_gemm_K,
-                          qk_s32_data + b);
-                  } else {
-                    at::native::cpublas::brgemm(
-                          qSplitSize, kv_tail_tail_block_size, qk_gemm_K,
-                          qk_gemm_K, // lda
-                          kv_tail_tail_block_size, //ldb
-                          rndkvTail, //ldc
-                          false,
-                          query_t_padding_ptr,
-                          k_reorder + b * qk_gemm_K,
-                          qk_s32_data + b);
-                  }
+                  at::native::cpublas::brgemm(
+                        qSplitSize, block_size, qk_gemm_K,
+                        qk_gemm_K, // lda
+                        block_size, //ldb
+                        rndkvTail, //ldc
+                        false,
+                        query_t_padding_ptr,
+                        k_reorder + b * qk_gemm_K,
+                        qk_s32_data + b);
                   b += block_size;
                   block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
                 }
@@ -2023,27 +1943,15 @@ sdpa_int8_kernel_several_loops_impl(
                 auto block_size = kvTail >= block_64 ? block_64 : kv_tail_tail_block_size;
                 int64_t b = 0;
                 while (b < kvTail) {
-                  if (block_size == block_64) {
-                    at::native::cpublas::brgemm(
-                          qTail, block_64, qk_gemm_K,
-                          qk_gemm_K, // lda
-                          block_64, //ldb
-                          rndkvTail, //ldc
-                          false,
-                          query_t_padding_ptr,
-                          k_reorder + b * qk_gemm_K,
-                          qk_s32_data + b);
-                  } else {
-                    at::native::cpublas::brgemm(
-                          qSplitSize, kv_tail_tail_block_size, qk_gemm_K,
-                          qk_gemm_K, // lda
-                          kv_tail_tail_block_size, //ldb
-                          rndkvTail, //ldc
-                          false,
-                          query_t_padding_ptr,
-                          k_reorder + b * qk_gemm_K,
-                          qk_s32_data + b);
-                  }
+                  at::native::cpublas::brgemm(
+                        qTail, block_size, qk_gemm_K,
+                        qk_gemm_K, // lda
+                        block_size, //ldb
+                        rndkvTail, //ldc
+                        false,
+                        query_t_padding_ptr,
+                        k_reorder + b * qk_gemm_K,
+                        qk_s32_data + b);
                   b += block_size;
                   block_size = (kvTail - b) >= block_64 ? block_64 : kv_tail_tail_block_size;
                 }
@@ -2443,7 +2351,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
   }
 
   #ifdef CPU_CAPABILITY_AVX512
-    at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
+    at::Tensor output = at::empty_like(query, query.options());
     sdpa_int8_fused_kernel(output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_zp, q_scale,
@@ -2451,7 +2359,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
         v_zp, v_scale,
         a_zp, a_scale,
         o_zp, o_scale);
-    return output.transpose(1, 2);
+    return output;
   #else
     return sdpa_int8_math_kernel(query, key, value,
         dropout_p, is_causal, attn_mask, scale,

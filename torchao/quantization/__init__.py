@@ -95,7 +95,7 @@ from .smoothquant import (
     swap_linear_with_smooth_fq_linear,
 )
 from .sfdp_int8_fx_pass import (
-    _sfdp_init_int8,
+    _sfdp_int8_init,
 )
 from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
