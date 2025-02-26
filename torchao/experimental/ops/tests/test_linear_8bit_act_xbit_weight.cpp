@@ -14,13 +14,13 @@
 
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
+using namespace torchao::kernels::cpu::aarch64::kleidi::
+    kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 #endif // TORCHAO_ENABLE_KLEIDI
 
 const float kTol = 1.0e-5;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
-using namespace torchao::kernels::cpu::aarch64::kleidi::
-    kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
