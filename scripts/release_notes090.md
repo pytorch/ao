@@ -1,6 +1,6 @@
-###TODO get blocksparse numbers
-###update BC config stuff to add sparsity
-###A4W4 cutlass kernel blurb?
+### TODO get blocksparse numbers
+
+### A4W4 cutlass kernel blurb?
 
 # Highlights
 
