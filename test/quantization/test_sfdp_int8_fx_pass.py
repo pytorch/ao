@@ -21,7 +21,7 @@ from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-from torchao.quantization.sfdp_int8_fx_pass import _sfdp_init_int8
+from torchao.quantization.sfdp_int8_fx_pass import _sfdp_int8_init
 
 class SelfAttnLikeModule(torch.nn.Module):
     def __init__(
@@ -62,7 +62,7 @@ class SelfAttnLikeModule(torch.nn.Module):
         k = self.transpose_for_scores(k)
         v = self.transpose_for_scores(v)
         scores = torch.matmul(q, k.transpose(-1, -2)) / (self.input_dim**0.5)
-        if self.has_mask:
+        if self.has_mask and mask.dtype != scores.dtype:
             scores = scores + mask
         attention = self.softmax(scores)
         attention = self.dropout(attention)
@@ -72,15 +72,6 @@ class SelfAttnLikeModule(torch.nn.Module):
             context_layer.size()[:-2] + (self.all_head_size,)
         )
         return self.dense(context_layer)
-
-def _generate_qdq_quantized_model(mod, inputs, quantizer):
-    with torch.no_grad():
-        export_model = export_for_training(mod, inputs).module()
-        prepare_model = prepare_pt2e(export_model, quantizer)
-        prepare_model(*inputs)
-        convert_model = convert_pt2e(prepare_model)
-        torch.ao.quantization.move_exported_model_to_eval(convert_model)
-        return convert_model
 
 class TestSDPAPatternRewriterTemplate(TestCase):
     def _clone_inputs(self, inputs):
@@ -133,7 +124,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             )
             source_code = "\n".join(source_code)
             if has_fuse_pattern:
-                self.assertGreaterEqual(counters["inductor"]["fuse_attention_int8"], 1)
+                self.assertGreaterEqual(counters["inductor"]["int8_fuse_attention"], 1)
             if contains:
                 # many of the patterns get re-expanded in dispatcher
                 self.assertIn(
@@ -170,17 +161,19 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @config.patch({"freezing": True})
     def _test_sdpa_rewriter_int8_1_to_4(self):
         # pattern is different for bs=1
-        # for dtype, has_mask, bs in itertools.product(
-        #     [torch.float32, torch.bfloat16], [True, False], [56, 1]
-        # ):
-        dtype = torch.bfloat16
-        has_mask = True
-        is_bs_1 = 1
-        if is_bs_1:
-            candidates = [[1, 384, 16, 64], [1, 197, 12, 64]]
-        else:
-            candidates = [[120, 384, 16, 64], [224, 197, 12, 64]]
-        for bs, seqlen, numhead, headsize in candidates:
+        for dtype, has_mask, bs in itertools.product(
+            [torch.float32, torch.bfloat16], [True, False], [56, 1]
+        ):
+            seqlen, numhead, headsize = 197, 16, 64
+        # dtype = torch.bfloat16
+        # has_mask = True
+        # is_bs_1 = 0
+        # if is_bs_1:
+        #     candidates = [[1, 384, 16, 64], [1, 197, 12, 64]]
+        # else:
+        #     candidates = [[120, 384, 16, 64], [224, 197, 12, 64]]
+        # candidates = [[120, 384, 16, 64]]
+        # for bs, seqlen, numhead, headsize in candidates:
             mod = SelfAttnLikeModule(
                 input_dim=headsize * numhead,
                 has_mask=has_mask,
@@ -203,13 +196,20 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 else None,
             )
             with torch.no_grad(), maybe_autocast:
-                _sfdp_init_int8()
+                _sfdp_int8_init()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
                     torch.matmul, quantizer.get_global_quantization_config()
                 )
-                convert_model = _generate_qdq_quantized_model(mod, inputs, quantizer)
+                export_model = export_for_training(
+                    mod,
+                    inputs,
+                ).module()
+                prepare_model = prepare_pt2e(export_model, quantizer)
+                prepare_model(*inputs)
+                convert_model = convert_pt2e(prepare_model)
+                torch.ao.quantization.move_exported_model_to_eval(convert_model)
                 self._check_common(
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )
