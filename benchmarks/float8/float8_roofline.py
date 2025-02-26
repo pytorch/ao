@@ -58,9 +58,7 @@ from utils import (
 )
 
 from torchao.float8 import (
-    CastConfig,
     Float8LinearConfig,
-    ScalingType,
     convert_to_float8_training,
 )
 from torchao.float8.roofline_utils import (
@@ -219,24 +217,6 @@ def run(
         scaling_type_weight="dynamic",
         scaling_type_grad_output="dynamic",
     )
-    fp8_mem_time_sympy_del_limit = get_float8_mem_sympy(
-        M,
-        K,
-        N,
-        model_torch_compile_limitations=True,
-        scaling_type_input="delayed",
-        scaling_type_weight="delayed",
-        scaling_type_grad_output="delayed",
-    )
-    fp8_mem_time_sympy_del_nolimit = get_float8_mem_sympy(
-        M,
-        K,
-        N,
-        model_torch_compile_limitations=False,
-        scaling_type_input="delayed",
-        scaling_type_weight="delayed",
-        scaling_type_grad_output="delayed",
-    )
 
     if gemm_time_strategy == "roofline":
         bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16)
@@ -258,16 +238,12 @@ def run(
         # roofline memory overhead estimates
         "fp8_oh_dyn_limit",
         "fp8_oh_dyn_nolimit",
-        "fp8_oh_del_limit",
-        "fp8_oh_del_nolimit",
         # actual e2e measurements
         "bf16_s",
         "fp8_dyn_s",
-        "fp8_del_s",
         "fp8_dyn_axs_s",
         # 'fp8_lw_s',
         "fp8_dyn_sp",
-        "fp8_del_sp",
         "fp8_dyn_axs_sp",
         # 'fp8_lw_sp',
     ]
@@ -309,12 +285,6 @@ def run(
         fp8_mem_time_dyn_nolimit_s = (
             fp8_mem_time_sympy_dyn_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
-        fp8_mem_time_del_limit_s = (
-            fp8_mem_time_sympy_del_limit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-        )
-        fp8_mem_time_del_nolimit_s = (
-            fp8_mem_time_sympy_del_nolimit.subs(M, M_val).subs(K, K_val).subs(N, N_val)
-        )
 
         # create the model
         m_orig = LNLinearSigmoid(K_val, N_val).cuda().bfloat16()
@@ -332,19 +302,6 @@ def run(
         m_fp8_dyn = convert_to_float8_training(copy.deepcopy(m_orig))
         m_fp8_dyn = torch.compile(m_fp8_dyn)
         fp8_dyn_time_actual_s = get_gpu_kernel_time(m_fp8_dyn, x)
-
-        # get the float8 delayed scaling gpu kernel time
-        torch._dynamo.reset()
-        config = Float8LinearConfig(
-            enable_amax_init=False,
-            enable_pre_and_post_forward=False,
-            cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-            cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-        )
-        m_fp8_del = convert_to_float8_training(copy.deepcopy(m_orig), config=config)
-        m_fp8_del = torch.compile(m_fp8_del)
-        fp8_del_time_actual_s = get_gpu_kernel_time(m_fp8_del, x)
 
         # get the float8 dynamic axiswise scaling gpu kernel time
         torch._dynamo.reset()
@@ -374,16 +331,12 @@ def run(
                 # roofline overhead estimates
                 fp8_mem_time_dyn_limit_s,
                 fp8_mem_time_dyn_nolimit_s,
-                fp8_mem_time_del_limit_s,
-                fp8_mem_time_del_nolimit_s,
                 # e2e numbers
                 bf16_time_actual_s,
                 fp8_dyn_time_actual_s,
-                fp8_del_time_actual_s,
                 fp8_dyn_axs_time_actual_s,
                 # fp8_lw_time_actual_s,
                 bf16_time_actual_s / fp8_dyn_time_actual_s,
-                bf16_time_actual_s / fp8_del_time_actual_s,
                 bf16_time_actual_s / fp8_dyn_axs_time_actual_s,
                 # bf16_time_actual_s / fp8_lw_time_actual_s,
             ]

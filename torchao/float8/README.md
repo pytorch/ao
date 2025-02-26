@@ -15,8 +15,6 @@ throughput speedups of up to 1.5x on 128 GPU LLaMa 3 70B pretraining jobs.
 
 # Single GPU User API
 
-We provide three per-tensor scaling strategies: dynamic, delayed and static.  See https://arxiv.org/pdf/2209.05433.pdf, Section 4.3 for more details. These strategies are configurable separately for activations (`input`), weights (`weight`) and gradients (`grad_output`).
-
 ## float8 linear with dynamic tensorwise scaling
 
 This is the default recipe, with a good balance of performance and accuracy.
@@ -114,67 +112,6 @@ for _ in range(10):
     optimizer.step()
 ```
 
-## float8 linear with delayed scaling
-
-:warning: <em>We plan to deprecate delayed scaling in a future release, see https://github.com/pytorch/ao/issues/1680 for more details.</em>
-
-This is theoretically the most performant recipe as it minimizes memory reads.
-
-```python
-import torch
-import torch.nn as nn
-from torchao.float8 import (
-    convert_to_float8_training,
-    sync_float8_amax_and_scale_history,
-    Float8LinearConfig,
-    ScalingType,
-    CastConfig,
-)
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
-
-# Recommended: enable additional torchinductor passes to improve the performance of delayed scaling
-torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()
-
-# create model and sample input
-m = nn.Sequential(
-    nn.Linear(2048, 4096),
-    nn.Linear(4096, 128),
-).bfloat16().cuda()
-x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
-optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
-
-# configure delayed scaling
-config = Float8LinearConfig(
-    cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
-    cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-    cast_config_grad_output=CastConfig(scaling_type=ScalingType.DELAYED),
-)
-
-# convert all `torch.nn.Linear` modules to `Float8Linear`, specifying custom scaling behavior
-convert_to_float8_training(m, config=config)
-
-# enable torch.compile for competitive performance
-m = torch.compile(m)
-
-# toy training loop
-for _ in range(10):
-    optimizer.zero_grad()
-    y = m(x)
-    y.sum().backward()
-
-    # Specific to delayed scaling: separate step to sync scales/amaxes.
-    # On the first call, this function also sets the `is_amax_initialized` flag to
-    # mark the amax and scale buffers as initialized.
-    # Make sure you run this after every model forward+backward pass.
-    # In the future, this may move to a context manager.
-    sync_float8_amax_and_scale_history(m)
-
-    optimizer.step()
-```
-
 # Multi GPU User API
 
 We compose with the `DTensor` based [distributed APIs](https://pytorch.org/docs/stable/distributed.tensor.parallel.html),
@@ -225,10 +162,6 @@ There are three observations we can make about the formula above:
 * RHS > 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations
 
 For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior.  For large shapes, (1) leads to speedup > 1.
-
-## Scaling type vs speedup
-
-Delayed scaling is theoretically faster than dynamic scaling because of reduced read/write traffic requirements. Today, torch.compile has a couple of limitations (see the performance section of https://github.com/pytorch/ao/issues/556) which prevent us from reaching the optimal behavior for delayed scaling without workarounds.  We have a prototype workaround (API subject to change) with the `torchao.float8._prototype_register_float8_delayed_scaling_inductor_passes()` API to improve delayed scaling performance.
 
 ## torch.compile behavior vs speedup
 

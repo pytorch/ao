@@ -183,7 +183,7 @@ class MarlinQQQAQTTensorImpl(AQTTensorImpl):
     def get_plain(self):
         from torchao.quantization.marlin_qqq import (
             unpack_from_marlin_qqq,
-        )  # avoid circular import
+        )
 
         int_data_expanded, s_group_expanded, s_channel_expanded = (
             unpack_from_marlin_qqq(
@@ -211,7 +211,7 @@ class MarlinQQQAQTTensorImpl(AQTTensorImpl):
         from torchao.quantization.marlin_qqq import (
             const,
             pack_to_marlin_qqq,
-        )  # avoid circular import
+        )
 
         assert isinstance(_layout, MarlinQQQLayout)
 

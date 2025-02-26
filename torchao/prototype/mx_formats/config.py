@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import torch
 
@@ -25,6 +25,14 @@ class MXGemmKernelChoice(Enum):
     CUTLASS = "cutlass"
 
     # TODO(future PR): add cuBLAS here once we land pytorch/pytorch support
+
+
+# Pre-made recipes for common configurations
+class MXLinearRecipeName(Enum):
+    MXFP8_EMULATED = "mxfp8_emulated"
+    MXFP8_CUTLASS = "mxfp8_cutlass"
+    MXFP4_EMULATED = "mxfp4_emulated"
+    MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
 @dataclass
@@ -78,3 +86,31 @@ class MXLinearConfig:
             assert (
                 self.elem_dtype_grad_output_override is None
             ), "elem_dtype_grad_output_override not supported for CUTLASS MX gemm kernels"
+
+    @staticmethod
+    def from_recipe_name(
+        recipe_name: Union[MXLinearRecipeName, str],
+    ) -> "MXLinearConfig":
+        """
+        Input: `MXLinearRecipeName` value, or a string representing a `MXLinearRecipeName` value
+        Output: a `MXLinearConfig` configured to implement the specified recipe
+        """
+        if type(recipe_name) == str:
+            valid_names = [n.value for n in MXLinearRecipeName]
+            assert (
+                recipe_name in valid_names
+            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            recipe_name = MXLinearRecipeName(recipe_name)
+
+        if recipe_name is MXLinearRecipeName.MXFP8_EMULATED:
+            return MXLinearConfig()
+        elif recipe_name is MXLinearRecipeName.MXFP8_CUTLASS:
+            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUTLASS)
+        elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
+            return MXLinearConfig(elem_dtype=DTYPE_FP4)
+        elif recipe_name is MXLinearRecipeName.MXFP8_CUTLASS:
+            return MXLinearConfig(
+                elem_dtype=DTYPE_FP4, gemm_kernel_choice=MXGemmKernelChoice.CUTLASS
+            )
+        else:
+            raise AssertionError(f"unknown recipe_name {recipe_name}")
