@@ -56,7 +56,6 @@ def get_tensor_memory_traffic_bytes(
     dim0,
     dim1,
     fuse_with_prev=False,
-    model_torch_compile_limitations=False,
 ):
     # assumes input bf16, output f8
     numel = dim0 * dim1
@@ -75,15 +74,7 @@ def get_tensor_memory_traffic_bytes(
     # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
     kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
 
-    if model_torch_compile_limitations:
-        # today, the kernel to do cast_to_fp8_row_major_and_col_major(input_bf16, ...)
-        # has an extra memory read of the input in fp8
-        # context: https://github.com/pytorch/pytorch/issues/130015
-        tc_adjustment = numel * BYTES_PER_EL_FLOAT8
-    else:
-        tc_adjustment = 0
-
-    return kernel_1_rw + kernel_3_rw + tc_adjustment
+    return kernel_1_rw + kernel_3_rw
 
 
 def get_gemm_time_sympy(M, K, N, dtype):
@@ -101,7 +92,6 @@ def get_float8_mem_sympy(
     M,
     K,
     N,
-    model_torch_compile_limitations: bool = False,
 ):
     specs = get_specs()
 
@@ -123,13 +113,11 @@ def get_float8_mem_sympy(
         M,
         K,
         fuse_with_prev=True,
-        model_torch_compile_limitations=model_torch_compile_limitations,
     )
     fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
         K,
         N,
         fuse_with_prev=False,
-        model_torch_compile_limitations=model_torch_compile_limitations,
     )
     fwd_fp8_total_mem = fwd_fp8_input_mem + fwd_fp8_weight_mem
 
@@ -140,7 +128,6 @@ def get_float8_mem_sympy(
         M,
         N,
         fuse_with_prev=True,
-        model_torch_compile_limitations=model_torch_compile_limitations,
     )
     # already casted, assuming that we save weight from fw to bw
     # TODO: model this if FSDP float8 all-gather is on
