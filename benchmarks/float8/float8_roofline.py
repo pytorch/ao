@@ -60,7 +60,7 @@ from utils import (
 from torchao.float8 import (
     convert_to_float8_training,
 )
-from torchao.float8.roofline_utils import (
+from torchao.testing.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
