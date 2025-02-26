@@ -6,6 +6,8 @@
 
 import pytest
 import torch
+from torch._inductor.utils import run_and_get_code
+from torch.testing import FileCheck
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
@@ -284,3 +286,25 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         use_fp4_custom_triton_dequant_kernel,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+def test_to_mx_inductor_single_kernel():
+    """
+    Verify that inductor can fuse the cast of a high precision tensor to mx
+    into a single kernel
+    """
+    # TODO(future PR): add fp4 and fp6 here
+    # TODO(#1773): add swizzled scale format here
+    x = torch.randn(2048, 2048, dtype=torch.bfloat16, device="cuda")
+    block_size = 32
+    to_mx_c = torch.compile(MXTensor.to_mx, fullgraph=True)
+    out, code = run_and_get_code(to_mx_c, x, torch.float8_e4m3fn, block_size)
+    FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(code[0])
