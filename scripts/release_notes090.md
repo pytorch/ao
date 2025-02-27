@@ -1,10 +1,8 @@
-### TODO get blocksparse numbers
-
-### A4W4 cutlass kernel blurb?
+### TODO go over blocksparse numbers
 
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including a new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization and more!
+We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including the new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization and more!
 
 ### Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
@@ -15,17 +13,19 @@ from torchao.sparsity import sparsify, block_sparse_weight
 sparsify_(model, block_sparse_weight(blocksize=64))
 ```
 
-DETAILS ON HOW TO GENERATE THESE NUMBERS
-
 ##### Blocksparse Benchmarks
-| `-q parameter` | Average tokens/sec | Average Bandwidth in GB/s | Peak Memory Usage in GB | Model Size in GB |
-| :--- | ---: | ---: | ---: | ---: |
-| 2:4 sparsity | 95.24 | 258.55 | 13.90 | 13.21 |
-| `-q int8wo` | 155.31 | 1028.37 | 8.97 | 6.62 |
-| `-q int4wo-32` | 186.70 | 774.98 | 5.31 | 4.15 |
-| `-q int4wo-hqq` | 186.47 | 774.01 | 5.04 | 4.15 |
-| `-q int8dq` | 49.64 | 328.72 | 9.44 | 6.62 |
-| `-q w4a8-cutlass` (**tuned**) | 119.31 | 394.86 | 4.52 | 3.31 |
+
+Generated on A100???????????? using torchao/_models/llama/generate.py on the Meta-Llama-3.1-8B model
+
+| technique | tok/s_decode | ttft | model_size (GB) |
+| --- | --- | --- | --- |
+| baseline        | 134.40 | 0.0118 | 15.01|  
+| bsr-0.9-32      | 256.68 | 0.0464 | 4.88 |
+| bsr-0.9-64      | 267.48 | 0.0448 | 4.88 | 
+| bsr-0.8-32      | 213.86 | 0.0438 | 6.01 | 
+| bsr-0.8-64      | 187.54 | 0.0433 | 6.00 | 
+| sparse-marlin   | 255.21 | 0.0281 | 3.89 |  
+| semi-structured | 163.13 | 0.1522 | 10.08|  
 
 ## BC Breaking
 
