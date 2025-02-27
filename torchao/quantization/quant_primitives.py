@@ -862,6 +862,7 @@ def _choose_qparams_affine(
     3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
        and `zero_point_domain`
     """
+
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [
         MappingType.SYMMETRIC.name,
@@ -908,6 +909,16 @@ def _choose_qparams_affine(
     else:
         min_val_neg = min_val
         max_val_pos = max_val
+
+    # Prevent reciprocal of scale, calculated below, to become Inf.
+    if torch.is_floating_point(max_val):
+        # In this case, scale will be calculated below in
+        # max_val.dtype.
+        eps = max(eps, torch.finfo(max_val.dtype).tiny)
+    else:
+        # In this case, scale will be calculated below in
+        # torch.float32 dtype.
+        eps = max(eps, torch.finfo(torch.float32).tiny)
 
     if (
         mapping_type == MappingType.SYMMETRIC.name
@@ -969,7 +980,13 @@ def _choose_qparams_affine(
 
     if zero_point is not None:
         zero_point = zero_point.to(dtype=zero_point_dtype)
-    return scale.to(dtype=scale_dtype), zero_point
+    scale = scale.to(dtype=scale_dtype)
+    if torch.is_floating_point(scale):
+        # Again, prevent scale reciprocal to become Inf.
+        scale = scale.clamp(
+            min=torch.finfo(scale_dtype).tiny, max=torch.finfo(scale_dtype).max
+        )
+    return scale, zero_point
 
 
 def choose_qparams_and_quantize_affine_qqq(
