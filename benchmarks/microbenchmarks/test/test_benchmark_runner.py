@@ -14,7 +14,7 @@ from benchmarks.microbenchmarks.benchmark_runner import (
 class TestBenchmarkRunner(unittest.TestCase):
     def setUp(self):
         self.config = {
-            "quantizations": ["baseline", "int8wo"],
+            "quantization_config_recipe_names": ["baseline", "int8wo"],
             "output_dir": "benchmarks/microbenchmarks/test/test_output",
             "model_params": {
                 "matrix_shapes": [
@@ -23,7 +23,7 @@ class TestBenchmarkRunner(unittest.TestCase):
                         "shapes": [[16, 32, 8]],  # Small shape for testing
                     }
                 ],
-                "precision": "torch.float32",
+                "high_precision_dtype": "torch.float32",
                 "compile": False,
                 "device": "cpu",
                 "model_type": "linear",

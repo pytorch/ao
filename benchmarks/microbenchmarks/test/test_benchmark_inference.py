@@ -7,7 +7,7 @@ from benchmarks.microbenchmarks.utils import BenchmarkConfig
 class TestBenchmarkInference(unittest.TestCase):
     def setUp(self):
         self.params = {
-            "precision": "torch.float32",  # Use float32 for testing
+            "high_precision_dtype": "torch.float32",  # Use float32 for testing
             "compile": False,
             "device": "cpu",  # Use CPU for testing
             "model_type": "linear",
@@ -24,7 +24,7 @@ class TestBenchmarkInference(unittest.TestCase):
         result = run(self.config)
 
         # Check result contains all config attributes
-        for key in self.config.__dict__:
+        for key in self.config.to_dict():
             self.assertIn(key, result)
 
         # Check benchmark result is present and reasonable

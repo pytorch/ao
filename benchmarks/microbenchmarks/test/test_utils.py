@@ -17,8 +17,9 @@ from benchmarks.microbenchmarks.utils import (
 class TestUtils(unittest.TestCase):
     def test_benchmark_config(self):
         params = {
-            "precision": "torch.bfloat16",
-            "compile": "max-autotune",
+            "high_precision_dtype": "torch.bfloat16",
+            "compile": True,
+            "compile_mode": "max-autotune",
             "device": "cuda",
             "model_type": "linear",
         }
@@ -34,8 +35,9 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(config.m, 1024)
         self.assertEqual(config.k, 1024)
         self.assertEqual(config.n, 1024)
-        self.assertEqual(config.precision, torch.bfloat16)
-        self.assertEqual(config.compile, "max-autotune")
+        self.assertEqual(config.high_precision_dtype, torch.bfloat16)
+        self.assertEqual(config.compile, True)
+        self.assertEqual(config.compile_mode, "max-autotune")
         self.assertEqual(config.device, "cuda")
         self.assertEqual(config.model_type, "linear")
         self.assertEqual(config.output_dir, "test_output")

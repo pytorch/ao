@@ -16,7 +16,7 @@ from benchmarks.microbenchmarks.utils import (
     benchmark_model_inference_in_microseconds,
     clean_caches,
     create_model_and_input,
-    quantize_model,
+    quantization_string_to_quantized_model,
 )
 
 
@@ -32,20 +32,22 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
         config.m,
         config.k,
         config.n,
-        dtype=config.precision,
+        high_precision_dtype=config.high_precision_dtype,
         device=config.device,
     )
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    m_copy = quantize_model(m_copy, config.quantization)
+    m_copy = quantization_string_to_quantized_model(
+        m_copy, config.quantization, high_precision_dtype=config.high_precision_dtype
+    )
 
     if config.compile:
         print("Compiling model....")
-        m_copy = torch.compile(m_copy, mode=config.compile, fullgraph=True)
+        m_copy = torch.compile(m_copy, mode=config.compile_mode, fullgraph=True)
 
     # Run benchmarks
-    result = {**config.__dict__}
+    result = {**config.to_dict()}
 
     # Benchmark time to run an inference call for quantized model
     model_time = benchmark_model_inference_in_microseconds(
