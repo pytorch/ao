@@ -30,7 +30,7 @@ def fp8_blockwise_quant_act_kernel(x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr
 
 
 def fp8_blockwise_act_quant(
-    x: torch.Tensor, block_size: int = 128
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantizes the input tensor `x` using block-wise quantization with block size being BLOCK_SIZEx1.
@@ -38,17 +38,19 @@ def fp8_blockwise_act_quant(
     Args:
         x (torch.Tensor): The input tensor to be quantized. Must be contiguous and its last dimension size must be divisible by `block_size`.
         block_size (int, optional): The size of the blocks to be used for quantization. Default is 128.
+        dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Default is `torch.float8_e4m3fn`.
+
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - The quantized tensor with dtype `torch.float8_e4m3fn`.
+            - The quantized tensor with dtype `dtype`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert (
         x.size(-1) % block_size == 0
     ), f"Last dimension size must be divisible by block_size (block_size={block_size})"
-    y = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+    y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
     grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
     fp8_blockwise_quant_act_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
@@ -85,17 +87,20 @@ def fp8_blockwise_quant_weight_kernel(
     tl.store(s_ptr + pid_m * n + pid_n, s)
 
 
-def fp8_blockwise_weight_quant(x: torch.Tensor, block_size: int = 128):
+def fp8_blockwise_weight_quant(
+    x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantizes the given weight tensor using block-wise quantization with block size being BLOCK_SIZExBLOCK_SIZE.
 
     Args:
         x (torch.Tensor): The weight tensor to be quantized.
         block_size (int, optional): The block size to use for quantization. Defaults to 128.
+        dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Defaults to `torch.float8_e4m3fn`.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - The quantized weight tensor with dtype `torch.float8_e4m3fn`.
+            - The quantized weight tensor with dtype `dtype`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
     assert x.is_contiguous(), "Input tensor must be contiguous"
@@ -104,7 +109,7 @@ def fp8_blockwise_weight_quant(x: torch.Tensor, block_size: int = 128):
         x.size(0) % block_size == 0 and x.size(1) % block_size == 0
     ), f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
     M, N = x.size()
-    y = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+    y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
     grid = lambda meta: (
         triton.cdiv(M, meta["BLOCK_SIZE"]),

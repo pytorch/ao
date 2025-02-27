@@ -8,7 +8,7 @@ from torchao.prototype.blockwise_fp8.blockwise_quantization import (
     fp8_blockwise_weight_quant,
 )
 
-ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK = [
+BLOCKWISE_SIZE_MNK = [
     (2, 512, 128),
     (3, 2048, 2048),
     (4, 3584, 640),
@@ -19,7 +19,7 @@ ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK = [
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("_, N, K", ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK)
+@pytest.mark.parametrize("_, N, K", BLOCKWISE_SIZE_MNK)
 def test_blockwise_quant_dequant(_, N, K):
     x = torch.randn(N, K).cuda()
     qx, s = fp8_blockwise_weight_quant(x)
@@ -31,7 +31,7 @@ def test_blockwise_quant_dequant(_, N, K):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("M, N, K", ROWWISE_SCALED_LINEAR_CUTLASS_SIZE_MNK)
+@pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 def test_blockwise_fp8_gemm(M, N, K):
     A = torch.randn(M, K).cuda()
     B = torch.randn(N, K).cuda()
