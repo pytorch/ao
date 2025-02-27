@@ -215,9 +215,16 @@ class TestAffineQuantized(TestCase):
     )
     def test_copy_(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        ql = apply_quant(linear)
         linear2 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        ql2 = apply_quant(linear2)
+
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+            quantize_(linear2, apply_quant)
+            ql2 = linear2
+        else:
+            ql = apply_quant(linear)
+            ql2 = apply_quant(linear2)
 
         example_input = torch.randn(1, 128, dtype=torch.bfloat16, device="cuda")
         output = ql(example_input)
@@ -232,9 +239,16 @@ class TestAffineQuantized(TestCase):
     )
     def test_copy__mismatch_metadata(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        ql = apply_quant(linear)
         linear2 = torch.nn.Linear(128, 512, dtype=torch.bfloat16, device="cuda")
-        ql2 = apply_quant(linear2)
+
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+            quantize_(linear2, apply_quant)
+            ql2 = linear2
+        else:
+            ql = apply_quant(linear)
+            ql2 = apply_quant(linear2)
 
         # copy should fail due to shape mismatch
         with self.assertRaisesRegex(
