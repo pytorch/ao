@@ -4,7 +4,7 @@
 
 We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including the new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization and more!
 
-### Block Sparsity promoted out of prototype (https://github.com/pytorch/ao/pull/1729, https://github.com/pytorch/ao/pull/1734)
+### Block Sparsity promoted out of prototype
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
 You can accelerate your models with block sparsity as follows:
 
@@ -270,6 +270,11 @@ The additional features for MX support in v0.9.0 were enabled by:
 * Float8 training: clean up recipe names (https://github.com/pytorch/ao/pull/1730)
 * Float8 training: make the "config from recipe" API polished (https://github.com/pytorch/ao/pull/1731)
 * Make FakeQuantizer expose useful config details when printed (https://github.com/pytorch/ao/pull/1717)
+
+### Sparsity
+
+* Promote Supermask out of prototype (https://github.com/pytorch/ao/pull/1729)
+* Promote blocksparse from prototype, make it faster (https://github.com/pytorch/ao/pull/1734)
 
 ### Other
 
