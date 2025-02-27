@@ -1,8 +1,6 @@
-### TODO go over blocksparse numbers
-
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including the new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization, a significant overhaul of the quantize_ api and more!
+We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype, a significant overhaul of the quantize_ api, a new cutlass kernel for 4 bit dynamic quantization and more!
 
 ### Block Sparsity promoted out of prototype
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
@@ -15,17 +13,19 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 
 ##### Blocksparse Benchmarks
 
-Generated on A100???????????? using torchao/_models/llama/generate.py on the Meta-Llama-3.1-8B model
+| **technique**                |**decode (tok/s)**| **model_size (GB)** | 
+|------------------------------|------------------|---------------------|
+| baseline                     | 134.40           | 15.01               |
+| 2:4 sparse                   | 163.13           | 10.08               |
+| bsr-0.8-32                   | 210.91           | 6.01                |
+| bsr-0.8-64                   | 222.43           | 6.00                |
+| bsr-0.9-32                   | 255.19           | 4.88                |
+| bsr-0.9-64                   | 262.94           | 4.88                |
+| 2:4 sparse + int4wo (marlin) | 255.21           | 3.89                |
 
-| technique | tok/s_decode | ttft | model_size (GB) |
-| --- | --- | --- | --- |
-| baseline        | 134.40 | 0.0118 | 15.01|  
-| bsr-0.9-32      | 256.68 | 0.0464 | 4.88 |
-| bsr-0.9-64      | 267.48 | 0.0448 | 4.88 | 
-| bsr-0.8-32      | 213.86 | 0.0438 | 6.01 | 
-| bsr-0.8-64      | 187.54 | 0.0433 | 6.00 | 
-| sparse-marlin   | 255.21 | 0.0281 | 3.89 |  
-| semi-structured | 163.13 | 0.1522 | 10.08|  
+Block Sparsity techniques indicate sparsity fraction and blocksize.
+
+These numbers were generated on H100 using torchao/_models/llama/generate.py on the Meta-Llama-3.1-8B model. You can reproduce these numbers using this [script](https://gist.github.com/HDCharles/6e782c33d5aac24b36fa81d9e3bd5f5c)
 
 ## BC Breaking
 
@@ -168,23 +168,21 @@ complexity tax for supporting these features.
 
 #### Supermask for improving accuracy for sparse models (https://github.com/pytorch/ao/pull/1729)
 
-Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. To prepare a model for training you can use the following:
-
-During inference, the binary mask is applied element-wise to the weights, pruning the weights that correspond to a 0 in the mask, resulting in a sparse network that can be efficiently computed.
+Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for improve accuracy of block sparsified models by learning the a block-sparse mask during a training phase.
 
 ```python
 from torchao.sparsity import SupermaskLinear, block_sparse_weight
 sparsify_(model, lambda x: SupermaskLinear.from_linear(x, block_size=64, sparsity_level=0.9)
 # training here
 
-# for inference speedup, collapse supermask back into a linear layer and then into a block sparse weight
+# collapse supermask into a normal linear layer (with many weights set to 0) and then convert to block sparse format for inference speedup
 sparsify_(model, lambda x: SupermaskLinear.to_linear(x, sparsity_level=0.9)
 sparsify_(model, block_sparse_weight(blocksize=64))
 ```
 
-#### Add CUTLASS-based W4A4 kernel (https://github.com/pytorch/ao/pull/1515) 
+#### Dynamic quantization W4A4 CUTLASS-based kernel (https://github.com/pytorch/ao/pull/1515) 
 
-This kernel which adds support for 4 bit dynamic activation quantization + 4 bit weight quantization can be used as follows:
+This kernel which adds support for 4 bit dynamic activation + 4 bit weight quantization can be used as follows:
 
 ```python
 from torchao.quantization import int4_dynamic_activation_int4_weight
@@ -245,13 +243,6 @@ The additional features for MX support in v0.9.0 were enabled by:
 * hook up mxfp8 and mxfp4 CUTLASS kernels to MXLinear (https://github.com/pytorch/ao/pull/1713)
 * add ceil and RNE rounding modes to the cast from fp32 to e8m0 (https://github.com/pytorch/ao/pull/1643)
 
-
-
-### quantize_
-
-* Clean up linear_int8_dynamic_activation_intx_weight_subclass (https://github.com/pytorch/ao/pull/1553)
-
-
 ### Experimental
 
 * Q dq layout (https://github.com/pytorch/ao/pull/1642)
@@ -267,13 +258,14 @@ The additional features for MX support in v0.9.0 were enabled by:
 ### Training
 
 * Support power of 2 scaling factors in float8 training with rowwise scaling and use e4m3 in fwd and bwd pass (https://github.com/pytorch/ao/pull/1670)
-* Float8 training: clean up recipe names (https://github.com/pytorch/ao/pull/1730)
-* Float8 training: make the "config from recipe" API polished (https://github.com/pytorch/ao/pull/1731)
+* clean up recipe names in Float8 training (https://github.com/pytorch/ao/pull/1730)
+* make the "config from recipe" API polished in Float8 training (https://github.com/pytorch/ao/pull/1731)
+* dd workaround to reduce FSDP memory usage for float8 rowwise training  (https://github.com/pytorch/ao/pull/1629)
 * Make FakeQuantizer expose useful config details when printed (https://github.com/pytorch/ao/pull/1717)
+
 
 ### Sparsity
 
-* Promote Supermask out of prototype (https://github.com/pytorch/ao/pull/1729)
 * Promote blocksparse from prototype, make it faster (https://github.com/pytorch/ao/pull/1734)
 
 ### Other
@@ -299,9 +291,6 @@ The additional features for MX support in v0.9.0 were enabled by:
 * Fix tensor parallelism for float8 training with rowwise scaling (https://github.com/pytorch/ao/pull/1718)
 
 
-## Performance
-
-* Add workaround to reduce FSDP memory usage for float8 rowwise training  (https://github.com/pytorch/ao/pull/1629)
 
 ## Documentation
 
@@ -322,7 +311,6 @@ The additional features for MX support in v0.9.0 were enabled by:
 
 ## Developers
 
-* Ruff lint (https://github.com/pytorch/ao/pull/1646)
 * Consolidate `ZeroPointDomain.NONE` & `None` zero point domains (https://github.com/pytorch/ao/pull/1556)
 * Only run docs build in CI if docs have changed (https://github.com/pytorch/ao/pull/1589)
 * Add separate quantization primitives for float8 (https://github.com/pytorch/ao/pull/1597)
@@ -330,6 +318,7 @@ The additional features for MX support in v0.9.0 were enabled by:
 * Change TORCH_LIBRARY to TORCH_LIBRARY_FRAGMENT (https://github.com/pytorch/ao/pull/1645)
 * Reformat C++ kernels (https://github.com/pytorch/ao/pull/1723)
 * Add torchao/experimental CI test (https://github.com/pytorch/ao/pull/1586)
+* Clean up linear_int8_dynamic_activation_intx_weight_subclass (https://github.com/pytorch/ao/pull/1553)
 
 ## New Contributors
 * @jaewoosong made their first contribution in https://github.com/pytorch/ao/pull/1560
