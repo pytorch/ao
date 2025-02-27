@@ -65,6 +65,7 @@ from torchao.testing.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
+from torchao.utils import is_sm_at_least_90, is_sm_at_least_100
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -154,10 +155,13 @@ def get_gemm_times(M, K, N, fast_accum, cache_filename=None):
 
     f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
 
-    scale_a = torch.ones(M, 1, device=device)
-    scale_b = torch.ones(1, N, device=device)
-    fast_accum = True  # for axiswise
-    f8_axs_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
+    if is_sm_at_least_90() and (not is_sm_at_least_100()):
+        scale_a = torch.ones(M, 1, device=device)
+        scale_b = torch.ones(1, N, device=device)
+        fast_accum = True  # for axiswise
+        f8_axs_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
+    else:
+        f8_axs_time_s = -1.0
 
     # save to cache if needed
     if cache_filename is not None:
@@ -298,17 +302,24 @@ def run(
         bf16_time_actual_s = get_gpu_kernel_time(m_bf16, x)
 
         # get the float8 dynamic scaling gpu kernel time
+
         torch._dynamo.reset()
         m_fp8_dyn = convert_to_float8_training(copy.deepcopy(m_orig))
         m_fp8_dyn = torch.compile(m_fp8_dyn)
         fp8_dyn_time_actual_s = get_gpu_kernel_time(m_fp8_dyn, x)
 
-        # get the float8 dynamic axiswise scaling gpu kernel time
-        torch._dynamo.reset()
-        config = Float8LinearConfig.from_recipe_name("rowwise")
-        m_fp8_dyn_axs = convert_to_float8_training(copy.deepcopy(m_orig), config=config)
-        m_fp8_dyn_axs = torch.compile(m_fp8_dyn_axs)
-        fp8_dyn_axs_time_actual_s = get_gpu_kernel_time(m_fp8_dyn_axs, x)
+        # get the float8 dynamic axiswise scaling gpu kernel time, if supported
+        # on current hardware
+        if is_sm_at_least_90() and (not is_sm_at_least_100()):
+            torch._dynamo.reset()
+            config = Float8LinearConfig.from_recipe_name("rowwise")
+            m_fp8_dyn_axs = convert_to_float8_training(
+                copy.deepcopy(m_orig), config=config
+            )
+            m_fp8_dyn_axs = torch.compile(m_fp8_dyn_axs)
+            fp8_dyn_axs_time_actual_s = get_gpu_kernel_time(m_fp8_dyn_axs, x)
+        else:
+            fp8_dyn_axs_time_actual_s = -1.0
 
         # get the lw recipe scaling gpu kernel time
         # TODO(future PR): enable below once basic performance issues
