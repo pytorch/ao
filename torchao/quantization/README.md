@@ -396,7 +396,7 @@ The `quantize_` and `autoquant` apis now automatically use our recommended induc
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
 
 ```python
-from benchmarks._models._eval import InputRecorder, TransformerEvalWrapper
+from torchao._models._eval import InputRecorder, TransformerEvalWrapper
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 precision = torch.bfloat16
 device = "cuda"

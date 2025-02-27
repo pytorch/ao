@@ -72,8 +72,8 @@ default_device = (
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
-from benchmarks._models.llama.tokenizer import get_tokenizer
+from torchao._models.model import Transformer, prepare_inputs_for_model
+from torchao._models.tokenizer import get_tokenizer
 
 
 def multinomial_sample_one_no_sync(
@@ -476,7 +476,7 @@ def main(
                 filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
             )
         elif quantization.startswith("awq"):
-            from benchmarks._models._eval import TransformerEvalWrapper
+            from torchao._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
             if not TORCH_VERSION_AT_LEAST_2_3:
@@ -575,8 +575,8 @@ def main(
                 model, float8_dynamic_activation_float8_weight(granularity=granularity)
             )
         elif "autoquant_v2" in quantization:
-            from benchmarks._models.llama.model import prepare_inputs_for_model
-            from benchmarks._models._eval import InputRecorder
+            from torchao._models.model import prepare_inputs_for_model
+            from torchao._models._eval import InputRecorder
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
@@ -665,8 +665,8 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from benchmarks._models.llama.model import prepare_inputs_for_model
-            from benchmarks._models._eval import InputRecorder
+            from torchao._models.model import prepare_inputs_for_model
+            from torchao._models._eval import InputRecorder
 
             calibration_seq_length = 256
             inputs = (

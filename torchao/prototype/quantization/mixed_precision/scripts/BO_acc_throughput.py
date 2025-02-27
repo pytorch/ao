@@ -18,15 +18,15 @@ from utils import (
 )
 
 import torchao
-from benchmarks._models.llama.generate import (
+from torchao._models.generate import (
     _load_model,
     decode_one_token,
     device_sync,
     encode_tokens,
     prefill,
 )
-from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
-from benchmarks._models.llama.tokenizer import get_tokenizer
+from torchao._models.model import Transformer, prepare_inputs_for_model
+from torchao._models.tokenizer import get_tokenizer
 
 default_device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -99,7 +99,7 @@ def generate(
             _replace_with_custom_fn_if_matches_filter(
                 model,
                 AffineQuantizedKVCache.from_float,
-                lambda x, y: isinstance(x, benchmarks._models.llama.model.KVCache),
+                lambda x, y: isinstance(x, torchao._models.model.KVCache),
             )
 
     # format model input

@@ -22,7 +22,7 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from benchmarks._models.llama.model import (
+from torchao._models.model import (
     ModelArgs,
     RMSNorm,
     Transformer,
