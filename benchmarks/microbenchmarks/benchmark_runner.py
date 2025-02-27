@@ -38,7 +38,7 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
     with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
-    quantizations = config_data["quantizations"]
+    quantization_config_recipe_names = config_data["quantization_config_recipe_names"]
     params = config_data["model_params"]
     output_dir = config_data.get("output_dir", "benchmarks/microbenchmarks/results")
 
@@ -47,7 +47,9 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
     for shape_config in params["matrix_shapes"]:
         shapes = get_shapes_for_config(shape_config)
         # Generate combinations for each shape
-        for quant, (shape_name, shape) in product(quantizations, shapes):
+        for quant, (shape_name, shape) in product(
+            quantization_config_recipe_names, shapes
+        ):
             configs.append(
                 BenchmarkConfig(
                     quantization=quant,

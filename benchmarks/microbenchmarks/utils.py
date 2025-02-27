@@ -44,8 +44,11 @@ class BenchmarkConfig:
         self.quantization = quantization
         self.m, self.k, self.n = shape
         self.shape_name = shape_name
-        self.precision = self._parse_precision(params["precision"])
+        self.high_precision_dtype = self._parse_precision(
+            params["high_precision_dtype"]
+        )
         self.compile = params.get("compile", False)
+        self.compile_mode = params.get("compile_mode", "default")
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
@@ -63,8 +66,9 @@ class BenchmarkConfig:
             "m": self.m,
             "k": self.k,
             "n": self.n,
-            "precision": self.precision,
+            "high_precision_dtype": self.high_precision_dtype,
             "compile": self.compile,
+            "compile_mode": "default",
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
@@ -121,10 +125,9 @@ def ffn_or_attn_only(mod, fqn):
     )
 
 
-def quantize_model(
+def quantization_string_to_quantized_model(
     model: torch.nn.Module,
     quantization: str,
-    **kwargs,
 ):
     """Quantize a model inplace or return a new quantized model.
 
@@ -137,28 +140,13 @@ def quantize_model(
         print("Warning: Triton not available, falling back to baseline")
         return model
 
-    # Define kwargs
-    sparsity = kwargs.get("sparsity", None)
-    precision = kwargs.get("precision", None)
-
     # Quantization techniques
     if "baseline" in quantization:
         return model
     if "int8wo" in quantization:
         quantize_(model, Int8WeightOnlyConfig())
     if "int8dq" in quantization:
-        if sparsity and "semi" in sparsity:
-            from torchao.dtypes import SemiSparseLayout
-
-            quantize_(
-                model,
-                Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
-                filter_fn=ffn_only,
-            )
-            quantize_(
-                model, Int8DynamicActivationInt8WeightConfig(), filter_fn=not_ffn_only
-            )
-        elif "int8dq_prefill_wo_decode" in quantization:
+        if "int8dq_prefill_wo_decode" in quantization:
             quantize_(
                 model, Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
             )

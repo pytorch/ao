@@ -1,5 +1,5 @@
 # Sample configuration for inference kernel benchmarks
-quantizations:
+quantization_config_recipe_names:
   - "baseline"
   - "int8wo"
   - "int4wo-128"
@@ -13,7 +13,8 @@ model_params:
         [2048, 4096, 1024],
         [4096, 4096, 1024]
       ]
-  precision: "torch.bfloat16"
-  compile: "max-autotune"
+  high_precision_dtype: "torch.bfloat16"
+  compile: true
+  compile_mode: "max-autotune"
   device: "cuda"  # Change this to "cuda", "mps", "xpu", or "cpu" as needed
   model_type: "linear"
