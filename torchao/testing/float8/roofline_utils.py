@@ -55,14 +55,12 @@ TRITON_KERNEL_1_ELEMENT_TIME_SEC = 0.002 * 0.001
 def get_tensor_memory_traffic_bytes(
     dim0,
     dim1,
-    scaling_type: str,
     fuse_with_prev=False,
     model_torch_compile_limitations=False,
 ):
     # assumes input bf16, output f8
     numel = dim0 * dim1
 
-    assert scaling_type == "dynamic", "unsupported"
     # x_bf16 = ...
     # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
     # kernel 2 (not modeled): tmp -> max_abs_stage_2 -> max_abs
@@ -104,14 +102,7 @@ def get_float8_mem_sympy(
     K,
     N,
     model_torch_compile_limitations: bool = False,
-    scaling_type_input: str = "dynamic",
-    scaling_type_weight: str = "dynamic",
-    scaling_type_grad_output: str = "dynamic",
 ):
-    assert scaling_type_input in ("dynamic",), "unsupported"
-    assert scaling_type_weight in ("dynamic",), "unsupported"
-    assert scaling_type_grad_output in ("dynamic",), "unsupported"
-
     specs = get_specs()
 
     # there are three gemms in the fwd/bwd of a linear:
@@ -131,14 +122,12 @@ def get_float8_mem_sympy(
     fwd_fp8_input_mem = get_tensor_memory_traffic_bytes(
         M,
         K,
-        scaling_type_input,
         fuse_with_prev=True,
         model_torch_compile_limitations=model_torch_compile_limitations,
     )
     fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
         K,
         N,
-        scaling_type_weight,
         fuse_with_prev=False,
         model_torch_compile_limitations=model_torch_compile_limitations,
     )
@@ -150,7 +139,6 @@ def get_float8_mem_sympy(
     gi_fp8_grad_output_mem = get_tensor_memory_traffic_bytes(
         M,
         N,
-        scaling_type_grad_output,
         fuse_with_prev=True,
         model_torch_compile_limitations=model_torch_compile_limitations,
     )
@@ -183,15 +171,12 @@ def get_float8_mem_sympy(
     # kernel overhead in the units of seconds, and the per-gemm-input memory
     # estimations are in the units of bytes.
     num_extra_kernels = 0
-    if scaling_type_input == "dynamic":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
-    if scaling_type_weight == "dynamic":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
-    if scaling_type_grad_output == "dynamic":
-        # second stage of max-abs reduction
-        num_extra_kernels += 1
+    # second stage of max-abs reduction for input
+    num_extra_kernels += 1
+    # second stage of max-abs reduction for weight
+    num_extra_kernels += 1
+    # second stage of max-abs reduction for grad_output
+    num_extra_kernels += 1
 
     extra_kernel_overhead_s = num_extra_kernels * TRITON_KERNEL_1_ELEMENT_TIME_SEC
 

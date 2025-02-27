@@ -176,9 +176,6 @@ def run(
     outfile: str,
     gemm_time_strategy: str = "benchmarks",
     model_torch_compile_limitations: bool = False,
-    scaling_type_input: str = "dynamic",
-    scaling_type_weight: str = "dynamic",
-    scaling_type_grad_output: str = "dynamic",
     shape_gen_name: str = "square",
     gemm_cache_filename: Optional[str] = None,
     n_limit: Optional[int] = None,
@@ -208,18 +205,12 @@ def run(
         K,
         N,
         model_torch_compile_limitations=True,
-        scaling_type_input="dynamic",
-        scaling_type_weight="dynamic",
-        scaling_type_grad_output="dynamic",
     )
     fp8_mem_time_sympy_dyn_nolimit = get_float8_mem_sympy(
         M,
         K,
         N,
         model_torch_compile_limitations=False,
-        scaling_type_input="dynamic",
-        scaling_type_weight="dynamic",
-        scaling_type_grad_output="dynamic",
     )
 
     if gemm_time_strategy == "roofline":
