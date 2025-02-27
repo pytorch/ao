@@ -73,8 +73,7 @@ def quantize(
 | old name (will keep working) | new name (recommended) |
 | --- | --- |
 | `int4_weight_only` | `Int4WeightOnlyConfig` |
-| `float8_dynamic_activation_float8_weight` | `Float8DynamicActivationFloat8WeightConfig
-` |
+| `float8_dynamic_activation_float8_weight` | `Float8DynamicActivationFloat8WeightConfig`|
 | `float8_static_activation_float8_weight` | `Float8StaticActivationFloat8WeightConfig` |
 | `float8_weight_only` | `Float8WeightOnlyConfig` |
 | `fpx_weight_only` | `FPXWeightOnlyConfig` |
@@ -89,7 +88,7 @@ def quantize(
 Configuration for prototype workflows using `quantize_` will be migrated at a later time.
 
 **How these changes can affect you:**
-1. If you are a user of existing `quantize_` API workflows and are passing in config by a positional argument (`quantize_(model, int8_weight_only(group_size=128))`), **you are not affected**.  This syntax will keep working going forward.  You have the option to migrate your callsite to the new config name (`quantize_(model, Int8WeightOnlyConfig(group_size=128))` at your own pace.
+1. If you are a user of existing `quantize_` API workflows and are passing in config by a positional argument (`quantize_(model, int8_weight_only(group_size=128))`), **you are not affected**.  This positional syntax will keep working going forward.  You are encouraged to migrate your callsite to the new config name (`quantize_(model, Int8WeightOnlyConfig(group_size=128))` though the old names will continue to work indefinitely.
 2. If you are a user of existing `quantize_` API workflows and are passing in config by a keyword argument (`quantize_(model, tensor_subclass_inserter=int8_weight_only(group_size=128))`), your callsite will break.  You will need to change your callsite to `quantize_(model, config=int8_weight_only(group_size=128))`.  We don't expect many people to be in this bucket.
 3. If you are a developer writing new workflows for the `quantize_` API, you will need to use the new configuration system.  Please see https://github.com/pytorch/ao/issues/1690 for details.
 4. If you are a user of `sparsify_`, you are not affected for now and a similar change will happen in a future version of torchao.
