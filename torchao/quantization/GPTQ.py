@@ -81,7 +81,7 @@ class GenericGPTQRunner(fx.Interpreter):
         # needed for GPTQ on the torchao llama model
         import torchao
 
-        torchao._models.model.use_index_put_for_kv_cache = True
+        torchao._models.llm.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
             model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)

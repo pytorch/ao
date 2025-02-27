@@ -116,8 +116,8 @@ from typing import Optional, Tuple, Union
 import torch
 from torch.nn.attention import SDPBackend
 
-from torchao._models.model import Transformer
-from torchao._models.tokenizer import get_tokenizer
+from torchao._models.llm.model import Transformer
+from torchao._models.llm.tokenizer import get_tokenizer
 from torchao.prototype.profiler import (
     CUDADeviceSpec,
     TransformerPerformanceCounter,

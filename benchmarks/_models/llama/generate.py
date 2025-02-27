@@ -7,20 +7,30 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch._dynamo.config
 import torch._inductor.config
 
 import torchao
-from benchmarks._models.utils import (
+from torchao._models.utils import (
+    _load_model,
+    decode_n_tokens,
+    decode_one_token,
+    encode_tokens,
     get_arch_name,
+    prefill,
     write_json_result_local,
     write_json_result_ossci,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    default_device,
+    device_sync,
+    get_model_size_in_bytes,
+)
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 torch.backends.cuda.enable_cudnn_sdp(True)
@@ -49,97 +59,12 @@ def device_timer(device):
         print(f"device={device} is not yet suppported")
 
 
-def device_sync(device):
-    if "cuda" in device:
-        torch.cuda.synchronize(device)
-    elif "xpu" in device:
-        torch.xpu.synchronize(device)
-    elif ("cpu" in device) or ("mps" in device):
-        pass
-    else:
-        print(f"device={device} is not yet suppported")
-
-
-default_device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "xpu"
-    if torch.xpu.is_available()
-    else "cpu"
-)
-
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.model import Transformer, prepare_inputs_for_model
-from torchao._models.tokenizer import get_tokenizer
-
-
-def multinomial_sample_one_no_sync(
-    probs_sort,
-):  # Does multinomial sampling without a cuda synchronization
-    q = torch.empty_like(probs_sort).exponential_(1)
-    return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(dtype=torch.int)
-
-
-def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = None):
-    logits = logits / max(temperature, 1e-5)
-
-    if top_k is not None:
-        v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-        pivot = v.select(-1, -1).unsqueeze(-1)
-        logits = torch.where(logits < pivot, -float("Inf"), logits)
-    probs = torch.nn.functional.softmax(logits, dim=-1)
-    return probs
-
-
-def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
-    probs = logits_to_probs(logits[:, -1], temperature, top_k)
-    idx_next = multinomial_sample_one_no_sync(probs)
-    return idx_next, probs
-
-
-def prefill(
-    model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs
-) -> torch.Tensor:
-    # input_pos: [B, S]
-    logits = model(x, input_pos)
-    return sample(logits, **sampling_kwargs)[0]
-
-
-def decode_one_token(
-    model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    # input_pos: [B, 1]
-    assert input_pos.shape[-1] == 1
-    logits = model(x, input_pos)
-    return sample(logits, **sampling_kwargs)
-
-
-def decode_n_tokens(
-    model: Transformer,
-    cur_token: torch.Tensor,
-    input_pos: torch.Tensor,
-    num_new_tokens: int,
-    callback=lambda _: _,
-    **sampling_kwargs,
-):
-    new_tokens, new_probs = [], []
-    for i in range(num_new_tokens):
-        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
-            next_token, next_prob = decode_one_token(
-                model, cur_token, input_pos, **sampling_kwargs
-            )
-            next_token, next_prob = next_token.clone(), next_prob.clone()
-            input_pos += 1
-            # in some instances not having this causes weird issues with the stored tokens when you run the next decode_one_token step
-            new_tokens.append(next_token.clone())
-            callback(new_tokens[-1])
-            new_probs.append(next_prob)
-            cur_token = next_token
-
-    return new_tokens, new_probs
+from torchao._models.llm.model import Transformer, prepare_inputs_for_model
+from torchao._models.llm.tokenizer import get_tokenizer
 
 
 def model_forward(model, x, input_pos):
@@ -228,25 +153,6 @@ def generate(
         decode_end_event.record()
 
     return seq
-
-
-def encode_tokens(tokenizer, string, bos=True, device=default_device):
-    tokens = tokenizer.encode(string)
-    if bos:
-        tokens = [tokenizer.bos_id()] + tokens
-    return torch.tensor(tokens, dtype=torch.int, device=device)
-
-
-def _load_model(checkpoint_path, device, precision):
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-    if "model" in checkpoint and "stories" in str(checkpoint_path):
-        checkpoint = checkpoint["model"]
-    with torch.device("meta"):
-        model = Transformer.from_name(checkpoint_path.parent.name)
-    model.load_state_dict(checkpoint, assign=True)
-    model = model.to(device=device, dtype=precision)
-
-    return model.eval()
 
 
 B_INST, E_INST = "[INST]", "[/INST]"
@@ -575,8 +481,8 @@ def main(
                 model, float8_dynamic_activation_float8_weight(granularity=granularity)
             )
         elif "autoquant_v2" in quantization:
-            from torchao._models.model import prepare_inputs_for_model
             from torchao._models._eval import InputRecorder
+            from torchao._models.llm.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
@@ -665,8 +571,8 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models.model import prepare_inputs_for_model
             from torchao._models._eval import InputRecorder
+            from torchao._models.llm.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (

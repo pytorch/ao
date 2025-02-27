@@ -14,7 +14,7 @@ from typing import Optional
 import torch
 from safetensors.torch import load_file as load_safetensors_file
 
-from torchao._models.model import ModelArgs
+from torchao._models.llm.model import ModelArgs
 
 
 @torch.inference_mode()

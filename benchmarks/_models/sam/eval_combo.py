@@ -9,7 +9,7 @@ from data import build_data, setup_coco_img_ids
 from metrics import calculate_miou, create_result_entry
 
 import torchao
-from benchmarks._models.utils import (
+from torchao._models.utils import (
     get_arch_name,
     write_json_result_local,
     write_json_result_ossci,

@@ -15,7 +15,7 @@ from generate import (
 from tokenizer import get_tokenizer
 
 import torchao
-from torchao._models.model import prepare_inputs_for_model
+from torchao._models.llm.model import prepare_inputs_for_model
 from torchao.quantization import (
     PerRow,
     PerTensor,
@@ -172,7 +172,7 @@ def run_evaluation(
         if "autoround" in quantization:
             from transformers import AutoTokenizer
 
-            from torchao._models.model import TransformerBlock
+            from torchao._models.llm.model import TransformerBlock
             from torchao.prototype.autoround.autoround_llm import (
                 quantize_model_with_autoround_,
             )
