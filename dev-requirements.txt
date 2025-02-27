@@ -17,6 +17,7 @@ tabulate  # QOL for printing tables to stdout
 tiktoken
 blobfile
 lm_eval
+triton
 # sam
 diskcache
 pycocotools
