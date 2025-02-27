@@ -214,7 +214,6 @@ class TestAffineQuantized(TestCase):
         "apply_quant", get_quantization_functions(False, True, "cuda", False)
     )
     def test_copy_(self, apply_quant):
-        print("apply_quant:", apply_quant)
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         ql = apply_quant(linear)
         linear2 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")

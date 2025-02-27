@@ -35,9 +35,6 @@ def _aqt_is_tensor_core_tile_uint4(aqt):
 def _same_metadata(
     self: "TensorCoreTiledAQTTensorImpl", src: "TensorCoreTiledAQTTensorImpl"
 ) -> bool:
-    print(
-        f"{isinstance(self, TensorCoreTiledAQTTensorImpl)}, {isinstance(src, TensorCoreTiledAQTTensorImpl)}, {self.packed_weight.shape == src.packed_weight.shape}, {self.scale_and_zero.shape == src.scale_and_zero.shape}, {self.transposed, src.transposed}, {type(self._layout)}, {type(src._layout)}"
-    )
     return (
         isinstance(self, TensorCoreTiledAQTTensorImpl)
         and isinstance(src, TensorCoreTiledAQTTensorImpl)
