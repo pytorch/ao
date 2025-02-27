@@ -7,7 +7,7 @@ from benchmarks.microbenchmarks.utils import BenchmarkConfig
 class TestBenchmarkInference(unittest.TestCase):
     def setUp(self):
         self.params = {
-            "precision": "torch.float32",  # Use float32 for testing
+            "high_precision_dtype": "torch.float32",  # Use float32 for testing
             "compile": False,
             "device": "cpu",  # Use CPU for testing
             "model_type": "linear",

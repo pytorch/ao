@@ -32,7 +32,7 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
         config.m,
         config.k,
         config.n,
-        dtype=config.precision,
+        dtype=config.high_precision_dtype,
         device=config.device,
     )
 
@@ -42,7 +42,7 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
 
     if config.compile:
         print("Compiling model....")
-        m_copy = torch.compile(m_copy, mode=config.compile, fullgraph=True)
+        m_copy = torch.compile(m_copy, mode=config.compile_mode, fullgraph=True)
 
     # Run benchmarks
     result = {**config.__dict__}

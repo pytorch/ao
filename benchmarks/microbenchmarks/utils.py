@@ -44,8 +44,11 @@ class BenchmarkConfig:
         self.quantization = quantization
         self.m, self.k, self.n = shape
         self.shape_name = shape_name
-        self.precision = self._parse_precision(params["precision"])
+        self.high_precision_dtype = self._parse_precision(
+            params["high_precision_dtype"]
+        )
         self.compile = params.get("compile", False)
+        self.compile_mode = params.get("compile_mode", "default")
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
@@ -63,8 +66,9 @@ class BenchmarkConfig:
             "m": self.m,
             "k": self.k,
             "n": self.n,
-            "precision": self.precision,
+            "high_precision_dtype": self.high_precision_dtype,
             "compile": self.compile,
+            "compile_mode": "default",
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
