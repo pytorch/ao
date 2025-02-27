@@ -13,7 +13,7 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 
 ##### Blocksparse Benchmarks
 
-| **technique**                |**decode (tok/s)**| **model_size (GB)** | 
+| **Technique**                |**Decode (tok/s)**| **Model Size (GB)** | 
 |------------------------------|------------------|---------------------|
 | baseline                     | 134.40           | 15.01               |
 | 2:4 sparse                   | 163.13           | 10.08               |
@@ -23,7 +23,7 @@ sparsify_(model, block_sparse_weight(blocksize=64))
 | bsr-0.9-64                   | 262.94           | 4.88                |
 | 2:4 sparse + int4wo (marlin) | 255.21           | 3.89                |
 
-Block Sparsity techniques indicate sparsity fraction and blocksize.
+Block Sparsity technique names (bsr) indicate sparsity fraction and blocksize.
 
 These numbers were generated on H100 using torchao/_models/llama/generate.py on the Meta-Llama-3.1-8B model. You can reproduce these numbers using this [script](https://gist.github.com/HDCharles/6e782c33d5aac24b36fa81d9e3bd5f5c)
 
