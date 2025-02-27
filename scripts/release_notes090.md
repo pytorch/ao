@@ -2,7 +2,7 @@
 
 # Highlights
 
-We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including the new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization and more!
+We are excited to announce the 0.9.0 release of torchao! This release moves a number of sparsity techniques out of prototype including the new feature supermask, adds a cutlass kernel for 4 bit dynamic quantization, a significant overhaul of the quantize_ api and more!
 
 ### Block Sparsity promoted out of prototype
 We’ve promoted block sparsity out of torchao.prototype and made several performance improvements. 
