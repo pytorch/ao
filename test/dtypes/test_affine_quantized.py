@@ -209,6 +209,24 @@ class TestAffineQuantized(TestCase):
             ql = apply_quant(linear)
         assert "AffineQuantizedTensor" in str(ql)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(False, True, "cuda", False)
+    )
+    def test_copy_(self, apply_quant):
+        print("apply_quant:", apply_quant)
+        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        ql = apply_quant(linear)
+        linear2 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        ql2 = apply_quant(linear2)
+
+        example_input = torch.randn(1, 128, dtype=torch.bfloat16, device="cuda")
+        output = ql(example_input)
+        ql2.weight.copy_(ql.weight)
+        ql2.bias = ql.bias
+        output2 = ql2(example_input)
+        self.assertEqual(output, output2)
+
 
 class TestAffineQuantizedBasic(TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
