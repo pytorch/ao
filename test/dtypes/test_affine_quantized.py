@@ -226,6 +226,22 @@ class TestAffineQuantized(TestCase):
         output2 = ql2(example_input)
         self.assertEqual(output, output2)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(False, True, "cuda", False)
+    )
+    def test_copy__mismatch_metadata(self, apply_quant):
+        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        ql = apply_quant(linear)
+        linear2 = torch.nn.Linear(128, 512, dtype=torch.bfloat16, device="cuda")
+        ql2 = apply_quant(linear2)
+
+        # copy should fail due to shape mismatch
+        with self.assertRaisesRegex(
+            ValueError, "Not supported args for copy_ due to metadata mistach:"
+        ):
+            ql2.weight.copy_(ql.weight)
+
 
 class TestAffineQuantizedBasic(TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])

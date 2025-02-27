@@ -26,6 +26,7 @@ def _same_metadata(self: "PlainAQTTensorImpl", src: "PlainAQTTensorImpl") -> boo
     return (
         isinstance(self, PlainAQTTensorImpl)
         and isinstance(src, PlainAQTTensorImpl)
+        and self.shape == src.shape
         and self.int_data.shape == src.int_data.shape
         and self.scale.shape == src.scale.shape
         and self.zero_point.shape == src.zero_point.shape

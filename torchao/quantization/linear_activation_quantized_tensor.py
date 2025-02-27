@@ -118,6 +118,7 @@ def _same_metadata(
     return (
         isinstance(self, LinearActivationQuantizedTensor)
         and isinstance(src, LinearActivationQuantizedTensor)
+        and self.shape == src.shape
         and self.input_quant_func == src.input_quant_func
         and self.quant_kwargs == src.quant_kwargs
     )

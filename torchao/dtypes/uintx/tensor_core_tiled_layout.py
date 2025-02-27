@@ -38,6 +38,7 @@ def _same_metadata(
     return (
         isinstance(self, TensorCoreTiledAQTTensorImpl)
         and isinstance(src, TensorCoreTiledAQTTensorImpl)
+        and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
         and self.scale_and_zero.shape == src.scale_and_zero.shape
         and self.transposed == src.transposed
