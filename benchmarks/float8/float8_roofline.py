@@ -126,6 +126,8 @@ def get_gemm_times(
     N,
     fast_accum,
     bf16_memory_formats,
+    float8_recipe_name,
+    mx_recipe_name,
     cache_filename=None,
 ):
     assert bf16_memory_formats in (
@@ -170,8 +172,14 @@ def get_gemm_times(
     d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16
     A = torch.zeros(M, K, device=device, dtype=d1)
     B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-    scale_a = torch.tensor([1.0], device=device)
-    scale_b = torch.tensor([1.0], device=device)
+    if float8_recipe_name == "tensorwise":
+        scale_a = torch.tensor([1.0], device=device)
+        scale_b = torch.tensor([1.0], device=device)
+    elif float8_recipe_name == "rowwise":
+        scale_a = torch.ones(M, 1, device=device)
+        scale_b = torch.ones(1, N, device=device)
+    else:
+        assert False, "TODO add mx gemm here"
 
     def do_matmul(A, B):
         return torch._scaled_mm(
@@ -297,15 +305,36 @@ def run(
             # what PyTorch core is doing for `torch.mm`
             # input @ weight_t = output
             bf16_g1, f8_g1 = get_gemm_times(
-                M_val, K_val, N_val, True, "row_major:col_major", gemm_cache_filename
+                M_val,
+                K_val,
+                N_val,
+                True,
+                "row_major:col_major",
+                float8_recipe_name,
+                mx_recipe_name,
+                gemm_cache_filename,
             )
             # grad_output @ weight = grad_input
             bf16_g2, f8_g2 = get_gemm_times(
-                M_val, N_val, K_val, False, "row_major:row_major", gemm_cache_filename
+                M_val,
+                N_val,
+                K_val,
+                False,
+                "row_major:row_major",
+                float8_recipe_name,
+                mx_recipe_name,
+                gemm_cache_filename,
             )
             # input_t @ grad_output = grad_weight
             bf16_g3, f8_g3 = get_gemm_times(
-                K_val, M_val, N_val, False, "col_major:row_major", gemm_cache_filename
+                K_val,
+                M_val,
+                N_val,
+                False,
+                "col_major:row_major",
+                float8_recipe_name,
+                mx_recipe_name,
+                gemm_cache_filename,
             )
             b_bf16_gemm_time_s = bf16_g1 + bf16_g2 + bf16_g3
             b_fp8_gemm_time_s = f8_g1 + f8_g2 + f8_g3
