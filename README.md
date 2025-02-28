@@ -172,7 +172,7 @@ pip install torchao --extra-index-url https://download.pytorch.org/whl/cu124 # f
 
 Nightly Release
 ```Shell
-pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu124 # full options are cpu/cu118/cu126/cu128
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126 # full options are cpu/cu118/cu126/cu128
 ```
 
 For *most* developers you probably want to skip building custom C++/CUDA extensions for faster iteration
