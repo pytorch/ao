@@ -50,16 +50,16 @@ For exampla, when releasing 0.2, you want to add noindex tag to all
 0.1 documentation. Here is the script:
 
 ```
-!/bin/bash
+#!/bin/bash
 
 # Adds <meta name="robots" content="noindex"> tags to all html files in a
 # directory (recursively)
 #
 # Usage:
-# ./add_noindex_tags.sh directory
+# ./add_noindex_tags.sh <directory>
 #
-# Example (from the root directory)
-# ./scripts/add_no_index_tags.sh docs/1.6.0
+# Example (from the root directory if previous release was 0.3)
+# ./scripts/add_noindex_tags.sh 0.3
 if [ "$1" == "" ]; then
   echo "Incorrect usage. Correct Usage: add_no_index_tags.sh <directory>"
   exit 1
@@ -68,7 +68,8 @@ find $1 -name "*.html" -print0 | xargs -0 sed -i '/<head>/a \ \ <meta name="robo
 ```
 
 1. Checkout the `gh-pages` branch.
-1. Create a new branch out of `gh-pages`.
-1. Save the above script into a file called `add_noindex_tags.sh`.
-1. Run against the old documentation directory.
+2. Create a new branch out of `gh-pages`.
+3. Create a new branch out of `gh-pages`.
+4. Save the above script into a file called `add_noindex_tags.sh`.
+6. Run against the old documentation directory using the usage instruction in the script comments. (you may need to `chmod +x scripts/add_noindex_tags.sh`)
 1. Submit a PR and merge into the `gh-pages` branch.
