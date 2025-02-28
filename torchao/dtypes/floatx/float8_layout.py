@@ -23,18 +23,6 @@ from torchao.utils import _is_float8_type, fill_defaults
 aten = torch.ops.aten
 
 
-def _same_metadata(self: "Float8AQTTensorImpl", src: "Float8AQTTensorImpl") -> bool:
-    return (
-        isinstance(self, Float8AQTTensorImpl)
-        and isinstance(src, Float8AQTTensorImpl)
-        and self.shape == src.shape
-        and self.float8_data.shape == src.float8_data.shape
-        and self.scale.shape == src.scale.shape
-        and self.transposed == src.transposed
-        and type(self._layout) == type(src._layout)
-    )
-
-
 @dataclass(frozen=True)
 class Float8Layout(Layout):
     """Represents the layout configuration for Float8 affine quantized tensors.
@@ -138,17 +126,6 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             """
             args[0].transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, args[0])
-        elif func is aten.copy_.default:
-            self = args[0]
-            src = args[1]
-            if _same_metadata(self, src):
-                self_tensors = self.__tensor_flatten__()[0]
-                for tensor_name in self_tensors:
-                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-                return
-            raise ValueError(
-                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
-            )
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
