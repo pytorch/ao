@@ -15,6 +15,7 @@ from torchao.prototype.mx_formats.constants import (
     SUPPORTED_ELEM_DTYPES,
 )
 
+pack_fp6 = True
 
 class MXGemmKernelChoice(Enum):
     # always available - MX operands are dequantized and a high precision
