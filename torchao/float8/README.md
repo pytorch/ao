@@ -202,3 +202,38 @@ python test/float8/test_fsdp2/test_fsdp2.py
 # make sure to turn on torch.compile to get the best performance
 ./benchmarks/float8/bench_linear_float8.py -o ../tmp/test.txt --compile
 ```
+
+### Training benchmarks
+
+[Torchtitan](https://github.com/pytorch/torchtitan) was used to benchmark float8 training performance, for both rowwise
+and tensorwise scaling. The training benchmarks were all run using:
+
+- Single-node training on 8xH100 GPUs
+- Batch size 1
+- Sequence length 8192
+- Steps 100
+- `torch.compile`
+- FSDP2
+
+| Model         | Scaling      | Activation checkpointing | Median tokens/second      | Peak Memory (GB) |
+| ------------- | ------------ | ------------------------ | ------------------------- | ---------------- |
+| Llama3-8b     |  none (bf16) | per op SAC               | 6019                      | 47.65            |
+| Llama3-8b     |  tensorwise  | per op SAC               | 7190                      | 47.77            |
+| Llama3-8b     |  rowwise     | per op SAC               | 6649                      | 47.79            |
+
+In these benchmarks tensorwise scaling achieved ~8% higher tokens/second over rowwise scaling, and ~19.5% higher than the bf16 baseline.
+However, it is important to note that rowwise scaling has been shown to yield improvments in training loss/accuracy due to reduced quantization error, particularly
+when training large models for many steps.
+
+**Reproducing training benchmarks**
+To reproduce these benchmarks, you can follow these steps:
+
+1. On a machine with 8 H100 GPUs, clone torchtitan and follow local installation [steps](https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation),
+including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=readme-ov-file#downloading-a-tokenizer).
+2. Install torchao following these [steps](https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation).
+3. From the `torchao/float8/benchmarking/` directory, you can run the following commands to reproduce the benchmarks above:
+   - bf16 + compile: `TORCHTITAN_ROOT=<path> ./float8_training_benchmark.sh`
+   - float8 tensorwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE="tensorwise" ./float8_training_benchmark.sh`
+   - float8 rowwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE="rowwise" ./float8_training_benchmark.sh`
+
+See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README.md) for more details.
