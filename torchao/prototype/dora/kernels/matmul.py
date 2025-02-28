@@ -4,6 +4,13 @@ import torch
 import triton
 import triton.language as tl
 
+from torchao.prototype.common.triton.matmul import (
+    early_config_prune,
+    estimate_matmul_time,
+    get_configs_io_bound,
+    get_higher_dtype,
+)
+
 from .common import (
     MATMUL_HEURISTICS,
     TRITON_SUPPORTED_ACC_TYPES,
@@ -12,13 +19,6 @@ from .common import (
     get_compute_bound_configs,
     swizzle_tile,
     to_tl_type,
-)
-from torchao.prototype.common.triton.matmul import (
-    get_configs_io_bound, 
-    get_higher_dtype,
-    early_config_prune,
-    estimate_matmul_time,
-    get_higher_dtype,
 )
 from .custom_autotune import autotune
 
