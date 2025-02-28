@@ -26,10 +26,18 @@ from torchao.quantization.granularity import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import unwrap_tensor_subclass
-
+from parameterized import parameterized, param
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
-    def test_accuracy(self):
+    TEST_ACCURACY_CASES = [
+        param(layout=layout, weight_dtype=weight_dtype, has_weight_zeros=has_weight_zeros, granularity=granularity)
+    for layout in [PackedLinearInt8DynamicActivationIntxWeightLayout(), QDQLayout(),]
+    for weight_dtype in [torch.int1, torch.int2, torch.int3, torch.int4, torch.int5, torch.int6, torch.int7, torch.int8,]
+    for has_weight_zeros in [True, False,]
+    for granularity in [PerGroup(128), PerRow(),]
+    ]
+    @parameterized.expand(TEST_ACCURACY_CASES, name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}")
+    def test_accuracy(self, layout, weight_dtype, has_weight_zeros, granularity):
         """
         Checks the accuracy of different layouts by comparing the results to PlainLayout()
         """
@@ -40,51 +48,33 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
 
         reference_layout = PlainLayout()
-        test_layouts = [
-            PackedLinearInt8DynamicActivationIntxWeightLayout(),
-            QDQLayout(),
-        ]
-        test_weight_dtypes = [
-            torch.int1,
-            torch.int2,
-            torch.int3,
-            torch.int4,
-            torch.int5,
-            torch.int6,
-            torch.int7,
-            torch.int8,
-        ]
-        test_has_weight_zeros = [True, False]
-        test_granularities = [PerGroup(128), PerRow()]
-        for layout, weight_dtype, has_weight_zeros, granularity in itertools.product(
-            test_layouts, test_weight_dtypes, test_has_weight_zeros, test_granularities
-        ):
-            quantized_model = copy.deepcopy(model)
-            quantize_(
-                quantized_model,
-                int8_dynamic_activation_intx_weight(
-                    weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
-                    layout=layout,
-                ),
-            )
+        quantized_model = copy.deepcopy(model)
+        quantize_(
+            quantized_model,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=layout,
+            ),
+        )
 
-            quantized_model_reference = copy.deepcopy(model)
-            quantize_(
-                quantized_model_reference,
-                int8_dynamic_activation_intx_weight(
-                    weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
-                    layout=reference_layout,
-                ),
-            )
+        quantized_model_reference = copy.deepcopy(model)
+        quantize_(
+            quantized_model_reference,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                scale_dtype=torch.bfloat16,
+                layout=reference_layout,
+            ),
+        )
 
-            with torch.no_grad():
-                result = quantized_model(activations)
-                expected_result = quantized_model_reference(activations)
-            self.assertTrue(torch.allclose(result, expected_result, atol=1e-6))
+        with torch.no_grad():
+            result = quantized_model(activations)
+            expected_result = quantized_model_reference(activations)
+        self.assertTrue(torch.allclose(result, expected_result, atol=1e-6))
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,

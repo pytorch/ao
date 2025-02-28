@@ -8,6 +8,7 @@ import logging
 import sys
 from typing import Optional, Union
 
+from executorch.exir import pass_base
 import torch
 import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
@@ -514,6 +515,8 @@ def int8_dynamic_activation_intx_weight(
     has_weight_zeros: bool = False,
     weight_mapping_type=MappingType.ASYMMETRIC,
     act_mapping_type=MappingType.ASYMMETRIC,
+    scale_dtype=torch.float32,
+    zero_point_dtype=torch.int32,
     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
         target="native"
     ),  # PlainLayout() also works, but will be slow
@@ -590,7 +593,6 @@ def int8_dynamic_activation_intx_weight(
         assert weight.shape[-1] % group_size == 0
 
         layout = layout_arg
-        scale_dtype = None
         tensor_quantizer = to_affine_quantized_intx
         quant_min = -(1 << (bit_width - 1))
         quant_max = (1 << (bit_width - 1)) - 1
@@ -617,6 +619,7 @@ def int8_dynamic_activation_intx_weight(
                     weight_dtype != torch.int4
                     or has_weight_zeros != True
                     or weight_mapping_type == MappingType.ASYMMETRIC
+                    or scale_dtype != torch.bfloat16
                 ):
                     raise NotImplementedError(
                         "target 'aten' requires:\n"
@@ -628,11 +631,6 @@ def int8_dynamic_activation_intx_weight(
                 assert (
                     TORCH_VERSION_AT_LEAST_2_6
                 ), "aten target is requires torch version > 2.6.0"
-                if torch.backends.kleidiai.is_available():
-                    if isinstance(granularity, PerGroup):
-                        scale_dtype = (
-                            torch.bfloat16
-                        )  # KleidiAI kernel requires bfloat16 scale_dtype
                 tensor_quantizer = (
                     to_packedlinearint8dynamicactivationintxweight_quantized_intx
                 )
@@ -646,7 +644,7 @@ def int8_dynamic_activation_intx_weight(
             quant_max,
             torch.finfo(torch.float32).eps,
             scale_dtype,
-            torch.int8,
+            zero_point_dtype,
             has_weight_zeros,
             ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE,
             layout,
@@ -665,8 +663,8 @@ def int8_dynamic_activation_intx_weight(
                 target_dtype=torch.int32,
                 quant_min=-128,  # lower bound of int8
                 quant_max=127,  # upper bound of int8
-                scale_dtype=torch.float32,
-                zero_point_dtype=torch.int32,
+                scale_dtype=torch.float32, #scale_dtype,
+                zero_point_dtype=zero_point_dtype,
             )
             weight = to_linear_activation_quantized(weight, activation_quant_func)
         return weight

@@ -68,11 +68,11 @@ def use_debug_mode():
 
 import torch
 from torch.utils.cpp_extension import (
-    CUDA_HOME,
-    IS_WINDOWS,
     BuildExtension,
     CppExtension,
+    CUDA_HOME,
     CUDAExtension,
+    IS_WINDOWS,
 )
 
 build_torchao_experimental_mps = (
@@ -198,6 +198,7 @@ class TorchAOBuildExt(BuildExtension):
                 # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
                 "-DTORCHAO_BUILD_KLEIDIAI=OFF",
                 "-DTORCHAO_BUILD_MPS_OPS=" + build_mps_ops,
+                "-DTORCHAO_BUILD_KLEIDIAI=ON",
                 "-DTorch_DIR=" + torch_dir,
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
                 "-DCMAKE_INSTALL_PREFIX=cmake-out",
