@@ -9,13 +9,16 @@ from .common import (
     TRITON_SUPPORTED_ACC_TYPES,
     SwizzleType,
     TritonInputPrecision,
-    early_config_prune,
-    estimate_matmul_time,
     get_compute_bound_configs,
-    get_configs_io_bound,
-    get_higher_dtype,
     swizzle_tile,
     to_tl_type,
+)
+from torchao.prototype.common.triton.matmul import (
+    get_configs_io_bound, 
+    get_higher_dtype,
+    early_config_prune,
+    estimate_matmul_time,
+    get_higher_dtype,
 )
 from .custom_autotune import autotune
 
