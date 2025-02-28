@@ -21,6 +21,7 @@ from typing import Dict, Union
 
 import torch
 
+from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,

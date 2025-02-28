@@ -9,7 +9,8 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, pack_fp6
+from torchao.prototype.mx_formats import config
+from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -142,7 +143,7 @@ def test_exponent_nan_out(elem_dtype):
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
-        if pack_fp6:
+        if config.pack_fp6:
             data_bits = data_bits.reshape(-1, block_size)
             data_bits = pack_uint6(data_bits)
     elif elem_dtype == DTYPE_FP4:
@@ -251,15 +252,15 @@ def test_view(elem_dtype):
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
 @pytest.mark.parametrize("do_fp6_packing", [False, True])
 def test_fp6_packing(elem_dtype, do_fp6_packing):
-    pack_fp6 = do_fp6_packing
+    config.pack_fp6 = do_fp6_packing
     x = torch.randn(1, 2, 4, device="cuda")
     block_size = 4
     x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
-    if pack_fp6:
+    if config.pack_fp6:
         expected_packed_shape = torch.Size([*x.shape[:-1], 3 * x.shape[-1] // 4])
     else:
         expected_packed_shape = x.shape
-    pack_fp6 = True
+    config.pack_fp6 = True
 
     assert x_mx._data.shape == expected_packed_shape
 
