@@ -18,15 +18,13 @@ from utils import (
 )
 
 import torchao
-from torchao._models.generate import (
-    decode_one_token,
-    prefill,
-)
-from torchao._models.llm.model import Transformer, prepare_inputs_for_model
-from torchao._models.llm.tokenizer import get_tokenizer
-from torchao._models.utils import (
+from benchmarks._models.llama.model import KVCache, Transformer, prepare_inputs_for_model
+from benchmarks._models.llama.tokenizer import get_tokenizer
+from benchmarks._models.utils import (
     _load_model,
     encode_tokens,
+    decode_one_token,
+    prefill,
 )
 from torchao.utils import device_sync
 
@@ -101,7 +99,7 @@ def generate(
             _replace_with_custom_fn_if_matches_filter(
                 model,
                 AffineQuantizedKVCache.from_float,
-                lambda x, y: isinstance(x, torchao._models.llm.model.KVCache),
+                lambda x, y: isinstance(x, KVCache),
             )
 
     # format model input
