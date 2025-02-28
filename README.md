@@ -159,7 +159,7 @@ Things we're excited about but need more time to cook in the oven
 
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
-Stable release from Pypi which will default to CUDA 12.1
+Stable release from Pypi which will default to CUDA 12.4
 
 ```Shell
 pip install torchao
@@ -167,12 +167,12 @@ pip install torchao
 
 Stable Release from the PyTorch index
 ```Shell
-pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # full options are cpu/cu118/cu121/cu124
+pip install torchao --extra-index-url https://download.pytorch.org/whl/cu124 # full options are cpu/cu118/cu124/cu126
 ```
 
 Nightly Release
 ```Shell
-pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126 # full options are cpu/cu118/cu126/cu128
 ```
 
 For *most* developers you probably want to skip building custom C++/CUDA extensions for faster iteration
