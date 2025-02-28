@@ -167,7 +167,7 @@ complexity tax for supporting these features.
 
 #### Supermask for improving accuracy for sparse models (https://github.com/pytorch/ao/pull/1729)
 
-Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for improve accuracy of block sparsified models by learning the a block-sparse mask during a training phase.
+Supermask (https://pytorch.org/blog/speeding-up-vits/) is a technique for improving the accuracy of block sparsified models by learning a block-sparse mask during a training phase.
 
 ```python
 from torchao.sparsity import SupermaskLinear, block_sparse_weight
