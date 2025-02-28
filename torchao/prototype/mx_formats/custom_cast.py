@@ -12,20 +12,13 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
-
-# TODO(future): if needed, make the below work on previous PyTorch versions,
-# just need to hunt down the previous location of `libdevice`. An assert
-# at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
-    from torch._inductor.runtime.triton_helpers import libdevice
-
 from torchao.prototype.mx_formats.constants import (
     E8M0_EXPONENT_BIAS,
     E8M0_EXPONENT_NAN_VAL,
     F4_E2M1_EXP_BIAS,
     F32_EXP_BIAS,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 
 def get_bits(x: torch.Tensor) -> str:
@@ -294,8 +287,8 @@ if has_triton():
         s = tl.load(s_ptr + offsets_s, mask=mask_s)
 
         # create the scale in bf16
-        s_offset = s.to(tl.int16) - e8m0_exponent_bias
-        s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
+        # S is already biased by 127, so we just have to shift it to align w/ bf16
+        s_fp = (s.to(tl.uint16) << 7).to(tl.bfloat16, bitcast=True)
         s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
 
         # multiply output by scale
