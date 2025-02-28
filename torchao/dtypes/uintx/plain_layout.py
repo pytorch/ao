@@ -22,6 +22,23 @@ from torchao.utils import fill_defaults
 aten = torch.ops.aten
 
 
+def _same_metadata(self: "PlainAQTTensorImpl", src: "PlainAQTTensorImpl") -> bool:
+    return (
+        isinstance(self, PlainAQTTensorImpl)
+        and isinstance(src, PlainAQTTensorImpl)
+        and self.shape == src.shape
+        and self.int_data.shape == src.int_data.shape
+        and self.scale.shape == src.scale.shape
+        and (self.zero_point is None and src.zero_point is None)
+        or (
+            self.zero_point is not None
+            and src.zero_point is not None
+            and self.zero_point.shape == src.zero_point.shape
+        )
+        and type(self._layout) == type(src._layout)
+    )
+
+
 @register_layout(PlainLayout)
 class PlainAQTTensorImpl(AQTTensorImpl):
     """
@@ -108,9 +125,21 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
-        if func is aten.clone.default:
+        elif func is aten.clone.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        elif func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
 
         elif func is aten.t.default:
