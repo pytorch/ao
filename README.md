@@ -72,4 +72,5 @@ find $1 -name "*.html" -print0 | xargs -0 sed -i '/<head>/a \ \ <meta name="robo
 3. Create a new branch out of `gh-pages`.
 4. Save the above script into a file called `add_noindex_tags.sh`.
 6. Run against the old documentation directory using the usage instruction in the script comments. (you may need to `chmod +x scripts/add_noindex_tags.sh`)
+7. git add -u
 1. Submit a PR and merge into the `gh-pages` branch.
