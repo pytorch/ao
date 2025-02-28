@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+
 from torchao.utils import is_MI300
 
 logger: logging.Logger = logging.getLogger()
