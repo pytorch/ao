@@ -437,17 +437,6 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;Int4PackedTensorImpl&quot;</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="s2">&quot;Int4PackedTensorImpl&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-    <span class="k">return</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">Int4PackedTensorImpl</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">Int4PackedTensorImpl</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">shape</span>
-        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span>
-        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span>
-        <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span> <span class="o">==</span> <span class="nb">type</span><span class="p">(</span><span class="n">src</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span>
-    <span class="p">)</span>
-
-
 <div class="viewcode-block" id="CutlassInt4PackedLayout"><a class="viewcode-back" href="../../../../generated/torchao.dtypes.CutlassInt4PackedLayout.html#torchao.dtypes.CutlassInt4PackedLayout">[docs]</a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">CutlassInt4PackedLayout</span><span class="p">(</span><span class="n">Layout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Layout class for int4 packed layout for affine quantized tensor, for cutlass kernel.&quot;&quot;&quot;</span>
@@ -495,18 +484,6 @@
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
                 <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
-            <span class="p">)</span>
-
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
-            <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-            <span class="n">src</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-            <span class="k">if</span> <span class="n">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
-                <span class="n">self_tensors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
-                <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="n">self_tensors</span><span class="p">:</span>
-                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
-                <span class="k">return</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mistach: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
