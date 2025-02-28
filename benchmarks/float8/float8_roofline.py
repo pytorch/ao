@@ -231,8 +231,10 @@ def run(
         mx_recipe_name,
         enable_fusion_modeling,
     )
-    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16)
-    fp8_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.float8_e4m3fn)
+    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16, None)
+    fp8_gemm_time_sympy = get_gemm_time_sympy(
+        M, K, N, torch.float8_e4m3fn, mx_recipe_name
+    )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
     print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)

@@ -64,6 +64,7 @@ def get_tensor_memory_traffic_bytes(
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
     fuse_with_prev=False,
+    recompute_in_bw=False,
 ) -> List[Union[sympy.Symbol, int]]:
     """
     Inputs: dim0 and dim1 (shape), recipes
@@ -73,21 +74,34 @@ def get_tensor_memory_traffic_bytes(
     numel = dim0 * dim1
 
     if float8_recipe_name == "tensorwise":
-        # x_bf16 = ...
-        # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
-        # kernel 2 (mem traffic not modeled): tmp -> max_abs_stage_2 -> max_abs
-        # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8
-
-        if fuse_with_prev:
-            kernel_1_rw = 0
+        if recompute_in_bw:
+            # x_bf16 = ...
+            # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
+            # kernel 2 (mem traffic not modeled): tmp -> max_abs_stage_2 -> max_abs
+            # kernel 3 (fwd):         x_bf16, max_abs -> to_float8 -> x_fp8_dim0
+            # kernel 4 (bwd):         x_bf16, max_abs -> to_float8 -> x_fp8_dim1
+            if fuse_with_prev:
+                kernel_1_rw = 0
+            else:
+                # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel
+            # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
+            kernel_3_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_4_rw = kernel_3_rw
+            return [kernel_1_rw, 0, kernel_3_rw, kernel_4_rw]
         else:
-            # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
-            kernel_1_rw = BYTES_PER_EL_BF16 * numel
-
-        # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
-        kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
-
-        return [kernel_1_rw, 0, kernel_3_rw]
+            # x_bf16 = ...
+            # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
+            # kernel 2 (mem traffic not modeled): tmp -> max_abs_stage_2 -> max_abs
+            # kernel 3:               x_bf16, max_abs -> to_float8 -> x_fp8_dim0, x_fp8_dim1
+            if fuse_with_prev:
+                kernel_1_rw = 0
+            else:
+                # kernel 1: read numel, write 0 (assume size(tmp) ~ 0)
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel
+            # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
+            kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
+            return [kernel_1_rw, 0, kernel_3_rw]
 
     elif float8_recipe_name == "rowwise":
         # x_bf16 = ...
@@ -96,6 +110,7 @@ def get_tensor_memory_traffic_bytes(
 
         # assume that we can't fuse 1 and 2 because that would require loading
         # the entire tensor to shared memory
+        # note that `recompute_in_bw` has no effect here
 
         if fuse_with_prev:
             # assume we can fuse one of the reads with previous op
@@ -110,21 +125,33 @@ def get_tensor_memory_traffic_bytes(
     else:
         assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
 
-        # x_bf16 = ...
-        # kernel 1:               x_bf16 -> x_mxfp8_dim0, x_mxfp8_dim1
-
-        if fuse_with_prev:
-            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel * 2
+        if recompute_in_bw:
+            # x_bf16 = ...
+            # kernel 1:               x_bf16 -> x_mxfp8_dim0
+            # kernel 2:               x_bf16 -> x_mxfp8_dim1
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            return [kernel_1_rw, kernel_2_rw]
         else:
-            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel * 2
+            # x_bf16 = ...
+            # kernel 1:               x_bf16 -> x_mxfp8_dim0, x_mxfp8_dim1
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel * 2
+            else:
+                kernel_1_rw = (
+                    BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel * 2
+                )
+            return [kernel_1_rw]
 
-        return [kernel_1_rw]
 
-
-def get_gemm_time_sympy(M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype):
+def get_gemm_time_sympy(
+    M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype, mx_recipe_name
+):
     # note: this function is currently not super accurate for small shapes:
     # when M,K,N <= 1k,1k,1k it undercounts by around 2x
-    # TODO(future): take scale traffic into account for rowwise and mx
 
     # compute bound
     specs = get_specs()
@@ -145,6 +172,16 @@ def get_gemm_time_sympy(M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype
     # memory bound
     num_reads = (M * K + K * N) + (K * N + N * M) + (N * M + M * K)
     num_writes = M * N + K * M + N * K
+
+    if mx_recipe_name is not None:
+        assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
+        assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
+        # adjust reads for MX scaling
+        block_size = 32
+        num_scale_reads = num_reads // block_size
+        # note: e8m0 bytes per element is the same as for e4m3|e5m2
+        num_reads = num_reads + num_scale_reads
+
     if dtype is torch.bfloat16:
         bytes_rw = num_reads * BYTES_PER_EL_BF16 + num_writes * BYTES_PER_EL_BF16
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
@@ -192,6 +229,7 @@ def get_float8_mem_sympy(
         float8_recipe_name,
         mx_recipe_name,
         fuse_with_prev=enable_fusion_modeling,
+        recompute_in_bw=False,
     )
     fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
         K,
@@ -199,6 +237,7 @@ def get_float8_mem_sympy(
         float8_recipe_name,
         mx_recipe_name,
         fuse_with_prev=False,
+        recompute_in_bw=True,
     )
     fwd_fp8_total_mem = [*fwd_fp8_input_mem, *fwd_fp8_weight_mem]
 
@@ -211,6 +250,7 @@ def get_float8_mem_sympy(
         float8_recipe_name,
         mx_recipe_name,
         fuse_with_prev=enable_fusion_modeling,
+        recompute_in_bw=False,
     )
     # already casted, assuming that we save weight from fw to bw
     # TODO: model this if FSDP float8 all-gather is on
