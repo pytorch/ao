@@ -97,27 +97,6 @@ def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
         )
 
 
-def _same_metadata(self: AffineQuantizedTensor, src: AffineQuantizedTensor):
-    return (
-        isinstance(self, AffineQuantizedTensor)
-        and isinstance(src, AffineQuantizedTensor)
-        and all(
-            [
-                getattr(self, attr) == getattr(src, attr)
-                for attr in [
-                    "block_size",
-                    "shape",
-                    "quant_min",
-                    "quant_max",
-                    "zero_point_domain",
-                    "dtype",
-                ]
-            ]
-        )
-        and type(self.tensor_impl) == type(src.tensor_impl)
-    )
-
-
 class QuantizedLinearNotImplementedError(NotImplementedError):
     """Thin wrapper around NotImplementedError to make it easier to catch this error in the dispatch table"""
 
@@ -349,20 +328,6 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
-    )
-
-
-@implements(aten.copy_.default)
-def _(func, types, args, kwargs):
-    self = args[0]
-    src = args[1]
-    if _same_metadata(self, src):
-        self_tensors = self.__tensor_flatten__()[0]
-        for tensor_name in self_tensors:
-            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
-        return
-    raise ValueError(
-        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
     )
 
 
