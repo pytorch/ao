@@ -8,14 +8,13 @@ from pathlib import Path
 from typing import List, Optional
 
 import torch
-from generate import (
-    _load_model,
-    device_sync,
-)
 from tokenizer import get_tokenizer
 
 import torchao
-from torchao._models.llm.model import prepare_inputs_for_model
+from benchmarks._models.llama.model import prepare_inputs_for_model
+from benchmarks._models.utils import (
+    _load_model,
+)
 from torchao.quantization import (
     PerRow,
     PerTensor,
@@ -28,7 +27,11 @@ from torchao.quantization import (
     quantize_,
     uintx_weight_only,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    device_sync,
+    unwrap_tensor_subclass,
+)
 
 
 def run_evaluation(
@@ -120,7 +123,7 @@ def run_evaluation(
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
-            from torchao._models._eval import MultiTensorInputRecorder
+            from benchmarks._models._eval import MultiTensorInputRecorder
             from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
 
             groupsize = int(quantization.split("-")[-2])
@@ -172,7 +175,7 @@ def run_evaluation(
         if "autoround" in quantization:
             from transformers import AutoTokenizer
 
-            from torchao._models.llm.model import TransformerBlock
+            from benchmarks._models.llama.model import TransformerBlock
             from torchao.prototype.autoround.autoround_llm import (
                 quantize_model_with_autoround_,
             )
@@ -242,7 +245,7 @@ def run_evaluation(
     with torch.no_grad():
         print("Running evaluation ...")
         # avoid circular imports
-        from torchao._models._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
 
         TransformerEvalWrapper(
             model=model.to(device),

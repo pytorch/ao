@@ -14,7 +14,7 @@ import torch._dynamo.config
 import torch._inductor.config
 
 import torchao
-from torchao._models.utils import (
+from benchmarks._models.utils import (
     _load_model,
     decode_n_tokens,
     decode_one_token,
@@ -63,8 +63,8 @@ def device_timer(device):
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llm.model import Transformer, prepare_inputs_for_model
-from torchao._models.llm.tokenizer import get_tokenizer
+from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
+from benchmarks._models.llama.tokenizer import get_tokenizer
 
 
 def model_forward(model, x, input_pos):
@@ -382,7 +382,7 @@ def main(
                 filter_fn=lambda x, *args: isinstance(x, torch.nn.Embedding),
             )
         elif quantization.startswith("awq"):
-            from torchao._models._eval import TransformerEvalWrapper
+            from benchmarks._models._eval import TransformerEvalWrapper
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
             if not TORCH_VERSION_AT_LEAST_2_3:
@@ -481,8 +481,8 @@ def main(
                 model, float8_dynamic_activation_float8_weight(granularity=granularity)
             )
         elif "autoquant_v2" in quantization:
-            from torchao._models._eval import InputRecorder
-            from torchao._models.llm.model import prepare_inputs_for_model
+            from benchmarks._models._eval import InputRecorder
+            from benchmarks._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
@@ -571,8 +571,8 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models._eval import InputRecorder
-            from torchao._models.llm.model import prepare_inputs_for_model
+            from benchmarks._models._eval import InputRecorder
+            from benchmarks._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (
