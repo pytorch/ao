@@ -7,6 +7,9 @@ from .cutlass_int4_packed_layout import (
 from .int4_cpu_layout import (
     Int4CPULayout,
 )
+from .int4_xpu_layout import (
+    Int4XPULayout,
+)
 from .marlin_qqq_tensor import (
     MarlinQQQLayout,
     MarlinQQQTensor,
@@ -36,4 +39,5 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "CutlassInt4PackedLayout",
+    "Int4XPULayout"
 ]
