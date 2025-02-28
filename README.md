@@ -19,6 +19,7 @@ release version. For example:
 
 ```
 git checkout gh-pages
+git pull
 rm stable # remove the existing symlink. **Do not** edit!
 ln -s 0.1 stable   # substitute the correct version number here
 git add stable
