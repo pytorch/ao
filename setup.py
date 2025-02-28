@@ -247,8 +247,8 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -278,8 +278,8 @@ def get_extensions():
             ]
         )
 
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
