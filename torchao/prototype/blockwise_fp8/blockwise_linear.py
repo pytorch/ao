@@ -32,9 +32,7 @@ class BlockwiseQuantLinear(nn.Module):
         super().__init__()
         supported_dtypes = [
             torch.float8_e4m3fn,
-            torch.float8_e4m3fnuz,
             torch.float8_e5m2,
-            torch.float8_e5m2fnuz,
         ]
         assert (
             dtype in supported_dtypes

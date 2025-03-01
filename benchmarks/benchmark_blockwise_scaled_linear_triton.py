@@ -15,6 +15,8 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 
+from torchao.utils import is_sm_at_least_89
+
 
 def benchmark_microseconds(f, *args):
     return do_bench(lambda: f(*args), return_mode="median") * 1e3
@@ -101,25 +103,7 @@ def benchmark_precision(
     }
 
 
-def get_device_available_dtypes():
-    sm = torch.cuda.get_device_capability()
-    available_dtypes = []
-
-    if sm[0] == 8 and sm[1] == 0:  # A100
-        available_dtypes.append(torch.float8_e5m2)
-    elif sm[0] == 9 and sm[1] == 0:  # H100
-        available_dtypes.append(torch.float8_e5m2)
-    elif sm[0] == 8 and sm[1] == 9:  # L4
-        available_dtypes.append(torch.float8_e4m3fn)
-        available_dtypes.append(torch.float8_e5m2)
-
-    print(
-        f"Available data types for device with compute capability {sm}: {available_dtypes}"
-    )
-    return available_dtypes
-
-
-if __name__ == "__main__":
+if __name__ == "__main__" and torch.cuda.is_available():
     device = torch.device("cuda")
     k_vals = (8192, 8192, 8192, 28672)
     n_vals = (8192, 10240, 57344, 8192)
@@ -128,7 +112,11 @@ if __name__ == "__main__":
     latency_results = []
     precision_results = []
 
-    available_dtypes = get_device_available_dtypes()
+    available_dtypes = (
+        [torch.float8_e4m3fn, torch.float8_e5m2]
+        if is_sm_at_least_89()
+        else [torch.float8_e5m2]
+    )
 
     for m in tqdm([1 << i for i in range(10)]):
         for dtype in available_dtypes:
