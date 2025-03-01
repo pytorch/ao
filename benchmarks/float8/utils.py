@@ -152,16 +152,30 @@ def get_name_to_shapes_iter(
         }
         return name_to_shapes_70b.items()
 
-    elif shape_gen_name == "square":
+    elif shape_gen_name == "pow2":
         assert (
             M == K == N == None
         ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
         name_to_shapes = {}
-        min_power_of_2 = 8  # 256
-        max_power_of_2 = 15  # 32,768
+        min_power_of_2 = 10  # 1024
+        max_power_of_2 = 14  # 16,384
         for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
             val = 2**power_of_2
             name_to_shapes[idx] = val, val, val
+        return name_to_shapes.items()
+
+    elif shape_gen_name == "pow2_extended":
+        assert (
+            M == K == N == None
+        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        name_to_shapes = {}
+        min_power_of_2 = 10  # 1024
+        max_power_of_2 = 14  # 16,384
+        for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
+            val1 = 2**power_of_2
+            name_to_shapes[idx * 2] = val1, val1, val1
+            val2 = 2**power_of_2 + 2 ** (power_of_2 - 1)
+            name_to_shapes[idx * 2 + 1] = val2, val2, val2
         return name_to_shapes.items()
 
     elif shape_gen_name == "sweep":
