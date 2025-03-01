@@ -600,7 +600,6 @@ def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-@dataclass
 class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
@@ -681,7 +680,6 @@ def _int8_dynamic_activation_int4_weight_transform(
     return module
 
 
-@dataclass
 class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
 
@@ -787,7 +785,6 @@ def _gemlite_uintx_weight_only_transform(
     return module
 
 
-@dataclass
 class Int4WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -893,7 +890,6 @@ def _int4_weight_only_transform(
     return module
 
 
-@dataclass
 class Int8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
@@ -1007,7 +1003,6 @@ def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-@dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
     Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -1092,7 +1087,6 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
 
-@dataclass
 class Float8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.
@@ -1408,7 +1402,6 @@ def _float8_static_activation_float8_weight_transform(
     return module
 
 
-@dataclass
 class UIntXWeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
