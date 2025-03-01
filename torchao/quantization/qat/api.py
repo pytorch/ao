@@ -11,7 +11,7 @@ import torch
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization.granularity import (
-    Granularity,
+    GranularityBase,
     PerAxis,
     PerGroup,
     PerToken,
@@ -78,7 +78,7 @@ class FakeQuantizeConfig:
     """
 
     dtype: Union[torch.dtype, TorchAODType]
-    granularity: Granularity
+    granularity: GranularityBase
     mapping_type: MappingType
     scale_precision: torch.dtype
     zero_point_precision: torch.dtype
@@ -89,7 +89,7 @@ class FakeQuantizeConfig:
     def __init__(
         self,
         dtype: Union[torch.dtype, TorchAODType],
-        granularity: Union[Granularity, str, None] = None,
+        granularity: Union[GranularityBase, str, None] = None,
         mapping_type: Optional[MappingType] = None,
         scale_precision: torch.dtype = torch.float32,
         zero_point_precision: torch.dtype = torch.int32,
@@ -122,9 +122,9 @@ class FakeQuantizeConfig:
 
     def _get_granularity(
         self,
-        granularity: Union[Granularity, str, None],
+        granularity: Union[GranularityBase, str, None],
         group_size: Optional[int],
-    ) -> Granularity:
+    ) -> GranularityBase:
         """
         Parse the `Granularity` represented in the args.
 
@@ -144,7 +144,7 @@ class FakeQuantizeConfig:
             )
 
         # Case 1: Granularity object
-        if isinstance(granularity, Granularity):
+        if isinstance(granularity, GranularityBase):
             if not isinstance(granularity, (PerToken, PerAxis, PerGroup)):
                 raise ValueError("Granularity '%s' is not supported" % granularity)
             if isinstance(granularity, PerAxis) and granularity.axis != 0:
@@ -161,7 +161,7 @@ class FakeQuantizeConfig:
                 raise ValueError(
                     "Granularity was 'per_group' but no `group_size` was set"
                 )
-            return PerGroup(group_size)
+            return PerGroup(group_size=group_size)
         elif isinstance(granularity, str):
             raise ValueError(
                 "Unexpected granularity: '%s', must be one of %s"
@@ -178,7 +178,7 @@ class FakeQuantizeConfig:
             raise ValueError(
                 "At least one of `granularity` or `group_size` must be set"
             )
-        return PerGroup(group_size)
+        return PerGroup(group_size=group_size)
 
     def _get_mapping_type(
         self,
@@ -237,7 +237,7 @@ class FakeQuantizeConfig:
         Support setting `group_size` and `is_symmetric`.
         """
         if name == "group_size":
-            super().__setattr__("granularity", PerGroup(value))
+            super().__setattr__("granularity", PerGroup(group_size=value))
         elif name == "is_symmetric":
             mapping_type = MappingType.SYMMETRIC if value else MappingType.ASYMMETRIC
             super().__setattr__("mapping_type", mapping_type)
@@ -245,7 +245,6 @@ class FakeQuantizeConfig:
             super().__setattr__(name, value)
 
 
-@dataclass
 class IntXQuantizationAwareTrainingConfig(AOBaseConfig):
     activation_config: Optional[FakeQuantizeConfig] = None
     weight_config: Optional[FakeQuantizeConfig] = None

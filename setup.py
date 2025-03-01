@@ -425,6 +425,9 @@ setup(
     version=version + version_suffix,
     packages=find_packages(),
     include_package_data=True,
+    install_requires=[
+        "pydantic>=2",
+    ],
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
