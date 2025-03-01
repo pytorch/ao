@@ -20,8 +20,7 @@ gpu_name_to_specs = {
         # 2.4 TB per second, custom to Meta's H100 variant
         "peak_mem_bw_bytes_sec": 2.4e12,
         # based on experimental observation with sample large inputs
-        "pct_achievable_gemm_tops_bf16": 0.69,
-        "pct_achievable_gemm_tops_fp8": 0.78,
+        "pct_achievable_gemm_tops": 0.78,
         # based on previous experience looking at pointwise triton kernels with large inputs,
         # which would hit about 2.2k GBPS on Meta's H100 variant
         "pct_achievable_mem_bw": 0.92,
@@ -37,8 +36,7 @@ gpu_name_to_specs = {
         "peak_mem_bw_bytes_sec": 8.0e12,
         # for now, copy over from H100
         # TODO(future): measure once we have the hardware
-        "pct_achievable_gemm_tops_bf16": 0.69,
-        "pct_achievable_gemm_tops_fp8": 0.775,
+        "pct_achievable_gemm_tops": 0.78,
         # for now, copy over from H100
         # TODO(future): measure once we have the hardware
         "pct_achievable_mem_bw": 0.92,
@@ -158,16 +156,11 @@ def get_gemm_time_sympy(
     gemm_ops = 2 * M * K * N + 2 * M * N * K + 2 * K * M * N
     if dtype is torch.bfloat16:
         peak_tops = specs["bf16_peak_tops"]
-        compute_gemm_time_s = (
-            gemm_ops / peak_tops / specs["pct_achievable_gemm_tops_bf16"]
-        )
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         peak_tops = specs["fp8_peak_tops"]
-        compute_gemm_time_s = (
-            gemm_ops / peak_tops / specs["pct_achievable_gemm_tops_fp8"]
-        )
     else:
         assert False, "unsupported"
+    compute_gemm_time_s = gemm_ops / peak_tops / specs["pct_achievable_gemm_tops"]
 
     # memory bound
     num_reads = (M * K + K * N) + (K * N + N * M) + (N * M + M * K)
