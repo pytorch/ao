@@ -1,26 +1,18 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
+from typing import Annotated, Literal, Union
 
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
+import torch
+from pydantic import BaseModel, ConfigDict, Field
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class Granularity:
-    """
-    Base class for representing the granularity of quantization.
-
-    This class serves as a parent for specific granularity types used in
-    quantization operations, such as per-tensor or per-axis quantization.
-    """
-
-    pass
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
-@dataclass(frozen=True)
-class PerTensor(Granularity):
+class GranularityBase(BaseModel):
+    """Base class for representing the granularity of quantization."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+class PerTensor(GranularityBase):
     """
     Represents per-tensor granularity in quantization.
 
@@ -28,11 +20,10 @@ class PerTensor(Granularity):
     based off the entire tensor.
     """
 
-    pass
+    type: Literal["PerTensor"] = "PerTensor"
 
 
-@dataclass(frozen=True)
-class PerAxis(Granularity):
+class PerAxis(GranularityBase):
     """
     Represents per-axis granularity in quantization.
 
@@ -47,11 +38,11 @@ class PerAxis(Granularity):
         axis (int): The axis along which reduction is performed.
     """
 
+    type: Literal["PerAxis"] = "PerAxis"
     axis: int
 
 
-@dataclass(frozen=True)
-class PerGroup(Granularity):
+class PerGroup(GranularityBase):
     """
     Represents per-channel group granularity in quantization.
 
@@ -65,13 +56,13 @@ class PerGroup(Granularity):
 
     Attributes:
         group_size (int): The size of each quantization group
-
     """
 
+    type: Literal["PerGroup"] = "PerGroup"
     group_size: int
 
 
-class PerRow(Granularity):
+class PerRow(GranularityBase):
     """
     Represents row-wise granularity in quantization.
 
@@ -80,10 +71,10 @@ class PerRow(Granularity):
     is quantized with a block_size of (1, weight.shape[1]).
     """
 
-    pass
+    type: Literal["PerRow"] = "PerRow"
 
 
-class PerToken(Granularity):
+class PerToken(GranularityBase):
     """
     Represents per-token granularity in quantization.
 
@@ -98,4 +89,18 @@ class PerToken(Granularity):
     equivalent to `PerAxis(axis=0)`, which yields 8 sets of quantization parameters.
     """
 
-    pass
+    type: Literal["PerToken"] = "PerToken"
+
+
+# Create a discriminated union of all granularity types
+Granularity = Annotated[
+    Union[PerTensor, PerAxis, PerGroup, PerRow, PerToken], Field(discriminator="type")
+]
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals(
+        [
+            set,
+        ]
+    )
