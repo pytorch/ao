@@ -18,12 +18,12 @@ and mixed GEMM kernels
 import logging
 import types
 import warnings
-from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
+from pydantic import model_validator
 
 import torchao
 from torchao.core.config import AOBaseConfig
@@ -43,7 +43,6 @@ from torchao.dtypes import (
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
 )
-from torchao.dtypes.utils import Layout
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
@@ -600,7 +599,6 @@ def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-@dataclass
 class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
@@ -615,7 +613,7 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """
 
     group_size: int = 32
-    layout: Layout = PlainLayout()
+    layout: Union[PlainLayout, MarlinQQQLayout, CutlassInt4PackedLayout] = PlainLayout()
     mapping_type: MappingType = MappingType.SYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
 
@@ -681,7 +679,6 @@ def _int8_dynamic_activation_int4_weight_transform(
     return module
 
 
-@dataclass
 class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
 
@@ -691,7 +688,7 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
     """
 
-    layout: Layout = CutlassInt4PackedLayout()
+    layout: CutlassInt4PackedLayout = CutlassInt4PackedLayout()
     mapping_type: MappingType = MappingType.SYMMETRIC
     act_mapping_type: MappingType = MappingType.SYMMETRIC
 
@@ -738,7 +735,6 @@ def _int4_dynamic_activation_int4_weight_transform(
     return module
 
 
-@dataclass
 class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
     """
     applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
@@ -787,7 +783,6 @@ def _gemlite_uintx_weight_only_transform(
     return module
 
 
-@dataclass
 class Int4WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -811,7 +806,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     """
 
     group_size: int = 128
-    layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
+    layout: Optional[Union[TensorCoreTiledLayout, Int4CPULayout]] = (
+        TensorCoreTiledLayout(inner_k_tiles=8)
+    )
     use_hqq: bool = False
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
 
@@ -893,7 +890,6 @@ def _int4_weight_only_transform(
     return module
 
 
-@dataclass
 class Int8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
@@ -1007,14 +1003,13 @@ def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-@dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
     Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
     """
 
-    layout: Optional[Layout] = PlainLayout()
+    layout: Optional[Union[PlainLayout, SemiSparseLayout]] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
 
@@ -1092,7 +1087,6 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
 
-@dataclass
 class Float8WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.
@@ -1245,7 +1239,6 @@ def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     return is_compatible
 
 
-@dataclass
 class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.
@@ -1269,9 +1262,12 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     ] = None
     mm_config: Optional[Float8MMConfig] = None
 
-    def __post_init__(self):
+    @model_validator(mode="after")
+    def initialize_mm_config(self):
+        """Initialize mm_config if not provided (equivalent to __post_init__)"""
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
+        return self
 
 
 # for bc
@@ -1327,7 +1323,6 @@ def _float8_dynamic_activation_float8_weight_transform(
     return module
 
 
-@dataclass
 class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 static symmetric quantization to
@@ -1347,9 +1342,12 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     ] = None
     mm_config: Optional[Float8MMConfig] = None
 
-    def __post_init__(self):
+    @model_validator(mode="after")
+    def initialize_mm_config(self):
+        """Initialize mm_config if not provided (equivalent to __post_init__)"""
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
+        return self
 
 
 # for bc
@@ -1408,7 +1406,6 @@ def _float8_static_activation_float8_weight_transform(
     return module
 
 
-@dataclass
 class UIntXWeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
@@ -1499,7 +1496,6 @@ def _uintx_weight_only_transform(
     return module
 
 
-@dataclass
 class FPXWeightOnlyConfig(AOBaseConfig):
     """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
     e.g. fp6_e3_m2, fp6_e2_m3, ...

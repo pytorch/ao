@@ -90,7 +90,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity=PerAxis(1),
+            granularity=PerAxis(axis=1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -105,7 +105,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity=PerAxis(0),
+            granularity=PerAxis(axis=0),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -124,7 +124,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity=PerAxis(1),
+            granularity=PerAxis(axis=1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,

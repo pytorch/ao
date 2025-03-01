@@ -798,7 +798,7 @@ class TestQAT(unittest.TestCase):
         self.assertIsInstance(per_token_config2.granularity, PerToken)
 
         # per channel
-        per_channel_config1 = FakeQuantizeConfig(torch.int8, PerAxis(0))
+        per_channel_config1 = FakeQuantizeConfig(torch.int8, PerAxis(axis=0))
         per_channel_config2 = FakeQuantizeConfig(torch.int8, "per_channel")
         self.assertIsInstance(per_channel_config1.granularity, PerAxis)
         self.assertIsInstance(per_channel_config2.granularity, PerAxis)
@@ -806,7 +806,7 @@ class TestQAT(unittest.TestCase):
         self.assertEqual(per_channel_config2.granularity.axis, 0)
 
         # per group
-        per_group_config1 = FakeQuantizeConfig(torch.int8, PerGroup(32))
+        per_group_config1 = FakeQuantizeConfig(torch.int8, PerGroup(group_size=32))
         per_group_config2 = FakeQuantizeConfig(torch.int8, "per_group", group_size=32)
         per_group_config3 = FakeQuantizeConfig(torch.int8, group_size=32)
         self.assertIsInstance(per_group_config1.granularity, PerGroup)
@@ -842,7 +842,7 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, msg):
             FakeQuantizeConfig(torch.int8, PerToken(), group_size=32)
         with self.assertRaisesRegex(ValueError, msg):
-            FakeQuantizeConfig(torch.int8, PerGroup(64), group_size=32)
+            FakeQuantizeConfig(torch.int8, PerGroup(group_size=64), group_size=32)
         with self.assertRaisesRegex(ValueError, msg):
             FakeQuantizeConfig(torch.int8, "per_token", group_size=32)
 
@@ -855,7 +855,7 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not supported"):
             FakeQuantizeConfig(torch.int8, PerRow())
         with self.assertRaisesRegex(ValueError, "Only axis=0 is supported"):
-            FakeQuantizeConfig(torch.int8, PerAxis(1))
+            FakeQuantizeConfig(torch.int8, PerAxis(axis=1))
         with self.assertRaisesRegex(ValueError, "Unexpected granularity"):
             FakeQuantizeConfig(torch.int8, "blah")
         with self.assertRaisesRegex(ValueError, "unexpected type"):
@@ -1240,7 +1240,9 @@ class TestQAT(unittest.TestCase):
         weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            intx_quantization_aware_training(
+                activation_config=activation_config, weight_config=weight_config
+            ),
         )
         quantize_(
             m,
@@ -1273,7 +1275,9 @@ class TestQAT(unittest.TestCase):
         ):
             quantize_(
                 m,
-                intx_quantization_aware_training(my_config, my_config),
+                intx_quantization_aware_training(
+                    activation_config=my_config, weight_config=my_config
+                ),
                 lambda m, _: isinstance(m, torch.nn.Embedding),
             )
 
@@ -1281,7 +1285,9 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not have QAT support"):
             quantize_(
                 m,
-                intx_quantization_aware_training(my_config, my_config),
+                intx_quantization_aware_training(
+                    activation_config=my_config, weight_config=my_config
+                ),
                 lambda m, _: isinstance(m, torch.nn.ReLU),
             )
 
@@ -1320,7 +1326,9 @@ class TestQAT(unittest.TestCase):
         weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            intx_quantization_aware_training(
+                activation_config=activation_config, weight_config=weight_config
+            ),
         )
 
         # Compare prepared values
@@ -1395,7 +1403,9 @@ class TestQAT(unittest.TestCase):
         weight_config = FakeQuantizeConfig(TorchAODType.INT4, group_size=32)
         quantize_(
             m,
-            intx_quantization_aware_training(activation_config, weight_config),
+            intx_quantization_aware_training(
+                activation_config=activation_config, weight_config=weight_config
+            ),
         )
         example_inputs = m.example_inputs()
         m(*example_inputs)
