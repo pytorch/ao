@@ -22,10 +22,6 @@ fi
 
 # validate recipe name
 if [ -n "${FLOAT8_RECIPE}" ]; then
-  if [ "$FLOAT8_RECIPE" != "rowwise" ] && [ "$FLOAT8_RECIPE" != "tensorwise" ]; then
-      echo "Error: RECIPE must be 'rowwise' or 'tensorwise'"
-      exit 1
-  fi
   FLOAT8_ARGS="--model.converters="float8" --float8.recipe_name=${FLOAT8_RECIPE}"
 fi
 
