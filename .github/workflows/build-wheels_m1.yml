@@ -17,9 +17,7 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs at midnight UTC every day
   workflow_dispatch:
-permissions:
-  id-token: write
-  contents: read
+
 jobs:
   generate-matrix:
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
@@ -31,6 +29,9 @@ jobs:
     if: github.repository_owner == 'pytorch'
     name: pytorch/ao
     uses: pytorch/test-infra/.github/workflows/build_wheels_macos.yml@main
+    permissions:
+      id-token: write
+      contents: read
     with:
       repository: pytorch/ao
       ref: ${{ github.head_ref || github.ref_name }}
