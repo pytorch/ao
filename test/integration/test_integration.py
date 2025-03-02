@@ -883,23 +883,12 @@ class TestSubclass(unittest.TestCase):
     )
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     def test_aq_float8_dynamic_quant_rowwise_scaling_subclass(self, device, dtype):
-        if dtype != torch.bfloat16:
-            with self.assertRaisesRegex(
-                AssertionError, "PerRow quantization only works for bfloat16 precision"
-            ):
-                self._test_lin_weight_subclass_impl(
-                    AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight.from_float,
-                    device,
-                    25,
-                    test_dtype=dtype,
-                )
-        else:
-            self._test_lin_weight_subclass_impl(
-                AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight.from_float,
-                device,
-                25,
-                test_dtype=dtype,
-            )
+        self._test_lin_weight_subclass_impl(
+            AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight.from_float,
+            device,
+            25,
+            test_dtype=dtype,
+        )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(

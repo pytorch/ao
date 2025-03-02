@@ -27,6 +27,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import (
+    Granularity,
     PerRow,
     PerTensor,
 )
@@ -142,7 +143,11 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     def test_invalid_granularity(self):
         with pytest.raises(ValueError, match="Invalid granularity specification"):
-            float8_dynamic_activation_float8_weight(granularity="invalid")
+            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            quantize_(
+                model, 
+                float8_dynamic_activation_float8_weight(granularity="invalid")
+            )        
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
@@ -152,7 +157,11 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             ValueError,
             match="Different granularities for activation and weight are not supported",
         ):
-            float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
+            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            quantize_(
+                model,
+                float8_dynamic_activation_float8_weight(granularity=(PerTensor(), PerRow()))
+            )
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
@@ -160,10 +169,14 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     def test_unsupported_granularity(self):
         class UnsupportedGranularity:
             pass
-
-        with pytest.raises(ValueError, match="Invalid granularity types"):
-            float8_dynamic_activation_float8_weight(
-                granularity=(UnsupportedGranularity(), UnsupportedGranularity())
+        with pytest.raises(
+            ValueError,
+            match="Invalid granularity types:",
+        ):
+            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            quantize_(
+                model, 
+                float8_dynamic_activation_float8_weight(granularity=(UnsupportedGranularity(), UnsupportedGranularity()))
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
