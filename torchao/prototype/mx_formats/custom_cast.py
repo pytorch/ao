@@ -7,6 +7,7 @@
 import numpy as np
 import torch
 from torch.utils._triton import has_triton
+from triton.language.extra import libdevice
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
@@ -19,6 +20,24 @@ from torchao.prototype.mx_formats.constants import (
     F32_EXP_BIAS,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+
+
+# Helper function to check compute capability
+def get_compute_capability():
+    if not torch.cuda.is_available():
+        return (0, 0)
+    props = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return (props.major, props.minor)
+
+
+# Check if we're running on Ampere architecture (A10G is SM86)
+def is_sm_86():
+    major, minor = get_compute_capability()
+    return major == 8 and minor == 6
+
+
+# Set USE_BIT_CAST to False for A10G, True for others
+USE_BIT_CAST = not is_sm_86()
 
 
 def get_bits(x: torch.Tensor) -> str:
@@ -253,6 +272,7 @@ if has_triton():
         e8m0_exponent_bias: tl.constexpr,
         e8m0_exponent_nan_val: tl.constexpr,
         BLOCK_SIZE_IN: tl.constexpr,
+        USE_BITCAST: tl.constexpr,
     ):
         pid = tl.program_id(axis=0)
         n_elements_out = n_elements_in * 2
@@ -288,7 +308,12 @@ if has_triton():
 
         # create the scale in bf16
         # S is already biased by 127, so we just have to shift it to align w/ bf16
-        s_fp = (s.to(tl.uint16) << 7).to(tl.bfloat16, bitcast=True)
+        if USE_BITCAST:
+            s_fp = (s.to(tl.uint16) << 7).to(tl.bfloat16, bitcast=True)
+        else:
+            s_offset = s.to(tl.int16) - e8m0_exponent_bias
+            s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
+
         s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
 
         # multiply output by scale
@@ -345,6 +370,7 @@ else:
         e8m0_exponent_bias,
         e8m0_exponent_nan_val,
         BLOCK_SIZE_IN,
+        USE_BITCAST,
     ):
         raise AssertionError("unsupported without triton")
 
@@ -403,6 +429,7 @@ def triton_f4_to_scaled_bf16(
     grid = lambda meta: (  # noqa: E731
         triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
     )
+
     triton_f4_to_scaled_bf16_kernel[grid](
         x,
         s_e8m0,
@@ -421,6 +448,7 @@ def triton_f4_to_scaled_bf16(
         zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
         e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
         e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
+        USE_BIT_CAST=USE_BIT_CAST,
     )
     return output
 
