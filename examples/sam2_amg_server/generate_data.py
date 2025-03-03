@@ -192,7 +192,7 @@ def gen_masks_ao_batch(
         center_points_label_torch_batch = [
             torch.from_numpy(t).unsqueeze(1) for t in center_points_label_batch
         ]
-        from torchao._models.sam2.map_tensor import to_map_tensor
+        from benchmarks._models.sam2.map_tensor import to_map_tensor
 
         center_points_torch_batch = list(map(to_map_tensor, center_points_torch_batch))
         center_points_label_torch_batch = list(
@@ -255,7 +255,7 @@ def gen_masks_ao(
 
         center_points_torch = torch.from_numpy(center_points).unsqueeze(1)
         center_points_label_torch = torch.from_numpy(center_points_label).unsqueeze(1)
-        from torchao._models.sam2.map_tensor import to_map_tensor
+        from benchmarks._models.sam2.map_tensor import to_map_tensor
 
         center_points_torch = to_map_tensor(center_points_torch)
         center_points_label_torch = to_map_tensor(center_points_label_torch)
@@ -532,11 +532,11 @@ def main(
         from sam2.build_sam import build_sam2
         from sam2.utils.amg import mask_to_rle_pytorch
     else:
-        from torchao._models.sam2.automatic_mask_generator import (
+        from benchmarks._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
-        from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.utils.amg import (
+        from benchmarks._models.sam2.build_sam import build_sam2
+        from benchmarks._models.sam2.utils.amg import (
             mask_to_rle_pytorch_2 as mask_to_rle_pytorch,
         )
     torch.manual_seed(seed)
