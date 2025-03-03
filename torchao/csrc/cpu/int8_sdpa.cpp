@@ -967,9 +967,9 @@ template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_s
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
 sdpa_int8_kernel_one_loop_impl(
     const at::Tensor& output,
-    const at::Tensor& query,
-    const at::Tensor& key,
-    const at::Tensor& value,
+    const at::Tensor& q,
+    const at::Tensor& k,
+    const at::Tensor& v,
     double dropout_p,
     bool is_causal,
     at::Tensor& attention_mask,
@@ -984,9 +984,15 @@ sdpa_int8_kernel_one_loop_impl(
     float a_scale,
     int32_t o_zp,
     float o_scale) {
-  // Query (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
-  // Key   (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  // Value (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
+  //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
+  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  at::Tensor query = q.transpose(1, 2);
+  at::Tensor key = k.transpose(1, 2);
+  at::Tensor value = v.transpose(1, 2);
 
   const auto accumulate_dtype = at::kFloat;
 
@@ -1507,9 +1513,9 @@ template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_s
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
 sdpa_int8_kernel_several_loops_impl(
     const at::Tensor& output,
-    const at::Tensor& query,
-    const at::Tensor& key,
-    const at::Tensor& value,
+    const at::Tensor& q,
+    const at::Tensor& k,
+    const at::Tensor& v,
     double dropout_p,
     bool is_causal,
     at::Tensor& attention_mask,
@@ -1524,9 +1530,15 @@ sdpa_int8_kernel_several_loops_impl(
     float a_scale,
     int32_t o_zp,
     float o_scale) {
-  // Query (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
-  // Key   (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  // Value (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
+  //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
+  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
+  at::Tensor query = q.transpose(1, 2);
+  at::Tensor key = k.transpose(1, 2);
+  at::Tensor value = v.transpose(1, 2);
 
   const auto accumulate_dtype = at::kFloat;
 
@@ -2347,11 +2359,11 @@ at::Tensor _scaled_dot_product_int8_cpu(
           k_zp, k_scale,
           v_zp, v_scale,
           a_zp, a_scale,
-          o_zp, o_scale);
+          o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
   }
 
   #ifdef CPU_CAPABILITY_AVX512
-    at::Tensor output = at::empty_like(query, query.options());
+    at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
     sdpa_int8_fused_kernel(output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_zp, q_scale,
@@ -2359,7 +2371,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
         v_zp, v_scale,
         a_zp, a_scale,
         o_zp, o_scale);
-    return output;
+    return output.transpose(1, 2);
   #else
     return sdpa_int8_math_kernel(query, key, value,
         dropout_p, is_causal, attn_mask, scale,
@@ -2367,7 +2379,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
         k_zp, k_scale,
         v_zp, v_scale,
         a_zp, a_scale,
-        o_zp, o_scale);
+        o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
   #endif // CPU_CAPABILITY_AVX512
 }
 
