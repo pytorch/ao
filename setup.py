@@ -47,7 +47,7 @@ use_cpp = os.getenv("USE_CPP")
 
 import platform
 
-build_torchao_experimental = (
+build_cpp = (
     use_cpp == "1"
     and platform.machine().startswith("arm64")
     and platform.system() == "Darwin"
@@ -75,9 +75,9 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
-build_torchao_experimental_mps = (
+build_cpp_mps = (
     os.getenv("TORCHAO_BUILD_EXPERIMENTAL_MPS") == "1"
-    and build_torchao_experimental
+    and build_cpp
     and torch.mps.is_available()
 )
 
@@ -188,7 +188,7 @@ class TorchAOBuildExt(BuildExtension):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
-        build_mps_ops = "ON" if build_torchao_experimental_mps else "OFF"
+        build_mps_ops = "ON" if build_cpp_mps else "OFF"
 
         subprocess.check_call(
             [
@@ -214,6 +214,9 @@ class CMakeExtension(Extension):
 
 
 def get_extensions():
+    if not build_cpp:
+        return []
+
     debug_mode = use_debug_mode()
     if debug_mode:
         print("Compiling in debug mode")
@@ -309,13 +312,12 @@ def get_extensions():
             )
         )
 
-    if build_torchao_experimental:
-        ext_modules.append(
-            CMakeExtension(
-                "torchao.experimental",
-                sourcedir="torchao/experimental",
-            )
+    ext_modules.append(
+        CMakeExtension(
+            "torchao.experimental",
+            sourcedir="torchao/experimental",
         )
+    )
 
     return ext_modules
 
