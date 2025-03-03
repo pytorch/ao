@@ -8,22 +8,18 @@ import logging
 import sys
 from typing import Optional, Union
 
-from executorch.exir import pass_base
 import torch
 import torch.nn as nn
+
+from executorch.exir import pass_base
 from torch.ao.quantization.fx._decomposed import (
     dequantize_per_channel_group,
     quantize_per_channel_group,
 )
 
 from torchao.dtypes import PlainLayout
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-)
+from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -501,10 +497,10 @@ from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import (
-    MappingType,
-    ZeroPointDomain,
     _get_linear_subclass_inserter,
+    MappingType,
     to_affine_quantized_intx,
+    ZeroPointDomain,
 )
 from torchao.quantization.utils import _get_per_token_block_size
 
@@ -516,7 +512,6 @@ def int8_dynamic_activation_intx_weight(
     weight_mapping_type=MappingType.ASYMMETRIC,
     act_mapping_type=MappingType.ASYMMETRIC,
     scale_dtype=torch.float32,
-    zero_point_dtype=torch.int32,
     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
         target="native"
     ),  # PlainLayout() also works, but will be slow
@@ -565,7 +560,7 @@ def int8_dynamic_activation_intx_weight(
         torch.int3: 3,
         torch.int4: 4,
         torch.int5: 5,
-        torch.int6: 4,
+        torch.int6: 6,
         torch.int7: 7,
         torch.int8: 8,
     }
@@ -598,8 +593,8 @@ def int8_dynamic_activation_intx_weight(
         quant_max = (1 << (bit_width - 1)) - 1
 
         if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            assert (
-                weight.device == torch.device("cpu")
+            assert weight.device == torch.device(
+                "cpu"
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
             assert (
                 weight.dtype == torch.float32
@@ -607,7 +602,9 @@ def int8_dynamic_activation_intx_weight(
             assert (
                 act_mapping_type == MappingType.ASYMMETRIC
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
+            assert (
+                not layout.has_params_set()
+            ), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
             layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
                 bit_width=bit_width,
                 group_size=group_size,
@@ -644,7 +641,7 @@ def int8_dynamic_activation_intx_weight(
             quant_max,
             torch.finfo(torch.float32).eps,
             scale_dtype,
-            zero_point_dtype,
+            torch.int8,
             has_weight_zeros,
             ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE,
             layout,
@@ -663,8 +660,8 @@ def int8_dynamic_activation_intx_weight(
                 target_dtype=torch.int32,
                 quant_min=-128,  # lower bound of int8
                 quant_max=127,  # upper bound of int8
-                scale_dtype=torch.float32, #scale_dtype,
-                zero_point_dtype=zero_point_dtype,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.int32,
             )
             weight = to_linear_activation_quantized(weight, activation_quant_func)
         return weight

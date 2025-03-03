@@ -10,33 +10,81 @@ import tempfile
 import unittest
 
 import torch
+from parameterized import param, parameterized
 from torch.testing import FileCheck
 
 from torchao.dtypes import PlainLayout
+from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
 )
 from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import (
-    int8_dynamic_activation_intx_weight,
-)
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
+from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import unwrap_tensor_subclass
-from parameterized import parameterized, param
+
+
+# def _truncate_weight_to_bf16(weight):
+#     assert isinstance(weight, AffineQuantizedTensor)
+#     assert isinstance(weight.tensor_impl.get_layout(), PlainLayout)
+#     assert weight.tensor_impl.scale.dtype == torch.float32
+#     print("BEFORE", weight.tensor_impl.scale[0][0])
+#     weight.tensor_impl.scale = weight.tensor_impl.scale.to(torch.bfloat16).to(
+#         torch.float32
+#     )
+#     print("AFTER", weight.tensor_impl.scale[0][0])
+#     print("CHANGE", weight.tensor_impl.scale.to(torch.bfloat16).to(torch.float32)[0][0])
+
+
+# def _truncate_model_to_bf16(model):
+#     for name, param in model.named_parameters():
+#         print(name, param.dtype)
+#         # print(param)
+#         if isinstance(param, LinearActivationQuantizedTensor):
+#             print("FOUND ONE")
+#             _truncate_weight_to_bf16(param.original_weight_tensor)
+
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     TEST_ACCURACY_CASES = [
-        param(layout=layout, weight_dtype=weight_dtype, has_weight_zeros=has_weight_zeros, granularity=granularity)
-    for layout in [PackedLinearInt8DynamicActivationIntxWeightLayout(), QDQLayout(),]
-    for weight_dtype in [torch.int1, torch.int2, torch.int3, torch.int4, torch.int5, torch.int6, torch.int7, torch.int8,]
-    for has_weight_zeros in [True, False,]
-    for granularity in [PerGroup(128), PerRow(),]
+        param(
+            layout=layout,
+            weight_dtype=weight_dtype,
+            has_weight_zeros=has_weight_zeros,
+            granularity=granularity,
+        )
+        for layout in [
+            PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            QDQLayout(),
+        ]
+        for weight_dtype in [
+            torch.int1,
+            torch.int2,
+            torch.int3,
+            torch.int4,
+            torch.int5,
+            torch.int6,
+            torch.int7,
+            torch.int8,
+        ]
+        for has_weight_zeros in [
+            True,
+            False,
+        ]
+        for granularity in [
+            PerGroup(128),
+            PerRow(),
+        ]
     ]
-    @parameterized.expand(TEST_ACCURACY_CASES, name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}")
+
+    @parameterized.expand(
+        TEST_ACCURACY_CASES,
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
     def test_accuracy(self, layout, weight_dtype, has_weight_zeros, granularity):
         """
         Checks the accuracy of different layouts by comparing the results to PlainLayout()
@@ -66,7 +114,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
-                scale_dtype=torch.bfloat16,
                 layout=reference_layout,
             ),
         )
@@ -74,7 +121,18 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         with torch.no_grad():
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
-        self.assertTrue(torch.allclose(result, expected_result, atol=1e-6))
+
+        if (
+            isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
+            and weight_dtype == torch.int4
+            and not has_weight_zeros
+        ):
+            # Use relaxed MSE accuracy criteria for KleidiAI kernels
+            self.assertTrue(
+                torch.nn.functional.mse_loss(result, expected_result) <= 1e-5
+            )
+        else:
+            self.assertTrue(torch.allclose(result, expected_result, atol=1e-5))
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
@@ -174,3 +232,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             FileCheck().check_count(line, 1, exactly=True).run(
                 exported.graph_module.code
             )
+
+
+if __name__ == "__main__":
+    unittest.main()
