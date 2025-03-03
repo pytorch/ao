@@ -64,10 +64,13 @@ def _register_int8_sdpa_pattern(pattern):
         counters["inductor"]["int8_fuse_attention"] += 1
         counters["inductor"]["int8_sdpa_nodes"] += len(match.nodes)
 
-        return L[torch.ops.torchao.scaled_dot_product_int8.default](
-            query,
-            key,
-            value,
+        trans_query = L[aten.permute.default](query, [0, 2, 1, 3])
+        trans_key = L[aten.permute.default](key, [0, 2, 1, 3])
+        trans_value = L[aten.permute.default](value, [0, 2, 1, 3])
+        output = L[torch.ops.torchao.scaled_dot_product_int8.default](
+            trans_query,
+            trans_key,
+            trans_value,
             attn_mask,
             0.0, #dropout
             False, #is_causal
@@ -83,6 +86,8 @@ def _register_int8_sdpa_pattern(pattern):
             o_zp,
             o_scale,
         )
+        trans_output = L[aten.permute.default](output, [0, 2, 1, 3])
+        return L[aten.clone.default](trans_output, memory_format=torch.contiguous_format)
 
     return int8_sdpa
 
