@@ -18,6 +18,13 @@ FetchContent_Declare(cpuinfo
 FetchContent_MakeAvailable(
     cpuinfo)
 
+FetchContent_Declare(
+  glog
+  GIT_REPOSITORY https://github.com/google/glog.git
+  GIT_TAG v0.7.1
+)
+FetchContent_MakeAvailable(glog)
+
 find_package(Torch REQUIRED)
 add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
     linear_8bit_act_xbit_weight.cpp
@@ -26,6 +33,7 @@ add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
 target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_aten aten_openmp)
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE cpuinfo)
+# target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE glog)
 target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_LIBRARIES}")
 target_compile_definitions(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE USE_ATEN=1)
@@ -49,4 +57,5 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE torchao_kernels_aarch64)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE cpuinfo)
+    # target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE glog)
 endif()

@@ -6,6 +6,7 @@
 
 #pragma once
 #include <cpuinfo.h>
+// #include <glog/logging.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 
@@ -275,6 +276,7 @@ void register_ukernel_config(UKernelConfigRegistrationTable &table,
                                         /*has_bias*/ true, /*has_clamp*/ false>(
           table, format, uarch);
     } else {
+      LOG(INFO) << "REGISTERING UNIVERSAL" << std::endl;
       register_ukernel_config_universal<weight_nbit, has_weight_zeros,
                                         /*has_bias*/ false,
                                         /*has_clamp*/ false>(table, format,
@@ -284,6 +286,7 @@ void register_ukernel_config(UKernelConfigRegistrationTable &table,
   }
   case torchao::ops::PackedWeightsType::kleidi_ai: {
 #ifdef TORCHAO_ENABLE_KLEIDI
+    std::cout << "REGISTERING KLEIDI" << std::endl;
     register_ukernel_config_kleidi<weight_nbit, has_weight_zeros>(table, format,
                                                                   uarch);
 #endif // TORCHAO_ENABLE_KLEIDI
