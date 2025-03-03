@@ -121,15 +121,17 @@ def get_gpu_kernel_time(m, x, grad_output):
 
 
 def get_gemm_times(
-    M,
-    K,
-    N,
-    fast_accum,
-    bf16_memory_formats,
-    float8_recipe_name,
-    mx_recipe_name,
+    gemm_role: str,
+    M: int,
+    K: int,
+    N: int,
+    fast_accum: bool,
+    bf16_memory_formats: str,
+    float8_recipe_name: Optional[str],
+    mx_recipe_name: Optional[str],
     cache_filename=None,
 ):
+    assert gemm_role in ("output", "grad_input", "grad_weight"), "unsupported"
     assert bf16_memory_formats in (
         "row_major:col_major",
         "row_major:row_major",
@@ -139,6 +141,7 @@ def get_gemm_times(
     # Note: this is definitely not the best way to build a cache,
     # but it will do for now.
     if cache_filename is not None:
+        assert False, "TODO retest this for new arguments"
         if os.path.isfile(cache_filename):
             # cache already exists, use it
             with open(cache_filename, "r") as f:
@@ -169,24 +172,27 @@ def get_gemm_times(
     bf16_time_s = get_gpu_kernel_gemm_time_s(torch.mm, x_bf16, w_bf16)
 
     # f8 time
-    d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16
-    A = torch.zeros(M, K, device=device, dtype=d1)
-    B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-    if float8_recipe_name == "tensorwise":
-        scale_a = torch.tensor([1.0], device=device)
-        scale_b = torch.tensor([1.0], device=device)
-    elif float8_recipe_name == "rowwise":
-        scale_a = torch.ones(M, 1, device=device)
-        scale_b = torch.ones(1, N, device=device)
+    if float8_recipe_name == "rowwise_with_gw_hp" and gemm_role == "grad_weight":
+        f8_time_s = bf16_time_s
     else:
-        assert False, "TODO add mx gemm here"
+        d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, torch.bfloat16
+        A = torch.zeros(M, K, device=device, dtype=d1)
+        B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+        if float8_recipe_name == "tensorwise":
+            scale_a = torch.tensor([1.0], device=device)
+            scale_b = torch.tensor([1.0], device=device)
+        elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
+            scale_a = torch.ones(M, 1, device=device)
+            scale_b = torch.ones(1, N, device=device)
+        else:
+            assert False, "TODO add mx gemm here"
 
-    def do_matmul(A, B):
-        return torch._scaled_mm(
-            A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
-        )
+        def do_matmul(A, B):
+            return torch._scaled_mm(
+                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
+            )
 
-    f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
+        f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
 
     # save to cache if needed
     if cache_filename is not None:
@@ -239,9 +245,9 @@ def run(
         mx_recipe_name,
         enable_fusion_modeling,
     )
-    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16, None)
+    bf16_gemm_time_sympy = get_gemm_time_sympy(M, K, N, torch.bfloat16, None, None)
     fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.float8_e4m3fn, mx_recipe_name
+        M, K, N, torch.float8_e4m3fn, float8_recipe_name, mx_recipe_name
     )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
@@ -305,6 +311,7 @@ def run(
             # what PyTorch core is doing for `torch.mm`
             # input @ weight_t = output
             bf16_g1, f8_g1 = get_gemm_times(
+                "output",
                 M_val,
                 K_val,
                 N_val,
@@ -316,6 +323,7 @@ def run(
             )
             # grad_output @ weight = grad_input
             bf16_g2, f8_g2 = get_gemm_times(
+                "grad_input",
                 M_val,
                 N_val,
                 K_val,
@@ -327,6 +335,7 @@ def run(
             )
             # input_t @ grad_output = grad_weight
             bf16_g3, f8_g3 = get_gemm_times(
+                "grad_weight",
                 K_val,
                 M_val,
                 N_val,

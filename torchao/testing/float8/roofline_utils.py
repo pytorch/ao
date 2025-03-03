@@ -56,23 +56,28 @@ def get_specs():
 KERNEL_LAUNCH_OVERHEAD_SEC = 0.002 * 0.001
 
 
-def get_tensor_memory_traffic_bytes(
+def get_tensor_memory_traffic_ovhd_s(
+    specs,
     dim0,
     dim1,
+    tensor_role: str,
     float8_recipe_name: Optional[str],
     mx_recipe_name: Optional[str],
     fuse_with_prev=False,
-    recompute_in_bw=False,
-) -> List[Union[sympy.Symbol, int]]:
+) -> List[Union[sympy.Symbol, float]]:
     """
-    Inputs: dim0 and dim1 (shape), recipes
-    Outputs: list of read/write traffic byte counts, one for each kernel
+    Calculates the roofline estimate of casting one of the gemm inputs
+    (input, weight or grad_output) to float8 in fwd+bwd.
+
+    Inputs: dim0 and dim1 (shape), tensor_role (input|weight|grad_output), recipe names
+    Outputs: list of read/write traffic overhead in seconds, one for each kernel
     """
     # assumes input bf16, output f8
     numel = dim0 * dim1
 
+    res_bytes = None
     if float8_recipe_name == "tensorwise":
-        if recompute_in_bw:
+        if tensor_role == "weight":
             # x_bf16 = ...
             # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
             # kernel 2 (mem traffic not modeled): tmp -> max_abs_stage_2 -> max_abs
@@ -86,7 +91,7 @@ def get_tensor_memory_traffic_bytes(
             # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
             kernel_3_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
             kernel_4_rw = kernel_3_rw
-            return [kernel_1_rw, 0, kernel_3_rw, kernel_4_rw]
+            res_bytes = [kernel_1_rw, 0, kernel_3_rw, kernel_4_rw]
         else:
             # x_bf16 = ...
             # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
@@ -99,31 +104,70 @@ def get_tensor_memory_traffic_bytes(
                 kernel_1_rw = BYTES_PER_EL_BF16 * numel
             # kernel 3: read in bf16, write twice in float8 (row-major and col-major)
             kernel_3_rw = BYTES_PER_EL_BF16 * numel + 2 * BYTES_PER_EL_FLOAT8 * numel
-            return [kernel_1_rw, 0, kernel_3_rw]
+            res_bytes = [kernel_1_rw, 0, kernel_3_rw]
 
     elif float8_recipe_name == "rowwise":
-        # x_bf16 = ...
-        # kernel 1:               x_bf16 -> x_float8_dim0
-        # kernel 2:               x_bf16 -> x_float8_dim1
-
-        # assume that we can't fuse 1 and 2 because that would require loading
-        # the entire tensor to shared memory
-        # note that `recompute_in_bw` has no effect here
-
-        if fuse_with_prev:
-            # assume we can fuse one of the reads with previous op
-            kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+        if tensor_role == "weight":
+            # x_bf16 = ...
+            # kernel 1 (fwd):         x_bf16_dim0 -> x_float8_dim0
+            # kernel 2 (bwd):         x_bf16_dim0 -> x_bf16_dim1
+            # kernel 3 (bwd):         x_bf16_dim1 -> x_float8_dim1
+            # assume that we can't fuse 2 and 3 because that would require loading
+            # the entire tensor to shared memory
+            if fuse_with_prev:
+                # assume we can fuse one of the reads with previous op
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel * 2
+            kernel_3_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            res_bytes = [kernel_1_rw, kernel_2_rw, kernel_3_rw]
         else:
+            # x_bf16 = ...
+            # kernel 1:               x_bf16_dim0 -> x_float8_dim0, x_bf16_dim1
+            # kernel 2:               x_bf16_dim1 -> x_float8_dim1
+            # assume that we can't fuse 1 and 2 because that would require loading
+            # the entire tensor to shared memory
+            if fuse_with_prev:
+                # assume we can fuse one of the reads with previous op
+                kernel_1_rw = (
+                    0 + BYTES_PER_EL_FLOAT8 * numel + BYTES_PER_EL_BF16 * numel
+                )
+            else:
+                kernel_1_rw = (
+                    BYTES_PER_EL_BF16 * numel
+                    + BYTES_PER_EL_FLOAT8 * numel
+                    + BYTES_PER_EL_BF16 * numel
+                )
+            kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            res_bytes = [kernel_1_rw, kernel_2_rw]
+
+    elif float8_recipe_name == "rowwise_with_gw_hp":
+        if tensor_role in ("input", "grad_output"):
+            # x_bf16 = ...
+            # kernel 1 (fwd): x_bf16_dim0 -> x_float8_dim0
+            # bwd: no-op
+            if fuse_with_prev:
+                kernel_1_rw = 0 + BYTES_PER_EL_FLOAT8 * numel
+            else:
+                kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            res_bytes = [kernel_1_rw]
+        elif tensor_role == "weight":
+            # x_bf16 = ...
+            # kernel 1 (fwd): w_bf16 -> w_float8_dim0, w_scale_dim0
+            # kernel 2 (bwd): w_scale_dim0 -> w_scale_tensorwise
+            # kernel 3 (bwd): w_bf16, w_scale_tensorwise -> w_float8_dim1
             kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
-
-        kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
-
-        return [kernel_1_rw, kernel_2_rw]
+            kernel_2_rw = 0
+            kernel_3_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
+            res_bytes = [kernel_1_rw, kernel_2_rw, kernel_3_rw]
+        else:
+            assert False, "unsupported"
 
     else:
         assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
 
-        if recompute_in_bw:
+        if tensor_role == "weight":
             # x_bf16 = ...
             # kernel 1:               x_bf16 -> x_mxfp8_dim0
             # kernel 2:               x_bf16 -> x_mxfp8_dim1
@@ -132,7 +176,7 @@ def get_tensor_memory_traffic_bytes(
             else:
                 kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
             kernel_2_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel
-            return [kernel_1_rw, kernel_2_rw]
+            res_bytes = [kernel_1_rw, kernel_2_rw]
         else:
             # x_bf16 = ...
             # kernel 1:               x_bf16 -> x_mxfp8_dim0, x_mxfp8_dim1
@@ -142,18 +186,26 @@ def get_tensor_memory_traffic_bytes(
                 kernel_1_rw = (
                     BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT8 * numel * 2
                 )
-            return [kernel_1_rw]
+            res_bytes = [kernel_1_rw]
+
+    # convert from bytes to seconds
+    res_s = [
+        x / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
+        for x in res_bytes
+    ]
+
+    # take max of kernel_overhead, r/w time
+    res_s = [sympy.Max(x, KERNEL_LAUNCH_OVERHEAD_SEC) for x in res_s]
+
+    return res_s
 
 
-def get_gemm_time_sympy(
+def get_individual_gemm_time_sympy(
     M: sympy.Symbol, K: sympy.Symbol, N: sympy.Symbol, dtype, mx_recipe_name
-):
-    # note: this function is currently not super accurate for small shapes:
-    # when M,K,N <= 1k,1k,1k it undercounts by around 2x
-
+) -> sympy.Symbol:
     # compute bound
     specs = get_specs()
-    gemm_ops = 2 * M * K * N + 2 * M * N * K + 2 * K * M * N
+    gemm_ops = 2 * M * K * N
     if dtype is torch.bfloat16:
         peak_tops = specs["bf16_peak_tops"]
     elif dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
@@ -163,8 +215,8 @@ def get_gemm_time_sympy(
     compute_gemm_time_s = gemm_ops / peak_tops / specs["pct_achievable_gemm_tops"]
 
     # memory bound
-    num_reads = (M * K + K * N) + (K * N + N * M) + (N * M + M * K)
-    num_writes = M * N + K * M + N * K
+    num_reads = M * K + K * N
+    num_writes = M * N
 
     if mx_recipe_name is not None:
         assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
@@ -186,10 +238,40 @@ def get_gemm_time_sympy(
         bytes_rw / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
     )
 
-    # TODO(future): this should be for each kernel and inside the max
-    kernel_launch_overhead = 3 * KERNEL_LAUNCH_OVERHEAD_SEC
+    return sympy.Max(compute_gemm_time_s, mem_gemm_time_s, KERNEL_LAUNCH_OVERHEAD_SEC)
 
-    return sympy.Max(compute_gemm_time_s, mem_gemm_time_s) + kernel_launch_overhead
+
+def get_gemm_time_sympy(
+    M: sympy.Symbol,
+    K: sympy.Symbol,
+    N: sympy.Symbol,
+    dtype,
+    float8_recipe_name: Optional[str],
+    mx_recipe_name: Optional[str],
+):
+    # next: add rowwise_with_gw_hp here
+    # note: this function is currently not super accurate for small shapes:
+    # when M,K,N <= 1k,1k,1k it undercounts by around 2x
+
+    gemm_dtype_input, gemm_dtype_grad_input, gemm_dtype_grad_weight = (
+        dtype,
+        dtype,
+        dtype,
+    )
+    if float8_recipe_name == "rowwise_with_gw_hp":
+        gemm_dtype_grad_weight = torch.bfloat16
+
+    gemm_output_time_s = get_individual_gemm_time_sympy(
+        M, K, N, gemm_dtype_input, mx_recipe_name
+    )
+    gemm_grad_input_time_s = get_individual_gemm_time_sympy(
+        M, N, K, gemm_dtype_grad_input, mx_recipe_name
+    )
+    gemm_grad_weight_time_s = get_individual_gemm_time_sympy(
+        K, M, N, gemm_dtype_grad_weight, mx_recipe_name
+    )
+    total = gemm_output_time_s + gemm_grad_input_time_s + gemm_grad_weight_time_s
+    return total
 
 
 def get_float8_mem_sympy(
@@ -213,72 +295,33 @@ def get_float8_mem_sympy(
     # input_t @ grad_output = grad_weight
     # KxM @ MxN => KxN
 
-    #
-    # forward - output
-    #
-    fwd_fp8_input_mem = get_tensor_memory_traffic_bytes(
+    fwd_fp8_input_mem = get_tensor_memory_traffic_ovhd_s(
+        specs,
         M,
         K,
-        float8_recipe_name,
-        mx_recipe_name,
+        tensor_role="input",
+        float8_recipe_name=float8_recipe_name,
+        mx_recipe_name=mx_recipe_name,
         fuse_with_prev=enable_fusion_modeling,
-        recompute_in_bw=False,
     )
-    fwd_fp8_weight_mem = get_tensor_memory_traffic_bytes(
+    fwd_fp8_weight_mem = get_tensor_memory_traffic_ovhd_s(
+        specs,
         K,
         N,
-        float8_recipe_name,
-        mx_recipe_name,
+        tensor_role="weight",
+        float8_recipe_name=float8_recipe_name,
+        mx_recipe_name=mx_recipe_name,
         fuse_with_prev=False,
-        recompute_in_bw=True,
     )
-    fwd_fp8_total_mem = [*fwd_fp8_input_mem, *fwd_fp8_weight_mem]
-
-    #
-    # backward - grad_input
-    #
-    gi_fp8_grad_output_mem = get_tensor_memory_traffic_bytes(
+    gi_fp8_grad_output_mem = get_tensor_memory_traffic_ovhd_s(
+        specs,
         M,
         N,
-        float8_recipe_name,
-        mx_recipe_name,
+        tensor_role="grad_output",
+        float8_recipe_name=float8_recipe_name,
+        mx_recipe_name=mx_recipe_name,
         fuse_with_prev=enable_fusion_modeling,
-        recompute_in_bw=False,
     )
-    # already casted, assuming that we save weight from fw to bw
-    # TODO: model this if FSDP float8 all-gather is on
-    # TODO: model this if we don't save weight from fw to bw, and recompute instead
-    gi_fp8_weight_mem = [0]
 
-    #
-    # backward - grad_weight
-    #
-    # TODO: model this if we don't save fp8 input from fw to bw
-    gw_fp8_input_t_mem = [0]  # already casted
-    # this should be always 0
-    gw_fp8_grad_output_mem = [0]  # already casted
-
-    bwd_fp8_total_mem = [
-        *gi_fp8_grad_output_mem,
-        *gi_fp8_weight_mem,
-        *gw_fp8_input_t_mem,
-        *gw_fp8_grad_output_mem,
-    ]
-    # list of bytes
-    fp8_total_mem = [*fwd_fp8_total_mem, *bwd_fp8_total_mem]
-
-    # list of seconds
-    fp8_mem_time_s = [
-        x / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
-        for x in fp8_total_mem
-    ]
-
-    # take max of kernel_overhead, r/w time
-    fp8_mem_time_s = [sympy.Max(x, KERNEL_LAUNCH_OVERHEAD_SEC) for x in fp8_mem_time_s]
-
-    # reduce to single expression
-    res = 0
-    for x in fp8_mem_time_s:
-        res = res + x
-
+    res = sum([*fwd_fp8_input_mem, *fwd_fp8_weight_mem, *gi_fp8_grad_output_mem])
     return res
