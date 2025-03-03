@@ -407,11 +407,15 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <h1>Source code for torchao.kernel.intmm</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">NullHandler</span><span class="p">())</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="c1"># Only works for torch2.2 or newer.</span>
@@ -420,7 +424,7 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="n">intmm_triton</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;import error:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;import error:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
     <span class="c1"># On cpu-only builds might not be available.</span>
     <span class="n">intmm_triton</span> <span class="o">=</span> <span class="kc">None</span>
 
