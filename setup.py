@@ -75,6 +75,20 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
+build_torchao_experimental_mps = (
+    os.getenv("TORCHAO_BUILD_EXPERIMENTAL_MPS") == "1"
+    and build_torchao_experimental
+    and torch.mps.is_available()
+)
+
+if os.getenv("TORCHAO_BUILD_EXPERIMENTAL_MPS") == "1":
+    if use_cpp != "1":
+        print("Building experimental MPS ops requires USE_CPP=1")
+    if not platform.machine().startswith("arm64") or platform.system() != "Darwin":
+        print("Experimental MPS ops require Apple Silicon.")
+    if not torch.mps.is_available():
+        print("MPS not available. Skipping compilation of experimental MPS ops.")
+
 # Constant known variables used throughout this file
 cwd = os.path.abspath(os.path.curdir)
 third_party_path = os.path.join(cwd, "third_party")
@@ -174,6 +188,8 @@ class TorchAOBuildExt(BuildExtension):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
+        build_mps_ops = "ON" if build_torchao_experimental_mps else "OFF"
+
         subprocess.check_call(
             [
                 "cmake",
@@ -181,8 +197,10 @@ class TorchAOBuildExt(BuildExtension):
                 "-DCMAKE_BUILD_TYPE=" + build_type,
                 # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
                 "-DTORCHAO_BUILD_KLEIDIAI=OFF",
+                "-DTORCHAO_BUILD_MPS_OPS=" + build_mps_ops,
                 "-DTorch_DIR=" + torch_dir,
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
+                "-DCMAKE_INSTALL_PREFIX=cmake-out",
             ],
             cwd=self.build_temp,
         )
