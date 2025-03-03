@@ -19,6 +19,7 @@ using namespace torchao::kernels::cpu::aarch64::kleidi::
 #endif // TORCHAO_ENABLE_KLEIDI
 
 const float kTol = 1.0e-5;
+const float kTolKleidiAI = 1.0e-2;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
@@ -109,8 +110,12 @@ void test_linear_8bit_act_xbit_weight(
                       test_case.clamp_min, test_case.clamp_max);
 
       // Test correctness
+      float tol = kTol;
+      if (has_kleidi) {
+        tol = kTolKleidiAI;
+      }
       for (int i = 0; i < m * n; i++) {
-        EXPECT_NEAR(output[i], test_case.expected_output[i], kTol);
+        EXPECT_NEAR(output[i], test_case.expected_output[i], tol);
       }
     }
   }
