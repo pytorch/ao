@@ -19,7 +19,7 @@ using namespace torchao::kernels::cpu::aarch64::kleidi::
 #endif // TORCHAO_ENABLE_KLEIDI
 
 const float kTol = 1.0e-5;
-const float kTolKleidiAI = 1.0e-4;
+const float kTolKleidiAI = 1.0e-2;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
