@@ -6,7 +6,7 @@ import torch
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
-
+logger.addHandler(logging.NullHandler())
 
 try:
     # Only works for torch2.2 or newer.
