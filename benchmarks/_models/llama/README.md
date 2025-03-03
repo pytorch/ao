@@ -8,7 +8,7 @@ and follow the steps to gain access.
 Then from the torchao root directory use `huggingface-cli login` and follow the steps to login, then `sh ./scripts/prepare.sh` to
 download and convert the model weights
 
-once done you can execute benchmarks from the torchao/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking or evaluation
+once done you can execute benchmarks from the benchmarks/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking or evaluation
 directly using `generate.py` or `eval.py`.
 
 ## KV Cache Quantization - Memory Efficient Inference

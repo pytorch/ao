@@ -400,7 +400,7 @@ def run_sequential_BO(
     args,
 ):
     """
-    currently use the loader and benchmark code from torchao/_models/llama/generate,
+    currently use the loader and benchmark code from benchmarks/_models/llama/generate,
     and use lm_eval for ppl evaluation
     """
     # load tokenizers
