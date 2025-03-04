@@ -8,7 +8,6 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
-import torchao.prototype.mx_formats.config as config
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -332,12 +331,12 @@ def test_fp4_triton_unscaled_cast():
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_ref = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_triton = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4,
+                                     use_fp4_custom_triton_dequant_kernel=True)
 
-    f32_ref = mxtensor.to_dtype(torch.float)
-    config.use_fp4_custom_triton_dequant_kernel = True
-    f32_triton = mxtensor.to_dtype(torch.float)
-    config.use_fp4_custom_triton_dequant_kernel = False
+    f32_ref = mxtensor_ref.to_dtype(torch.float)
+    f32_triton = mxtensor_triton.to_dtype(torch.float)
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
 

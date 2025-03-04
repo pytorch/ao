@@ -9,7 +9,6 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
-from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
@@ -125,7 +124,8 @@ def test_exponent_nan_in(elem_dtype):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_exponent_nan_out(elem_dtype):
+@pytest.mark.parametrize("pack_fp6", [False, True])
+def test_exponent_nan_out(elem_dtype, pack_fp6):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
     """
@@ -143,7 +143,7 @@ def test_exponent_nan_out(elem_dtype):
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
-        if config.pack_fp6:
+        if pack_fp6:
             data_bits = data_bits.reshape(-1, block_size)
             data_bits = pack_uint6(data_bits)
     elif elem_dtype == DTYPE_FP4:
@@ -163,6 +163,7 @@ def test_exponent_nan_out(elem_dtype):
         torch.float,
         use_fp4_custom_triton_dequant_kernel,
         MXGemmKernelChoice.EMULATED,
+        pack_fp6,
     )
     tensor_hp = tensor_mx.to_dtype(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
@@ -250,17 +251,15 @@ def test_view(elem_dtype):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
-@pytest.mark.parametrize("do_fp6_packing", [False, True])
-def test_fp6_packing(elem_dtype, do_fp6_packing):
-    config.pack_fp6 = do_fp6_packing
+@pytest.mark.parametrize("pack_fp6", [False, True])
+def test_fp6_packing(elem_dtype, pack_fp6):
     x = torch.randn(1, 2, 4, device="cuda")
     block_size = 4
-    x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
-    if config.pack_fp6:
+    x_mx = MXTensor.to_mx(x, elem_dtype, block_size, pack_fp6=pack_fp6)
+    if pack_fp6:
         expected_packed_shape = torch.Size([*x.shape[:-1], 3 * x.shape[-1] // 4])
     else:
         expected_packed_shape = x.shape
-    config.pack_fp6 = True
 
     assert x_mx._data.shape == expected_packed_shape
 
@@ -302,6 +301,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
     use_fp4_custom_triton_dequant_kernel = False
+    pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx._data,
         x_mx._scale_e8m0,
@@ -309,6 +309,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx._block_size,
         hp_dtype,  # noqa: E501
         use_fp4_custom_triton_dequant_kernel,
+        pack_fp6,
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c._data,
@@ -317,6 +318,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         x_mx_c._block_size,
         hp_dtype,
         use_fp4_custom_triton_dequant_kernel,
+        pack_fp6,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
 
