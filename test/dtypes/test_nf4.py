@@ -617,7 +617,9 @@ class TestQLoRA(FSDPTest):
         reason="torch >= 2.4 required",
     )
     @skip_if_lt_x_gpu(2)
-    @pytest.mark.skipif(is_sm_at_least_90(), reason="Skipping test on SM90+") # TODO: fix
+    @pytest.mark.skipif(
+        is_sm_at_least_90(), reason="Skipping test on SM90+"
+    )  # TODO: fix
     def test_qlora_fsdp2(self):
         from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy
 

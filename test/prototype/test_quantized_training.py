@@ -1,7 +1,10 @@
-from unittest import skipIf
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6, is_sm_at_least_90
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_90,
+)
 
 if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
@@ -296,7 +299,9 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(is_sm_at_least_90(), reason="Skipping test on SM90+") # TODO: fix
+    @pytest.mark.skipif(
+        is_sm_at_least_90(), reason="Skipping test on SM90+"
+    )  # TODO: fix
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
@@ -389,7 +394,9 @@ class TestFSDP2(FSDPTest):
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(is_sm_at_least_90(), reason="Skipping test on SM90+") # TODO: fix
+    @pytest.mark.skipif(
+        is_sm_at_least_90(), reason="Skipping test on SM90+"
+    )  # TODO: fix
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,

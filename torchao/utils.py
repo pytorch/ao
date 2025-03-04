@@ -6,7 +6,6 @@ from functools import reduce
 from importlib.metadata import version
 from math import gcd
 from typing import Any, Callable, Tuple
-import warnings
 
 import torch
 import torch.nn.utils.parametrize as parametrize

@@ -8,7 +8,7 @@ from torchao.ops import (
     rowwise_scaled_linear_cutlass_s8s4,
 )
 from torchao.quantization.utils import group_quantize_tensor_symmetric
-from torchao.utils import is_sm_at_least_89, is_sm_at_least_90
+from torchao.utils import is_sm_at_least_90
 
 ROWWISE_SCALED_LINEAR_CUTLASS_DTYPE = [torch.float16, torch.bfloat16]
 ROWWISE_SCALED_LINEAR_CUTLASS_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
