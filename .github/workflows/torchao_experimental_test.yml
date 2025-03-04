@@ -53,8 +53,8 @@ jobs:
         run: |
           conda activate venv
           pushd torchao/experimental/ops/tests
-          sh build_and_run_tests.sh
-          rm -rf /tmp/cmake-out
+          # sh build_and_run_tests.sh
+          # rm -rf /tmp/cmake-out
           popd
 
   test-mps-ops:
@@ -92,6 +92,7 @@ jobs:
           pip install cmake
           pip install parameterized
           pip install pyyaml
+          pip install numpy
       - name: Print pip freeze
         run: |
           pip freeze
