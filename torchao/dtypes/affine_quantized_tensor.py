@@ -224,8 +224,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 else input_float.dtype
             )
             device = input_float.device
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
             from torchao.dtypes import Int4CPULayout
+            from torchao.dtypes.uintx import TensorCoreTiledLayout
 
             data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
                 input_float,
