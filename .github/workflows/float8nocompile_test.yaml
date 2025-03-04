@@ -7,14 +7,12 @@ on:
       - 'gh/**'
     paths:
       - 'torchao/prototype/float8nocompile/**'
-      - '!torchao/prototype/float8nocompile/**'
   pull_request:
     branches:
       - main
       - 'gh/**'
     paths:
       - 'torchao/prototype/float8nocompile/**'
-      - '!torchao/prototype/float8nocompile/**'
 
 concurrency:
   group: floatnocompile_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
