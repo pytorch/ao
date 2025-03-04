@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from typing import List, Optional
 
 from setuptools import Extension, find_packages, setup
 
@@ -75,19 +76,54 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
-build_torchao_experimental_mps = (
-    os.getenv("TORCHAO_BUILD_EXPERIMENTAL_MPS") == "1"
-    and build_torchao_experimental
-    and torch.mps.is_available()
-)
 
-if os.getenv("TORCHAO_BUILD_EXPERIMENTAL_MPS") == "1":
-    if use_cpp != "1":
-        print("Building experimental MPS ops requires USE_CPP=1")
-    if not platform.machine().startswith("arm64") or platform.system() != "Darwin":
-        print("Experimental MPS ops require Apple Silicon.")
-    if not torch.mps.is_available():
-        print("MPS not available. Skipping compilation of experimental MPS ops.")
+class BuildOptions:
+    def __init__(self):
+        # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
+        # The kernels require sdot/udot, which are not required on Arm until Armv8.4 or later,
+        # but are available on Arm-based Apple machines.  On non-Apple machines, the kernels
+        # can be built by explicitly setting TORCHAO_BUILD_CPU_AARCH64=1
+        self.build_cpu_aarch64 = self._os_bool_var(
+            "TORCHAO_BUILD_CPU_AARCH64",
+            default=(self._is_arm64() and self._is_macos()),
+        )
+        if self.build_cpu_aarch64:
+            assert (
+                self._is_arm64()
+            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+
+        # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
+        # 1) It increases the build time
+        # 2) It has some accuracy issues in CI tests due to BF16
+        self.build_kleidi_ai = self._os_bool_var(
+            "TORCHAO_BUILD_KLEIDIAI", default=False
+        )
+        if self.build_kleidi_ai:
+            assert (
+                self.build_cpu_aarch64
+            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+
+        # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
+        self.build_experimental_mps = self._os_bool_var(
+            "TORCHAO_BUILD_EXPERIMENTAL_MPS", default=False
+        )
+        if self.build_experimental_mps:
+            assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
+            assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
+            assert (
+                torch.mps.is_available()
+            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+
+    def _is_arm64(self) -> bool:
+        return platform.machine().startswith("arm64")
+
+    def _is_macos(self) -> bool:
+        return platform.system() == "Darwin"
+
+    def _os_bool_var(self, var, default) -> bool:
+        default_val = "1" if default else "0"
+        return os.getenv(var, default_val) == "1"
+
 
 # Constant known variables used throughout this file
 cwd = os.path.abspath(os.path.curdir)
@@ -179,38 +215,30 @@ class TorchAOBuildExt(BuildExtension):
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
 
-        build_type = "Debug" if use_debug_mode() else "Release"
-
-        from distutils.sysconfig import get_python_lib
-
-        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
-
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-
-        build_mps_ops = "ON" if build_torchao_experimental_mps else "OFF"
 
         subprocess.check_call(
             [
                 "cmake",
-                ext.sourcedir,
-                "-DCMAKE_BUILD_TYPE=" + build_type,
-                # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
-                "-DTORCHAO_BUILD_KLEIDIAI=OFF",
-                "-DTORCHAO_BUILD_MPS_OPS=" + build_mps_ops,
-                "-DTorch_DIR=" + torch_dir,
-                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
-                "-DCMAKE_INSTALL_PREFIX=cmake-out",
-            ],
+                ext.cmake_lists_dir,
+            ]
+            + ext.cmake_args
+            + ["-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir],
             cwd=self.build_temp,
         )
         subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
 
 
 class CMakeExtension(Extension):
-    def __init__(self, name, sourcedir=""):
+    def __init__(
+        self, name, cmake_lists_dir: str = "", cmake_args: Optional[List[str]] = None
+    ):
         Extension.__init__(self, name, sources=[])
-        self.sourcedir = os.path.abspath(sourcedir)
+        self.cmake_lists_dir = os.path.abspath(cmake_lists_dir)
+        if cmake_args is None:
+            cmake_args = []
+        self.cmake_args = cmake_args
 
 
 def get_extensions():
@@ -310,10 +338,33 @@ def get_extensions():
         )
 
     if build_torchao_experimental:
+        build_options = BuildOptions()
+
+        def bool_to_on_off(value):
+            return "ON" if value else "OFF"
+
+        from distutils.sysconfig import get_python_lib
+
+        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
+
         ext_modules.append(
             CMakeExtension(
                 "torchao.experimental",
-                sourcedir="torchao/experimental",
+                cmake_lists_dir="torchao/experimental",
+                cmake_args=(
+                    [
+                        f"-DCMAKE_BUILD_TYPE={'Debug' if use_debug_mode() else 'Release'}",
+                        f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
+                        f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
+                        f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
+                        "-DTorch_DIR=" + torch_dir,
+                    ]
+                    + (
+                        ["-DCMAKE_INSTALL_PREFIX=cmake-out"]
+                        if build_options.build_experimental_mps
+                        else []
+                    )
+                ),
             )
         )
 
