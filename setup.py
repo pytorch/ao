@@ -53,6 +53,10 @@ build_torchao_experimental = (
     and platform.system() == "Darwin"
 )
 
+use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and build_torchao_experimental
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -241,6 +245,16 @@ def get_extensions():
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
+
+        if use_cpp_avx512 and TORCH_VERSION_AT_LEAST_2_7:
+            extra_compile_args["cxx"].extend(
+                [
+                    "-DCPU_CAPABILITY_AVX512",
+                    "-march=native",
+                    "-mfma",
+                    "-fopenmp",
+                ]
+            )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
