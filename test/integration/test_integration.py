@@ -149,7 +149,9 @@ def _int4wo_api(mod, use_hqq=False):
         and TORCH_VERSION_AT_LEAST_2_6
     ):
         quantize_(
-            mod, int4_weight_only(layout=Int4CPULayout(), use_hqq=use_hqq), set_inductor_config=False
+            mod,
+            int4_weight_only(layout=Int4CPULayout(), use_hqq=use_hqq),
+            set_inductor_config=False,
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:

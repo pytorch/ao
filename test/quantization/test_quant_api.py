@@ -792,7 +792,12 @@ class TestQuantFlow(TestCase):
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
         with torch.no_grad():
-            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq))
+            quantize_(
+                m,
+                int4_weight_only(
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                ),
+            )
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
                 torch.compile(m, fullgraph=True, dynamic=True),
