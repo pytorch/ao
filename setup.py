@@ -91,9 +91,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.build_cpu_aarch64:
-            assert (
-                self._is_arm64()
-            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            assert self._is_arm64(), (
+                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            )
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -102,9 +102,9 @@ class BuildOptions:
             "TORCHAO_BUILD_KLEIDIAI", default=False
         )
         if self.build_kleidi_ai:
-            assert (
-                self.build_cpu_aarch64
-            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
         # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
         self.build_experimental_mps = self._os_bool_var(
@@ -113,9 +113,9 @@ class BuildOptions:
         if self.build_experimental_mps:
             assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
             assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
-            assert (
-                torch.mps.is_available()
-            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            assert torch.mps.is_available(), (
+                "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            )
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64")
@@ -324,24 +324,44 @@ def get_extensions():
             ]
         )
 
-    curdir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(curdir, "torchao", "csrc")
+    # Get base directory and source paths
+    this_dir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+
+    # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
-    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
-    )
+    # Collect CUDA source files if needed
+    if use_cuda:
+        if not IS_ROCM:
+            # Regular CUDA sources
+            extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+            cuda_sources = list(
+                glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+            )
+            sources += cuda_sources
+        else:
+            # ROCm sources
+            extensions_hip_dir = os.path.join(
+                extensions_dir, "cuda", "sparse_marlin", "tensor_core_tiled_layout"
+            )
+            hip_sources = list(
+                glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+            )
 
-    extensions_hip_dir = os.path.join(
-        extensions_dir, "cuda", "tensor_core_tiled_layout"
-    )
-    hip_sources = list(
-        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-    )
+            # Check ROCm GPU architecture compatibility
+            gpu_arch = torch.cuda.get_device_properties(0).name
+            if gpu_arch != "gfx942":
+                print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+                print(
+                    "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+                )
+                return None
+            sources += hip_sources
 
-    if not IS_ROCM and use_cuda:
-        sources += cuda_sources
+    # Return None if no sources found
+    if not sources:
+        return None
     else:
         # Remove CUTLASS-based kernels from the cuda_sources list.  An
         # assumption is that these files will have "cutlass" in its
