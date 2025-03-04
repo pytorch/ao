@@ -1,5 +1,6 @@
 import itertools
 
+import pytest
 import torch
 import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
 import torch.utils.checkpoint
@@ -16,6 +17,7 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 
 from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 
 class SelfAttnLikeModule(torch.nn.Module):
@@ -67,6 +69,7 @@ class SelfAttnLikeModule(torch.nn.Module):
             context_layer.size()[:-2] + (self.all_head_size,)
         )
         return self.dense(context_layer)
+
 
 class TestSDPAPatternRewriterTemplate(TestCase):
     def _clone_inputs(self, inputs):
@@ -143,6 +146,9 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                         self.assertEqual(arg1.grad, arg2.grad, atol=atol, rtol=rtol)
 
     @skipIfRocm
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+    )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
         # pattern is different for bs=1
@@ -159,13 +165,19 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             inputs = (
                 torch.randn(
                     (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
-                ) * 10,
+                )
+                * 10,
                 torch.randn((bs, 1, 1, seqlen), device=self.device) * 10
                 if has_mask
                 else None,
             )
-            enable_autocast = (dtype == torch.bfloat16)
-            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast, dtype=torch.bfloat16):
+            enable_autocast = dtype == torch.bfloat16
+            with (
+                torch.no_grad(),
+                torch.amp.autocast(
+                    "cpu", enabled=enable_autocast, dtype=torch.bfloat16
+                ),
+            ):
                 _int8_sdpa_init()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
@@ -184,10 +196,15 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )
 
+
 if HAS_CPU:
+
     class SDPAPatternRewriterCpuTests(TestSDPAPatternRewriterTemplate):
         device = "cpu"
-        test_sdpa_int8_rewriter_cpu = TestSDPAPatternRewriterTemplate._test_sdpa_int8_rewriter
+        test_sdpa_int8_rewriter_cpu = (
+            TestSDPAPatternRewriterTemplate._test_sdpa_int8_rewriter
+        )
+
 
 if __name__ == "__main__":
     if IS_LINUX:

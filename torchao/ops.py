@@ -205,13 +205,25 @@ def scaled_dot_product_int8(
     Returns
         output of quantized SDPA
     """
-    return torch.ops.torchao.scaled_dot_product_int8.default(query, key, value,
-            attn_mask, dropout_p, is_causal, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale)
+    return torch.ops.torchao.scaled_dot_product_int8.default(
+        query,
+        key,
+        value,
+        attn_mask,
+        dropout_p,
+        is_causal,
+        scale,
+        q_zp,
+        q_scale,
+        k_zp,
+        k_scale,
+        v_zp,
+        v_scale,
+        a_zp,
+        a_scale,
+        o_zp,
+        o_scale,
+    )
 
 
 @register_custom_op("torchao::scaled_dot_product_int8")

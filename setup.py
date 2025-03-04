@@ -45,8 +45,7 @@ version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
     version_suffix = f"+git{get_git_commit_id()}"
 
-use_cpp = os.getenv('USE_CPP')
-use_cpp_avx512 = os.getenv('USE_AVX512', '1') == '1'
+use_cpp = os.getenv("USE_CPP")
 
 import platform
 
@@ -55,6 +54,10 @@ build_torchao_experimental = (
     and platform.machine().startswith("arm64")
     and platform.system() == "Darwin"
 )
+
+use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and build_torchao_experimental
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
@@ -72,7 +75,6 @@ def use_debug_mode():
 import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
-    IS_MACOS,
     IS_WINDOWS,
     ROCM_HOME,
     BuildExtension,
@@ -293,14 +295,15 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        if use_cpp_avx512:
-            extra_compile_args["cxx"].extend([
-                "-DCPU_CAPABILITY_AVX512",
-                "-march=native",
-                "-mfma",
-            ])
-            if not IS_MACOS:
-                extra_compile_args["cxx"].append("-fopenmp")
+        if use_cpp_avx512 and TORCH_VERSION_AT_LEAST_2_7:
+            extra_compile_args["cxx"].extend(
+                [
+                    "-DCPU_CAPABILITY_AVX512",
+                    "-march=native",
+                    "-mfma",
+                    "-fopenmp",
+                ]
+            )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
