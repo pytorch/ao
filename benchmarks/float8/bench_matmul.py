@@ -16,7 +16,6 @@ from utils import (
     get_name_to_shapes_iter,
 )
 
-from torchao.float8.config import ScalingGranularity
 from torchao.testing.float8.roofline_utils import get_specs
 
 
