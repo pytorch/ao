@@ -38,6 +38,7 @@ from torchao.dtypes import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
+    Int4XPULayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
@@ -128,12 +129,14 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
+    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
     Int4CPULayout: False,
+    Int4XPULayout: False
 }
 
 
@@ -191,7 +194,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, filter_fn=None
+    model, groupsize=128, inner_k_tiles=8, int_zp = False, filter_fn=None
 ):
     """
     Converts all linear weight tensors to the
@@ -218,6 +221,7 @@ def change_linear_weights_to_int4_woqtensors(
             enable_parametrization=False,
             groupsize=groupsize,
             inner_k_tiles=inner_k_tiles,
+            int_zp=int_zp
         ),
         filter_fn,
     )
@@ -815,6 +819,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     use_hqq: bool = False
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
 
+    mapping_type = MappingType.ASYMMETRIC
+    block_size = (1, group_size)
+    target_dtype = torch.int32
+    quant_min = 0
+    quant_max = 15
+    eps = 1e-6
+    zero_point_dtype = torch.bfloat16
 
 # for BC
 # TODO maybe change other callsites
@@ -848,7 +859,6 @@ def _int4_weight_only_transform(
     quant_min = 0
     quant_max = 15
     eps = 1e-6
-    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     zero_point_dtype = (
         weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
     )
@@ -865,6 +875,7 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
+    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)] if zero_point_domain!=ZeroPointDomain.INT else True
     # Sparse Marlin only supports symmetric quantization.
     # NOTE: If we start having lots of layouts that require different configurations,
     # we should consider moving this logic somewhere else.
