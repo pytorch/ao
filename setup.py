@@ -109,6 +109,7 @@ class BuildOptions:
         )
         if self.build_experimental_mps:
             assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
+            assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
             assert (
                 torch.mps.is_available()
             ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
