@@ -1,8 +1,12 @@
+import logging
 import os
 
 import torch
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 try:
     # Only works for torch2.2 or newer.
@@ -11,7 +15,7 @@ try:
     else:
         intmm_triton = None
 except ImportError as e:
-    print("import error:", e)
+    logger.debug("import error:", e)
     # On cpu-only builds might not be available.
     intmm_triton = None
 

@@ -79,9 +79,9 @@ class GenericGPTQRunner(fx.Interpreter):
         # trace model for one input
         one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
         # needed for GPTQ on the torchao llama model
-        import torchao
+        import benchmarks
 
-        torchao._models.llama.model.use_index_put_for_kv_cache = True
+        benchmarks._models.llama.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
             model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
