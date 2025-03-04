@@ -72,6 +72,7 @@ def use_debug_mode():
 import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
+    IS_MACOS,
     IS_WINDOWS,
     ROCM_HOME,
     BuildExtension,
@@ -290,8 +291,9 @@ def get_extensions():
                 "-DCPU_CAPABILITY_AVX512",
                 "-march=native",
                 "-mfma",
-                "-fopenmp",
             ])
+            if not IS_MACOS:
+                extra_compile_args["cxx"].append("-fopenmp")
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")

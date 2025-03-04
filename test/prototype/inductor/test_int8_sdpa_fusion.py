@@ -1,27 +1,22 @@
-import torchao
-
-import contextlib
-import functools
 import itertools
-import math
 
 import torch
+import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
 import torch.utils.checkpoint
-from torch._dynamo.debug_utils import aot_graph_input_parser
 from torch._dynamo.utils import counters
 from torch._inductor import config
-from torch._inductor.test_case import run_tests, TestCase
+from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
-from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
-from torch.testing._internal.inductor_utils import HAS_CPU, HAS_CUDA
-
-import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
-from torch.export import export_for_training
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+from torch.export import export_for_training
+from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
+from torch.testing._internal.inductor_utils import HAS_CPU
+
 from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
+
 
 class SelfAttnLikeModule(torch.nn.Module):
     def __init__(

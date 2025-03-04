@@ -1,20 +1,18 @@
 import functools
-from typing import Callable
 
 import torch
+from torch._dynamo.utils import counters
 from torch._inductor import config
+from torch._inductor.fx_passes.post_grad import register_lowering_pattern
+from torch._inductor.lowering import lowerings as L
+from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
-    filter_nodes,
     KeywordArg,
-    ListOf,
     Match,
     PatternMatcherPass,
 )
-from torch._inductor.fx_passes.post_grad import register_lowering_pattern
-from torch._inductor.lowering import lowerings as L, make_fallback
-from torch._dynamo.utils import counters
 
 make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
 
