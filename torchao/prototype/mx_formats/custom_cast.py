@@ -1000,6 +1000,27 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
 
 
+# PyTorch implementation of fp6 packing for reference purposes
+def pack_uint6_pytorch(uint8_data: torch.Tensor) -> torch.Tensor:
+    # check shape is divisible by 4 along packing axis
+    shape = uint8_data.shape
+    assert shape[-1] % 4 == 0
+
+    packed_shape = [*shape[:-1], 3 * shape[-1] // 4]
+
+    uint8_data = uint8_data.contiguous().view(-1)
+
+    # pack 4 bits of each of 4 numbers into 2xuint8, remaining 2 bits into 1xuint8
+    bits_packed_4_a = (uint8_data[1::4] >> 2) | ((uint8_data[::4] << 2) & 0xF0)
+    bits_packed_4_b = (uint8_data[2::4] >> 2) | ((uint8_data[3::4] << 2) & 0xF0)
+    bits_packed_2 = (
+        (uint8_data[::4] << 6) | ((uint8_data[1::4] << 4) & 0x30) \
+            | ((uint8_data[3::4] << 2) & 0xC) | (uint8_data[2::4] & 0x3)
+    )
+
+    return (torch.stack((bits_packed_4_a, bits_packed_4_b, bits_packed_2), dim=-1)).view(packed_shape)
+
+
 @torch.library.custom_op("ao::pack_uint6", mutates_args=())
 def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
     # ensure input data is contiguous before passing to kernel
