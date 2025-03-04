@@ -145,13 +145,15 @@ def _int8da_int8w_api(
         change_linear_weights_to_int8_dqtensors(mod)
 
 
-def _int4wo_api(mod):
+def _int4wo_api(mod, use_hqq=False):
     if (
         is_device(next(mod.parameters()).device.type, "cpu")
         and TORCH_VERSION_AT_LEAST_2_6
     ):
         quantize_(
-            mod, int4_weight_only(layout=Int4CPULayout()), set_inductor_config=False
+            mod,
+            int4_weight_only(layout=Int4CPULayout(), use_hqq=use_hqq),
+            set_inductor_config=False,
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
@@ -1049,8 +1051,6 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in [(16, 1024, 16)] + (
@@ -1058,6 +1058,20 @@ class TestSubclass(unittest.TestCase):
         ):
             self._test_lin_weight_subclass_api_impl(
                 _int4wo_api, device, 15, test_shape=test_shape, test_dtype=dtype
+            )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "int4 hqq requires torch nightly.")
+    def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest(f"Fails for {dtype}")
+        for test_shape in [(16, 1024, 16), (1, 1024, 256)]:
+            api = partial(
+                _int4wo_api,
+                use_hqq=True,
+            )
+            self._test_lin_weight_subclass_api_impl(
+                api, device, 15, test_shape=test_shape, test_dtype=dtype
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1111,8 +1125,6 @@ class TestSubclass(unittest.TestCase):
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         layout_list = []
