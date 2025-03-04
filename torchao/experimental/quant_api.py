@@ -10,16 +10,19 @@ from typing import Optional, Union
 
 import torch
 import torch.nn as nn
-
-from executorch.exir import pass_base
 from torch.ao.quantization.fx._decomposed import (
     dequantize_per_channel_group,
     quantize_per_channel_group,
 )
 
 from torchao.dtypes import PlainLayout
-from torchao.quantization.granularity import PerGroup, PerRow
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+from torchao.quantization.granularity import (
+    PerGroup,
+    PerRow,
+)
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_6,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -497,10 +500,10 @@ from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import (
-    _get_linear_subclass_inserter,
     MappingType,
-    to_affine_quantized_intx,
     ZeroPointDomain,
+    _get_linear_subclass_inserter,
+    to_affine_quantized_intx,
 )
 from torchao.quantization.utils import _get_per_token_block_size
 
@@ -511,7 +514,6 @@ def int8_dynamic_activation_intx_weight(
     has_weight_zeros: bool = False,
     weight_mapping_type=MappingType.ASYMMETRIC,
     act_mapping_type=MappingType.ASYMMETRIC,
-    scale_dtype=torch.float32,
     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
         target="native"
     ),  # PlainLayout() also works, but will be slow
@@ -560,7 +562,7 @@ def int8_dynamic_activation_intx_weight(
         torch.int3: 3,
         torch.int4: 4,
         torch.int5: 5,
-        torch.int6: 6,
+        torch.int6: 4,
         torch.int7: 7,
         torch.int8: 8,
     }
@@ -588,13 +590,14 @@ def int8_dynamic_activation_intx_weight(
         assert weight.shape[-1] % group_size == 0
 
         layout = layout_arg
+        scale_dtype = None
         tensor_quantizer = to_affine_quantized_intx
         quant_min = -(1 << (bit_width - 1))
         quant_max = (1 << (bit_width - 1)) - 1
 
         if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            assert weight.device == torch.device(
-                "cpu"
+            assert (
+                weight.device == torch.device("cpu")
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
             assert (
                 weight.dtype == torch.float32
@@ -602,9 +605,7 @@ def int8_dynamic_activation_intx_weight(
             assert (
                 act_mapping_type == MappingType.ASYMMETRIC
             ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-            assert (
-                not layout.has_params_set()
-            ), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
+            assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
             layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
                 bit_width=bit_width,
                 group_size=group_size,
@@ -616,7 +617,6 @@ def int8_dynamic_activation_intx_weight(
                     weight_dtype != torch.int4
                     or has_weight_zeros != True
                     or weight_mapping_type == MappingType.ASYMMETRIC
-                    or scale_dtype != torch.bfloat16
                 ):
                     raise NotImplementedError(
                         "target 'aten' requires:\n"
@@ -628,6 +628,11 @@ def int8_dynamic_activation_intx_weight(
                 assert (
                     TORCH_VERSION_AT_LEAST_2_6
                 ), "aten target is requires torch version > 2.6.0"
+                if torch.backends.kleidiai.is_available():
+                    if isinstance(granularity, PerGroup):
+                        scale_dtype = (
+                            torch.bfloat16
+                        )  # KleidiAI kernel requires bfloat16 scale_dtype
                 tensor_quantizer = (
                     to_packedlinearint8dynamicactivationintxweight_quantized_intx
                 )
