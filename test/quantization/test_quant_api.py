@@ -21,9 +21,9 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
+from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
+from benchmarks._models.llama.tokenizer import get_tokenizer
 from torchao import quantize_
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
@@ -278,7 +278,7 @@ class TestQuantFlow(TestCase):
     # https://github.com/pytorch-labs/gpt-fast/blob/6253c6bb054e658d67566150f87329b87815ae63/scripts/convert_hf_checkpoint.py
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_8da4w_gptq_quantizer(self):
-        from torchao._models._eval import InputRecorder, TransformerEvalWrapper
+        from benchmarks._models._eval import InputRecorder, TransformerEvalWrapper
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
 
         # should be similar to TorchCompileDynamicQuantizer
@@ -348,7 +348,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch verion is 2.4 or lower"
     )
     def test_8da4w_quantizer_eval(self):
-        from torchao._models._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         precision = torch.bfloat16
@@ -384,7 +384,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
-        from torchao._models._eval import (
+        from benchmarks._models._eval import (
             MultiTensorInputRecorder,
             TransformerEvalWrapper,
         )
@@ -454,7 +454,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
-        from torchao._models._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
 
         precision = torch.bfloat16
@@ -492,7 +492,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
-        from torchao._models._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
 
         precision = torch.bfloat16
         device = "cuda"
@@ -525,7 +525,7 @@ class TestQuantFlow(TestCase):
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper_llama3(self):
-        from torchao._models._eval import TransformerEvalWrapper
+        from benchmarks._models._eval import TransformerEvalWrapper
 
         precision = torch.bfloat16
         device = "cuda"

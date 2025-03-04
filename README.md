@@ -19,7 +19,7 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/benchmarks/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
 
 For inference, we have the option of
 1. Quantize only the weights: works best for memory bound models
@@ -52,7 +52,7 @@ We also provide a developer facing API so you can implement your own quantizatio
 
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
 
-In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](torchao/_models/llama/README.md)
+In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](benchmarks/_models/llama/README.md)
 
 ## Training
 

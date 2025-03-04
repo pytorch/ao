@@ -320,7 +320,7 @@ Note that the workaround is also required for `torch.compile` with `freezing` (`
 ### KV Cache Quantization
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
 
-In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
+In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../benchmarks/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
 
 ### Sparse-Marlin
 
@@ -346,7 +346,7 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 |             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
 
 ### Gemlite Triton
-Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `torchao/_models/llama/generate.py`.
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `benchmarks/_models/llama/generate.py`.
 
 Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
 
@@ -362,7 +362,7 @@ We're trying to develop kernels for low bit quantization for intx quantization f
 |             | uintx-4-64-hqq          |  8.124              |  47.85        |  213.24                 | 11.85            |  4.46           |
 |             | uintx-2-8-hqq           | 39.605              |  34.83        |  261.42                 | 14.99            |  7.51           |
 
-You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
+You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `benchmarks/_models/llama/generate.py`.
 
 ### int8_dynamic_activation_intx_weight Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
@@ -373,7 +373,7 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the constructor `int8_dynamic_activation_intx_weight`.  An example can be found in `benchmarks/_models/llama/generate.py`.
 
 ### Codebook Quantization
 The benchmarks below were run on a single NVIDIA-A6000 GPU.
@@ -385,7 +385,7 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 | Llama-3.1-8B| Base (bfloat16)         |  7.713              |  32.16        |  482.70                 | 16.35            | 15.01           |
 |             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
 
-You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `torchao/_models/llama/generate.py`.
+You try can out these apis with the `quantize_` api as above alongside the constructor `codebook_weight_only` an example can be found in  in `benchmarks/_models/llama/generate.py`.
 
 ### Automatic Inductor Configuration
 
@@ -396,7 +396,7 @@ The `quantize_` and `autoquant` apis now automatically use our recommended induc
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
 
 ```python
-from torchao._models._eval import InputRecorder, TransformerEvalWrapper
+from benchmarks._models._eval import InputRecorder, TransformerEvalWrapper
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 precision = torch.bfloat16
 device = "cuda"

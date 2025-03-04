@@ -125,11 +125,11 @@ After you have the quantization flow implemented, you can run benchmark and eval
 
 Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.
 
-* `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
-  * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
-  * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
-* `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
-  * `benchmark and eval <https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py>`__
+* `llama <https://github.com/pytorch/ao/tree/main/benchmarks/_models/llama>`__
+  * `benchmark <https://github.com/pytorch/ao/blob/main/benchmarks/_models/llama/generate.py>`__
+  * `eval <https://github.com/pytorch/ao/blob/main/benchmarks/_models/llama/eval.py>`__
+* `sam <https://github.com/pytorch/ao/tree/main/benchmarks/_models/sam>`__
+  * `benchmark and eval <https://github.com/pytorch/ao/blob/main/benchmarks/_models/sam/eval_combo.py>`__
 
 Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
 

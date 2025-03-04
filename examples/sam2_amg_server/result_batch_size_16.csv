@@ -32,21 +32,21 @@ num-images,total_time,first,p99,baseline,max,export-model,second,furious,environ
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -90,21 +90,21 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -186,21 +186,21 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -244,21 +244,21 @@ RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -302,21 +302,21 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -343,7 +343,7 @@ W0104 14:58:02.413000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:03.167000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:04.568000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(4194304x256, 256x128)
-  mm 8.7354 ms 100.0% 
+  mm 8.7354 ms 100.0%
   triton_mm_146 13.3706 ms 65.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_139 17.0872 ms 51.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_141 17.6846 ms 49.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -361,7 +361,7 @@ W0104 14:58:07.799000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:08.210000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:08.894000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(8192x256, 256x2048)
-  mm 0.2846 ms 100.0% 
+  mm 0.2846 ms 100.0%
   triton_mm_184 0.4445 ms 64.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_177 0.5668 ms 50.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_179 0.5790 ms 49.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -379,7 +379,7 @@ W0104 14:58:11.387000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:11.755000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:12.364000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0186 ms 100.0% 
+  mm 0.0186 ms 100.0%
   triton_mm_626 0.0359 ms 51.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_627 0.0361 ms 51.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_625 0.0365 ms 50.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -397,7 +397,7 @@ W0104 14:58:14.841000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:15.202000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:15.806000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0180 ms 100.0% 
+  mm 0.0180 ms 100.0%
   triton_mm_646 0.0357 ms 50.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_645 0.0360 ms 49.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_644 0.0370 ms 48.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -415,7 +415,7 @@ W0104 14:58:16.861000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:17.223000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:17.833000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0185 ms 100.0% 
+  mm 0.0185 ms 100.0%
   triton_mm_682 0.0360 ms 51.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_681 0.0364 ms 50.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_680 0.0365 ms 50.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -433,7 +433,7 @@ W0104 14:58:18.895000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:19.255000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:19.866000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0186 ms 100.0% 
+  mm 0.0186 ms 100.0%
   triton_mm_736 0.0360 ms 51.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_737 0.0360 ms 51.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_735 0.0365 ms 50.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -451,7 +451,7 @@ W0104 14:58:20.929000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:21.292000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:21.909000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0180 ms 100.0% 
+  mm 0.0180 ms 100.0%
   triton_mm_792 0.0361 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_791 0.0363 ms 49.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_790 0.0370 ms 48.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -469,7 +469,7 @@ W0104 14:58:22.960000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:23.317000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:23.931000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(1024x256, 256x256)
-  mm 0.0185 ms 100.0% 
+  mm 0.0185 ms 100.0%
   triton_mm_847 0.0361 ms 51.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_846 0.0363 ms 51.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_845 0.0368 ms 50.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
@@ -483,7 +483,7 @@ SingleProcess AUTOTUNE benchmarking takes 2.0045 seconds and 0.0040 seconds prec
 AUTOTUNE mm(1024x256, 256x4)
   triton_mm_883 0.0162 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=2
   triton_mm_884 0.0162 ms 99.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=2
-  mm 0.0166 ms 97.5% 
+  mm 0.0166 ms 97.5%
   triton_mm_885 0.0232 ms 69.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
   triton_mm_889 0.0233 ms 69.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_890 0.0235 ms 68.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=16, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -501,7 +501,7 @@ AUTOTUNE mm(2048x2, 2x128)
   triton_mm_5 0.0073 ms 91.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=2, num_warps=4
   triton_mm_7 0.0077 ms 86.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=5, num_warps=4
   triton_mm_6 0.0078 ms 85.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=3, num_warps=8
-  mm 0.0079 ms 84.2% 
+  mm 0.0079 ms 84.2%
   triton_mm_8 0.0083 ms 80.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=False, GROUP_M=8, num_stages=3, num_warps=4
 SingleProcess AUTOTUNE benchmarking takes 2.3704 seconds and 0.0024 seconds precompiling for 17 choices
 E0104 14:58:30.506000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/cz/cczuf4mbz67rz32kb4erom4hh3extdrznp22adm5ibnzg5hixbva.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=4)
@@ -511,8 +511,8 @@ W0104 14:58:31.755000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:32.124000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:32.745000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE addmm(8192x256, 8192x256, 256x256)
-  bias_addmm 0.0492 ms 100.0% 
-  addmm 0.0681 ms 72.3% 
+  bias_addmm 0.0492 ms 100.0%
+  addmm 0.0681 ms 72.3%
   triton_mm_27 0.0801 ms 61.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_29 0.0805 ms 61.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_25 0.0822 ms 59.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -529,8 +529,8 @@ W0104 14:58:33.985000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:34.346000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:34.965000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE addmm(8192x128, 8192x256, 256x128)
-  bias_addmm 0.0313 ms 100.0% 
-  addmm 0.0400 ms 78.1% 
+  bias_addmm 0.0313 ms 100.0%
+  addmm 0.0400 ms 78.1%
   triton_mm_101 0.0577 ms 54.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_105 0.0588 ms 53.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_103 0.0625 ms 50.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -543,7 +543,7 @@ SingleProcess AUTOTUNE benchmarking takes 2.1995 seconds and 0.0039 seconds prec
 E0104 14:58:34.979000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/f5/cf54lpxyskhyrlnsvgwdvrzswqz4avvyso3u2cqlseqwgbpj7pgv.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
 W0104 14:58:37.259000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(8192x128, 128x256)
-  mm 0.0332 ms 100.0% 
+  mm 0.0332 ms 100.0%
   triton_mm_162 0.0454 ms 73.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_160 0.0457 ms 72.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_158 0.0467 ms 71.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -561,7 +561,7 @@ W0104 14:58:38.545000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:38.959000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:39.649000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(8192x2048, 2048x256)
-  mm 0.2634 ms 100.0% 
+  mm 0.2634 ms 100.0%
   triton_mm_198 0.5623 ms 46.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_200 0.5694 ms 46.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_196 0.5824 ms 45.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -579,7 +579,7 @@ W0104 14:58:40.825000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:41.198000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:41.816000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(8192x256, 256x256)
-  mm 0.0553 ms 100.0% 
+  mm 0.0553 ms 100.0%
   triton_mm_350 0.0801 ms 69.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_352 0.0803 ms 68.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_348 0.0818 ms 67.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -593,7 +593,7 @@ SingleProcess AUTOTUNE benchmarking takes 2.1333 seconds and 0.0039 seconds prec
 E0104 14:58:41.828000 1111794 site-packages/torch/_inductor/select_algorithm.py:1400] [0/0] Exception out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_fast_export_inductor_cache_dir/sn/csnohx66tfenmoj7n2bmwgbic34up2jtkkpubt6ri3ulzzs65i4x.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8)
 W0104 14:58:48.250000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE mm(4194304x128, 128x256)
-  mm 9.4713 ms 100.0% 
+  mm 9.4713 ms 100.0%
   triton_mm_279 13.9709 ms 67.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_272 17.6967 ms 53.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_274 18.6221 ms 50.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -611,8 +611,8 @@ W0104 14:58:52.143000 1111794 site-packages/torch/_inductor/select_algorithm.py:
 W0104 14:58:52.895000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 294912, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 W0104 14:58:54.313000 1111794 site-packages/torch/_inductor/select_algorithm.py:1619] [0/0] out of resource: shared memory, Required: 262144, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
 AUTOTUNE addmm(4194304x128, 4194304x256, 256x128)
-  bias_addmm 8.5930 ms 100.0% 
-  addmm 11.2420 ms 76.4% 
+  bias_addmm 8.5930 ms 100.0%
+  addmm 11.2420 ms 76.4%
   triton_mm_393 13.5410 ms 63.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_386 17.1705 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
   triton_mm_388 17.8044 ms 48.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=4
@@ -623,10 +623,10 @@ AUTOTUNE addmm(4194304x128, 4194304x256, 256x128)
   triton_mm_391 28.6740 ms 30.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=4, num_warps=8
 SingleProcess AUTOTUNE benchmarking takes 6.0558 seconds and 0.0034 seconds precompiling for 21 choices
 AUTOTUNE addmm(1024x32, 1024x256, 256x32)
-  bias_addmm 0.0174 ms 100.0% 
+  bias_addmm 0.0174 ms 100.0%
   triton_mm_664 0.0227 ms 76.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=4
   triton_mm_663 0.0227 ms 76.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=2, num_warps=4
-  addmm 0.0228 ms 76.3% 
+  addmm 0.0228 ms 76.3%
   triton_mm_662 0.0333 ms 52.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=1, num_warps=2
   triton_mm_665 0.0354 ms 49.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=5, num_warps=8
   triton_mm_669 0.0354 ms 49.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=32, B_PROLOGUE_CAST_TYPE=None, EVEN_K=True, GROUP_M=8, num_stages=3, num_warps=8
@@ -699,21 +699,21 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 243, in generate_batch
     data = self._generate_masks_batch(images)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 292, in _generate_masks_batch
     all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/automatic_mask_generator.py"", line 384, in _process_crop_batch
     self.predictor.set_image_batch(all_cropped_im)
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -773,10 +773,10 @@ RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -819,10 +819,10 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -903,10 +903,10 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -949,10 +949,10 @@ RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -995,10 +995,10 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1079,10 +1079,10 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1142,10 +1142,10 @@ RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1188,10 +1188,10 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1272,10 +1272,10 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1318,10 +1318,10 @@ RuntimeError: run_func_( container_handle_, input_handles.data(), input_handles.
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1364,10 +1364,10 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 474, in forward_image
     backbone_out[""backbone_fpn""][0] = self.sam_mask_decoder.conv_s0(
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
@@ -1387,7 +1387,7 @@ RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR
 ,,,,,,,,,{'TORCHINDUCTOR_CACHE_DIR': '/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/mps_fast_export_inductor_cache_dir'},mps_ao_ppb_None_fast_export_gpu_preproc,82.75403904914856,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/exported_models/mps_ao_fast,,,16,,,,,,/home/cpuhrsch/blogs/tmp/sam2_amg_example_run_10/amg_baseline_annotations,,,,"W0104 18:14:14.202000 2235960 site-packages/torch/_logging/_internal.py:1084] [0/0] Profiler function <class 'torch.autograd.profiler.record_function'> will be ignored
 /home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/_inductor/compile_fx.py:222: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
   warnings.warn(
-V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles] Recompiling function _predict_masks in /home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py:432
+V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles] Recompiling function _predict_masks in /home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py:432
 V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles]     triggered by the following guard failure(s):
 V0104 18:14:58.688000 2235960 site-packages/torch/_dynamo/guards.py:2760] [0/1] [__recompiles]     - 0/0: Ne(L['self']._modules['model']._modules['sam_mask_decoder']._modules['transformer']._modules['final_attn_token_to_image'].num_heads*((128//L['self']._modules['model']._modules['sam_mask_decoder']._modules['transformer']._modules['final_attn_token_to_image'].num_heads)), 8*L['point_coords'].elems.size()[0])  # (_inductor/pattern_matcher.py:1288 in <genexpr>)
 [E104 18:15:24.766972949 shim_common.cpp:376] Exception in aoti_torch: CUDA out of memory. Tried to allocate 576.00 MiB. GPU 0 has a total capacity of 94.99 GiB of which 498.44 MiB is free. Including non-PyTorch memory, this process has 94.49 GiB memory in use. Of the allocated memory 91.63 GiB is allocated by PyTorch, and 1.31 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
@@ -1454,10 +1454,10 @@ Traceback (most recent call last):
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/utils/_contextlib.py"", line 116, in decorate_context
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/sam2_image_predictor.py"", line 172, in set_image_batch
     backbone_out = self.model.forward_image(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File ""/home/cpuhrsch/dev/ao/torchao/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
+  File ""/home/cpuhrsch/dev/ao/benchmarks/_models/sam2/modeling/sam2_base.py"", line 469, in forward_image
     backbone_out = self.image_encoder(img_batch)
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File ""/home/cpuhrsch/.conda/envs/nightly20241126py312/lib/python3.12/site-packages/torch/nn/modules/module.py"", line 1740, in _wrapped_call_impl
