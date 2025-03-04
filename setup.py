@@ -79,6 +79,7 @@ from torch.utils.cpp_extension import (
 
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
 
+
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
