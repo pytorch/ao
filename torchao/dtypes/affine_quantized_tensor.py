@@ -225,6 +225,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             device = input_float.device
             from torchao.dtypes.uintx import TensorCoreTiledLayout
+            from torchao.dtypes import Int4CPULayout
 
             data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
                 input_float,
@@ -235,7 +236,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 device=device,
                 verbose=False,
                 raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
+                    _layout, (TensorCoreTiledLayout, PlainLayout, Int4CPULayout)
                 ),
                 # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
                 # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
