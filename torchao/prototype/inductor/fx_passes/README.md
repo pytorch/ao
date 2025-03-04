@@ -1,8 +1,8 @@
 # Inductor FX Passes
 
-This directory contains the FX passes of Inductor. FX passes are transformations applied to the computational graph to optimize and modify it for better performance and functionality.
+This directory contains the FX passes of Inductor. FX passes are transformations applied to the FX graph to optimize and modify it for better performance and functionality.
 
-You can replace the following customized graph passes of Inductor in TorchAO:
+In TorchAO, you can replace the following customized graph passes of Inductor:
 - `pre_grad_custom_pass`
 - `joint_custom_pre_pass`
 - `joint_custom_post_pass`
@@ -15,7 +15,7 @@ You can replace the following customized graph passes of Inductor in TorchAO:
 
 ## Getting Started
 
-To get started with using the FX passes in TorchAO, you can register and apply them to your computational graph as follows:
+To get started with using the FX passes in TorchAO, you can register and apply them to your FX graph as follows:
 
 ```python
 from torch._inductor import config
@@ -23,7 +23,7 @@ from torch._inductor.pattern_matcher import PatternMatcherPass
 
 # Example usage
 patterns = PatternMatcherPass() # create a pattern matcher pass
-_register_patterns() # register your own patterns
+_register_patterns(...) # register your own patterns
 config.custom_pass = patterns.apply # define the custom pass with the patterns
 
 ```
