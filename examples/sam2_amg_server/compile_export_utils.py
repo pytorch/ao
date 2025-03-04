@@ -4,7 +4,7 @@ from typing import Optional
 
 import torch
 
-from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
+from benchmarks._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 
 # Tools used to avoid compilation cold start and dynamo cache lookups
 # We take the compiled model and export it using the largest
@@ -513,18 +513,18 @@ def set_fast(
             dynamic=True,
         )
 
-    import torchao
+    import benchmarks
 
     if allow_recompiles:
         # A bunch of extra compiles at module level
         # Note that this can cause recompilations!
         # We might want to guard on that
-        torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0 = torch.compile(
+        benchmarks._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0 = torch.compile(
             fullgraph=True, dynamic=True
-        )(torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0)
-        torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1 = torch.compile(
+        )(benchmarks._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_0)
+        benchmarks._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1 = torch.compile(
             fullgraph=True, dynamic=True
-        )(torchao._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1)
+        )(benchmarks._models.sam2.utils.amg._mask_to_rle_pytorch_2_0_1)
         mask_generator.calculate_stability_score = torch.compile(
             fullgraph=True, dynamic=True
         )(mask_generator.calculate_stability_score)

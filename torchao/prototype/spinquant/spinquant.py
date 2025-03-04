@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from torchao._models.llama.model import RMSNorm, Transformer
+from benchmarks._models.llama.model import RMSNorm, Transformer
 from torchao.prototype.spinquant.hadamard_utils import (
     apply_exact_had_to_linear,
     get_hadK,

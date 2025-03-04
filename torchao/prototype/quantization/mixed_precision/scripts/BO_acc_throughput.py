@@ -18,15 +18,19 @@ from utils import (
 )
 
 import torchao
-from torchao._models.llama.generate import (
+from benchmarks._models.llama.model import (
+    KVCache,
+    Transformer,
+    prepare_inputs_for_model,
+)
+from benchmarks._models.llama.tokenizer import get_tokenizer
+from benchmarks._models.utils import (
     _load_model,
     decode_one_token,
-    device_sync,
     encode_tokens,
     prefill,
 )
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
+from torchao.utils import device_sync
 
 default_device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -99,7 +103,7 @@ def generate(
             _replace_with_custom_fn_if_matches_filter(
                 model,
                 AffineQuantizedKVCache.from_float,
-                lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
+                lambda x, y: isinstance(x, KVCache),
             )
 
     # format model input
@@ -396,7 +400,7 @@ def run_sequential_BO(
     args,
 ):
     """
-    currently use the loader and benchmark code from torchao/_models/llama/generate,
+    currently use the loader and benchmark code from benchmarks/_models/llama/generate,
     and use lm_eval for ppl evaluation
     """
     # load tokenizers
