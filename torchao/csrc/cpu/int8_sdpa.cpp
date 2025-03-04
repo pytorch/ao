@@ -7,7 +7,6 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/cpu/Utils.h>
 
-#include <ATen/native/transformers/sdp_utils_cpp.h>
 #include <ATen/native/cpu/utils.h>
 #include <c10/util/irange.h>
 
@@ -45,6 +44,8 @@ inline double calculate_scale(
 }
 
 #ifdef CPU_CAPABILITY_AVX512
+#include <ATen/native/transformers/sdp_utils_cpp.h>
+
 template <typename scalar_t>
 inline void fill_stub(scalar_t* data, scalar_t val, int64_t size) {
   using Vec = at::vec::Vectorized<scalar_t>;
@@ -2043,26 +2044,26 @@ at::Tensor _scaled_dot_product_int8_cpu(
           (attn_mask.dim() == 2 || attn_mask.dim() == 4),
     "_scaled_dot_product_int8_cpu: Attention mask dim in {2, 4}");
 
-  if (!at::native::cpublas::could_pack(dtype)) {
-      return sdpa_int8_math_kernel(query, key, value,
-          dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
-  }
-
   #ifdef CPU_CAPABILITY_AVX512
-    at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
-    sdpa_int8_fused_kernel(output, query, key, value,
-        dropout_p, is_causal, attn_mask, scale,
-        q_zp, q_scale,
-        k_zp, k_scale,
-        v_zp, v_scale,
-        a_zp, a_scale,
-        o_zp, o_scale);
-    return output.transpose(1, 2);
+    if (at::native::cpublas::could_pack(dtype)) {
+        at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
+        sdpa_int8_fused_kernel(output, query, key, value,
+            dropout_p, is_causal, attn_mask, scale,
+            q_zp, q_scale,
+            k_zp, k_scale,
+            v_zp, v_scale,
+            a_zp, a_scale,
+            o_zp, o_scale);
+        return output.transpose(1, 2);
+    } else {
+        return sdpa_int8_math_kernel(query, key, value,
+              dropout_p, is_causal, attn_mask, scale,
+              q_zp, q_scale,
+              k_zp, k_scale,
+              v_zp, v_scale,
+              a_zp, a_scale,
+              o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
+    }
   #else
     return sdpa_int8_math_kernel(query, key, value,
         dropout_p, is_causal, attn_mask, scale,

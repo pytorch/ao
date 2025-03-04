@@ -14,10 +14,15 @@ from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
 )
 
+__all__ = [
+    "_int8_sdpa_init",
+]
+
 make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
 
 aten = torch.ops.aten
 patterns = PatternMatcherPass()
+
 
 def _is_valid_int8_sdpa_pattern():
     def fn(match):
@@ -69,9 +74,9 @@ def _register_int8_sdpa_pattern(pattern):
             trans_key,
             trans_value,
             attn_mask,
-            0.0, #dropout
-            False, #is_causal
-            1.0 / inv_scale, #scale
+            0.0,  # dropout
+            False,  # is_causal
+            1.0 / inv_scale,  # scale
             q_zp,
             q_scale,
             k_zp,
@@ -84,7 +89,9 @@ def _register_int8_sdpa_pattern(pattern):
             o_scale,
         )
         trans_output = L[aten.permute.default](output, [0, 2, 1, 3])
-        return L[aten.clone.default](trans_output, memory_format=torch.contiguous_format)
+        return L[aten.clone.default](
+            trans_output, memory_format=torch.contiguous_format
+        )
 
     return int8_sdpa
 
@@ -416,12 +423,18 @@ def _register_int8_sdpa_fp32_lowering():
     # dtype = float32, without attention mask, batch size > 1
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=False, is_reduced_type=False, has_convert=True
+            has_mask=False,
+            is_batch_size_1=False,
+            is_reduced_type=False,
+            has_convert=True,
         )
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=False, is_reduced_type=False, has_convert=False
+            has_mask=False,
+            is_batch_size_1=False,
+            is_reduced_type=False,
+            has_convert=False,
         )
     )
 
@@ -430,12 +443,18 @@ def _register_int8_sdpa_fp32_mask_lowering():
     # dtype = float32, with attention mask, batch size > 1
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=False, is_reduced_type=False, has_convert=True
+            has_mask=True,
+            is_batch_size_1=False,
+            is_reduced_type=False,
+            has_convert=True,
         )
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=False, is_reduced_type=False, has_convert=False
+            has_mask=True,
+            is_batch_size_1=False,
+            is_reduced_type=False,
+            has_convert=False,
         )
     )
 
@@ -444,12 +463,18 @@ def _register_int8_sdpa_fp32_bs1_lowering():
     # dtype = float32, without attention mask, batch size == 1
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=True, is_reduced_type=False, has_convert=True
+            has_mask=False,
+            is_batch_size_1=True,
+            is_reduced_type=False,
+            has_convert=True,
         )
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=True, is_reduced_type=False, has_convert=False
+            has_mask=False,
+            is_batch_size_1=True,
+            is_reduced_type=False,
+            has_convert=False,
         )
     )
 
@@ -463,7 +488,10 @@ def _register_int8_sdpa_fp32_mask_bs1_lowering():
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=True, is_reduced_type=False, has_convert=False
+            has_mask=True,
+            is_batch_size_1=True,
+            is_reduced_type=False,
+            has_convert=False,
         )
     )
 
@@ -472,12 +500,18 @@ def _register_int8_sdpa_bf16_lowering():
     # dtype = bfloat16, without attention mask, batch size > 1
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=False, is_reduced_type=True, has_convert=True
+            has_mask=False,
+            is_batch_size_1=False,
+            is_reduced_type=True,
+            has_convert=True,
         )
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=False, is_reduced_type=True, has_convert=False
+            has_mask=False,
+            is_batch_size_1=False,
+            is_reduced_type=True,
+            has_convert=False,
         )
     )
 
@@ -491,7 +525,10 @@ def _register_int8_sdpa_bf16_mask_lowering():
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=False, is_reduced_type=True, has_convert=False
+            has_mask=True,
+            is_batch_size_1=False,
+            is_reduced_type=True,
+            has_convert=False,
         )
     )
 
@@ -505,7 +542,10 @@ def _register_int8_sdpa_bf16_bs1_lowering():
     )
     _register_int8_sdpa_pattern(
         _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=True, is_reduced_type=True, has_convert=False
+            has_mask=False,
+            is_batch_size_1=True,
+            is_reduced_type=True,
+            has_convert=False,
         )
     )
 
