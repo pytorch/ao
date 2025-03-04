@@ -273,11 +273,11 @@ class TestOptim(TestCase):
         model1 = nn.Sequential(
             nn.Linear(32, 131072),
             nn.ReLU(),
-            nn.Linear(131072, 64),
+            nn.Linear(131072, 64, bias=True),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(64, 64, bias=True),
             nn.ReLU(),
-            nn.Linear(64, 128),
+            nn.Linear(64, 128, bias=True),
         )
         model1.to(device)
 
@@ -329,7 +329,11 @@ class TestOptim(TestCase):
     )
     def test_optim_cpu_offload_save_load(self):
         device = _DEVICES[-1]
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
+        # enable bias parameters so we have some small tensors that
+        # are not offloaded.
+        model1 = nn.Sequential(
+            nn.Linear(32, 1024, bias=True), nn.ReLU(), nn.Linear(1024, 128, bias=True)
+        )
         model1.to(device)
         optim1 = low_bit_optim.CPUOffloadOptimizer(
             model1.parameters(), torch.optim.AdamW
