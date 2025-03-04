@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from torchao._models.llama.model import Transformer
+from benchmarks._models.llama.model import Transformer
 
 _AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
