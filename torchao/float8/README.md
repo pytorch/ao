@@ -215,7 +215,7 @@ and tensorwise scaling. The training benchmarks were all run using:
 - `torch.compile`
 - FSDP2
 
-| Model         | Scaling      | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over basline
+| Model         | Scaling      | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
 | ------------- | ------------ | ------------------------ | ------------------| -------------------- | ---------------------
 | Llama3-8b     |  none (bf16) | per op SAC               | 47.65             |  6019                | -
 | Llama3-8b     |  tensorwise  | per op SAC               | 47.77             |  7190                | 19.45%
