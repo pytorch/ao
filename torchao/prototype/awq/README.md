@@ -2,7 +2,7 @@
 Adapted from https://github.com/mit-han-lab/llm-awq
 
 ## Benchmarks
-Evaluation perplexity numbers were calculated using the script in awq/example.py Group size of 64 was used for all quantization methods. For Llama-2-7b-chat-hf, performance benchmarks were calculated using the torchao/_models/llama/generate.py script and run on a 1xA100 80GB SXM4 instance. The awq-uint4 quantization method does not use an efficient fused kernel which is why performance is not great. awq-hqq uses tinygemm int4->bf16 kernel + hqq to provide better performance.
+Evaluation perplexity numbers were calculated using the script in awq/example.py Group size of 64 was used for all quantization methods. For Llama-2-7b-chat-hf, performance benchmarks were calculated using the benchmarks/_models/llama/generate.py script and run on a 1xA100 80GB SXM4 instance. The awq-uint4 quantization method does not use an efficient fused kernel which is why performance is not great. awq-hqq uses tinygemm int4->bf16 kernel + hqq to provide better performance.
 
 | Model              | Quantization | Tokens/sec | Throughput (GB/sec) | Peak Mem (GB) | Model Size (GB) |
 |--------------------|--------------|------------|---------------------|---------------|-----------------|
@@ -23,9 +23,3 @@ The following tests were performed using LM eval and groupsize = 128
 |                    | awq-uint4    | 11.409     | 0.519           | 0.756      | 0.577         |
 |                    | int4wo-hqq   | 11.905     | 0.528           | 0.757      | 0.563         |
 |                    | int4wo-128   | 12.380     | 0.502           | 0.753      | 0.548         |
-
-
-
-
-
-
