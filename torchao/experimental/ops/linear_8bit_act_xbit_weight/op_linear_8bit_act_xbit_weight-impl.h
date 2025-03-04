@@ -6,6 +6,10 @@
 
 #pragma once
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <optional>
 #include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/kernel_selector.h>

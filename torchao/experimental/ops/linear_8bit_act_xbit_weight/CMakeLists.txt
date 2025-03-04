@@ -18,6 +18,12 @@ FetchContent_Declare(cpuinfo
 FetchContent_MakeAvailable(
     cpuinfo)
 
+FetchContent_Declare(
+  glog
+  GIT_REPOSITORY https://github.com/google/glog.git
+  GIT_TAG v0.7.1
+)
+FetchContent_MakeAvailable(glog)
 
 find_package(Torch REQUIRED)
 add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
@@ -25,11 +31,9 @@ add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
     op_linear_8bit_act_xbit_weight_aten.cpp
 )
 target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_aten aten_openmp)
-
-if(TORCHAO_BUILD_CPU_AARCH64)
-    target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
-endif()
+target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE cpuinfo)
+# target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE glog)
 target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_LIBRARIES}")
 target_compile_definitions(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE USE_ATEN=1)
@@ -51,8 +55,7 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
     target_compile_definitions(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE USE_EXECUTORCH=1)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
-    if(TORCHAO_BUILD_CPU_AARCH64)
-        target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE torchao_kernels_aarch64)
-    endif()
+    target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE torchao_kernels_aarch64)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE cpuinfo)
+    # target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE glog)
 endif()
