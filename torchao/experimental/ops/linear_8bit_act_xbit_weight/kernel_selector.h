@@ -10,9 +10,9 @@
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
 
 #include <optional>
 #include <string>
@@ -133,7 +133,7 @@ void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
       torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
 
   if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
     if (cpuinfo_has_arm_neon_dot()) {
       namespace kernel = torchao::kernels::cpu::aarch64::linear::
           channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
@@ -160,7 +160,7 @@ void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
                                  has_clamp>}}}});
       return;
     }
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
   }
 }
 
@@ -276,7 +276,6 @@ void register_ukernel_config(UKernelConfigRegistrationTable &table,
                                         /*has_bias*/ true, /*has_clamp*/ false>(
           table, format, uarch);
     } else {
-      LOG(INFO) << "REGISTERING UNIVERSAL" << std::endl;
       register_ukernel_config_universal<weight_nbit, has_weight_zeros,
                                         /*has_bias*/ false,
                                         /*has_clamp*/ false>(table, format,
@@ -286,7 +285,6 @@ void register_ukernel_config(UKernelConfigRegistrationTable &table,
   }
   case torchao::ops::PackedWeightsType::kleidi_ai: {
 #ifdef TORCHAO_ENABLE_KLEIDI
-    std::cout << "REGISTERING KLEIDI" << std::endl;
     register_ukernel_config_kleidi<weight_nbit, has_weight_zeros>(table, format,
                                                                   uarch);
 #endif // TORCHAO_ENABLE_KLEIDI
