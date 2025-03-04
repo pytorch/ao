@@ -79,6 +79,7 @@ from torch.utils.cpp_extension import (
 
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
 
+
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
@@ -291,8 +292,8 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -323,8 +324,8 @@ def get_extensions():
         )
 
     # Get base directory and source paths
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
@@ -340,24 +341,21 @@ def get_extensions():
             sources += cuda_sources
         else:
             # ROCm sources
+            # Add sparse marlin support
             extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
             hip_sources = list(
                 glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
             )
+            # Add tensor core tiled layout support
+            extensions_hip_dir = os.path.join(
+                extensions_dir, "cuda", "tensor_core_tiled_layout"
+            )
+            hip_sources += list(
+                glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+            )
 
-            # Check ROCm GPU architecture compatibility
-            gpu_arch = torch.cuda.get_device_properties(0).name
-            if gpu_arch != "gfx942":
-                print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-                print(
-                    "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
-                )
-                return None
-            sources += hip_sources
-
-    # Return None if no sources found
-    if not sources:
-        return None
+    if not IS_ROCM and use_cuda:
+        sources += cuda_sources
     else:
         # Remove CUTLASS-based kernels from the cuda_sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -368,6 +366,21 @@ def get_extensions():
             )
         )
         sources = [s for s in sources if s not in cutlass_sources]
+
+    # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    if IS_ROCM and use_cuda:
+        # Add ROCm GPU architecture check
+        gpu_arch = torch.cuda.get_device_properties(0).name
+        if gpu_arch != "gfx942":
+            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
+            return None
+        sources += hip_sources
+
+    if len(sources) == 0:
+        return None
 
     ext_modules = []
     if len(sources) > 0:
