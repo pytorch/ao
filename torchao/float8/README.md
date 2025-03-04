@@ -215,15 +215,15 @@ and tensorwise scaling. The training benchmarks were all run using:
 - `torch.compile`
 - FSDP2
 
-| Model         | Scaling      | Activation checkpointing | Median tokens/second      | Peak Memory (GB) |
-| ------------- | ------------ | ------------------------ | ------------------------- | ---------------- |
-| Llama3-8b     |  none (bf16) | per op SAC               | 6019                      | 47.65            |
-| Llama3-8b     |  tensorwise  | per op SAC               | 7190                      | 47.77            |
-| Llama3-8b     |  rowwise     | per op SAC               | 6649                      | 47.79            |
+| Model         | Scaling      | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over basline
+| ------------- | ------------ | ------------------------ | ------------------| -------------------- | ---------------------
+| Llama3-8b     |  none (bf16) | per op SAC               | 47.65             |  6019                | -
+| Llama3-8b     |  tensorwise  | per op SAC               | 47.77             |  7190                | 19.45%
+| Llama3-8b     |  rowwise     | per op SAC               | 47.79             |  6649                | 10.47%
 
-In these benchmarks tensorwise scaling achieved ~8% higher tokens/second over rowwise scaling, and ~19.5% higher than the bf16 baseline.
-However, it is important to note that rowwise scaling has been shown to yield improvments in training loss/accuracy due to reduced quantization error, particularly
-when training large models for many steps.
+**Important notes**:
+- Speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes ((example)[https://pytorch.org/blog/training-using-float8-fsdp2/]).
+- Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve.
 
 **Reproducing training benchmarks**
 To reproduce these benchmarks, you can follow these steps:
