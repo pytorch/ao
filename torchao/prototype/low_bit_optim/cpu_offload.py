@@ -152,7 +152,10 @@ class CPUOffloadOptimizer(Optimizer):
     def param_groups(self):
         # each param group will only has 1 parameter
         # TODO: we might want to return the original param_groups instead.
-        return sum((optim.param_groups for optim in self.optim_dict.values()), start=self.d_param_groups)
+        return sum(
+            (optim.param_groups for optim in self.optim_dict.values()),
+            start=self.d_param_groups,
+        )
 
     def state_dict(self):
         state_dict = {
@@ -163,7 +166,9 @@ class CPUOffloadOptimizer(Optimizer):
         return state_dict
 
     def load_state_dict(self, state_dict):
-        for optim, optim_state_dict in zip(self.optim_dict.values(), state_dict["offloaded"]):
+        for optim, optim_state_dict in zip(
+            self.optim_dict.values(), state_dict["offloaded"]
+        ):
             optim.load_state_dict(optim_state_dict)
 
         if self.d_opt:
