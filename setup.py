@@ -69,11 +69,11 @@ def use_debug_mode():
 
 import torch
 from torch.utils.cpp_extension import (
+    CUDA_HOME,
+    IS_WINDOWS,
     BuildExtension,
     CppExtension,
-    CUDA_HOME,
     CUDAExtension,
-    IS_WINDOWS,
 )
 
 

@@ -37,16 +37,13 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
 
-    if(TORCHAO_BUILD_KLEIDIAI)
-        message(STATUS "Building with Arm KleidiAI library")
-        add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
-    endif()
-endif()
-
-
-if (TORCHAO_BUILD_CPU_AARCH64)
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
+
+    if(TORCHAO_BUILD_KLEIDIAI)
+        message(STATUS "Building with Arm KleidiAI library")
+        add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+    endif()
 endif()
 
 add_subdirectory(ops/linear_8bit_act_xbit_weight)
@@ -78,7 +75,6 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     install(
         TARGETS
             torchao_ops_executorch
-            # torchao_kernels_aarch64
             torchao_ops_linear_8bit_act_xbit_weight_executorch
             torchao_ops_embedding_xbit_executorch
         EXPORT _targets

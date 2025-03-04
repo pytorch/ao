@@ -22,9 +22,6 @@ if (TORCHAO_BUILD_CPU_AARCH64)
           GIT_TAG v1.2.0)
     FetchContent_MakeAvailable(kleidiai)
 
-    # Temporarily exposing this to the parent scope until we wire
-    # this up properly from the top level
-    set(TORCHAO_BUILD_KLEIDI ON PARENT_SCOPE)
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
   endif()
 
