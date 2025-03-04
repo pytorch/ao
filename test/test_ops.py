@@ -154,21 +154,6 @@ class TestOps(TestCase):
     SDPA_INT8_HEAD_DIM = [32, 64]
     SDPA_INT8_MASK_DTYPE = [None, torch.float32, torch.bfloat16]
 
-    # VIT
-    # SDPA_INT8_BATCH_SIZE = [224]
-    # SDPA_INT8_NUM_HEADS = [12]
-    # SDPA_INT8_Q_SEQ_LEN = [197]
-    # SDPA_INT8_KV_SEQ_LEN = [197]
-    # SDPA_INT8_HEAD_DIM = [64]
-    # SDPA_INT8_MASK_DTYPE = [torch.bfloat16]
-    # BERTLARGE
-    # SDPA_INT8_BATCH_SIZE = [120]
-    # SDPA_INT8_NUM_HEADS = [16]
-    # SDPA_INT8_Q_SEQ_LEN = [384]
-    # SDPA_INT8_KV_SEQ_LEN = [384]
-    # SDPA_INT8_HEAD_DIM = [64]
-    # SDPA_INT8_MASK_DTYPE = [torch.bfloat16]
-
     @parametrize("batch_size", SDPA_INT8_BATCH_SIZE)
     @parametrize("n_head", SDPA_INT8_NUM_HEADS)
     @parametrize("q_seq_len", SDPA_INT8_Q_SEQ_LEN)
@@ -191,7 +176,6 @@ class TestOps(TestCase):
         q_shape = [batch_size, q_seq_len, n_head, head_dim]
         kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
         mask_shape = [batch_size, 1, 1, kv_seq_len]
-        print(f"q_shape: {q_shape}")
         q = torch.randn(q_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
         k = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
         v = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
@@ -239,33 +223,6 @@ class TestOps(TestCase):
         )
 
         self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)
-        
-        iter_n = 20
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU],
-            schedule=torch.profiler.schedule(wait=2, warmup=iter_n, active=20),
-        ) as prof:
-            for _ in range(iter_n + 22):
-                r = torch.ops.torchao.scaled_dot_product_int8(
-                    q,
-                    k,
-                    v,
-                    attn_mask=attn_mask_2,
-                    dropout_p=0.0,
-                    is_causal=False,
-                    q_zp=q_zp,
-                    q_scale=q_scale,
-                    k_zp=k_zp,
-                    k_scale=k_scale,
-                    v_zp=v_zp,
-                    v_scale=v_scale,
-                    a_zp=a_zp,
-                    a_scale=a_scale,
-                    o_zp=o_zp,
-                    o_scale=o_scale
-                )
-                prof.step()
-            print(prof.key_averages().table(sort_by="self_cpu_time_total"))
 
 
 

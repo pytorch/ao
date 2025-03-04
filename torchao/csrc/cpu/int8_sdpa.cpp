@@ -45,121 +45,6 @@ inline double calculate_scale(
 }
 
 #ifdef CPU_CAPABILITY_AVX512
-// out = val * a + b
-// is_b_stride_zero: If the stride of b is 0 (mask broadcasting case),
-//                take b as a scalar pointer.
-template <bool is_b_stride_zero, typename T1, typename T2>
-inline void _scale_attn_mask_fusion_kernel(
-    T1* a,
-    T2* b,
-    const int& size,
-    T1* out,
-    T1& val) {
-  const auto vec_size1 = at::vec::Vectorized<T1>::size();
-  const auto vec_size2 = at::vec::Vectorized<T2>::size();
-  constexpr int64_t T1_n =
-      (vec_size2 == vec_size1 * 2 && is_reduced_floating_point_v<T2>) ? 2 : 1;
-  constexpr int64_t T2_n = 1;
-  auto vec_scale = at::vec::VectorizedN<T1, T1_n>(val);
-  int64_t i = 0;
-  for (; i < size - (size % vec_size2); i += vec_size2) {
-    auto a_n = at::vec::VectorizedN<T1, T1_n>::loadu(a + i);
-    at::vec::VectorizedN<T2, T2_n> b_n;
-    if constexpr(is_b_stride_zero) {
-      b_n = at::vec::VectorizedN<T2, T2_n>((T1)b[0]);
-    } else {
-      b_n = at::vec::VectorizedN<T2, T2_n>::loadu(b + i);
-    }
-    auto b_n_convert = at::vec::convert<T1, T1_n, T2, T2_n, true>(b_n);
-    auto res = a_n * vec_scale + b_n_convert;
-    res.store(out + i);
-  }
-  for (; i < size; i++) {
-    auto tmp0 = a[i];
-    T1 tmp1;
-    if constexpr(is_b_stride_zero) {
-      tmp1 = (T1)b[0];
-    } else {
-      tmp1 = (T1)b[i];
-    }
-    out[i] = tmp0 * val + tmp1;
-  }
-}
-
-// 1) out = exp(a - val)
-// 2) val = sum(out)
-template <typename T1, typename T2>
-inline void _exp_reduce_sum_fusion_kernel(
-    T1* a,
-    const int& size,
-    T2* out,
-    T1& val) {
-  auto vec_size = at::vec::Vectorized<T1>::size();
-  auto vec_max = at::vec::Vectorized<T1>(val);
-  T1 tmp_sum = 0;
-  auto vec_tmp_sum = at::vec::Vectorized<T1>(tmp_sum);
-  for (long i = 0; i < vec_size * (size / vec_size); i += vec_size) {
-    auto tmp0 = at::vec::Vectorized<T1>::loadu(a + i);
-    auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = tmp1.exp_u20();
-    vec_tmp_sum += tmp2;
-    _store(out + i, tmp2);
-  }
-  tmp_sum = at::vec::vec_reduce_all<T1>(
-      [](at::vec::Vectorized<T1>& x, at::vec::Vectorized<T1>& y) {
-        return x + y;
-      },
-      vec_tmp_sum);
-  for (long i = vec_size * (size / vec_size); i < size; i++) {
-    auto tmp0 = a[i];
-    auto tmp1 = tmp0 - val;
-    auto tmp2 = exp(tmp1);
-    tmp_sum += tmp2;
-    out[i] = tmp2;
-  }
-  val = tmp_sum;
-}
-
-// 1) out = a * scale
-// 2) max = max(out)
-template <typename scalar_t>
-inline void _mul_reduce_max_fusion_kernel(
-    const scalar_t* a,
-    const scalar_t& scale,
-    const int& size,
-    scalar_t* out,
-    scalar_t& max) {
-  auto vec_size = at::vec::Vectorized<scalar_t>::size();
-  auto vec_scale = at::vec::Vectorized<scalar_t>(scale);
-  scalar_t tmp_max = -std::numeric_limits<scalar_t>::infinity();
-  auto vec_tmp_max = at::vec::Vectorized<scalar_t>(tmp_max);
-  for (long i = 0; i < vec_size * (size / vec_size); i += vec_size) {
-    auto tmp0 = at::vec::Vectorized<scalar_t>::loadu(a + i);
-    auto tmp1 = tmp0 * vec_scale;
-    vec_tmp_max = at::vec::maximum(vec_tmp_max, tmp1);
-    _store(out + i, tmp1);
-  }
-  for (long i = vec_size * (size / vec_size); i < size; i++) {
-    auto tmp0 = a[i];
-    auto tmp1 = tmp0 * scale;
-    tmp_max = std::max(tmp_max, tmp1);
-    out[i] = tmp1;
-  }
-  max = std::max(tmp_max, vec_tmp_max.reduce_max());
-}
-
-template <typename scalar_t>
-static inline scalar_t* conditional_data_ptr(scalar_t* ptr, scalar_t* ptr2) {
-  TORCH_CHECK(ptr2 == nullptr);
-  return ptr;
-}
-
-template <typename scalar_t,
-          typename std::enable_if_t<is_reduced_floating_point_v<scalar_t>, int> = 0>
-static inline scalar_t* conditional_data_ptr(float* ptr, scalar_t* ptr2) {
-  return ptr2;
-}
-
 template <typename scalar_t>
 inline void fill_stub(scalar_t* data, scalar_t val, int64_t size) {
   using Vec = at::vec::Vectorized<scalar_t>;
@@ -221,132 +106,6 @@ _store(scalar_t* dst, at::vec::Vectorized<float> src) {
   res.store(dst, at::vec::Vectorized<float>::size());
 }
 
-template <typename scalar_t>
-inline void pad_row_zero(
-    scalar_t* value_ptr,
-    scalar_t* padding_value_ptr,
-    int rows,
-    int cols,
-    int ldi) {
-  auto vec_size = at::vec::Vectorized<scalar_t>::size();
-  int i = 0;
-  for (; i < rows - 1; i++) {
-    int j = 0;
-    for (; j < cols - (cols % vec_size); j += vec_size) {
-      auto vec_v =
-          at::vec::Vectorized<scalar_t>::loadu(value_ptr + i * ldi + j);
-      vec_v.store(padding_value_ptr + i * cols + j);
-    }
-
-    if (j < cols) {
-      auto vec_v = at::vec::Vectorized<scalar_t>::loadu(
-          value_ptr + i * ldi + j, cols - j);
-      vec_v.store(padding_value_ptr + i * cols + j, cols - j);
-    }
-  }
-
-  // zero padding
-  int j = 0;
-  for (; j < cols - (cols % vec_size); j += vec_size) {
-    auto vec_v = at::vec::Vectorized<scalar_t>(0);
-    vec_v.store(padding_value_ptr + i * cols + j);
-  }
-
-  if (j < cols) {
-    auto vec_v = at::vec::Vectorized<scalar_t>(0);
-    vec_v.store(padding_value_ptr + i * cols + j, cols - j);
-  }
-}
-
-template <typename scalar_t>
-inline void pad_row_128_padding(
-    scalar_t* value_ptr,
-    scalar_t* padding_value_ptr,
-    int rows,
-    int cols,
-    int ldi,
-    int padding) {
-  auto vec_size = at::vec::Vectorized<scalar_t>::size();
-  int i = 0;
-  for (; i < rows - padding; i++) {
-    int j = 0;
-    for (; j < cols - (cols % vec_size); j += vec_size) {
-      auto vec_v =
-          at::vec::Vectorized<scalar_t>::loadu(value_ptr + i * ldi + j);
-      vec_v.store(padding_value_ptr + i * cols + j);
-    }
-
-    if (j < cols) {
-      auto vec_v = at::vec::Vectorized<scalar_t>::loadu(
-          value_ptr + i * ldi + j, cols - j);
-      vec_v.store(padding_value_ptr + i * cols + j, cols - j);
-    }
-  }
-
-  // 128 padding
-  for (; i < rows; i++) {
-    int j = 0;
-    for (; j < cols - (cols % vec_size); j += vec_size) {
-      auto vec_v = at::vec::Vectorized<scalar_t>(128);
-      vec_v.store(padding_value_ptr + i * cols + j);
-    }
-
-    if (j < cols) {
-      auto vec_v = at::vec::Vectorized<scalar_t>(128);
-      vec_v.store(padding_value_ptr + i * cols + j, cols - j);
-    }
-  }
-}
-
-template <typename scalar_t>
-inline void pad_col_zero(
-    scalar_t* value_ptr,
-    scalar_t* padding_value_ptr,
-    int rows,
-    int cols,
-    int ldi) {
-  auto vec_size = at::vec::Vectorized<scalar_t>::size();
-  for (int i = 0; i < rows; i++) {
-    int j = 0;
-    for (; j < cols - 1 - ((cols - 1) % vec_size); j += vec_size) {
-      auto vec_v =
-          at::vec::Vectorized<scalar_t>::loadu(value_ptr + i * ldi + j);
-      vec_v.store(padding_value_ptr + i * cols + j);
-    }
-    if (j < cols - 1) {
-      auto vec_v = at::vec::Vectorized<scalar_t>::loadu(
-          value_ptr + i * ldi + j, cols - 1 - j);
-      vec_v.store(padding_value_ptr + i * cols + j, cols - 1 - j);
-      *(padding_value_ptr + i * cols + cols - 1) = scalar_t(0);
-    }
-  }
-}
-
-template <typename scalar_t>
-inline void pad_col_zero_padding(
-    scalar_t* value_ptr,
-    scalar_t* padding_value_ptr,
-    int rows,
-    int cols,
-    int ldi,
-    int padding) {
-  auto vec_size = at::vec::Vectorized<scalar_t>::size();
-  for (int i = 0; i < rows; i++) {
-    int j = 0;
-    for (; j < cols - padding - ((cols - padding) % vec_size); j += vec_size) {
-      auto vec_v =
-          at::vec::Vectorized<scalar_t>::loadu(value_ptr + i * ldi + j);
-      vec_v.store(padding_value_ptr + i * cols + j);
-    }
-    if (j < cols - padding) {
-      auto vec_v = at::vec::Vectorized<scalar_t>::loadu(
-          value_ptr + i * ldi + j, cols - padding - j);
-      vec_v.store(padding_value_ptr + i * cols + j, cols - padding - j);
-      *(padding_value_ptr + i * cols + cols - padding) = scalar_t(0);
-    }
-  }
-}
-
 /*
 1. dequant
 2. add mask
@@ -389,7 +148,7 @@ inline void _dequant_mask_max_fusion_kernel(
       auto tmp6 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col);
       auto tmp7 = at::vec::convert<float>(tmp6);
       auto tmp8 = tmp5 + tmp7;
-      vec_tmp_max = at::vec::maximum(vec_tmp_max, tmp8);
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp8);
       _store(tmp_out + col, tmp8);
     }
     tmp_max = std::max(tmp_max, vec_tmp_max.reduce_max());
@@ -445,7 +204,7 @@ inline void _dequant_max_fusion_kernel(
       auto tmp3 = tmp2 + vec_beta;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = tmp4 * vec_alpha;
-      vec_tmp_max = at::vec::maximum(vec_tmp_max, tmp5);
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp5);
       _store(tmp_out + col, tmp5);
     }
     tmp_max = std::max(tmp_max, vec_tmp_max.reduce_max());
@@ -542,10 +301,9 @@ inline void _sub_exp_sum_div_quant_sum_fusion_kernel(
         auto tmp1 = tmp0 * vec_sum_scale;
         auto tmp2 = tmp1.round();
         auto tmp3 = tmp2 + vec_beta1;
-        auto tmp4 = at::vec::maximum(tmp3, vec_min_val);
-        auto tmp5 = at::vec::minimum(tmp4, vec_max_val);
-        _store(tmp_out + col, tmp5);
-        auto tmp6 = at::vec::convert<int32_t>(tmp5);
+        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
+        _store(tmp_out + col, tmp4);
+        auto tmp6 = at::vec::convert<int32_t>(tmp4);
         vec_tmp_sum += tmp6;
       }
       tmp_sum += vec_tmp_sum.reduce_add();
@@ -554,10 +312,9 @@ inline void _sub_exp_sum_div_quant_sum_fusion_kernel(
         auto tmp1 = tmp0 * sum_scale;
         auto tmp2 = std::nearbyint(tmp1);
         auto tmp3 = tmp2 + beta1_float;
-        auto tmp4 = std::max(tmp3, min_val);
-        auto tmp5 = std::min(tmp4, max_val);
-        tmp_out[col] = tmp5;
-        auto tmp6 = (int32_t) tmp5;
+        auto tmp4 = std::clamp(tmp3, min_val, max_val);
+        tmp_out[col] = tmp4;
+        auto tmp6 = (int32_t) tmp4;
         tmp_sum += tmp6;
       }
       sum_a_ptr[row] += tmp_sum * beta2;
@@ -641,18 +398,16 @@ inline void _sub_exp_sum_div_quant_fusion_kernel(
         auto tmp1 = tmp0 * vec_sum_scale;
         auto tmp2 = tmp1.round();
         auto tmp3 = tmp2 + vec_beta1;
-        auto tmp4 = at::vec::maximum(tmp3, vec_min_val);
-        auto tmp5 = at::vec::minimum(tmp4, vec_max_val);
-        _store(tmp_out + col, tmp5);
+        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
+        _store(tmp_out + col, tmp4);
       }
       for (long col = vec_size * (kvBlockSize / vec_size); col < kvBlockSize; col++) {
         auto tmp0 = tmp_in[col];
         auto tmp1 = tmp0 * sum_scale;
         auto tmp2 = std::nearbyint(tmp1);
         auto tmp3 = tmp2 + beta1_float;
-        auto tmp4 = std::max(tmp3, min_val);
-        auto tmp5 = std::min(tmp4, max_val);
-        tmp_out[col] = tmp5;
+        auto tmp4 = std::clamp(tmp3, min_val, max_val);
+        tmp_out[col] = tmp4;
       }
       // set zero
       for (long col = kvBlockSize; col <  vec_size * (av_gemm_K / vec_size); col += vec_size) {
@@ -706,9 +461,8 @@ inline void _dequant_quant_fusion_kernel(
       auto tmp5 = tmp4 * vec_alpha;
       auto tmp6 = tmp5.round();
       auto tmp7 = tmp6 + vec_beta2;
-      auto tmp8 = at::vec::maximum(tmp7, vec_min_val);
-      auto tmp9 = at::vec::minimum(tmp8, vec_max_val);
-      _store(tmp_out + col, tmp9);
+      auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
+      _store(tmp_out + col, tmp8);
     }
     for (long col = vec_size * (N / vec_size); col < N; col++) {
       auto sum_b = sum_b_ptr[col];
@@ -720,9 +474,8 @@ inline void _dequant_quant_fusion_kernel(
       auto tmp5 = tmp4 * alpha;
       auto tmp6 = std::nearbyint(tmp5);
       auto tmp7 = tmp6 + beta2_float;
-      auto tmp8 = std::max(tmp7, min_val);
-      auto tmp9 = std::min(tmp8, max_val);
-      tmp_out[col] = tmp9;
+      auto tmp8 = std::clamp(tmp7, min_val, max_val);
+      tmp_out[col] = tmp8;
     }
   }
 }
@@ -811,35 +564,6 @@ inline void _int_sum_a_contiguous_kernel(
   }
 }
 
-inline void do_convert_u8_s8(
-    unsigned char* src,
-    signed char* dst,
-    int64_t in_rows,
-    int64_t in_cols,
-    int64_t ldi,
-    int64_t ldo) {
-  auto vec_size = at::vec::Vectorized<int16_t>::size();
-  auto vec_128 = at::vec::Vectorized<int16_t>(128);
-  for (int64_t r = 0; r < in_rows; r++) {
-    const unsigned char* tmp_src = src + r * ldi;
-    signed char* tmp_dst = dst + r * ldo;
-    for (int64_t c = 0; c < vec_size * (in_cols / vec_size); c += vec_size) {
-      auto tmp0 = at::vec::Vectorized<unsigned char>::loadu(tmp_src + c, vec_size);
-      auto tmp1 = at::vec::convert<int16_t>(tmp0);
-      auto tmp2 = tmp1 - vec_128;
-      auto tmp3 = at::vec::convert<signed char>(tmp2);
-      _store(tmp_dst + c, tmp3, vec_size);
-    }
-    for (int64_t c = vec_size * (in_cols / vec_size); c < in_cols; c++) {
-      auto tmp0 = tmp_src[c];
-      auto tmp1 = (int16_t) tmp0;
-      auto tmp2 = tmp1 - 128;
-      auto tmp3 = (signed char) tmp2;
-      tmp_dst[c] = tmp3;
-    }
-  }
-}
-
 template <typename scalar_t>
 inline void do_transpose(
     scalar_t* src,
@@ -851,21 +575,6 @@ inline void do_transpose(
   for (int64_t r=0; r<in_rows; r++) {
     for (int64_t c=0; c<in_cols; c++) {
       *(dst + c * ldo + r) = *(src + r * ldi + c);
-    }
-  }
-}
-
-template <typename scalar_t>
-inline void do_copy(
-    scalar_t* src,
-    scalar_t* dst,
-    int64_t in_rows,
-    int64_t in_cols,
-    int64_t ldi,
-    int64_t ldo) {
-  for (int64_t r=0; r<in_rows; r++) {
-    for (int64_t c=0; c<in_cols; c++) {
-      *(dst + r * ldo + c) = *(src + r * ldi + c);
     }
   }
 }
@@ -994,12 +703,11 @@ sdpa_int8_kernel_one_loop_impl(
   at::Tensor key = k.transpose(1, 2);
   at::Tensor value = v.transpose(1, 2);
 
-  const auto accumulate_dtype = at::kFloat;
-
   using accum_t = float;
-  using Vec = at::vec::Vectorized<accum_t>;
   accum_t scaling_factor = calculate_scale(query, scale);
   int block_64 = 64;
+  auto u8_dt = at::ScalarType::Byte;
+
   // Sizes
   TORCH_CHECK(
       (query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
@@ -1012,7 +720,6 @@ sdpa_int8_kernel_one_loop_impl(
   int64_t kvSize = value.size(1);
   int64_t num_head = query.size(2);
   int64_t headSize = query.size(3);
-
 
   bool has_attn_mask = attention_mask.defined() && attention_mask.numel();
   if (has_attn_mask) {
@@ -1081,13 +788,6 @@ sdpa_int8_kernel_one_loop_impl(
   int av_gemm_K_padding = av_gemm_K_mul4 ? 0 : 4 - kvSplitSize % 4;
   // // If K of Gemm is not even, use mkl gemm instead of tpp for BF16
   int av_gemm_K = kvSplitSize + av_gemm_K_padding;
-  bool av_gemm_K_tail_mul4 = kvTail % 4 == 0;
-  int av_gemm_K_tail_padding = av_gemm_K_tail_mul4 ? 0 : 4 - kvTail % 4;
-  int av_gemm_K_tail = kvTail + av_gemm_K_tail_padding;
-
-  auto u8_dt = at::ScalarType::Byte;
-  auto s8_dt = at::ScalarType::Int;
-  auto f32_dt = at::ScalarType::Float;
 
   // Data ptrs
   scalar_t* q_data = query.data_ptr<scalar_t>();
@@ -1125,7 +825,7 @@ sdpa_int8_kernel_one_loop_impl(
 
   at::Tensor total_buf = at::empty(
       {num_thread, total_size_uint8_per_thread},
-      query.options()).zero_();
+      query.options());
   scalar_t* total_buf_data = total_buf.data_ptr<scalar_t>();
 
   at::parallel_for(
@@ -1540,12 +1240,11 @@ sdpa_int8_kernel_several_loops_impl(
   at::Tensor key = k.transpose(1, 2);
   at::Tensor value = v.transpose(1, 2);
 
-  const auto accumulate_dtype = at::kFloat;
-
   using accum_t = float;
-  using Vec = at::vec::Vectorized<accum_t>;
   accum_t scaling_factor = calculate_scale(query, scale);
   int block_64 = 64;
+  auto u8_dt = at::ScalarType::Byte;
+
   // Sizes
   TORCH_CHECK(
       (query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
@@ -1558,7 +1257,6 @@ sdpa_int8_kernel_several_loops_impl(
   int64_t kvSize = value.size(1);
   int64_t num_head = query.size(2);
   int64_t headSize = query.size(3);
-
 
   bool has_attn_mask = attention_mask.defined() && attention_mask.numel();
   if (has_attn_mask) {
@@ -1627,13 +1325,6 @@ sdpa_int8_kernel_several_loops_impl(
   int av_gemm_K_padding = av_gemm_K_mul4 ? 0 : 4 - kvSplitSize % 4;
   // // If K of Gemm is not even, use mkl gemm instead of tpp for BF16
   int av_gemm_K = kvSplitSize + av_gemm_K_padding;
-  bool av_gemm_K_tail_mul4 = kvTail % 4 == 0;
-  int av_gemm_K_tail_padding = av_gemm_K_tail_mul4 ? 0 : 4 - kvTail % 4;
-  int av_gemm_K_tail = kvTail + av_gemm_K_tail_padding;
-
-  auto u8_dt = at::ScalarType::Byte;
-  auto s8_dt = at::ScalarType::Int;
-  auto f32_dt = at::ScalarType::Float;
 
   // Data ptrs
   scalar_t* q_data = query.data_ptr<scalar_t>();
@@ -1667,7 +1358,7 @@ sdpa_int8_kernel_several_loops_impl(
 
   at::Tensor total_buf = at::empty(
       {num_thread, total_size_uint8_per_thread},
-      query.options()).zero_();
+      query.options());
   scalar_t* total_buf_data = total_buf.data_ptr<scalar_t>();
 
   int64_t kv_sum_size_per_BH =
@@ -1676,7 +1367,7 @@ sdpa_int8_kernel_several_loops_impl(
 
   at::Tensor kv_sum_buf = at::empty(
       {batchSize, num_head, kv_sum_size_per_BH},
-      query.options().dtype(at::kInt)).zero_();
+      query.options().dtype(at::kInt));
   int32_t* kv_sum_buf_data = kv_sum_buf.data_ptr<int32_t>();
 
   int64_t kv_reorder_size_per_BH =
@@ -1685,7 +1376,7 @@ sdpa_int8_kernel_several_loops_impl(
 
   at::Tensor kv_reorder_buf = at::empty(
       {batchSize, num_head, kv_reorder_size_per_BH},
-      query.options()).zero_();
+      query.options());
   scalar_t* kv_reorder_buf_data = kv_reorder_buf.data_ptr<scalar_t>();
   scalar_t* key_reorder_ptr = kv_reorder_buf_data;
   scalar_t* value_reorder_ptr = kv_reorder_buf_data + batchSize * num_head * qk_gemm_K * rndkvSize;
