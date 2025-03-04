@@ -252,6 +252,7 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
+
     if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
         print(
             "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
@@ -291,8 +292,8 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -340,7 +341,7 @@ def get_extensions():
             sources += cuda_sources
         else:
             # ROCm sources
-            extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+            extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin", "tensor_core_tiled_layout")
             hip_sources = list(
                 glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
             )
@@ -368,6 +369,21 @@ def get_extensions():
             )
         )
         sources = [s for s in sources if s not in cutlass_sources]
+
+    # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    if IS_ROCM and use_cuda:
+        # Add ROCm GPU architecture check
+        gpu_arch = torch.cuda.get_device_properties(0).name
+        if gpu_arch != "gfx942":
+            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
+            return None
+        sources += hip_sources
+
+    if len(sources) == 0:
+        return None
 
     ext_modules = []
     if len(sources) > 0:
