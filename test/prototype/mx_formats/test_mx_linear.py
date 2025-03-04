@@ -12,7 +12,6 @@ import torch
 import torch.nn as nn
 
 from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
     MXLinearConfig,
     MXLinearRecipeName,
 )
