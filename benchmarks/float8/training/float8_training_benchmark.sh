@@ -22,7 +22,11 @@ fi
 
 # validate recipe name
 if [ -n "${FLOAT8_RECIPE}" ]; then
-  FLOAT8_ARGS="--model.converters="float8" --float8.recipe_name=${FLOAT8_RECIPE}"
+  if [ "${FLOAT8_RECIPE}" == "tensorwise" ]; then
+    FLOAT8_ARGS="--model.converters="float8" --float8.enable_fsdp_float8_all_gather --float8.precompute_float8_dynamic_scale_for_fsdp --float8.force_recompute_fp8_weight_in_bwd"
+  else
+    FLOAT8_ARGS="--model.converters="float8" --float8.recipe_name=${FLOAT8_RECIPE}"
+  fi
 fi
 
 
