@@ -1,3 +1,4 @@
+#pragma once
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/Dispatch.h>

@@ -153,6 +153,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         from torch.export import export_for_training
 
         # pattern is different for bs=1
+        torch.manual_seed(1234)
         for dtype, has_mask, bs in itertools.product(
             [torch.float32, torch.bfloat16], [True, False], [56, 1]
         ):
