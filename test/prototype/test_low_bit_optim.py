@@ -327,9 +327,7 @@ class TestOptim(TestCase):
         # enable bias parameters so we have some small tensors that
         # are not offloaded.
         model1 = nn.Sequential(
-            nn.Linear(32, 1024, bias=True),
-            nn.ReLU(),
-            nn.Linear(1024, 128, bias=True)
+            nn.Linear(32, 1024, bias=True), nn.ReLU(), nn.Linear(1024, 128, bias=True)
         )
         model1.to(device)
         optim1 = low_bit_optim.CPUOffloadOptimizer(
