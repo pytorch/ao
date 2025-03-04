@@ -147,55 +147,30 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                     ):
                         self.assertEqual(arg1.grad, arg2.grad, atol=atol, rtol=rtol)
 
-            iter_n = 20
-            with torch.profiler.profile(
-                activities=[torch.profiler.ProfilerActivity.CPU],
-                schedule=torch.profiler.schedule(wait=2, warmup=iter_n, active=20),
-            ) as prof:
-                for _ in range(iter_n + 22):
-                    r = compiled_model(*(args2 + dropout_arg))
-                    prof.step()
-                print(prof.key_averages().table(sort_by="self_cpu_time_total"))
-
     @skipIfRocm
     @config.patch({"freezing": True})
-    def _test_sdpa_rewriter_int8_1_to_4(self):
+    def _test_sdpa_int8_rewriter(self):
         # pattern is different for bs=1
         for dtype, has_mask, bs in itertools.product(
             [torch.float32, torch.bfloat16], [True, False], [56, 1]
         ):
             seqlen, numhead, headsize = 197, 16, 64
-        # dtype = torch.bfloat16
-        # has_mask = True
-        # is_bs_1 = 0
-        # if is_bs_1:
-        #     candidates = [[1, 384, 16, 64], [1, 197, 12, 64]]
-        # else:
-        #     candidates = [[120, 384, 16, 64], [224, 197, 12, 64]]
-        # candidates = [[120, 384, 16, 64]]
-        # for bs, seqlen, numhead, headsize in candidates:
             mod = SelfAttnLikeModule(
                 input_dim=headsize * numhead,
                 has_mask=has_mask,
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
-            maybe_autocast = (
-                torch.cpu.amp.autocast()
-                if dtype == torch.bfloat16
-                else contextlib.nullcontext()
-            )
-            print("\nTEST shape", bs, numhead, seqlen, headsize)
             inputs = (
                 torch.randn(
                     (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
-                )
-                * 10,
+                ) * 10,
                 torch.randn((bs, 1, 1, seqlen), device=self.device) * 10
                 if has_mask
                 else None,
             )
-            with torch.no_grad(), maybe_autocast:
+            enable_autocast = (dtype == torch.bfloat16)
+            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast, dtype=torch.bfloat16):
                 _int8_sdpa_init()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
@@ -217,7 +192,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 if HAS_CPU:
     class SDPAPatternRewriterCpuTests(TestSDPAPatternRewriterTemplate):
         device = "cpu"
-        test_sdpa_rewriter_int8_1_to_4_cpu = TestSDPAPatternRewriterTemplate._test_sdpa_rewriter_int8_1_to_4
+        test_sdpa_int8_rewriter_cpu = TestSDPAPatternRewriterTemplate._test_sdpa_int8_rewriter
 
 if __name__ == "__main__":
     if IS_LINUX:

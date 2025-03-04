@@ -45,7 +45,6 @@ def _register_int8_sdpa_pattern(pattern):
         extra_check=_is_valid_int8_sdpa_pattern(),
     )
     def int8_sdpa(match: Match, *args, **kwargs):
-        print("\n***hit int8_sdpa_pattern***\n")
         query = kwargs["query"]
         key = kwargs["key"]
         value = kwargs["value"]
