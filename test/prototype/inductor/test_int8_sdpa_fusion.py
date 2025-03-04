@@ -2,17 +2,11 @@ import itertools
 
 import pytest
 import torch
-import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
 import torch.utils.checkpoint
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
-from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
-    X86InductorQuantizer,
-)
-from torch.export import export_for_training
 from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 
@@ -151,6 +145,13 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
+        import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
+        from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
+        from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
+            X86InductorQuantizer,
+        )
+        from torch.export import export_for_training
+
         # pattern is different for bs=1
         for dtype, has_mask, bs in itertools.product(
             [torch.float32, torch.bfloat16], [True, False], [56, 1]
