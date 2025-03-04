@@ -330,30 +330,23 @@ def get_extensions():
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
-    # Collect CUDA source files if needed
-    if use_cuda:
-        if not IS_ROCM:
-            # Regular CUDA sources
-            extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-            cuda_sources = list(
-                glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
-            )
-            sources += cuda_sources
-        else:
-            # ROCm sources
-            # Add sparse marlin support
-            extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
-            hip_sources = list(
-                glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-            )
-            # Add tensor core tiled layout support
-            extensions_hip_dir = os.path.join(
-                extensions_dir, "cuda", "tensor_core_tiled_layout"
-            )
-            hip_sources += list(
-                glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-            )
+    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+    cuda_sources = list(
+        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    )
 
+    extensions_hip_dir = os.path.join(
+        extensions_dir, "cuda", "tensor_core_tiled_layout"
+    )
+    hip_sources = list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
+    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+    hip_sources += list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
+
+    # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
     else:
