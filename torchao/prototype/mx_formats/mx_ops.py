@@ -64,6 +64,7 @@ def mx_desugar_op(aten_op, args, kwargs=None):
         old._orig_dtype,
         old._use_fp4_custom_triton_dequant_kernel,
         old._gemm_kernel_choice,
+        old._pack_fp6,
     )
     return new
 
@@ -129,6 +130,7 @@ def mx_t(aten_op, args, kwargs=None):
         old._orig_dtype,
         old._use_fp4_custom_triton_dequant_kernel,
         old._gemm_kernel_choice,
+        old._pack_fp6,
     )
     return new
 
@@ -160,7 +162,7 @@ def mx_view_op(aten_op, args, kwargs=None):
     if args[0]._elem_dtype == DTYPE_FP4:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
-    elif args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3]:
+    elif args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3] and args[0]._pack_fp6:
         # special case fp6 as we pack 4 elements in 3 bytes
         new_size = tensor_size_hpx3_to_fp6x4(new_size, data.is_contiguous())
     new_data = aten_op(data, new_size, *args[2:], **kwargs)
@@ -172,6 +174,7 @@ def mx_view_op(aten_op, args, kwargs=None):
         args[0]._orig_dtype,
         args[0]._use_fp4_custom_triton_dequant_kernel,
         args[0]._gemm_kernel_choice,
+        args[0]._pack_fp6,
     )
 
 
@@ -197,5 +200,6 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         kwargs["dtype"],
         args[0]._use_fp4_custom_triton_dequant_kernel,
         args[0]._gemm_kernel_choice,
+        args[0]._pack_fp6,
     )
     return res

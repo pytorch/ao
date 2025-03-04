@@ -15,7 +15,6 @@ from torchao.prototype.mx_formats.constants import (
     SUPPORTED_ELEM_DTYPES,
 )
 
-pack_fp6 = True
 
 class MXGemmKernelChoice(Enum):
     # always available - MX operands are dequantized and a high precision
@@ -61,6 +60,9 @@ class MXLinearConfig:
 
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
+
+    # If True, packs 4xFP6 into 3xuint8 containers, using custom triton kernels (fused unpack/dequantize)
+    pack_fp6 = False
 
     def __post_init__(self):
         # validate elem_dtype and its overrides

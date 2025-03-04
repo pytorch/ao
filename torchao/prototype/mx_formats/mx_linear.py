@@ -37,6 +37,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype: Any,
         block_size: int,
         gemm_kernel_choice: MXGemmKernelChoice,
+        pack_fp6: bool,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -44,16 +45,17 @@ class mx_mm(torch.autograd.Function):
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
         ctx.gemm_kernel_choice = gemm_kernel_choice
+        ctx.pack_fp6 = pack_fp6
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
         input_mx_r_dim0 = MXTensor.to_mx(
-            input_hp_r, in_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice
+            input_hp_r, in_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice, pack_fp6=pack_fp6
         )
         weight_mx_dim0 = MXTensor.to_mx(
-            weight_hp, w_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice
+            weight_hp, w_elem_dtype, block_size, gemm_kernel_choice=gemm_kernel_choice, pack_fp6=pack_fp6
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -69,6 +71,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
         gemm_kernel_choice = ctx.gemm_kernel_choice
+        pack_fp6 = ctx.pack_fp6
 
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
@@ -82,12 +85,14 @@ class mx_mm(torch.autograd.Function):
             grad_elem_dtype,
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
+            pack_fp6=pack_fp6,
         )
         weight_mx_dim1 = MXTensor.to_mx(
             weight_hp_t_c,
             w_elem_dtype,
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
+            pack_fp6=pack_fp6,
         )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
@@ -100,17 +105,19 @@ class mx_mm(torch.autograd.Function):
             grad_elem_dtype,
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
+            pack_fp6=pack_fp6,
         )
         input_t_mx_dim0_tmp = MXTensor.to_mx(
             input_hp_r.t().contiguous(),
             in_elem_dtype,
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
+            pack_fp6=pack_fp6,
         )
         input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None, None, None, None
+        return grad_input, grad_weight, None, None, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -154,6 +161,7 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
             config.gemm_kernel_choice,
+            config.pack_fp6,
         )
         if self.bias is not None:
             y = y + self.bias
@@ -189,6 +197,7 @@ class MXInferenceLinear(torch.nn.Linear):
             config.elem_dtype,
             block_size=config.block_size,
             gemm_kernel_choice=config.gemm_kernel_choice,
+            pack_fp6=config.pack_fp6,
         )
         new_mod.bias = mod.bias
         new_mod.config = config
