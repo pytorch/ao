@@ -195,6 +195,10 @@ def test_linear_compile(recipe_name, bias):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
+    if recipe_name in ["mxfp8_cutlass", "mxfp4_cutlass"]:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for MX gemms")
+
     if bias and recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
@@ -291,6 +295,14 @@ def test_inference_compile_simple(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    is_sm_at_least_100(),
+    reason="triton does not work yet on CUDA capability 10.0",
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MX gemms require CUDA capability 10.0",
+)
 def test_scaled_mm_wrapper():
     # today, e8m0 isn't supported in torchinductor or triton
     # for now, work around this by creating a wrapper around torch._scaled_mm
