@@ -16,7 +16,6 @@ from utils import (
     get_name_to_shapes_iter,
 )
 
-from torchao.float8.config import ScalingGranularity
 from torchao.testing.float8.roofline_utils import get_specs
 
 
@@ -53,15 +52,17 @@ def do_benchmarks(
 @torch.inference_mode()
 def run(
     n_limit: Optional[int] = None,
-    shape_gen_name: str = "llama",
+    shape_gen_name: str = "pow2_extended",
     out_filename: Optional[str] = None,
     M: Optional[int] = None,
     K: Optional[int] = None,
     N: Optional[int] = None,
-    use_gpu_kernel_time: bool = False,
-    scaling_granularity: str = "tensorwise",
+    use_gpu_kernel_time: bool = True,
+    recipe: str = "tensorwise",
 ):
     device = "cuda"
+    # TODO(future PR): this is ugly
+    assert recipe in ("tensorwise", "rowwise", "mxfp8_cublas"), "unsupported"
 
     specs = get_specs()
     bf16_peak_tops = specs["bf16_peak_tops"]
@@ -84,7 +85,6 @@ def run(
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
-    scaling_granularity = ScalingGranularity(scaling_granularity)
 
     for idx, (fast_accum, (name, (M, K, N))) in enumerate(
         itertools.product(fast_accum_vals, name_to_shapes)
@@ -112,13 +112,17 @@ def run(
         d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-        if scaling_granularity == ScalingGranularity.TENSORWISE:
+        if recipe == "tensorwise":
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
-        else:
-            assert scaling_granularity == ScalingGranularity.AXISWISE, "unsupported"
+        elif recipe == "rowwise":
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
+        elif recipe == "mxfp8_cublas":
+            scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+            scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+        else:
+            assert False, f"unknown recipe {recipe}"
 
         def do_matmul(A, B):
             nonlocal scale_a
