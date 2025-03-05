@@ -28,6 +28,17 @@ def _aqt_is_int4(aqt):
     )
 
 
+def _same_metadata(self: "Int4PackedTensorImpl", src: "Int4PackedTensorImpl") -> bool:
+    return (
+        isinstance(self, Int4PackedTensorImpl)
+        and isinstance(src, Int4PackedTensorImpl)
+        and self.shape == src.shape
+        and self.int_data.shape == src.int_data.shape
+        and self.scale.shape == src.scale.shape
+        and type(self._layout) == type(src._layout)
+    )
+
+
 @dataclass(frozen=True)
 class CutlassInt4PackedLayout(Layout):
     """Layout class for int4 packed layout for affine quantized tensor, for cutlass kernel."""
@@ -75,6 +86,18 @@ class Int4PackedTensorImpl(AQTTensorImpl):
         if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        elif func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
 
         raise NotImplementedError(
