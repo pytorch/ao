@@ -18,13 +18,17 @@ FetchContent_Declare(cpuinfo
 FetchContent_MakeAvailable(
     cpuinfo)
 
+
 find_package(Torch REQUIRED)
 add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
     linear_8bit_act_xbit_weight.cpp
     op_linear_8bit_act_xbit_weight_aten.cpp
 )
 target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_aten aten_openmp)
-target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
+
+if(TORCHAO_BUILD_CPU_AARCH64)
+    target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
+endif()
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE cpuinfo)
 target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
 target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE "${TORCH_LIBRARIES}")
@@ -47,6 +51,8 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
     target_compile_definitions(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE USE_EXECUTORCH=1)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
-    target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE torchao_kernels_aarch64)
+    if(TORCHAO_BUILD_CPU_AARCH64)
+        target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE torchao_kernels_aarch64)
+    endif()
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE cpuinfo)
 endif()
