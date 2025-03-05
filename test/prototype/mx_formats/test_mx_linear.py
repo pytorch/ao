@@ -168,9 +168,9 @@ def test_activation_checkpointing():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(
-#     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-# )
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
 @pytest.mark.parametrize(
     "recipe_name",
     ["mxfp8_emulated", "mxfp4_emulated", "mxfp8_cutlass", "mxfp4_cutlass"],
