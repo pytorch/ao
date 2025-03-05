@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from torch._inductor import config as inductorconfig
 
-from benchmarks._models.utils import (
+from torchao._models.utils import (
     get_arch_name,
     write_json_result_local,
     write_json_result_ossci,
@@ -460,11 +460,11 @@ def main(
         from sam2.build_sam import build_sam2
         from sam2.utils.amg import rle_to_mask
     else:
-        from benchmarks._models.sam2.automatic_mask_generator import (
+        from torchao._models.sam2.automatic_mask_generator import (
             SAM2AutomaticMaskGenerator,
         )
-        from benchmarks._models.sam2.build_sam import build_sam2
-        from benchmarks._models.sam2.utils.amg import rle_to_mask
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.utils.amg import rle_to_mask
 
     device = "cuda"
     sam2_checkpoint, model_cfg = model_type_to_paths(checkpoint_path, model_type)

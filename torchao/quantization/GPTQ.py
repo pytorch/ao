@@ -79,9 +79,9 @@ class GenericGPTQRunner(fx.Interpreter):
         # trace model for one input
         one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
         # needed for GPTQ on the torchao llama model
-        import benchmarks
+        import torchao
 
-        benchmarks._models.llama.model.use_index_put_for_kv_cache = True
+        torchao._models.llama.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
             model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
@@ -741,8 +741,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -1131,8 +1130,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"

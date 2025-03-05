@@ -280,7 +280,7 @@ def main(
     if use_baseline:
         from sam2.build_sam import build_sam2_video_predictor
     else:
-        from benchmarks._models.sam2.build_sam import build_sam2_video_predictor
+        from torchao._models.sam2.build_sam import build_sam2_video_predictor
 
     device = "cuda:0"
     # hydra_overrides_extra = ["++model.compile_image_encoder=true"]
@@ -292,7 +292,7 @@ def main(
     )
     predictor._frame_batch_size = frame_batch_size
     predictor.image_encoder.trunk = predictor.image_encoder.trunk.to(torch.bfloat16)
-    from benchmarks._models.sam2.modeling.sam.transformer import RoPEAttention
+    from torchao._models.sam2.modeling.sam.transformer import RoPEAttention
 
     rope_attention_modules = [
         module for module in predictor.modules() if isinstance(module, RoPEAttention)
