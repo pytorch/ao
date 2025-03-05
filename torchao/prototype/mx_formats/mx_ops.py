@@ -45,12 +45,14 @@ def _scaled_mm_with_uint8_scales(
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
     """
-    TODO write me
+    Until https://github.com/pytorch/pytorch/issues/147873 is done, we need to
+    work around the lack of support for `torch.float8_e8m0fnu` in
+    torchinductor. We do so by hiding the cast of scales to e8m0 inside a
+    custom op.
     """
     # cast back to e8m0 where torchinductor can't see it
     a_scale = a_scale.view(torch.float8_e8m0fnu)
     b_scale = b_scale.view(torch.float8_e8m0fnu)
-
     res = torch._scaled_mm(a, b, a_scale, b_scale, out_dtype=out_dtype)
     return res
 

@@ -171,23 +171,20 @@ def test_activation_checkpointing():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    is_sm_at_least_100() and False,
+    is_sm_at_least_100(),
     reason="triton does not work yet on CUDA capability 10.0",
 )
 @pytest.mark.parametrize(
     "recipe_name",
-    # ["mxfp8_emulated", "mxfp4_emulated", "mxfp8_cutlass", "mxfp4_cutlass"],
     [
+        "mxfp8_emulated",
+        "mxfp4_emulated",
         "mxfp8_cublas",
+        "mxfp8_cutlass",
+        "mxfp4_cutlass",
     ],
 )
-# @pytest.mark.parametrize("bias", [False, True])
-@pytest.mark.parametrize(
-    "bias",
-    [
-        False,
-    ],
-)
+@pytest.mark.parametrize("bias", [False, True])
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
 def test_linear_compile(recipe_name, bias):
@@ -198,9 +195,9 @@ def test_linear_compile(recipe_name, bias):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    if bias and recipe_name in ["mxfp8_cutlass", "mxfp4_cutlass"]:
+    if bias and recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
         # TODO(future PR): fix this, things are clearly broken with bias=True
-        pytest.skip("this test is broken for cutlass recipes with bias=True")
+        pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
     M, K, N = 128, 256, 512
     input_shape = (M, K)
