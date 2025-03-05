@@ -373,7 +373,7 @@ def main(
     # get gradient shape
     with torch.no_grad():
         _ = m_ref(input_tensor)
-        grad_output = torch.ones_like(_)
+        grad_output = torch.ones_like(_).contiguous()
 
     m_lowp = copy.deepcopy(m_ref)
     if mx_recipe_name is None:
