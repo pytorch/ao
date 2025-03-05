@@ -63,7 +63,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         """
         Checks the accuracy of different layouts by comparing the results to PlainLayout()
         """
-        m = 1
+        m = 3
         n = 1071
         k = 4096
         activations = torch.randn(m, k)
@@ -96,15 +96,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        if self._use_relaxed_tolerance(layout, weight_dtype, has_weight_zeros):
-            self.assertTrue(
-                torch.nn.functional.mse_loss(result, expected_result) <= 1e-5
-            )
-        else:
-            self.assertTrue(torch.allclose(result, expected_result, atol=1e-4))
+        # When weight_dtype is int4, the quantization error may be larger
+        # because KleidiAI kernels may be used
+        self._assert_close(result, expected_result, strict=(weight_dtype != torch.int4))
 
     def test_accuracy_aten(self):
-        m = 1
+        m = 3
         n = 1024
         k = 4096
         activations = torch.randn(m, k)
@@ -113,7 +110,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         weight_dtype = torch.int4
         granularity = PerGroup(128)
         has_weight_zeros = False
-        has_bias = False  # KleidiAI throws if bias is packed with weights
 
         reference_layout = PlainLayout()
         quantized_model = copy.deepcopy(model)
@@ -123,7 +119,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
-                has_bias=has_bias,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
             ),
         )
@@ -143,16 +138,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-8)
+        self._assert_close(result, expected_result, strict=False)
 
-    def _use_relaxed_tolerance(self, layout, weight_dtype, has_weight_zeros):
-        # Use relaxed tolerance in cases where KleidiAI kernels might
-        # be selected.
-        return (
-            isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
-            and weight_dtype == torch.int4
-            and not has_weight_zeros
-        )
+    def _assert_close(self, result, expected_result, strict: bool = False):
+        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-8)
+        if strict:
+            self.assertTrue(torch.allclose(result, expected_result, atol=1e-3))
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
@@ -171,7 +162,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         has_weight_zeros = True
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
-            torch.nn.Linear(k1, k2, bias=False),
+            torch.nn.Linear(k1, k2, bias=True),
             torch.nn.Linear(k2, k3, bias=False),
         ]
         model = torch.nn.Sequential(*layers)

@@ -6,7 +6,7 @@
 
 import logging
 from enum import Enum, auto
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -53,39 +53,21 @@ def target_from_str(target: str) -> Target:
 
 
 class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
-    bit_width: Optional[int]
-    group_size: Optional[int]
-    has_weight_zeros: Optional[bool]
-    has_bias: Optional[bool]
-    # The target platform for the layout, 'native' or 'aten'
-    target: Optional[Target]
-
     def __init__(
         self,
-        bit_width: Optional[int] = None,
-        group_size: Optional[int] = None,
-        has_weight_zeros: Optional[bool] = None,
-        has_bias: Optional[bool] = None,
-        target: Optional[str] = "native",
+        target: Union[str, Target] = "native",
     ):
-        if bit_width is not None:
-            assert bit_width >= 1 and bit_width <= 8, "bit_width must be 1 to 8"
-        if group_size is not None:
-            assert group_size >= 1, f"group_size must be positive, got {group_size}"
+        if isinstance(target, str):
+            target = target_from_str(target)
+        self.target = target
 
-        self.bit_width = bit_width
-        self.group_size = group_size
-        self.has_weight_zeros = has_weight_zeros
-        self.has_bias = has_bias
-        self.target = target_from_str(target)
-
-        if not self.has_params_set():
-            assert (
-                self.bit_width is None
-                and self.group_size is None
-                and self.has_weight_zeros is None
-                and self.has_bias is None
-            ), "bit_width, group_size, has_weight_zeros, has_bias must be None if has_params_set is False"
+        self.bit_width: Optional[int] = None
+        self.group_size: Optional[int] = None
+        self.has_weight_zeros: Optional[bool] = None
+        # has_bias is whether the packed weights
+        # have bias packed with them, not whether the
+        # linear operator has bias
+        self.has_bias: Optional[bool] = None
 
     def extra_repr(self):
         return f"group_size={self.group_size}, bit_width={self.bit_width}, has_weight_zeros={self.has_weight_zeros}, has_bias={self.has_bias}, target={self.target}"
@@ -98,6 +80,18 @@ class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
             and (self.has_bias is not None)
             and (self.target is not None)
         )
+
+    def set_params(
+        self, bit_width: int, group_size: int, has_weight_zeros: bool, has_bias: bool
+    ):
+        assert bit_width >= 1 and bit_width <= 8, "bit_width must be 1 to 8"
+        assert group_size >= 1, f"group_size must be positive, got {group_size}"
+
+        self.bit_width = bit_width
+        self.group_size = group_size
+        self.has_weight_zeros = has_weight_zeros
+        self.has_bias = has_bias
+        assert self.has_params_set()
 
 
 @register_layout(PackedLinearInt8DynamicActivationIntxWeightLayout)

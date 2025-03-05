@@ -15,7 +15,6 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.dtypes import PlainLayout
 from torchao.quantization.granularity import (
     PerGroup,
     PerRow,
@@ -516,7 +515,7 @@ from torchao.quantization.utils import _get_per_token_block_size
 @dataclass
 class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     """
-    Configuration for dynamically quantizes activations with 8-bits and weights with a low-bit value for linear layers.
+    Configuration for dynamically quantizing activations with 8-bits and quantizing weights with a low-bit value.
     More specifically, activations are dynamically quantized to 8-bits in a channelwise manner with scales and zeros.
     Weights are quantized with scales and optionally zeros (controlled by has_weight_zeros) in a groupwise or channelwise
     manner using the number of bits specified by weight_dtype.
@@ -527,20 +526,17 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         has_weight_zeros: Whether or not to include zeros in the weight quantization.
         weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        layout: The layout to use for the packed weight tensor.  Must be PackedLinearInt8DynamicActivationIntxWeightLayout (default) or PlainLayout.
-            The layout does not affect the quantization numerically and both layouts will give the same results.  PlainLayout is a generic layout
-            that works on all devices, but it is much slower than PackedLinearInt8DynamicActivationIntxWeightLayout on CPU.
-            PackedLinearInt8DynamicActivationIntxWeightLayout is a specialized layout for CPU performance.
-            When using PackedLinearInt8DynamicActivationIntxWeightLayout,
-             - The weight tensor must have device=CPU
-             - The weight tensor must have dtype=float32 (note that after applying quantization, the weights will no longer be float32)
-             - act_mapping_type must be MappingType.ASYMMETRIC
+        layout: The layout to use for the packed weight tensor.  The layout does not affect the quantization numerically and different
+            layouts will give similar results.  The following are available layouts:
+            - PackedLinearInt8DynamicActivationIntxWeightLayout: This layout is optimized for CPU performance.
+            - QDQLayout: This layout is designed for export to ExecuTorch
+            - PlainLayout: This layout is a simple python-based layout.  It has low performance, but can be used
+                when PackedLinearInt8DynamicActivationIntxWeightLayout is unavailable.
     """
 
     weight_dtype: torch.dtype = torch.int4
     granularity: Union[PerRow, PerGroup] = PerRow()
     has_weight_zeros: bool = False
-    has_bias: bool = False
     weight_mapping_type: MappingType = MappingType.ASYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target="native")
@@ -559,26 +555,9 @@ def _int8_dynamic_activation_intx_weigh_transform(
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     has_weight_zeros = config.has_weight_zeros
-    has_bias = config.has_bias
     weight_mapping_type = config.weight_mapping_type
     act_mapping_type = config.act_mapping_type
     layout = config.layout
-
-    def is_torchao_op_skippable(layout):
-        return isinstance(layout, PlainLayout) or (
-            isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
-            and layout.target == Target.ATEN
-        )
-
-    if not is_torchao_op_skippable(layout):
-        try:
-            torch.ops.torchao._pack_8bit_act_4bit_weight
-        except AttributeError:
-            raise Exception(
-                "TorchAO experimental kernels are not loaded.  To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU."
-                + " You can also set target to 'aten' if you are using ARM CPU."
-                + "  Alternatively, use layout=PlainLayout() with int8_dynamic_activation_intx_weight, but note that doing so will result in much slower performance."
-            )
 
     dtype_to_bit_width = {
         torch.int1: 1,
@@ -603,7 +582,18 @@ def _int8_dynamic_activation_intx_weigh_transform(
     else:
         raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
 
+    tensor_impl_ctr_kwargs = None
     if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+        # We need to create a new layout object for each module because when
+        # granulairty is PerRow, the layout objects cannot share the group_size
+        layout = PackedLinearInt8DynamicActivationIntxWeightLayout(layout.target)
+        layout.set_params(
+            bit_width=bit_width,
+            group_size=group_size,
+            has_weight_zeros=has_weight_zeros,
+            has_bias=False,
+        )
+
         assert (
             weight.device == torch.device("cpu")
         ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires weight.device=CPU"
@@ -613,20 +603,24 @@ def _int8_dynamic_activation_intx_weigh_transform(
         assert (
             act_mapping_type == MappingType.ASYMMETRIC
         ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
-        assert not layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params should not already be set"
-        layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
-            bit_width=bit_width,
-            group_size=group_size,
-            has_weight_zeros=has_weight_zeros,
-            has_bias=has_bias,
-            target="aten" if layout.target == Target.ATEN else "native",
-        )
 
-        # ATEN KleidiAI kernel
-        # TODO: long term, we want to disfavor this kernel and instead use KleidiAI kernels in torchao
-        # that are vailable via PackedLinearInt8DynamicActivationIntxWeightLayout(target="native")
-        # where applicable
-        if layout.target == Target.ATEN:
+        tensor_impl_ctr_kwargs = {"bias": bias}
+
+        if layout.target == Target.NATIVE:
+            # Check kernels are installed/loaded
+            try:
+                torch.ops.torchao._pack_8bit_act_4bit_weight
+            except AttributeError:
+                raise Exception(
+                    "TorchAO experimental kernels are not loaded.  To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU."
+                    + " You can also set target to 'aten' if you are using ARM CPU."
+                )
+        elif layout.target == Target.ATEN:
+            # TODO: long term, we want to disfavor this route for using KleidiAI in torchao
+            # KleidiAI kernels are accessible via Target.NATIVE if torchao is built
+            # with TORCHAO_BUILD_KLEIDIAI=1.  The Target.NATIVE route has the advantage
+            # of it automatially dispatching to different kernel libaries based on the CPU
+            # capability and the desired quantization
             assert (
                 TORCH_VERSION_AT_LEAST_2_6
             ), "ATEN target requires torch version > 2.6.0"
@@ -657,7 +651,7 @@ def _int8_dynamic_activation_intx_weigh_transform(
         else ZeroPointDomain.NONE,
         _layout=layout,
         use_hqq=False,
-        tensor_impl_ctr_kwargs={"bias": bias} if has_bias else None,
+        tensor_impl_ctr_kwargs=tensor_impl_ctr_kwargs,
     )
 
     # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
@@ -678,7 +672,10 @@ def _int8_dynamic_activation_intx_weigh_transform(
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
 
     # If bias was packed with weights, set bias to None on module
-    if has_bias:
+    if (
+        isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
+        and layout.has_bias
+    ):
         module.bias = None
 
     return module
