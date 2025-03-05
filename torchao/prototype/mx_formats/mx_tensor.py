@@ -73,6 +73,8 @@ class ScaleCalculationMode(Enum):
            It uses X = 2^ceil(log2(max_abs(v))-max_exp).
     EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
            It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+    CUBLAS_CEIL: This method is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
+           Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
     By default, we use the EVEN method for better accuracy.
     """
 
