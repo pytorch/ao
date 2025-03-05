@@ -5,11 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import itertools
 import tempfile
 import unittest
 
 import torch
+from parameterized import param, parameterized
 from torch.testing import FileCheck
 
 from torchao.dtypes import PlainLayout
@@ -17,34 +17,25 @@ from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layo
     PackedLinearInt8DynamicActivationIntxWeightLayout,
 )
 from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import (
-    int8_dynamic_activation_intx_weight,
-)
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
+from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import unwrap_tensor_subclass
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
-    def test_accuracy(self):
-        """
-        Checks the accuracy of different layouts by comparing the results to PlainLayout()
-        """
-        m = 1
-        n = 1071
-        k = 4096
-        activations = torch.randn(m, k)
-        model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
-
-        reference_layout = PlainLayout()
-        test_layouts = [
+    TEST_ACCURACY_CASES = [
+        param(
+            layout=layout,
+            weight_dtype=weight_dtype,
+            has_weight_zeros=has_weight_zeros,
+            granularity=granularity,
+        )
+        for layout in [
             PackedLinearInt8DynamicActivationIntxWeightLayout(),
             QDQLayout(),
         ]
-        test_weight_dtypes = [
+        for weight_dtype in [
             torch.int1,
             torch.int2,
             torch.int3,
@@ -54,37 +45,114 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             torch.int7,
             torch.int8,
         ]
-        test_has_weight_zeros = [True, False]
-        test_granularities = [PerGroup(128), PerRow()]
-        for layout, weight_dtype, has_weight_zeros, granularity in itertools.product(
-            test_layouts, test_weight_dtypes, test_has_weight_zeros, test_granularities
-        ):
-            quantized_model = copy.deepcopy(model)
-            quantize_(
-                quantized_model,
-                int8_dynamic_activation_intx_weight(
-                    weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
-                    layout=layout,
-                ),
-            )
+        for has_weight_zeros in [
+            True,
+            False,
+        ]
+        for granularity in [
+            PerGroup(128),
+            PerRow(),
+        ]
+    ]
 
-            quantized_model_reference = copy.deepcopy(model)
-            quantize_(
-                quantized_model_reference,
-                int8_dynamic_activation_intx_weight(
-                    weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
-                    layout=reference_layout,
-                ),
-            )
+    @parameterized.expand(
+        TEST_ACCURACY_CASES,
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_accuracy(self, layout, weight_dtype, has_weight_zeros, granularity):
+        """
+        Checks the accuracy of different layouts by comparing the results to PlainLayout()
+        """
+        m = 1
+        n = 1071
+        k = 4096
+        activations = torch.randn(m, k)
+        model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=True)])
 
-            with torch.no_grad():
-                result = quantized_model(activations)
-                expected_result = quantized_model_reference(activations)
-            self.assertTrue(torch.allclose(result, expected_result, atol=1e-6))
+        reference_layout = PlainLayout()
+        quantized_model = copy.deepcopy(model)
+        quantize_(
+            quantized_model,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=layout,
+            ),
+        )
+
+        quantized_model_reference = copy.deepcopy(model)
+        quantize_(
+            quantized_model_reference,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=reference_layout,
+            ),
+        )
+
+        with torch.no_grad():
+            result = quantized_model(activations)
+            expected_result = quantized_model_reference(activations)
+
+        if self._use_relaxed_tolerance(layout, weight_dtype, has_weight_zeros):
+            self.assertTrue(
+                torch.nn.functional.mse_loss(result, expected_result) <= 1e-5
+            )
+        else:
+            self.assertTrue(torch.allclose(result, expected_result, atol=1e-4))
+
+    def test_accuracy_aten(self):
+        m = 1
+        n = 1024
+        k = 4096
+        activations = torch.randn(m, k)
+        model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=True)])
+
+        weight_dtype = torch.int4
+        granularity = PerGroup(128)
+        has_weight_zeros = False
+        has_bias = False  # KleidiAI throws if bias is packed with weights
+
+        reference_layout = PlainLayout()
+        quantized_model = copy.deepcopy(model)
+        quantize_(
+            quantized_model,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                has_bias=has_bias,
+                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
+            ),
+        )
+
+        quantized_model_reference = copy.deepcopy(model)
+        quantize_(
+            quantized_model_reference,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=reference_layout,
+            ),
+        )
+
+        with torch.no_grad():
+            result = quantized_model(activations)
+            expected_result = quantized_model_reference(activations)
+
+        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-8)
+
+    def _use_relaxed_tolerance(self, layout, weight_dtype, has_weight_zeros):
+        # Use relaxed tolerance in cases where KleidiAI kernels might
+        # be selected.
+        return (
+            isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
+            and weight_dtype == torch.int4
+            and not has_weight_zeros
+        )
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
@@ -184,3 +252,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             FileCheck().check_count(line, 1, exactly=True).run(
                 exported.graph_module.code
             )
+
+
+if __name__ == "__main__":
+    unittest.main()

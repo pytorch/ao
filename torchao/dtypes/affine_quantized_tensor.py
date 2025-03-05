@@ -204,6 +204,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
+        tensor_impl_ctr_kwargs: Optional[dict] = None,
     ):
         """Convert a high precision tensor to an integer affine quantized tensor."""
         original_shape = input_float.shape
@@ -276,7 +277,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
+        if tensor_impl_ctr_kwargs is None:
+            tensor_impl_ctr_kwargs = {}
+        tensor_impl = tensor_impl_ctr(
+            data, scale, zero_point, _layout, **tensor_impl_ctr_kwargs
+        )
         return cls(
             tensor_impl,
             block_size,
