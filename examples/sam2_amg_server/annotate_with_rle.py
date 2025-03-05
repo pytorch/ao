@@ -14,7 +14,7 @@ from server import (
 )
 from tqdm import tqdm
 
-from benchmarks._models.sam2.utils.amg import area_from_rle, rle_to_mask
+from torchao._models.sam2.utils.amg import area_from_rle, rle_to_mask
 
 
 def timestamped_print(*args, **kwargs):

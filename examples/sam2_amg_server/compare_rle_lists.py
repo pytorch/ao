@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 
-# from benchmarks._models.sam2.utils.amg import rle_to_mask
+# from torchao._models.sam2.utils.amg import rle_to_mask
 def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     """Compute a binary mask from an uncompressed RLE."""
     h, w = rle["size"]

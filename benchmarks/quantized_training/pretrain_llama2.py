@@ -22,13 +22,13 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from benchmarks._models.llama.model import (
+from torchao import quantize_
+from torchao._models.llama.model import (
     ModelArgs,
     RMSNorm,
     Transformer,
     transformer_configs,
 )
-from torchao import quantize_
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
     bitnet_training,

@@ -84,10 +84,10 @@ class Model:
             from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
             from sam2.build_sam import build_sam2
         else:
-            from benchmarks._models.sam2.automatic_mask_generator import (
+            from torchao._models.sam2.automatic_mask_generator import (
                 SAM2AutomaticMaskGenerator,
             )
-            from benchmarks._models.sam2.build_sam import build_sam2
+            from torchao._models.sam2.build_sam import build_sam2
 
         os.chdir(f"{TARGET}ao_src_0/examples/sam2_amg_server")
         import sys
@@ -139,11 +139,11 @@ class Model:
             from sam2.utils.amg import mask_to_rle_pytorch as mask_to_rle_pytorch_2
             from sam2.utils.amg import rle_to_mask
         else:
-            from benchmarks._models.sam2.utils.amg import (
+            from torchao._models.sam2.utils.amg import (
                 mask_to_rle_pytorch_2,
                 rle_to_mask,
             )
-        from benchmarks._models.sam2.utils.amg import area_from_rle
+        from torchao._models.sam2.utils.amg import area_from_rle
 
         self.np = np
         self.tio = tio

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from benchmarks._models.llama.model import Transformer
+from torchao._models.llama.model import Transformer
 from torchao.prototype.spinquant import apply_spinquant
 
 
