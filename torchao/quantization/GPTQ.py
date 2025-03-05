@@ -741,8 +741,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -1131,8 +1130,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
