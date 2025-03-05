@@ -424,7 +424,7 @@ Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2, bool mat1_is_swizzled,
 
   Tensor meta_mat1 = mat1.to("meta");
   Tensor meta_mat2 = mat2.to("meta");
-  Tensor meta_result = at::mm(mat1, mat2);
+  Tensor meta_result = at::mm(meta_mat1, meta_mat2);
   Tensor result = at::empty_like(meta_result, mat1.device());
   at::ScalarType scalar_type = result.scalar_type();
 
