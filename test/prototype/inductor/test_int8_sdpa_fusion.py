@@ -9,10 +9,10 @@ from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
+from torch.utils.cpp_extension import IS_WINDOWS
 
 from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
-from torch.utils.cpp_extension import IS_WINDOWS
 
 
 class SelfAttnLikeModule(torch.nn.Module):

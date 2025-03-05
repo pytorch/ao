@@ -15,6 +15,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
 )
 from torch.testing._internal.optests import opcheck
+from torch.utils.cpp_extension import IS_WINDOWS
 
 import torchao
 from torchao.dtypes.floatx import from_scaled_tc_floatx
@@ -29,7 +30,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_7,
     compute_max_diff,
 )
-from torch.utils.cpp_extension import IS_WINDOWS
 
 if torch.version.hip is not None:
     pytest.skip("Skipping the test in ROCm", allow_module_level=True)
