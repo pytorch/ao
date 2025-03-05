@@ -22,7 +22,6 @@ from typing import Any, Dict
 import torch
 from torch.utils._pytree import tree_map
 
-# from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
 import torchao.ops
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import DTYPE_FP4
@@ -73,7 +72,9 @@ def mx_mm(aten_op, args, kwargs=None):
     if a._gemm_kernel_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
+        assert a._data.is_contiguous()
         assert b._data.t().is_contiguous()
+
         # TODO(future PR): use block_size instead of hardcoding 32
         a_scale = a._scale_e8m0.view(M, K // 32)
         b_scale = b._scale_e8m0.view(N, K // 32)
