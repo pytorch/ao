@@ -432,6 +432,23 @@
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;Float8AQTTensorImpl&quot;</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="s2">&quot;Float8AQTTensorImpl&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="c1"># Special handling for transposed attribute</span>
+    <span class="n">transposed_match</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">transposed</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">transposed</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span> <span class="ow">is</span> <span class="kc">False</span> <span class="ow">and</span> <span class="n">src</span><span class="o">.</span><span class="n">transposed</span> <span class="ow">is</span> <span class="kc">None</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">Float8AQTTensorImpl</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">Float8AQTTensorImpl</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">shape</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">shape</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span>
+        <span class="ow">and</span> <span class="n">transposed_match</span>
+        <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span> <span class="o">==</span> <span class="nb">type</span><span class="p">(</span><span class="n">src</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
 <div class="viewcode-block" id="Float8Layout"><a class="viewcode-back" href="../../../../generated/torchao.dtypes.Float8Layout.html#torchao.dtypes.Float8Layout">[docs]</a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8Layout</span><span class="p">(</span><span class="n">Layout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Represents the layout configuration for Float8 affine quantized tensors.</span>
@@ -535,6 +552,17 @@
 <span class="sd">            &quot;&quot;&quot;</span>
             <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span>
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">src</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
+                <span class="n">self_tensors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="n">self_tensors</span><span class="p">:</span>
+                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
+                <span class="k">return</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mistach: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
         <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
             <span class="k">if</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
