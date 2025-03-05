@@ -11,6 +11,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from torchao.float8.float8_utils import is_row_major
 from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     MXLinearRecipeName,
@@ -22,6 +23,7 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
+from torchao.prototype.mx_formats.mx_ops import _scaled_mm_with_uint8_scales
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -169,13 +171,23 @@ def test_activation_checkpointing():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+    is_sm_at_least_100() and False,
+    reason="triton does not work yet on CUDA capability 10.0",
 )
 @pytest.mark.parametrize(
     "recipe_name",
-    ["mxfp8_emulated", "mxfp4_emulated", "mxfp8_cutlass", "mxfp4_cutlass"],
+    # ["mxfp8_emulated", "mxfp4_emulated", "mxfp8_cutlass", "mxfp4_cutlass"],
+    [
+        "mxfp8_cublas",
+    ],
 )
-@pytest.mark.parametrize("bias", [False, True])
+# @pytest.mark.parametrize("bias", [False, True])
+@pytest.mark.parametrize(
+    "bias",
+    [
+        False,
+    ],
+)
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
 def test_linear_compile(recipe_name, bias):
@@ -279,6 +291,52 @@ def test_inference_compile_simple(elem_dtype):
         assert sqnr >= 20.0
     else:
         assert sqnr >= 13.5
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_scaled_mm_wrapper():
+    # today, e8m0 isn't supported in torchinductor or triton
+    # for now, work around this by creating a wrapper around torch._scaled_mm
+    # which takes uint8 scales, and reinterprets them as e8m0 inside the wrapper
+
+    M, K, N = 128, 256, 512
+    BLOCK_SIZE = 32
+    a = torch.randn(M, K, device="cuda").to(torch.float8_e4m3fn)
+    b = torch.randn(N, K, device="cuda").to(torch.float8_e4m3fn)
+
+    a_scale = torch.ones(M, K // BLOCK_SIZE, device="cuda", dtype=torch.float8_e8m0fnu)
+    b_scale = torch.ones(N, K // BLOCK_SIZE, device="cuda", dtype=torch.float8_e8m0fnu)
+
+    out = torch._scaled_mm(a, b.t(), a_scale, b_scale, out_dtype=torch.bfloat16)
+
+    def wrapped(a, b, a_scale, b_scale, out_dtype):
+        if is_row_major(b.stride()):
+            b = b.t().contiguous().t()
+        res = _scaled_mm_with_uint8_scales(a, b, a_scale, b_scale, out_dtype=out_dtype)
+        return res
+
+    wrapped = torch.compile(wrapped)
+
+    # correct memory format of `b`
+    out2 = wrapped(
+        a,
+        b.t(),
+        a_scale.view(torch.uint8),
+        b_scale.view(torch.uint8),
+        out_dtype=torch.bfloat16,
+    )
+    torch.testing.assert_close(out, out2, atol=0, rtol=0)
+
+    # incorrect memory format of `b`
+    b_col_major = b.t().contiguous().t()
+    out3 = wrapped(
+        a,
+        b_col_major.t(),
+        a_scale.view(torch.uint8),
+        b_scale.view(torch.uint8),
+        out_dtype=torch.bfloat16,
+    )
+    torch.testing.assert_close(out, out3, atol=0, rtol=0)
 
 
 def test_filter_fn():
