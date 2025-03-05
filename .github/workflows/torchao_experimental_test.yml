@@ -33,7 +33,7 @@ jobs:
       - name: Install requirements
         run: |
           conda activate venv
-          pip install --extra-index-url "https://download.pytorch.org/whl/nightly/cpu" torch=="2.6.0.dev20250104"
+          pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
           pip install numpy
           pip install pytest
           USE_CPP=1 pip install .
@@ -53,8 +53,8 @@ jobs:
         run: |
           conda activate venv
           pushd torchao/experimental/ops/tests
-          # sh build_and_run_tests.sh
-          # rm -rf /tmp/cmake-out
+          sh build_and_run_tests.sh
+          rm -rf /tmp/cmake-out
           popd
 
   test-mps-ops:
