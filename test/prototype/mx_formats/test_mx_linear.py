@@ -11,7 +11,10 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.config import (
+    MXLinearConfig,
+    MXLinearRecipeName,
+)
 from torchao.prototype.mx_formats.constants import DTYPE_FP4, SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
@@ -98,9 +101,16 @@ def test_linear_eager(elem_dtype, bias, input_shape):
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
 )
-@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, DTYPE_FP4])
+@pytest.mark.parametrize(
+    "recipe_name",
+    [
+        MXLinearRecipeName.MXFP8_CUBLAS,
+        MXLinearRecipeName.MXFP8_CUTLASS,
+        MXLinearRecipeName.MXFP4_CUTLASS,
+    ],
+)
 @pytest.mark.parametrize("mkn", [(128, 256, 512), (256, 512, 128), (512, 128, 256)])
-def test_linear_eager_emulated_vs_real_gemm(elem_dtype, mkn):
+def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
     M, K, N = 128, 128, 128
     M, K, N = mkn
 
@@ -112,12 +122,12 @@ def test_linear_eager_emulated_vs_real_gemm(elem_dtype, mkn):
     )
     m_real = copy.deepcopy(m_emulated)
 
+    elem_dtype = torch.float8_e4m3fn
+    if recipe_name == MXLinearRecipeName.MXFP4_CUTLASS:
+        elem_dtype = DTYPE_FP4
+
     config_emulated = MXLinearConfig(block_size=32, elem_dtype=elem_dtype)
-    config_real = MXLinearConfig(
-        block_size=32,
-        elem_dtype=elem_dtype,
-        gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
-    )
+    config_real = MXLinearConfig.from_recipe_name(recipe_name)
 
     swap_linear_with_mx_linear(m_emulated, config=config_emulated)
     swap_linear_with_mx_linear(m_real, config=config_real)
