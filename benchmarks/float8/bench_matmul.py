@@ -17,22 +17,7 @@ from utils import (
 )
 
 from torchao.float8.config import ScalingGranularity
-
-# estimating TOPs for matmuls in fp32, fp16, fp8
-# assuming A * B = C, with A being M * K, B being K * N, C being M * N
-
-# H100 SXM specs: bottom of https://www.nvidia.com/en-us/data-center/h100/
-h100_peak_flops_float32 = 67e12
-h100_peak_flops_fp16_tc = 989e12
-h100_peak_tops_float8_tc = 1979e12
-
-dtype_to_peak_tops = {
-    torch.float32: h100_peak_flops_float32,
-    torch.float16: h100_peak_flops_fp16_tc,
-    torch.bfloat16: h100_peak_flops_fp16_tc,
-    torch.float8_e4m3fn: h100_peak_tops_float8_tc,
-    torch.float8_e5m2: h100_peak_tops_float8_tc,
-}
+from torchao.testing.float8.roofline_utils import get_specs
 
 
 def benchmark_fn_in_sec(f, *args, **kwargs):
@@ -78,6 +63,12 @@ def run(
 ):
     device = "cuda"
 
+    specs = get_specs()
+    bf16_peak_tops = specs["bf16_peak_tops"]
+    fp8_peak_tops = specs["fp8_peak_tops"]
+    print(f"gpu_name: {torch.cuda.get_device_name(0)}")
+    print(f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}")
+
     headers = (
         "fast_accum",
         "name",
@@ -108,7 +99,7 @@ def run(
         A = torch.randn(M, K, device=device, dtype=dtype)
         m_ref = nn.Sequential(nn.Linear(K, N, dtype=dtype, device=device, bias=False))
         ref_time_sec, ref_tops_sec, ref_pct_top_peak = do_benchmarks(
-            tops, dtype_to_peak_tops[dtype], use_gpu_kernel_time, m_ref, A
+            tops, bf16_peak_tops, use_gpu_kernel_time, m_ref, A
         )
         print(
             f"{dtype} time_sec {ref_time_sec:.2E}, tops/sec {ref_tops_sec:.2E}, pct_peak {ref_pct_top_peak:.3f}"
@@ -137,7 +128,7 @@ def run(
             )
 
         fp8_time_sec, fp8_tops_sec, fp8_pct_top_peak = do_benchmarks(
-            tops, dtype_to_peak_tops[d1], use_gpu_kernel_time, do_matmul, A, B
+            tops, fp8_peak_tops, use_gpu_kernel_time, do_matmul, A, B
         )
         print(
             f"fp8 time_sec {fp8_time_sec:.2E}, tops/sec {fp8_tops_sec:.2E}, pct_peak {fp8_pct_top_peak:.3f}"
