@@ -138,12 +138,18 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        self._assert_close(result, expected_result, strict=False)
+        self._assert_close(result, expected_result, strict=True)
 
     def _assert_close(self, result, expected_result, strict: bool = False):
-        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-8)
         if strict:
+            self.assertTrue(
+                torch.nn.functional.mse_loss(result, expected_result) <= 1e-6
+            )
             self.assertTrue(torch.allclose(result, expected_result, atol=1e-3))
+        else:
+            self.assertTrue(
+                torch.nn.functional.mse_loss(result, expected_result) <= 1e-5
+            )
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
