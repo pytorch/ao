@@ -4,7 +4,7 @@ from typing import Optional
 
 import torch
 
-from benchmarks._models.sam2.sam2_video_predictor import SAM2VideoPredictor
+from torchao._models.sam2.sam2_video_predictor import SAM2VideoPredictor
 
 # Tools used to avoid compilation cold start and dynamo cache lookups
 # We take the compiled model and export it using the largest

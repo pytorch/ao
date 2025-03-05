@@ -12,9 +12,9 @@ from server import (
     show_anns,
 )
 
-from benchmarks._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-from benchmarks._models.sam2.build_sam import build_sam2
-from benchmarks._models.sam2.utils.amg import rle_to_mask
+from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+from torchao._models.sam2.build_sam import build_sam2
+from torchao._models.sam2.utils.amg import rle_to_mask
 
 
 def main_docstring():

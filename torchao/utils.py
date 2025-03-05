@@ -670,26 +670,6 @@ def is_sm_at_least_100():
     )
 
 
-default_device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "xpu"
-    if torch.xpu.is_available()
-    else "cpu"
-)
-
-
-def device_sync(device):
-    if "cuda" in device:
-        torch.cuda.synchronize(device)
-    elif "xpu" in device:
-        torch.xpu.synchronize(device)
-    elif ("cpu" in device) or ("mps" in device):
-        pass
-    else:
-        print(f"device={device} is not yet suppported")
-
-
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
