@@ -205,16 +205,25 @@ def to_mx(
     data_lp = torch.clamp(
         data_hp / scale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
     )
-    data_lp = data_lp.reshape(orig_shape)
 
     # cast to target dtype
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_lp = data_lp.to(elem_dtype)
+        # need to reshape at the end to help inductor fuse things
+        data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E2M3:
         data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        # need to reshape at the end to help inductor fuse things
+        data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
         data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        # need to reshape at the end to help inductor fuse things
+        data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP4:
+        # can't reshape at the end without handling it in the packing code,
+        # punt until later since we'll need to rethink the torch.compile
+        # approach for fp4x2 in any case
+        data_lp = data_lp.reshape(orig_shape)
         data_lp = f32_to_f4_unpacked(data_lp)
         data_lp = pack_uint4(data_lp)
     else:

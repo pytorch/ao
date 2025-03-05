@@ -32,6 +32,20 @@ def _aqt_is_tensor_core_tile_uint4(aqt):
     )
 
 
+def _same_metadata(
+    self: "TensorCoreTiledAQTTensorImpl", src: "TensorCoreTiledAQTTensorImpl"
+) -> bool:
+    return (
+        isinstance(self, TensorCoreTiledAQTTensorImpl)
+        and isinstance(src, TensorCoreTiledAQTTensorImpl)
+        and self.shape == src.shape
+        and self.packed_weight.shape == src.packed_weight.shape
+        and self.scale_and_zero.shape == src.scale_and_zero.shape
+        and self.transposed == src.transposed
+        and type(self._layout) == type(src._layout)
+    )
+
+
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
@@ -288,6 +302,18 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         if func is aten.clone.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        if func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
 
         if func is aten.t.default:

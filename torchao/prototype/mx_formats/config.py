@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import torch
 
@@ -24,7 +24,19 @@ class MXGemmKernelChoice(Enum):
     # available only when CUDA capability is greater than or equal to 10.0
     CUTLASS = "cutlass"
 
-    # TODO(future PR): add cuBLAS here once we land pytorch/pytorch support
+    # available only when CUDA capability is greater than or equal to 10.0
+    # available on recent versions of PyTorch nightly, with https://github.com/pytorch/pytorch/pull/147548
+    # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
+    CUBLAS = "cublas"
+
+
+# Pre-made recipes for common configurations
+class MXLinearRecipeName(Enum):
+    MXFP8_EMULATED = "mxfp8_emulated"
+    MXFP8_CUBLAS = "mxfp8_cublas"
+    MXFP8_CUTLASS = "mxfp8_cutlass"
+    MXFP4_EMULATED = "mxfp4_emulated"
+    MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
 @dataclass
@@ -78,3 +90,47 @@ class MXLinearConfig:
             assert (
                 self.elem_dtype_grad_output_override is None
             ), "elem_dtype_grad_output_override not supported for CUTLASS MX gemm kernels"
+        elif self.gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
+            assert (
+                self.block_size == 32
+            ), f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {self.block_size}"
+            valid_dtypes = [torch.float8_e4m3fn]
+            assert (
+                self.elem_dtype in valid_dtypes
+            ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {self.elem_dtype}"
+            assert (
+                self.elem_dtype_weight_override is None
+            ), "elem_dtype_weight_override not supported for CUTLASS MX gemm kernels"
+            assert (
+                self.elem_dtype_grad_output_override is None
+            ), "elem_dtype_grad_output_override not supported for CUTLASS MX gemm kernels"
+
+    @staticmethod
+    def from_recipe_name(
+        recipe_name: Union[MXLinearRecipeName, str],
+    ) -> "MXLinearConfig":
+        """
+        Input: `MXLinearRecipeName` value, or a string representing a `MXLinearRecipeName` value
+        Output: a `MXLinearConfig` configured to implement the specified recipe
+        """
+        if type(recipe_name) == str:
+            valid_names = [n.value for n in MXLinearRecipeName]
+            assert (
+                recipe_name in valid_names
+            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            recipe_name = MXLinearRecipeName(recipe_name)
+
+        if recipe_name is MXLinearRecipeName.MXFP8_EMULATED:
+            return MXLinearConfig()
+        elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
+            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
+        elif recipe_name is MXLinearRecipeName.MXFP8_CUTLASS:
+            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUTLASS)
+        elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
+            return MXLinearConfig(elem_dtype=DTYPE_FP4)
+        elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
+            return MXLinearConfig(
+                elem_dtype=DTYPE_FP4, gemm_kernel_choice=MXGemmKernelChoice.CUTLASS
+            )
+        else:
+            raise AssertionError(f"unknown recipe_name {recipe_name}")

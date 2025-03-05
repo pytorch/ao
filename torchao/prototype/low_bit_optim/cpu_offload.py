@@ -17,6 +17,7 @@ class CPUOffloadOptimizer(Optimizer):
         optimizer_class: Type[Optimizer] = torch.optim.AdamW,
         *,
         offload_gradients: bool = False,
+        minimal_size: int = 4096,
         **kwargs,
     ) -> None:
         """Offload optimizer to CPU for single-GPU training. This will reduce GPU memory by the size of optimizer state.
@@ -26,6 +27,7 @@ class CPUOffloadOptimizer(Optimizer):
             params: a list of parameters or parameter groups.
             optimizer_class: constructor of the base optimizer. Defaults to :class:`torch.optim.AdamW`.
             offload_gradients: free GPU gradients once they are moved to CPU. Not compatible with gradient accumulation.
+            minimal_size: tensors smaller than this are kept on the GPU, to avoid excessively many small transfers.
             kwargs: other keyword arguments to be passed to the base optimizer e.g. `lr`, `weight_decay`.
         """
         # default to fused CPU AdamW
@@ -41,6 +43,11 @@ class CPUOffloadOptimizer(Optimizer):
             raise ValueError("optimizer got an empty parameter list")
         if not isinstance(param_groups[0], dict):
             param_groups = [{"params": param_groups}]
+
+        # any parameter smaller than minimal size will be handled by the on-device optimizer d_opt
+        self.minimal_size = minimal_size
+        self.d_opt = None
+        self.d_param_groups = []
 
         self.param_d2h_map = dict()
         self.optim_dict = dict()
@@ -77,9 +84,14 @@ class CPUOffloadOptimizer(Optimizer):
 
         for param_group in param_groups:
             params = param_group.pop("params")
+            retained_params = []
 
             for p_device in params:
                 if not p_device.requires_grad:
+                    continue
+
+                if p_device.numel() < self.minimal_size:
+                    retained_params.append(p_device)
                     continue
 
                 # pre-allocate CPU params and grads
@@ -94,11 +106,21 @@ class CPUOffloadOptimizer(Optimizer):
                     [{"params": p_host, **param_group}], **kwargs
                 )
 
+            if len(retained_params) > 0:
+                self.d_param_groups.append({"params": retained_params, **param_group})
+
+        if len(self.d_param_groups) > 0:
+            self.d_opt = optimizer_class(self.d_param_groups, **kwargs)
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
+
+        # handle small parameters on the GPU, in parallel with the CPU calls below
+        if self.d_opt is not None:
+            self.d_opt.step()
 
         for p_device, grad_d2h_event in self.queue.items():
             grad_d2h_event.synchronize()
@@ -123,15 +145,35 @@ class CPUOffloadOptimizer(Optimizer):
         for p_device in self.param_d2h_map.keys():
             p_device.grad = None
 
+        if self.d_opt is not None:
+            self.d_opt.zero_grad(set_to_none=set_to_none)
+
     @property
     def param_groups(self):
         # each param group will only has 1 parameter
         # TODO: we might want to return the original param_groups instead.
-        return sum((optim.param_groups for optim in self.optim_dict.values()), start=[])
+        return sum(
+            (optim.param_groups for optim in self.optim_dict.values()),
+            start=self.d_param_groups,
+        )
 
     def state_dict(self):
-        return [optim.state_dict() for optim in self.optim_dict.values()]
+        state_dict = {
+            "offloaded": [optim.state_dict() for optim in self.optim_dict.values()]
+        }
+        if self.d_opt:
+            state_dict["on-device"] = self.d_opt.state_dict()
+        return state_dict
 
     def load_state_dict(self, state_dict):
-        for optim, optim_state_dict in zip(self.optim_dict.values(), state_dict):
+        for optim, optim_state_dict in zip(
+            self.optim_dict.values(), state_dict["offloaded"]
+        ):
             optim.load_state_dict(optim_state_dict)
+
+        if self.d_opt:
+            self.d_opt.load_state_dict(state_dict["on-device"])
+        elif "on-device" in state_dict:
+            raise ValueError(
+                "loaded state dict has a 'on-device' parameter group not present in the optimizer"
+            )

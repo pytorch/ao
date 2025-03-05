@@ -741,8 +741,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -759,7 +758,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     if self.padding_allowed:
                         import torch.nn.functional as F
 
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
                         )
                         padded_in_features = find_multiple(in_features, 1024)
@@ -767,7 +766,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                             weight, pad=(0, padded_in_features - in_features)
                         )
                     else:
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
                             + "and that groupsize and inner_k_tiles*16 evenly divide into it"
                         )
@@ -1131,8 +1130,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -1147,7 +1145,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     if self.padding_allowed:
                         import torch.nn.functional as F
 
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
                         )
                         padded_in_features = find_multiple(in_features, 1024)
@@ -1155,7 +1153,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                             weight, pad=(0, padded_in_features - in_features)
                         )
                     else:
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
                             + "and that groupsize and inner_k_tiles*16 evenly divide into it"
                         )

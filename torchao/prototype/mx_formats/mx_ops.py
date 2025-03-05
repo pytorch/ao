@@ -22,7 +22,6 @@ from typing import Any, Dict
 import torch
 from torch.utils._pytree import tree_map
 
-# from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
 import torchao.ops
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import DTYPE_FP4
@@ -70,22 +69,35 @@ def mx_mm(aten_op, args, kwargs=None):
     b = args[1]
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
     assert a._gemm_kernel_choice == b._gemm_kernel_choice, "unsupported"
-    if a._gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
+    if a._gemm_kernel_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
+        assert a._data.is_contiguous()
         assert b._data.t().is_contiguous()
+
+        # TODO(future PR): use block_size instead of hardcoding 32
         a_scale = a._scale_e8m0.view(M, K // 32)
         b_scale = b._scale_e8m0.view(N, K // 32)
         a_scale_block = to_blocked(a_scale)
         b_scale_block = to_blocked(b_scale)
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            res = torchao.ops.mx_fp8_bf16(
-                a._data, b._data, a_scale_block, b_scale_block
-            )
+            if a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS:
+                res = torch._scaled_mm(
+                    a._data,
+                    b._data,
+                    a_scale_block.view(torch.float8_e8m0fnu),
+                    b_scale_block.view(torch.float8_e8m0fnu),
+                    out_dtype=torch.bfloat16,
+                )
+            else:
+                res = torchao.ops.mx_fp8_bf16(
+                    a._data, b._data, a_scale_block, b_scale_block
+                )
         else:
             assert a._elem_dtype == DTYPE_FP4
             assert b._elem_dtype == DTYPE_FP4
+            assert a._gemm_kernel_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             res = torchao.ops.mx_fp4_bf16(
                 a._data, b._data, a_scale_block, b_scale_block
             )
