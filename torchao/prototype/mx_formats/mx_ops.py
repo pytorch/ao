@@ -30,39 +30,40 @@ from torchao.prototype.mx_formats.mx_tensor import (  # noqa: E501
     tensor_size_hp_to_fp4x2,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 aten = torch.ops.aten
 
 MX_OPS_TABLE: Dict[Any, Any] = {}
 
+if TORCH_VERSION_AT_LEAST_2_5:
 
-@torch.library.custom_op("mylib::_scaled_mm_with_uint8_scales", mutates_args=())
-def _scaled_mm_with_uint8_scales(
-    a: torch.Tensor,
-    b: torch.Tensor,
-    a_scale: torch.Tensor,
-    b_scale: torch.Tensor,
-    out_dtype: torch.dtype,
-) -> torch.Tensor:
-    """
-    Until https://github.com/pytorch/pytorch/issues/147873 is done, we need to
-    work around the lack of support for `torch.float8_e8m0fnu` in
-    torchinductor. We do so by hiding the cast of scales to e8m0 inside a
-    custom op.
-    """
-    # cast back to e8m0 where torchinductor can't see it
-    a_scale = a_scale.view(torch.float8_e8m0fnu)
-    b_scale = b_scale.view(torch.float8_e8m0fnu)
-    res = torch._scaled_mm(a, b, a_scale, b_scale, out_dtype=out_dtype)
-    return res
+    @torch.library.custom_op("mylib::_scaled_mm_with_uint8_scales", mutates_args=())
+    def _scaled_mm_with_uint8_scales(
+        a: torch.Tensor,
+        b: torch.Tensor,
+        a_scale: torch.Tensor,
+        b_scale: torch.Tensor,
+        out_dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """
+        Until https://github.com/pytorch/pytorch/issues/147873 is done, we need to
+        work around the lack of support for `torch.float8_e8m0fnu` in
+        torchinductor. We do so by hiding the cast of scales to e8m0 inside a
+        custom op.
+        """
+        # cast back to e8m0 where torchinductor can't see it
+        a_scale = a_scale.view(torch.float8_e8m0fnu)
+        b_scale = b_scale.view(torch.float8_e8m0fnu)
+        res = torch._scaled_mm(a, b, a_scale, b_scale, out_dtype=out_dtype)
+        return res
 
-
-@_scaled_mm_with_uint8_scales.register_fake
-def _(a, b, a_scale, b_scale, out_dtype):
-    m, k = a.shape
-    k2, n = b.shape
-    res = torch.empty(m, n, dtype=out_dtype, device=a.device)
-    return res
+    @_scaled_mm_with_uint8_scales.register_fake
+    def _(a, b, a_scale, b_scale, out_dtype):
+        m, k = a.shape
+        k2, n = b.shape
+        res = torch.empty(m, n, dtype=out_dtype, device=a.device)
+        return res
 
 
 def implements(aten_ops):
