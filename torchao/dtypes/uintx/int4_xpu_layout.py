@@ -58,6 +58,8 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
     act_mat = input_tensor
+    if (act_mat.is_contiguous() == False):
+        act_mat = act_mat.contiguous()
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
     packed_weight = weight_tensor.tensor_impl.packed_weight
