@@ -22,7 +22,6 @@ from typing import Any, Dict
 import torch
 from torch.utils._pytree import tree_map
 
-# from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
 import torchao.ops
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import DTYPE_FP4
@@ -31,7 +30,6 @@ from torchao.prototype.mx_formats.mx_tensor import (  # noqa: E501
     tensor_size_hp_to_fp4x2,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.float8.float8_utils import is_row_major
 
 aten = torch.ops.aten
 
@@ -77,18 +75,6 @@ def mx_mm(aten_op, args, kwargs=None):
         assert a._data.is_contiguous()
         assert b._data.t().is_contiguous()
 
-        a_data = a._data
-        b_data = b._data
-
-        # note: below does not fix the bug, leaving here for now for completeness during
-        # further debugging but should be deleted
-        if False:
-            # triton not respecing memory layout, fix it manually
-            if not is_row_major(a_data.stride()):
-                a_data = a_data.contiguous()
-            if is_row_major(b_data.stride()):
-                b_data = b_data.t().contiguous().t()
-
         # TODO(future PR): use block_size instead of hardcoding 32
         a_scale = a._scale_e8m0.view(M, K // 32)
         b_scale = b._scale_e8m0.view(N, K // 32)
@@ -98,8 +84,8 @@ def mx_mm(aten_op, args, kwargs=None):
             assert b._elem_dtype == torch.float8_e4m3fn
             if a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS:
                 res = torch._scaled_mm(
-                    a_data,
-                    b_data,
+                    a._data,
+                    b._data,
                     a_scale_block.view(torch.float8_e8m0fnu),
                     b_scale_block.view(torch.float8_e8m0fnu),
                     out_dtype=torch.bfloat16,
