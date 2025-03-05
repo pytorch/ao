@@ -369,11 +369,8 @@ def get_extensions():
             print(
                 "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
             )
-            return None
-        sources += hip_sources
-
-    if len(sources) == 0:
-        return None
+        else:
+            sources += hip_sources
 
     ext_modules = []
     if len(sources) > 0:
