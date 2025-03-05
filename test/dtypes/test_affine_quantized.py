@@ -61,7 +61,7 @@ def get_quantization_functions(
             if device == "cuda" and not is_ROCM():
                 base_functions.append(
                     int8_dynamic_activation_int4_weight(
-                        group_size=None,
+                        group_size=32,
                         mapping_type=MappingType.SYMMETRIC,
                         act_mapping_type=MappingType.SYMMETRIC,
                         layout=CutlassInt4PackedLayout(),
