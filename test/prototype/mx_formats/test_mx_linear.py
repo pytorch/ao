@@ -23,7 +23,6 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_inference_linear,
     swap_linear_with_mx_linear,
 )
-from torchao.prototype.mx_formats.mx_ops import _scaled_mm_with_uint8_scales
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -307,6 +306,7 @@ def test_scaled_mm_wrapper():
     # today, e8m0 isn't supported in torchinductor or triton
     # for now, work around this by creating a wrapper around torch._scaled_mm
     # which takes uint8 scales, and reinterprets them as e8m0 inside the wrapper
+    from torchao.prototype.mx_formats.mx_ops import _scaled_mm_with_uint8_scales
 
     M, K, N = 128, 256, 512
     BLOCK_SIZE = 32
