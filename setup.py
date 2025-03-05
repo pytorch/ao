@@ -253,7 +253,6 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-
     if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
         print(
             "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
@@ -324,8 +323,11 @@ def get_extensions():
             ]
         )
 
+    # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
+
+    # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -339,7 +341,12 @@ def get_extensions():
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
+    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+    hip_sources += list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
 
+    # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
     else:
