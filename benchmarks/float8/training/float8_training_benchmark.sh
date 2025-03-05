@@ -14,15 +14,19 @@ if [ -z "${TORCHTITAN_ROOT}" ]; then
   echo "Error: TORCHTITAN environment variable is not set. Please set it before running this script."
   echo "Usage: TORCHTITAN_ROOT=<directory> ./float8_training_benchmark.sh"
   echo "Optional parameters configurable via environment variables:"
-  echo " * FLOAT8_RECIPE: "rowwise" or "tensorwise". if set, use float8 training with the specified recipe. otherwise, use bf16 mixed precision training."
+  echo " * FLOAT8_RECIPE_WITH_BEST_SETTINGS: "rowwise" or "tensorwise". if set, use float8 training in torchtitan with the specified recipe, including the additional settings which are optimal for that recipe. otherwise, use bf16 mixed precision training."
   echo " * BATCH_SIZE: defaults to 1."
   echo " * STEPS: defaults to 100."
   exit 1
 fi
 
 # validate recipe name
-if [ -n "${FLOAT8_RECIPE}" ]; then
-  FLOAT8_ARGS="--model.converters="float8" --float8.recipe_name=${FLOAT8_RECIPE}"
+if [ -n "${FLOAT8_RECIPE_WITH_BEST_SETTINGS}" ]; then
+  if [ "${FLOAT8_RECIPE_WITH_BEST_SETTINGS}" == "tensorwise" ]; then
+    FLOAT8_ARGS="--model.converters="float8" --float8.enable_fsdp_float8_all_gather --float8.precompute_float8_dynamic_scale_for_fsdp --float8.force_recompute_fp8_weight_in_bwd"
+  else
+    FLOAT8_ARGS="--model.converters="float8" --float8.recipe_name=${FLOAT8_RECIPE_WITH_BEST_SETTINGS}"
+  fi
 fi
 
 
