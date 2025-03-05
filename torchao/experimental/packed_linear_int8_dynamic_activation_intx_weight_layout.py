@@ -152,7 +152,6 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         }, f"Unexpected target: {layout.target}"
 
         n, k = int_data.shape
-
         if layout.target == Target.ATEN:
             assert (
                 TORCH_VERSION_AT_LEAST_2_6
@@ -249,7 +248,7 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         args = (
             input_tensor,
             weight_tensor.tensor_impl.packed_weight,
-            group_size_tensor,
+            group_size,
             n,
             k,
         )
