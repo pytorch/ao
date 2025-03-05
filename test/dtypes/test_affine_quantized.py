@@ -25,6 +25,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     is_fbcode,
+    is_ROCM,
     is_sm_at_least_89,
 )
 
@@ -57,7 +58,7 @@ def get_quantization_functions(
                 )
         else:
             base_functions.append(int4_weight_only(group_size=32))
-            if device == "cuda":
+            if device == "cuda" and not is_ROCM():
                 base_functions.append(
                     int8_dynamic_activation_int4_weight(
                         group_size=None,
@@ -208,6 +209,53 @@ class TestAffineQuantized(TestCase):
             # TODO(#1690): delete this once config migration is done
             ql = apply_quant(linear)
         assert "AffineQuantizedTensor" in str(ql)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(False, True, "cuda", False)
+    )
+    def test_test_copy__apply(self, apply_quant):
+        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        linear2 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+            quantize_(linear2, apply_quant)
+            ql2 = linear2
+        else:
+            ql = apply_quant(linear)
+            ql2 = apply_quant(linear2)
+
+        example_input = torch.randn(1, 128, dtype=torch.bfloat16, device="cuda")
+        output = ql(example_input)
+        ql2.weight.copy_(ql.weight)
+        ql2.bias = ql.bias
+        output2 = ql2(example_input)
+        self.assertEqual(output, output2)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(False, True, "cuda", False)
+    )
+    def test_copy__mismatch_metadata(self, apply_quant):
+        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        linear2 = torch.nn.Linear(128, 512, dtype=torch.bfloat16, device="cuda")
+
+        if isinstance(apply_quant, AOBaseConfig):
+            quantize_(linear, apply_quant)
+            ql = linear
+            quantize_(linear2, apply_quant)
+            ql2 = linear2
+        else:
+            ql = apply_quant(linear)
+            ql2 = apply_quant(linear2)
+
+        # copy should fail due to shape mismatch
+        with self.assertRaisesRegex(
+            ValueError, "Not supported args for copy_ due to metadata mistach:"
+        ):
+            ql2.weight.copy_(ql.weight)
 
 
 class TestAffineQuantizedBasic(TestCase):
