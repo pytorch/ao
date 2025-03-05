@@ -526,11 +526,11 @@ m_unwrapped = unwrap_tensor_subclass(m)</p>
 <p>After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.</p>
 <p>Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/benchmarks/_models/llama">llama</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/benchmarks/_models/llama/generate.py">benchmark</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/benchmarks/_models/llama/eval.py">eval</a></p></li>
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/benchmarks/_models/sam">sam</a>
-* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/benchmarks/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/llama">llama</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py">benchmark</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py">eval</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/sam">sam</a>
+* <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
 </ul>
 <p>Please checkout the <code class="docutils literal notranslate"><span class="pre">--help</span></code> option for each of the script to understand the supported options, e.g. you can use <code class="docutils literal notranslate"><span class="pre">--profile=profile_path</span></code> to get the chrome trace of the run to understand detailed <a class="reference external" href="https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality">chrome trace</a>.</p>
 <p>Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.</p>
