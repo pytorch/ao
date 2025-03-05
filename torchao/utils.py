@@ -614,6 +614,7 @@ def _torch_version_at_least(min_version):
 # | MI300X        | gfx940, gfx941, gfx942 |
 # | MI350         | gfx950                 |
 
+
 def is_ROCM():
     return torch.cuda.is_available() and torch.version.hip
 
