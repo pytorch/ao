@@ -12,6 +12,7 @@ from torch.testing._internal.inductor_utils import HAS_CPU
 
 from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torch.utils.cpp_extension import IS_WINDOWS
 
 
 class SelfAttnLikeModule(torch.nn.Module):
@@ -143,6 +144,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @pytest.mark.skipif(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
+    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
         import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
@@ -167,9 +169,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             inputs = (
                 torch.randn(
                     (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
-                )
-                * 10,
-                torch.randn((bs, 1, 1, seqlen), device=self.device) * 10
+                ),
+                torch.randn((bs, 1, 1, seqlen), device=self.device)
                 if has_mask
                 else None,
             )
@@ -177,7 +178,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             with (
                 torch.no_grad(),
                 torch.amp.autocast(
-                    "cpu", enabled=enable_autocast, dtype=torch.bfloat16
+                    self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
             ):
                 _int8_sdpa_init()

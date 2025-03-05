@@ -29,6 +29,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_7,
     compute_max_diff,
 )
+from torch.utils.cpp_extension import IS_WINDOWS
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
@@ -152,22 +153,16 @@ class TestOps(TestCase):
         out = torch.clamp(torch.round(out / o_scale) + o_zp, min=0, max=255)
         return out.to(torch.uint8)
 
-    SDPA_INT8_BATCH_SIZE = [56, 120]
-    SDPA_INT8_NUM_HEADS = [2, 16]
-    SDPA_INT8_Q_SEQ_LEN = [18, 89]
-    SDPA_INT8_KV_SEQ_LEN = [100, 253]
-    SDPA_INT8_HEAD_DIM = [32, 64]
-    SDPA_INT8_MASK_DTYPE = [None, torch.float32, torch.bfloat16]
-
     @pytest.mark.skipif(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
-    @parametrize("batch_size", SDPA_INT8_BATCH_SIZE)
-    @parametrize("n_head", SDPA_INT8_NUM_HEADS)
-    @parametrize("q_seq_len", SDPA_INT8_Q_SEQ_LEN)
-    @parametrize("kv_seq_len", SDPA_INT8_KV_SEQ_LEN)
-    @parametrize("head_dim", SDPA_INT8_HEAD_DIM)
-    @parametrize("mask_dtype", SDPA_INT8_MASK_DTYPE)
+    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
+    @parametrize("batch_size", [56, 120])
+    @parametrize("n_head", [2, 16])
+    @parametrize("q_seq_len", [18, 89])
+    @parametrize("kv_seq_len", [100, 253])
+    @parametrize("head_dim", [32, 64])
+    @parametrize("mask_dtype", [None, torch.float32, torch.bfloat16])
     def test_scaled_dot_product_int8_op(
         self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype
     ):
