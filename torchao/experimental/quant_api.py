@@ -603,7 +603,6 @@ def _int8_dynamic_activation_intx_weigh_transform(
     else:
         raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
 
-    tensor_quantizer = to_affine_quantized_intx
     if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
         assert (
             weight.device == torch.device("cpu")
@@ -642,24 +641,24 @@ def _int8_dynamic_activation_intx_weigh_transform(
     quant_min = -(1 << (bit_width - 1))
     quant_max = (1 << (bit_width - 1)) - 1
 
-    quantizer_args = [
-        weight,
-        weight_mapping_type,
-        (1, group_size),
-        torch.int32,
-        quant_min,
-        quant_max,
-        torch.finfo(torch.float32).eps,
-        torch.float32,
-        torch.int8,
-        has_weight_zeros,
-        ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE,
-        layout,
-        False,
-        {"bias": bias} if has_bias else None,
-    ]
-
-    weight = tensor_quantizer(*quantizer_args)
+    weight = to_affine_quantized_intx(
+        input_float=weight,
+        mapping_type=weight_mapping_type,
+        block_size=(1, group_size),
+        target_dtype=torch.int32,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=torch.finfo(torch.float32).eps,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.int8,
+        preserve_zero=has_weight_zeros,
+        zero_point_domain=ZeroPointDomain.INT
+        if has_weight_zeros
+        else ZeroPointDomain.NONE,
+        _layout=layout,
+        use_hqq=False,
+        tensor_impl_ctr_kwargs={"bias": bias} if has_bias else None,
+    )
 
     # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
     # with the kernel and it should not be applied separately
