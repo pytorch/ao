@@ -539,7 +539,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     has_weight_zeros: bool = False
     weight_mapping_type: MappingType = MappingType.ASYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target="native")
+    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout()
 
 
 # For BC
@@ -547,7 +547,7 @@ int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 @register_quantize_module_handler(Int8DynamicActivationIntxWeightConfig)
-def _int8_dynamic_activation_intx_weigh_transform(
+def _int8_dynamic_activation_intx_weight_transform(
     module: torch.nn.Module, config: Int8DynamicActivationIntxWeightConfig
 ) -> torch.nn.Module:
     weight = module.weight
@@ -582,10 +582,11 @@ def _int8_dynamic_activation_intx_weigh_transform(
     else:
         raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
 
+    scale_dtype = torch.float32
     tensor_impl_ctr_kwargs = None
     if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
         # We need to create a new layout object for each module because when
-        # granulairty is PerRow, the layout objects cannot share the group_size
+        # granularity is PerRow, the layout objects cannot share the group_size
         layout = PackedLinearInt8DynamicActivationIntxWeightLayout(layout.target)
         layout.set_params(
             bit_width=bit_width,
@@ -606,7 +607,7 @@ def _int8_dynamic_activation_intx_weigh_transform(
 
         tensor_impl_ctr_kwargs = {"bias": bias}
 
-        if layout.target == Target.NATIVE:
+        if layout.target == Target.AUTO:
             # Check kernels are installed/loaded
             try:
                 torch.ops.torchao._pack_8bit_act_4bit_weight
@@ -617,8 +618,8 @@ def _int8_dynamic_activation_intx_weigh_transform(
                 )
         elif layout.target == Target.ATEN:
             # TODO: long term, we want to disfavor this route for using KleidiAI in torchao
-            # KleidiAI kernels are accessible via Target.NATIVE if torchao is built
-            # with TORCHAO_BUILD_KLEIDIAI=1.  The Target.NATIVE route has the advantage
+            # KleidiAI kernels are accessible via Target.AUTO if torchao is built
+            # with TORCHAO_BUILD_KLEIDIAI=1.  The Target.AUTO route has the advantage
             # of it automatially dispatching to different kernel libaries based on the CPU
             # capability and the desired quantization
             assert (
@@ -632,6 +633,11 @@ def _int8_dynamic_activation_intx_weigh_transform(
                 not has_weight_zeros
             ), "ATEN target only supports has_weight_zeros=False"
 
+            # KleidiAI groupwise kernel requires bfloat16 scale
+            # Otherwise it falls back to a reference implementation
+            if isinstance(granularity, PerGroup):
+                scale_dtype = torch.bfloat16
+
     quant_min = -(1 << (bit_width - 1))
     quant_max = (1 << (bit_width - 1)) - 1
 
@@ -643,7 +649,7 @@ def _int8_dynamic_activation_intx_weigh_transform(
         quant_min=quant_min,
         quant_max=quant_max,
         eps=torch.finfo(torch.float32).eps,
-        scale_dtype=torch.float32,
+        scale_dtype=scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=has_weight_zeros,
         zero_point_domain=ZeroPointDomain.INT

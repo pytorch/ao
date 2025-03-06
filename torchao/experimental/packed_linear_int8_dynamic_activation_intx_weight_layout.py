@@ -39,13 +39,19 @@ logger.addHandler(handler)
 class Target(Enum):
     """Enum that indicates the backend target"""
 
-    NATIVE = auto()
+    # AUTO target will automatically select a packing format
+    # based on the available hardware.
+    # TODO: in future, add the ability to specify specific
+    # hardware targets
+    AUTO = auto()
+
+    # ATEN target will use the ATen operator
     ATEN = auto()
 
 
 def target_from_str(target: str) -> Target:
-    if target.lower() == "native":
-        return Target.NATIVE
+    if target.lower() == "auto":
+        return Target.AUTO
     elif target.lower() == "aten":
         return Target.ATEN
     else:
@@ -55,7 +61,7 @@ def target_from_str(target: str) -> Target:
 class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
     def __init__(
         self,
-        target: Union[str, Target] = "native",
+        target: Union[str, Target] = "auto",
     ):
         if isinstance(target, str):
             target = target_from_str(target)
@@ -154,7 +160,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
         assert layout.target in {
-            Target.NATIVE,
+            Target.AUTO,
             Target.ATEN,
         }, f"Unexpected target: {layout.target}"
 
@@ -260,7 +266,7 @@ def _linear_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_impl(input_tensor, weight_tensor, bias):
-    def _impl_2d_native(input_tensor, weight_tensor):
+    def _impl_2d_auto(input_tensor, weight_tensor):
         assert input_tensor.dim() == 2
         assert weight_tensor.dim() == 2
 
@@ -322,8 +328,8 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     if target == Target.ATEN:
         assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
-    elif target == Target.NATIVE:
-        _impl_2d = _impl_2d_native
+    elif target == Target.AUTO:
+        _impl_2d = _impl_2d_auto
 
     if input_tensor.dim() == 2:
         res = _impl_2d(input_tensor, weight_tensor)

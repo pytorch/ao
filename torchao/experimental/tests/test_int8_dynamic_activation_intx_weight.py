@@ -69,7 +69,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         activations = torch.randn(m, k)
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=True)])
 
-        reference_layout = PlainLayout()
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
@@ -88,7 +87,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
-                layout=reference_layout,
+                layout=self._reference_layout(),
             ),
         )
 
@@ -96,8 +95,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        # When weight_dtype is int4, the quantization error may be larger
-        # because KleidiAI kernels may be used
+        # When weight_dtype is int4, we need low tolerance when comparing
+        # to the reference because KleidiAI kernels (based on bfloat16 scales)
+        # may be used
         self._assert_close(result, expected_result, strict=(weight_dtype != torch.int4))
 
     def test_accuracy_aten(self):
@@ -111,7 +111,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         granularity = PerGroup(128)
         has_weight_zeros = False
 
-        reference_layout = PlainLayout()
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
@@ -130,7 +129,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
-                layout=reference_layout,
+                layout=self._reference_layout(),
             ),
         )
 
@@ -138,7 +137,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        self._assert_close(result, expected_result, strict=True)
+        # KleidiAI aten kernels need low tolerance when comparing to reference
+        # because they use bfloat16 scales
+        self._assert_close(result, expected_result, strict=False)
 
     def _assert_close(self, result, expected_result, strict: bool = False):
         if strict:
@@ -148,8 +149,11 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             self.assertTrue(torch.allclose(result, expected_result, atol=1e-3))
         else:
             self.assertTrue(
-                torch.nn.functional.mse_loss(result, expected_result) <= 1e-5
+                torch.nn.functional.mse_loss(result, expected_result) <= 1e-3
             )
+
+    def _reference_layout(self):
+        return PlainLayout()
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
