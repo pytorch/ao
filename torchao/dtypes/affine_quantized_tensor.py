@@ -278,10 +278,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        if tensor_impl_ctr_kwargs is None:
-            tensor_impl_ctr_kwargs = {}
         tensor_impl = tensor_impl_ctr(
-            data, scale, zero_point, _layout, **tensor_impl_ctr_kwargs
+            data, scale, zero_point, _layout, **(tensor_impl_ctr_kwargs or {})
         )
         return cls(
             tensor_impl,
