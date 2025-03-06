@@ -165,7 +165,11 @@ def get_tensor_memory_traffic_ovhd_s(
             assert False, "unsupported"
 
     else:
-        assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
+        assert mx_recipe_name in (
+            "mxfp8_emulated",
+            "mxfp8_cutlass",
+            "mxfp8_cublas",
+        ), "unsupported"
 
         if tensor_role == "weight":
             # x_bf16 = ...
@@ -219,7 +223,11 @@ def get_individual_gemm_time_sympy(
     num_writes = M * N
 
     if mx_recipe_name is not None:
-        assert mx_recipe_name in ("mxfp8_emulated", "mxfp8_cutlass"), "unsupported"
+        assert mx_recipe_name in (
+            "mxfp8_emulated",
+            "mxfp8_cutlass",
+            "mxfp8_cublas",
+        ), "unsupported"
         assert dtype in (torch.float8_e4m3fn, torch.float8_e5m2), "unsupported"
         # adjust reads for MX scaling
         block_size = 32
