@@ -194,7 +194,7 @@ def test_linear_compile(recipe_name, bias):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    if recipe_name in ["mxfp8_cutlass", "mxfp4_cutlass"]:
+    if recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
         if not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX gemms")
 
