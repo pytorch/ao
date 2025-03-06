@@ -61,8 +61,9 @@ class MXLinearConfig:
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
 
-    # If True, packs 4xFP6 into 3xuint8 containers, using custom triton kernels (fused unpack/dequantize)
-    pack_fp6 = False
+    # If True, packs 4xFP6 into 3xuint8 containers for inference, using custom triton
+    # kernels (fused unpack/dequantize). Training not currently supported.
+    pack_fp6 = True
 
     def __post_init__(self):
         # validate elem_dtype and its overrides
