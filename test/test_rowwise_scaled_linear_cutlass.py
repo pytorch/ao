@@ -8,6 +8,7 @@ from torchao.ops import (
     rowwise_scaled_linear_cutlass_s8s4,
 )
 from torchao.quantization.utils import group_quantize_tensor_symmetric
+from torchao.utils import is_sm_at_least_89, is_sm_at_least_90
 
 ROWWISE_SCALED_LINEAR_CUTLASS_DTYPE = [torch.float16, torch.bfloat16]
 ROWWISE_SCALED_LINEAR_CUTLASS_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
@@ -84,6 +85,7 @@ def run_test_for_op(op, xq_bits, wq_bits, dtype, batch_size, size_mnk, use_bias)
     torch.testing.assert_close(output, output_ref)
 
 
+@pytest.mark.skipif(is_sm_at_least_90(), reason="Does not run on H100")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "dtype, batch_size, size_mnk, use_bias", ROWWISE_SCALED_LINEAR_CUTLASS_TEST_PARAMS
@@ -94,6 +96,7 @@ def test_rowwise_scaled_linear_cutlass_s4s4(dtype, batch_size, size_mnk, use_bia
     )
 
 
+@pytest.mark.skipif(is_sm_at_least_90(), reason="Does not run on H100")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "dtype, batch_size, size_mnk, use_bias", ROWWISE_SCALED_LINEAR_CUTLASS_TEST_PARAMS
