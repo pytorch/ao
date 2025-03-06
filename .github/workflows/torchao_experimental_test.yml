@@ -34,8 +34,10 @@ jobs:
         run: |
           conda activate venv
           pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
+          pip install executorch
           pip install numpy
           pip install pytest
+          pip install parameterized
           USE_CPP=1 pip install .
       - name: Run python tests
         run: |
@@ -55,6 +57,12 @@ jobs:
           pushd torchao/experimental/ops/tests
           sh build_and_run_tests.sh
           rm -rf /tmp/cmake-out
+          popd
+      - name: ET ops build
+        run: |
+          conda activate venv
+          pushd torchao/experimental
+          sh build_torchao_ops.sh executorch
           popd
 
   test-mps-ops:
