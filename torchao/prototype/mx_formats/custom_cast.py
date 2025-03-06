@@ -691,9 +691,9 @@ else:
         input_ptr,
         output_ptr,
         n_mx_blocks,
-        MX_BLOCK_SIZE: tl.constexpr,
-        PACKED_MX_BLOCK_SIZE: tl.constexpr,
-        BLOCK_SIZE: tl.constexpr,
+        MX_BLOCK_SIZE,
+        PACKED_MX_BLOCK_SIZE,
+        BLOCK_SIZE,
     ):
         raise AssertionError("unsupported without triton")
 
@@ -1014,11 +1014,15 @@ def pack_uint6_pytorch(uint8_data: torch.Tensor) -> torch.Tensor:
     bits_packed_4_a = (uint8_data[1::4] >> 2) | ((uint8_data[::4] << 2) & 0xF0)
     bits_packed_4_b = (uint8_data[2::4] >> 2) | ((uint8_data[3::4] << 2) & 0xF0)
     bits_packed_2 = (
-        (uint8_data[::4] << 6) | ((uint8_data[1::4] << 4) & 0x30) \
-            | ((uint8_data[3::4] << 2) & 0xC) | (uint8_data[2::4] & 0x3)
+        (uint8_data[::4] << 6)
+        | ((uint8_data[1::4] << 4) & 0x30)
+        | ((uint8_data[3::4] << 2) & 0xC)
+        | (uint8_data[2::4] & 0x3)
     )
 
-    return (torch.stack((bits_packed_4_a, bits_packed_4_b, bits_packed_2), dim=-1)).view(packed_shape)
+    return (
+        torch.stack((bits_packed_4_a, bits_packed_4_b, bits_packed_2), dim=-1)
+    ).view(packed_shape)
 
 
 @torch.library.custom_op("ao::pack_uint6", mutates_args=())

@@ -332,8 +332,12 @@ def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
     mxtensor_ref = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
-    mxtensor_triton = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4,
-                                     use_fp4_custom_triton_dequant_kernel=True)
+    mxtensor_triton = MXTensor.to_mx(
+        orig_vals,
+        block_size=32,
+        elem_dtype=DTYPE_FP4,
+        use_fp4_custom_triton_dequant_kernel=True,
+    )
 
     f32_ref = mxtensor_ref.to_dtype(torch.float)
     f32_triton = mxtensor_triton.to_dtype(torch.float)

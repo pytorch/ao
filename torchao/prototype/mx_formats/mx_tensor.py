@@ -504,9 +504,9 @@ class MXTensor(torch.Tensor):
         ):
             # this check is sometimes broken for FakeTensor
             # TODO investigate
-            assert target_numel == data_bits.numel(), (
-                f"{target_numel} != {data_bits.numel()}"
-            )
+            assert (
+                target_numel == data_bits.numel()
+            ), f"{target_numel} != {data_bits.numel()}"
 
         # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
         # `_data`
