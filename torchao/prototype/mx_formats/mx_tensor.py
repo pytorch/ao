@@ -462,7 +462,7 @@ class MXTensor(torch.Tensor):
                 data_bits.is_contiguous(),
             )
         elif pack_fp6 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
-            # set the tensor size to what it would be without 2x4 packing
+            # set the tensor size to what it would be without fp6 packing
             new_size = tensor_size_fp6x4_to_hpx3(
                 new_size,
                 data_bits.is_contiguous(),
