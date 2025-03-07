@@ -499,8 +499,8 @@ from torchao.quantization.linear_activation_quantized_tensor import (
 )
 from torchao.quantization.quant_api import (
     MappingType,
-    to_affine_quantized_intx,
     ZeroPointDomain,
+    to_affine_quantized_intx,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import _get_per_token_block_size
