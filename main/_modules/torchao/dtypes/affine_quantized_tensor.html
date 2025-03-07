@@ -633,6 +633,7 @@
                 <span class="k">else</span> <span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
             <span class="n">device</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">device</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4CPULayout</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx</span><span class="w"> </span><span class="kn">import</span> <span class="n">TensorCoreTiledLayout</span>
 
             <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">choose_qparams_and_quantize_affine_hqq</span><span class="p">(</span>
@@ -644,7 +645,7 @@
                 <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
                 <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="n">raw_output</span><span class="o">=</span><span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span>
-                    <span class="n">_layout</span><span class="p">,</span> <span class="p">(</span><span class="n">TensorCoreTiledLayout</span><span class="p">,</span> <span class="n">PlainLayout</span><span class="p">)</span>
+                    <span class="n">_layout</span><span class="p">,</span> <span class="p">(</span><span class="n">TensorCoreTiledLayout</span><span class="p">,</span> <span class="n">PlainLayout</span><span class="p">,</span> <span class="n">Int4CPULayout</span><span class="p">)</span>
                 <span class="p">),</span>
                 <span class="c1"># raw_output=False is basically the &#39;convert to TensorCoreTiledLayout zero_point version&#39; option (add scale*midpoint)</span>
                 <span class="c1"># note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether</span>
