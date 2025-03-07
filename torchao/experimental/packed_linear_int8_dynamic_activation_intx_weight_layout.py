@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from enum import Enum, auto
+from enum import auto, Enum
 from typing import Optional, Tuple, Union
 
 import torch
@@ -145,7 +145,9 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         bias: Optional[torch.Tensor] = None,
     ):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
-        assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
+        assert (
+            layout.has_params_set()
+        ), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
         assert layout.target in {
             Target.AUTO,
             Target.ATEN,
