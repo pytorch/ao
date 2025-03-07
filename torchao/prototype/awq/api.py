@@ -92,15 +92,6 @@ def insert_awq_observer_(
     _replace_with_custom_fn_if_matches_filter(model, replace_with_observer, _is_linear)
 
 
-def _observed_linear_subclass_inserter(constructor):
-    """
-    Replaces unquantized AWQObservedLinear instances with quantized linear instances.
-
-    Args:
-        constructor: the function which applies quantization to the AWQObservedLinear layer
-    """
-
-
 @dataclass
 class AWQUIntXConfig(AOBaseConfig):
     """
