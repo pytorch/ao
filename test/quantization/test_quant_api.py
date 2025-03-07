@@ -782,7 +782,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
-    def test_int4wo_cpu(self, dtype, x_dim):
+    @common_utils.parametrize("use_hqq", [True, False])
+    def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
         from torchao.dtypes import Int4CPULayout
 
         device = "cpu"
@@ -792,7 +793,12 @@ class TestQuantFlow(TestCase):
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
         with torch.no_grad():
-            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            quantize_(
+                m,
+                int4_weight_only(
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                ),
+            )
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
                 torch.compile(m, fullgraph=True, dynamic=True),
