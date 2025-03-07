@@ -6,29 +6,18 @@
 
 import logging
 from enum import Enum, auto
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-    get_tensor_impl_constructor,
-    register_layout,
-)
+from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.affine_quantized_tensor_ops import (
     register_aqt_quantized_linear_dispatch,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-    choose_qparams_affine,
-    quantize_affine,
-)
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-)
+from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -44,13 +33,19 @@ logger.addHandler(handler)
 class Target(Enum):
     """Enum that indicates the backend target"""
 
-    NATIVE = auto()
+    # AUTO target will automatically select a packing format
+    # based on the available hardware.
+    # TODO: in future, add the ability to specify specific
+    # hardware targets
+    AUTO = auto()
+
+    # ATEN target will use the ATen operator
     ATEN = auto()
 
 
 def target_from_str(target: str) -> Target:
-    if target.lower() == "native":
-        return Target.NATIVE
+    if target.lower() == "auto":
+        return Target.AUTO
     elif target.lower() == "aten":
         return Target.ATEN
     else:
@@ -61,43 +56,48 @@ class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
     bit_width: Optional[int]
     group_size: Optional[int]
     has_weight_zeros: Optional[bool]
-    # The target platform for the layout, 'native' or 'aten'
+    has_bias: Optional[bool]
     target: Optional[Target]
 
     def __init__(
         self,
-        bit_width: Optional[int] = None,
-        group_size: Optional[int] = None,
-        has_weight_zeros: Optional[bool] = None,
-        target: Optional[str] = "native",
+        target: Union[str, Target] = "auto",
     ):
-        if bit_width is not None:
-            assert bit_width >= 1 and bit_width <= 8, "bit_width must be 1 to 8"
-        if group_size is not None:
-            assert group_size >= 1, f"group_size must be positive, got {group_size}"
+        if isinstance(target, str):
+            target = target_from_str(target)
+        self.target = target
 
-        self.bit_width = bit_width
-        self.group_size = group_size
-        self.has_weight_zeros = has_weight_zeros
-        self.target = target_from_str(target)
-
-        if not self.has_params_set():
-            assert (
-                self.bit_width is None
-                and self.group_size is None
-                and self.has_weight_zeros is None
-            ), "bit_width, group_size, and has_weight_zeros must be None if has_params_set is False"
+        self.bit_width: Optional[int] = None
+        self.group_size: Optional[int] = None
+        self.has_weight_zeros: Optional[bool] = None
+        # has_bias is whether the packed weights
+        # have bias packed with them, not whether the
+        # linear operator has bias
+        self.has_bias: Optional[bool] = None
 
     def extra_repr(self):
-        return f"group_size={self.group_size}, bit_width={self.bit_width}, has_weight_zeros={self.has_weight_zeros}, target={self.target}"
+        return f"group_size={self.group_size}, bit_width={self.bit_width}, has_weight_zeros={self.has_weight_zeros}, has_bias={self.has_bias}, target={self.target}"
 
     def has_params_set(self) -> bool:
         return (
             (self.bit_width is not None)
             and (self.group_size is not None)
             and (self.has_weight_zeros is not None)
+            and (self.has_bias is not None)
             and (self.target is not None)
         )
+
+    def set_params(
+        self, bit_width: int, group_size: int, has_weight_zeros: bool, has_bias: bool
+    ):
+        assert bit_width >= 1 and bit_width <= 8, "bit_width must be 1 to 8"
+        assert group_size >= 1, f"group_size must be positive, got {group_size}"
+
+        self.bit_width = bit_width
+        self.group_size = group_size
+        self.has_weight_zeros = has_weight_zeros
+        self.has_bias = has_bias
+        assert self.has_params_set()
 
 
 @register_layout(PackedLinearInt8DynamicActivationIntxWeightLayout)
@@ -160,7 +160,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
         assert layout.target in {
-            Target.NATIVE,
+            Target.AUTO,
             Target.ATEN,
         }, f"Unexpected target: {layout.target}"
 
@@ -177,11 +177,17 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             ), "aten target is requires torch version > 2.6.0"
             int_data = int_data.add(8)
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
+
+            # If layout does not have bias packed with the weights, set bias to None
+            # It will be applied later in the linear function
+            if not layout.has_bias:
+                bias = None
             packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(
                 int_data, scale, bias, layout.group_size, k, n
             )
             return cls(packed_weight, layout, group_size_tensor, n_tensor, k_tensor)
 
+        assert not layout.has_bias, "has_bias is not supported yet"
         if layout.has_weight_zeros:
             args = [
                 int_data.to(torch.int8),
@@ -256,13 +262,11 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
 
 def _linear_check(input_tensor, weight_tensor, bias):
     layout = weight_tensor.tensor_impl.get_layout()
-    return isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout) and (
-        bias is None or layout.target == Target.ATEN  # Aten target allows bias
-    )
+    return isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
 
 
 def _linear_impl(input_tensor, weight_tensor, bias):
-    def _impl_2d_native(input_tensor, weight_tensor):
+    def _impl_2d_auto(input_tensor, weight_tensor):
         assert input_tensor.dim() == 2
         assert weight_tensor.dim() == 2
 
@@ -274,6 +278,10 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         assert group_size == weight_tensor.tensor_impl.group_size_tensor.shape[1]
         assert n == weight_tensor.tensor_impl.n_tensor.shape[1]
         assert k == weight_tensor.tensor_impl.k_tensor.shape[1]
+
+        assert (
+            not weight_tensor.tensor_impl.get_layout().has_bias
+        ), "has_bias is not supported yet"
 
         # TODO(T200095131): convert self.n, self.k, self.group_size to
         # int when supported by AOTI
@@ -312,26 +320,31 @@ def _linear_impl(input_tensor, weight_tensor, bias):
 
     target = weight_tensor.tensor_impl.get_layout().target
 
+    if weight_tensor.tensor_impl.get_layout().has_bias:
+        assert (
+            bias is None
+        ), "bias should be None because it is already packed with the weights (has_bias=True)"
+
     if target == Target.ATEN:
         assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
-    elif target == Target.NATIVE:
-        _impl_2d = _impl_2d_native
-        assert (
-            bias is None
-        ), "bias in linear is not supported for PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl with target 'native' "
+    elif target == Target.AUTO:
+        _impl_2d = _impl_2d_auto
 
     if input_tensor.dim() == 2:
-        return _impl_2d(input_tensor, weight_tensor)
+        res = _impl_2d(input_tensor, weight_tensor)
+    else:
+        assert input_tensor.dim() >= 3
+        lead_shape = input_tensor.shape[0:-2]
+        m, k = input_tensor.shape[-2], input_tensor.shape[-1]
+        n, k_ = weight_tensor.shape
+        assert k_ == k
 
-    assert input_tensor.dim() >= 3
-    lead_shape = input_tensor.shape[0:-2]
-    m, k = input_tensor.shape[-2], input_tensor.shape[-1]
-    n, k_ = weight_tensor.shape
-    assert k_ == k
+        res = _impl_2d(input_tensor.reshape(-1, k), weight_tensor)
+        res = res.reshape(*lead_shape, m, n)
 
-    res = _impl_2d(input_tensor.reshape(-1, k), weight_tensor)
-    res = res.reshape(*lead_shape, m, n)
+    if bias is not None:
+        res = res + bias
     return res
 
 
@@ -340,8 +353,22 @@ register_aqt_quantized_linear_dispatch(
     _linear_impl,
 )
 
+import math
 
-class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTensor):
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    get_tensor_impl_constructor,
+)
+from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+    choose_qparams_and_quantize_affine_hqq,
+    quantize_affine,
+)
+
+
+class _AffineQuantizedTensor(AffineQuantizedTensor):
     """
     PackedLinearInt8DynamicActivationIntxWeightAtenTensor quantized tensor subclass which inherits AffineQuantizedTensor class.
     """
@@ -359,55 +386,85 @@ class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTenso
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
-        _layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(),
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
-        bias: Optional[torch.Tensor] = None,
+        tensor_impl_ctr_kwargs: Optional[dict] = None,
     ):
-        assert (
-            use_hqq == False
-        ), "PackedLinearInt8DynamicActivationIntxWeightTensor can not support HQQ optimization"
-        assert isinstance(
-            _layout, PackedLinearInt8DynamicActivationIntxWeightLayout
-        ), f"PackedLinearInt8DynamicActivationIntxWeightTensor can only support PackedLinearInt8DynamicActivationIntxWeightLayout(). Provided {_layout}"
-        assert (
-            _layout.target == Target.ATEN
-        ), "PackedLinearInt8DynamicActivationIntxWeightTensor requires target 'aten'."
+        """Convert a high precision tensor to an integer affine quantized tensor."""
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
-        scale, zero_point = choose_qparams_affine(
-            input_float,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            scale_dtype,
-            zero_point_dtype,
-            preserve_zero,
-            zero_point_domain,
-        )
-        # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
-        # TODO should probably consolidate ZeroPointDomain.NONE and None
-        if zero_point_domain is None or zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
-        data = quantize_affine(
-            input_float,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-        )
-        # Note: output will be uint8 tensor for sub byte tensors for now
+        if use_hqq:
+            assert (
+                zero_point_domain == ZeroPointDomain.FLOAT
+                and mapping_type == MappingType.ASYMMETRIC
+                and quant_min == 0
+            ), "Invalid input parameters for HQQ quantization."
+            nbits = int(math.log2(quant_max + 1))
+            axis = 1 if (block_size[0] == 1) else 0
+            group_size = max(block_size)
+            compute_dtype = (
+                zero_point_dtype
+                if (zero_point_dtype is not None)
+                else input_float.dtype
+            )
+            device = input_float.device
+            from torchao.dtypes.uintx import TensorCoreTiledLayout
+
+            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
+                input_float,
+                nbits=nbits,
+                group_size=group_size,
+                axis=axis,
+                compute_dtype=compute_dtype,
+                device=device,
+                verbose=False,
+                raw_output=not isinstance(
+                    _layout, (TensorCoreTiledLayout, PlainLayout)
+                ),
+                # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
+                # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
+                # zero is preserved.
+                # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
+                # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
+                # TODO change PlainLayout to use raw_output.
+            )
+            data = data.to(target_dtype)
+        else:
+            scale, zero_point = choose_qparams_affine(
+                input_float,
+                mapping_type,
+                block_size,
+                target_dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype,
+                zero_point_dtype,
+                preserve_zero,
+                zero_point_domain,
+            )
+            # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
+            if zero_point_domain == ZeroPointDomain.NONE:
+                zero_point = None
+            data = quantize_affine(
+                input_float,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+                zero_point_domain,
+            )
+            # Note: output will be uint8 tensor for sub byte tensors for now
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout, bias)
+        tensor_impl = tensor_impl_ctr(
+            data, scale, zero_point, _layout, **(tensor_impl_ctr_kwargs or {})
+        )
         return cls(
             tensor_impl,
             block_size,
@@ -419,6 +476,4 @@ class PackedLinearInt8DynamicActivationIntxWeightAtenTensor(AffineQuantizedTenso
         )
 
 
-to_packedlinearint8dynamicactivationintxweight_quantized_intx = (
-    PackedLinearInt8DynamicActivationIntxWeightAtenTensor.from_hp_to_intx
-)
+to_affine_quantized_intx_experimental = _AffineQuantizedTensor.from_hp_to_intx
