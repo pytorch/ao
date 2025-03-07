@@ -4,7 +4,11 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
+from torchao.dtypes.utils import (
+    AQTTensorImpl,
+    Layout,
+    PlainLayout,
+)
 from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
@@ -17,7 +21,10 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
     quantize_affine_floatx,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
 logger = logging.getLogger(__name__)
 aten = torch.ops.aten
