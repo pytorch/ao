@@ -154,6 +154,50 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
+        elif func is aten.cat.default:
+            # Extract tensors to be stacked and dimension
+            tensors = args[0]
+            dim = kwargs.get("dim", 0)
+
+            # Check if all tensors are Float8AQTTensorImpl
+            if all(isinstance(t, Float8AQTTensorImpl) for t in tensors):
+                # Stack the float8_data tensors
+                stacked_float8_data = func([t.float8_data for t in tensors], dim=dim)
+
+                # Handle scales based on their dimensionality
+                if all(t.scale.ndim == 0 for t in tensors):
+                    # Use the maximum scale value from all tensors for numerical stability
+                    stacked_scale = torch.max(torch.cat([t.scale for t in tensors]))
+                else:
+                    # For per-row or other dimensional scales, stack them
+                    stacked_scale = func([t.scale for t in tensors], dim=dim)
+
+                # Check if all tensors have the same layout configuration
+                if not all(t._layout == tensors[0]._layout for t in tensors):
+                    raise ValueError(
+                        "Cannot stack Float8AQTTensorImpl with different layouts"
+                    )
+
+                # Check if all tensors have the same transposed state
+                if not all(t.transposed == tensors[0].transposed for t in tensors):
+                    raise ValueError(
+                        "Cannot stack Float8AQTTensorImpl with different transposed states"
+                    )
+
+                # Create and return the stacked tensor impl
+                return return_and_correct_aliasing(
+                    func,
+                    args,
+                    kwargs,
+                    Float8AQTTensorImpl(
+                        stacked_float8_data,
+                        stacked_scale,
+                        tensors[
+                            0
+                        ].transposed,  # Use the transposed state of the first tensor
+                        tensors[0]._layout,  # Use the layout of the first tensor
+                    ),
+                )
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
