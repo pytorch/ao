@@ -15,13 +15,8 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.quantization.granularity import (
-    PerGroup,
-    PerRow,
-)
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-)
+from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -497,18 +492,17 @@ from torchao.dtypes.utils import Layout
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     Target,
+    to_affine_quantized_intx_experimental,
 )
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import (
     MappingType,
-    ZeroPointDomain,
     to_affine_quantized_intx,
+    ZeroPointDomain,
 )
-from torchao.quantization.transform_module import (
-    register_quantize_module_handler,
-)
+from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import _get_per_token_block_size
 
 
@@ -641,7 +635,7 @@ def _int8_dynamic_activation_intx_weight_transform(
     quant_min = -(1 << (bit_width - 1))
     quant_max = (1 << (bit_width - 1)) - 1
 
-    weight = to_affine_quantized_intx(
+    weight = to_affine_quantized_intx_experimental(
         input_float=weight,
         mapping_type=weight_mapping_type,
         block_size=(1, group_size),
@@ -652,9 +646,9 @@ def _int8_dynamic_activation_intx_weight_transform(
         scale_dtype=scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=has_weight_zeros,
-        zero_point_domain=ZeroPointDomain.INT
-        if has_weight_zeros
-        else ZeroPointDomain.NONE,
+        zero_point_domain=(
+            ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        ),
         _layout=layout,
         use_hqq=False,
         tensor_impl_ctr_kwargs=tensor_impl_ctr_kwargs,

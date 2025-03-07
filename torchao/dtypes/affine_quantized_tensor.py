@@ -4,11 +4,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-from torchao.dtypes.utils import (
-    AQTTensorImpl,
-    Layout,
-    PlainLayout,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
@@ -21,10 +17,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
     quantize_affine_floatx,
 )
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
-)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
 
 logger = logging.getLogger(__name__)
 aten = torch.ops.aten
@@ -204,7 +197,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
-        tensor_impl_ctr_kwargs: Optional[dict] = None,
     ):
         """Convert a high precision tensor to an integer affine quantized tensor."""
         original_shape = input_float.shape
@@ -277,9 +269,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(
-            data, scale, zero_point, _layout, **(tensor_impl_ctr_kwargs or {})
-        )
+        tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
             tensor_impl,
             block_size,
