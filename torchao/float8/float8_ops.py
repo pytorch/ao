@@ -26,7 +26,7 @@ def addmm_float8_unwrapped(
     a_data: torch.Tensor,
     a_scale: torch.Tensor,
     b_data: torch.Tensor,
-    b_scale: torch.tensor,
+    b_scale: torch.Tensor,
     output_dtype: torch.dtype,
     output_scale: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
