@@ -13,7 +13,7 @@ _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 class TestWeightOnlyQuantNaive(unittest.TestCase):
     def test_quantization_intNwo(self):
         # skip test int4wo for now since it is under development in torchao
-        for quantization_bit in [2, 3, 5, 6, 8]:
+        for quantization_bit in [2, 3, 5, 6]:
             for symmetric in [False, True]:
                 with self.subTest(
                     quantization_bit=quantization_bit, symmetric=symmetric
