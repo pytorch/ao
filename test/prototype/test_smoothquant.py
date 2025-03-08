@@ -5,11 +5,11 @@ import pytest
 import torch
 
 from torchao.prototype.smoothquant import (
+    SmoothQuantConfig,
     SmoothQuantObservedLinear,
     insert_smooth_quant_observer_,
     load_smooth_quant_recipe,
     save_smooth_quant_recipe,
-    smooth_quant,
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import (
@@ -85,7 +85,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-    quantize_(m, smooth_quant(), is_observed_linear)
+    quantize_(m, SmoothQuantConfig(), is_observed_linear)
     with torch.inference_mode():
         if TORCH_VERSION_AT_LEAST_2_5:
             m = torch.compile(m, fullgraph=True)
@@ -173,7 +173,7 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
 
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-    quantize_(m, smooth_quant(), is_observed_linear)
+    quantize_(m, SmoothQuantConfig(), is_observed_linear)
     if TORCH_VERSION_AT_LEAST_2_5:
         # earlier versions are not compatible
         m = torch.compile(m, fullgraph=True)
