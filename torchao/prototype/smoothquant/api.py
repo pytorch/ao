@@ -109,7 +109,7 @@ def load_smooth_quant_recipe(
             wrapper = torch.nn.Sequential(module)
             quantize_(
                 wrapper,
-                smooth_quant(smoothing_factor, act_scales, wei_scales),
+                SmoothQuantConfig(smoothing_factor, act_scales, wei_scales),
                 is_observed_linear,
             )
             return wrapper[0]
@@ -165,10 +165,6 @@ class SmoothQuantConfig(AOBaseConfig):
     wei_scales: Optional[torch.Tensor] = None
 
 
-# for bc
-smooth_quant = SmoothQuantConfig
-
-
 @register_quantize_module_handler(SmoothQuantConfig)
 def _smooth_quant_transform(
     module: torch.nn.Module,
@@ -177,7 +173,6 @@ def _smooth_quant_transform(
     smoothing_factor = config.smoothing_factor
     act_scales = config.act_scales
     wei_scales = config.wei_scales
-    # weight = module.weight
     observed_linear = module
 
     linear = torch.nn.Linear(
@@ -187,11 +182,7 @@ def _smooth_quant_transform(
         device=observed_linear.weight.device,
         dtype=observed_linear.weight.dtype,
     )
-    # linear.weight = torch.nn.Parameter(
-    #     constructor(observed_linear), requires_grad=False
-    # )
     linear.bias = observed_linear.bias
-    # return linear
 
     target_dtype = torch.int8
     # act_scales is None for dynamic quantization thus not checked
