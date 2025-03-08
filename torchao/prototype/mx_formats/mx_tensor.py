@@ -50,7 +50,10 @@ from torchao.prototype.mx_formats.custom_cast import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
+    pack_uint6,
     triton_f4_to_scaled_bf16,
+    triton_f6_e2m3_to_scaled_bf16,
+    triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
 )
 
@@ -86,6 +89,7 @@ def to_mx(
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+    pack_fp6: bool = False,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -213,10 +217,16 @@ def to_mx(
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E2M3:
         data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        if pack_fp6:
+            orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
+            data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
         data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        if pack_fp6:
+            orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
+            data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP4:
@@ -225,6 +235,7 @@ def to_mx(
         # approach for fp4x2 in any case
         data_lp = data_lp.reshape(orig_shape)
         data_lp = f32_to_f4_unpacked(data_lp)
+        orig_shape = [*orig_shape[:-1], orig_shape[-1] // 2]
         data_lp = pack_uint4(data_lp)
     else:
         raise AssertionError("unsupported")
@@ -255,6 +266,7 @@ def to_dtype(
     block_size,
     target_dtype,
     use_fp4_custom_triton_dequant_kernel,
+    pack_fp6,
 ):
     orig_shape = data_lp.shape
     is_transposed = not data_lp.is_contiguous()
@@ -268,11 +280,33 @@ def to_dtype(
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_hp = data_lp.to(target_dtype)
     elif elem_dtype == DTYPE_FP6_E2M3:
-        data_hp = f6_e2m3_unpacked_to_f32(data_lp)
-        data_hp = data_hp.to(target_dtype)
+        if pack_fp6:
+            orig_shape = (*orig_shape[:-1], 4 * orig_shape[-1] // 3)
+            data_hp_rescaled = triton_f6_e2m3_to_scaled_bf16(
+                data_lp,
+                scale_e8m0,
+                block_size,
+            ).reshape(orig_shape)
+            if is_transposed:
+                data_hp_rescaled = data_hp_rescaled.t()
+            return data_hp_rescaled.to(target_dtype)
+        else:
+            data_hp = f6_e2m3_unpacked_to_f32(data_lp)
+            data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
-        data_hp = f6_e3m2_unpacked_to_f32(data_lp)
-        data_hp = data_hp.to(target_dtype)
+        if pack_fp6:
+            orig_shape = (*orig_shape[:-1], 4 * orig_shape[-1] // 3)
+            data_hp_rescaled = triton_f6_e3m2_to_scaled_bf16(
+                data_lp,
+                scale_e8m0,
+                block_size,
+            ).reshape(orig_shape)
+            if is_transposed:
+                data_hp_rescaled = data_hp_rescaled.t()
+            return data_hp_rescaled.to(target_dtype)
+        else:
+            data_hp = f6_e3m2_unpacked_to_f32(data_lp)
+            data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == DTYPE_FP4:
         if use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
@@ -327,6 +361,24 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
     return new_size
 
 
+def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
+    new_size = orig_size
+    if is_contiguous:
+        new_size = [*list(new_size[:-1]), 3 * new_size[-1] // 4]
+    else:
+        new_size = [3 * new_size[0] // 4, *list(new_size[1:])]
+    return new_size
+
+
+def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
+    new_size = orig_size
+    if is_contiguous:
+        new_size = [*list(new_size[:-1]), 4 * new_size[-1] // 3]
+    else:
+        new_size = [4 * new_size[0] // 3, *list(new_size[1:])]
+    return new_size
+
+
 @torch._dynamo.allow_in_graph
 class ToMXConstrFunc(torch.autograd.Function):
     """
@@ -342,9 +394,10 @@ class ToMXConstrFunc(torch.autograd.Function):
         scaling_mode,
         use_fp4_custom_triton_dequant_kernel,
         gemm_kernel_choice,
+        pack_fp6,
     ):
         scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode
+            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6=pack_fp6
         )
         return MXTensor(
             scale_e8m0_biased,
@@ -354,11 +407,12 @@ class ToMXConstrFunc(torch.autograd.Function):
             data_hp.dtype,
             use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
+            pack_fp6,
         )
 
     @staticmethod
     def backward(ctx, g):
-        return g, None, None, None, None, None
+        return g, None, None, None, None, None, None
 
 
 @torch._dynamo.allow_in_graph
@@ -376,6 +430,7 @@ class FromMXConstrFunc(torch.autograd.Function):
             tensor_lp._block_size,
             target_dtype,
             tensor_lp._use_fp4_custom_triton_dequant_kernel,
+            tensor_lp._pack_fp6,
         )
 
     @staticmethod
@@ -393,6 +448,7 @@ class MXTensor(torch.Tensor):
         orig_dtype,
         use_fp4_custom_triton_dequant_kernel,
         gemm_kernel_choice,
+        pack_fp6,
     ):
         new_size = data_bits.size()
         if elem_dtype == DTYPE_FP4:
@@ -402,6 +458,12 @@ class MXTensor(torch.Tensor):
             # broken for tensors of size (M, 1) or (1, M). Leaving broken until
             # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
+                new_size,
+                data_bits.is_contiguous(),
+            )
+        elif pack_fp6 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
+            # set the tensor size to what it would be without fp6 packing
+            new_size = tensor_size_fp6x4_to_hpx3(
                 new_size,
                 data_bits.is_contiguous(),
             )
@@ -424,13 +486,16 @@ class MXTensor(torch.Tensor):
         if elem_dtype in (
             torch.float8_e4m3fn,
             torch.float8_e5m2,
-            DTYPE_FP6_E2M3,
-            DTYPE_FP6_E3M2,
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
         elif elem_dtype == DTYPE_FP4:
             assert data_bits.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
+        elif elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
+            assert data_bits.dtype is torch.uint8  # fp4
+            target_numel = scale_e8m0_bits.numel() * block_size
+            if pack_fp6:
+                target_numel = 3 * target_numel // 4
         else:
             raise AssertionError("unsupported")
         if not issubclass(
@@ -454,6 +519,7 @@ class MXTensor(torch.Tensor):
             use_fp4_custom_triton_dequant_kernel
         )
         self._gemm_kernel_choice = gemm_kernel_choice
+        self._pack_fp6 = pack_fp6
         return self
 
     def __repr__(self):
@@ -482,6 +548,7 @@ class MXTensor(torch.Tensor):
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         use_fp4_custom_triton_dequant_kernel: bool = False,
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
+        pack_fp6: bool = False,
     ):
         return ToMXConstrFunc.apply(
             data_hp,
@@ -490,6 +557,7 @@ class MXTensor(torch.Tensor):
             scaling_mode,
             use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
+            pack_fp6,
         )
 
     def __tensor_flatten__(self):
@@ -499,6 +567,7 @@ class MXTensor(torch.Tensor):
             "_orig_dtype": self._orig_dtype,
             "_use_fp4_custom_triton_dequant_kernel": self._use_fp4_custom_triton_dequant_kernel,
             "_gemm_kernel_choice": self._gemm_kernel_choice,
+            "_pack_fp6": self._pack_fp6,
         }
         return ["_scale_e8m0", "_data"], ctx
 
@@ -517,6 +586,7 @@ class MXTensor(torch.Tensor):
             metadata["_orig_dtype"],
             metadata["_use_fp4_custom_triton_dequant_kernel"],
             metadata["_gemm_kernel_choice"],
+            metadata["_pack_fp6"],
         )
 
     # Do not force the MXTensor type on the returned tensor
