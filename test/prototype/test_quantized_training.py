@@ -193,7 +193,8 @@ class TestQuantizedTraining(TestCase):
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
-        apply_func = int8_mixed_precision_training(config, module_swap=module_swap)
+        config.module_swap = module_swap
+        apply_func = int8_mixed_precision_training(config)
         quantize_(linear_int8mp, apply_func, set_inductor_config=False)
 
         if compile:
