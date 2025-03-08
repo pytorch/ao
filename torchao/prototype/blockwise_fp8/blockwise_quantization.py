@@ -1,8 +1,10 @@
 from typing import Tuple
 
 import torch
-import triton
-import triton.language as tl
+
+if torch.cuda.is_available():
+    import triton
+    import triton.language as tl
 
 
 @triton.jit
@@ -50,6 +52,10 @@ def fp8_blockwise_act_quant(
     assert (
         x.size(-1) % block_size == 0
     ), f"Last dimension size must be divisible by block_size (block_size={block_size})"
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
     grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
@@ -108,6 +114,10 @@ def fp8_blockwise_weight_quant(
     assert (
         x.size(0) % block_size == 0 and x.size(1) % block_size == 0
     ), f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
     M, N = x.size()
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
