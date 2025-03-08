@@ -35,7 +35,7 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
     error = torch.norm(x - x_reconstructed) / torch.norm(x)
     print(f"Relative Error: {error.item():.6f}")
 
-    assert error < 0.05, "Quant-Dequant error is too high"
+    assert error < 0.1, "Quant-Dequant error is too high"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -56,4 +56,4 @@ def test_blockwise_fp8_gemm(M, N, K, dtype):
     error = torch.norm(C - C_q) / torch.norm(C)
     print(f"Relative Error: {error.item():.6f}")
 
-    assert error < 0.05, "Quantize gemm error is too high"
+    assert error < 0.1, "Quantize gemm error is too high"

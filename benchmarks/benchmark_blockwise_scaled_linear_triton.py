@@ -1,7 +1,9 @@
 import pandas as pd
 import torch
 from tqdm import tqdm
-from triton.testing import do_bench
+
+if torch.cuda.is_available():
+    from triton.testing import do_bench
 
 from torchao.float8.float8_utils import compute_error
 from torchao.ops import rowwise_scaled_linear_cutlass_s8s4
@@ -10,9 +12,10 @@ from torchao.prototype.blockwise_fp8.blockwise_quantization import (
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_quant,
 )
+
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int4_weight,
-    quantize_,
+    _int8_symm_per_token_reduced_range_quant_cutlass,
+    _int4_symm_per_token_quant_cutlass,
 )
 
 from torchao.utils import is_sm_at_least_89
@@ -38,9 +41,14 @@ def get_blockwise_problem(
     assert (
         n % block_size == 0 and k % block_size == 0
     ), "N and K dims must be divisible by block_size"
-    A = (448.0 * (2 * torch.rand(m, k, device=device) - 1)).to(dtype)
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    dtype_max = torch.finfo(dtype).max
+    A = (dtype_max * (2 * torch.rand(m, k, device=device) - 1)).to(dtype)
     A_scale = torch.randn((m, k // block_size), dtype=torch.half, device=device)
-    B = (448.0 * (2 * torch.rand(n, k, device=device) - 1)).to(dtype)
+    B = (dtype_max * (2 * torch.rand(n, k, device=device) - 1)).to(dtype)
     B_scale = torch.randn(
         (n // block_size, k // block_size), dtype=torch.half, device=device
     )
@@ -89,8 +97,15 @@ def benchmark_precision(
     W_q, W_s = fp8_blockwise_weight_quant(W, block_size, dtype)
     output_blockwise = blockwise_fp8_gemm(A_q, A_s, W_q, W_s)
 
-    quantize_(lin, int8_dynamic_activation_int4_weight())
-    output_rowwise = lin(A)
+    qact = _int8_symm_per_token_reduced_range_quant_cutlass(A)
+    qweight = _int4_symm_per_token_quant_cutlass(W)
+    output_rowwise = rowwise_scaled_linear_cutlass_s8s4(
+        qact.tensor_impl.int_data,
+        qact.tensor_impl.scale,
+        qweight.tensor_impl.int_data,
+        qweight.tensor_impl.scale,
+        None,
+    )
 
     return {
         "m": m,
