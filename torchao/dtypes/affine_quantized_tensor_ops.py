@@ -449,3 +449,53 @@ def _(func, types, args, kwargs):
     raise ValueError(
         f"{self.__class__.__name__} only supports .view() with same shape or shape=[-1]"
     )
+
+
+@implements(aten.cat.default)
+def _(func, types, args, kwargs):
+    tensors = args[0]  # This is a list of tensors
+
+    # Check if these are AffineQuantizedTensor objects
+    if all(isinstance(t, AffineQuantizedTensor) for t in tensors):
+        # Stack the tensor_impl objects
+        stacked_tensor_impl = func([t.tensor_impl for t in tensors], *args[1:])
+
+        # Ensure all tensors have compatible parameters
+        if not all(t.block_size == tensors[0].block_size for t in tensors):
+            raise ValueError(
+                "Cannot stack AffineQuantizedTensors with different block_size"
+            )
+
+        if not all(t.quant_min == tensors[0].quant_min for t in tensors):
+            raise ValueError(
+                "Cannot stack AffineQuantizedTensors with different quant_min"
+            )
+
+        if not all(t.quant_max == tensors[0].quant_max for t in tensors):
+            raise ValueError(
+                "Cannot stack AffineQuantizedTensors with different quant_max"
+            )
+
+        if not all(
+            t.zero_point_domain == tensors[0].zero_point_domain for t in tensors
+        ):
+            raise ValueError(
+                "Cannot stack AffineQuantizedTensors with different zero_point_domain"
+            )
+
+        if not all(t.dtype == tensors[0].dtype for t in tensors):
+            raise ValueError("Cannot stack AffineQuantizedTensors with different dtype")
+
+        new_shape = (
+            stacked_tensor_impl.shape
+        )  # Assuming stacked_tensor_impl has a shape attribute
+        # Create a new AffineQuantizedTensor with the stacked tensor_impl and other parameters
+        return AffineQuantizedTensor(
+            tensor_impl=stacked_tensor_impl,
+            block_size=tensors[0].block_size,
+            shape=new_shape,
+            quant_min=tensors[0].quant_min,
+            quant_max=tensors[0].quant_max,
+            zero_point_domain=tensors[0].zero_point_domain,
+            dtype=tensors[0].dtype,
+        )

@@ -253,6 +253,32 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.cat.default)
+def _(func, types, args, kwargs):
+    tensors = args[0]  # This is a list of tensors
+
+    # Check if these are LinearActivationQuantizedTensor objects
+    assert all(hasattr(t, "original_weight_tensor") for t in tensors)
+    # Stack the original tensors first
+    original_stacked = func([t.original_weight_tensor for t in tensors], *args[1:])
+
+    # Assuming all tensors use the same quantization parameters, unsafely so for now
+    input_quant_func = tensors[0].input_quant_func
+    quant_kwargs = tensors[0].quant_kwargs
+
+    # Create new quantized tensor with stacked result
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        LinearActivationQuantizedTensor(
+            original_stacked,
+            input_quant_func,
+            quant_kwargs,
+        ),
+    )
+
+
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
 
 if TORCH_VERSION_AT_LEAST_2_5:
