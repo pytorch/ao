@@ -7,8 +7,8 @@ from torchao.optim import (
     AdamW4bit,
     AdamW8bit,
     AdamWFp8,
-    _AdamW,
     CPUOffloadOptimizer,
+    _AdamW,
 )
 
 __all__ = [

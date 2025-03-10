@@ -125,17 +125,17 @@ class TestOptim(TestCase):
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
-        optim = getattr(optim, optim_name)(model.parameters())
+        optimizer = getattr(optim, optim_name)(model.parameters())
 
         x = torch.randn(4, 32, device=device, dtype=dtype)
         loss = model(x).sum()
         loss.backward()
-        optim.step()
-        optim.zero_grad()
+        optimizer.step()
+        optimizer.zero_grad()
 
         # test serialization. also test the case CUDA optim loads CPU state dict
         with tempfile.NamedTemporaryFile() as f:
-            torch.save(optim.state_dict(), f.name)
+            torch.save(optimizer.state_dict(), f.name)
             state_dict = torch.load(f.name, map_location="cpu")
 
         model2 = copy.deepcopy(model)
@@ -146,8 +146,8 @@ class TestOptim(TestCase):
             x = torch.randn(4, 32, device=device, dtype=dtype)
 
             model(x).sum().backward()
-            optim.step()
-            optim.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
             model2(x).sum().backward()
             optim2.step()
@@ -545,13 +545,13 @@ class TestFSDP2(FSDPTest):
 
         # currently all of our low-bit Adam/AdamW share the same implementation.
         # thus, we only need to test for 1 optimizer class.
-        optim = optim.AdamW8bit(model.parameters())
+        optimizer = optim.AdamW8bit(model.parameters())
 
         for _ in range(2):
             inputs = torch.randn(2, in_dim, device="cuda")
             model(inputs).sum().backward()
-            optim.step()
-            optim.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
 
 instantiate_parametrized_tests(TestQuantize)
