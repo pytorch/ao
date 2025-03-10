@@ -69,7 +69,7 @@ class TestUtils(unittest.TestCase):
             m=m,
             k=k,
             n=n,
-            dtype=torch.float32,
+            high_precision_dtype=torch.float32,
             device="cpu",
         )
         self.assertIsInstance(model, ToyLinearModel)
@@ -80,7 +80,7 @@ class TestUtils(unittest.TestCase):
             m=m,
             k=k,
             n=n,
-            dtype=torch.float32,
+            high_precision_dtype=torch.float32,
             device="cpu",
         )
         self.assertIsInstance(model, LNLinearSigmoid)

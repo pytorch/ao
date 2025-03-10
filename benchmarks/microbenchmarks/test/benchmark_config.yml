@@ -3,7 +3,6 @@ quantization_config_recipe_names:
   - "baseline"
   - "int8wo"
   - "int4wo-128"
-  - "int4wo-128-hqq"
 output_dir: "benchmarks/microbenchmarks/test/results"  # Directory for results and plots
 model_params:
   matrix_shapes:

@@ -19,7 +19,11 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 
-from benchmarks.microbenchmarks.utils import BenchmarkConfig, generate_results_csv
+from utils import (
+    BenchmarkConfig,
+    generate_results_csv,
+    print_results,
+)
 
 
 def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[int]]]:
@@ -64,7 +68,7 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
 
 def run_benchmarks_from_config(config_path: str) -> None:
     """Run benchmarks using configurations from YAML file"""
-    from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
+    from benchmark_inference import run as run_inference
 
     configs = load_benchmark_configs(config_path)
     results = []
@@ -76,6 +80,9 @@ def run_benchmarks_from_config(config_path: str) -> None:
 
     # Add results to csv
     generate_results_csv(results, configs[0].output_dir)
+
+    # Print results
+    print_results(results)
 
     # TODO: Process results: Speedups:
     # 1. For different shapes for same model and quantization

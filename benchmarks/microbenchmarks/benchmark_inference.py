@@ -11,13 +11,14 @@ from typing import Dict
 
 import torch
 
-from benchmarks.microbenchmarks.utils import (
+from utils import (
     BenchmarkConfig,
     benchmark_model_inference_in_microseconds,
     clean_caches,
     create_model_and_input,
-    quantization_string_to_quantized_model,
+    quantization_string_to_quantization_config,
 )
+from torchao.quantization import quantize_
 
 
 def run(config: BenchmarkConfig) -> Dict[str, float]:
@@ -38,10 +39,11 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    m_copy = quantization_string_to_quantized_model(
-        m_copy, config.quantization, high_precision_dtype=config.high_precision_dtype
+    quantization_config = quantization_string_to_quantization_config(
+        config.quantization, high_precision_dtype=config.high_precision_dtype
     )
-
+    if quantization_config:
+        quantize_(m_copy, quantization_config)
     if config.compile:
         print("Compiling model....")
         m_copy = torch.compile(m_copy, mode=config.compile_mode, fullgraph=True)
