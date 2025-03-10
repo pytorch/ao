@@ -87,7 +87,6 @@ def _semi_sparse_weight_transform(
 
 def sparsify_(
     model: torch.nn.Module,
-    # apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor],
     config: AOBaseConfig,
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
 ) -> torch.nn.Module:
