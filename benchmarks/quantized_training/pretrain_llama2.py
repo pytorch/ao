@@ -29,7 +29,7 @@ from torchao._models.llama.model import (
     Transformer,
     transformer_configs,
 )
-from torchao.prototype import low_bit_optim
+from torchao import optim
 from torchao.prototype.quantized_training import (
     bitnet_training,
     int8_mixed_precision_training,
@@ -190,10 +190,10 @@ if __name__ == "__main__":
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
     torch.cuda.reset_peak_memory_stats()  # don't count memory occupied by unquantized weights
 
-    # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
+    # only use optimizers from torchao.optim to support quantized training
     if args.optim == "AdamW":
         args.optim = "_AdamW"
-    optim = getattr(low_bit_optim, args.optim)(
+    optim = getattr(optim, args.optim)(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay,
