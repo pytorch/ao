@@ -40,7 +40,7 @@ def _linear_bf16_act_uint4_weight_float_zero_check(input_tensor, weight_tensor, 
         and weight_tensor.dtype == torch.bfloat16
         and len(weight_tensor.shape) == 2
         and weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT
-        and isinstance(weight_tensor.tensor_impl.scale_and_zero, torch.Tensor)
+        and weight_tensor.tensor_impl.scale_and_zero is not None
         and weight_tensor.tensor_impl.scale_and_zero.dtype == torch.bfloat16
         and isinstance(weight_tensor._layout, Int4XPULayout)
     )
@@ -97,9 +97,9 @@ def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, b
         and weight_tensor.dtype == torch.bfloat16
         and len(weight_tensor.shape) == 2
         and weight_tensor.zero_point_domain == ZeroPointDomain.INT
-        and isinstance(weight_tensor.tensor_impl.scale_and_zero, list)
-        and weight_tensor.tensor_impl.scale_and_zero[0].dtype == torch.bfloat16
-        and weight_tensor.tensor_impl.scale_and_zero[1].dtype == torch.int8
+        and weight_tensor.tensor_impl.scale_and_zero is None
+        and weight_tensor.tensor_impl.scale.dtype == torch.bfloat16
+        and weight_tensor.tensor_impl.zero.dtype == torch.int8
         and isinstance(weight_tensor._layout, Int4XPULayout)
     )
 
@@ -119,7 +119,8 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
     packed_weight = weight_tensor.tensor_impl.packed_weight
-    [scale, zero] = weight_tensor.tensor_impl.scale_and_zero
+    scale = weight_tensor.tensor_impl.scale
+    zero = weight_tensor.tensor_impl.zero
 
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
@@ -129,7 +130,7 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
 
-    y = torch.ops.aten._weight_int4pack_mm_with_scale_and_zeros(
+    y = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
         act_mat, packed_weight, groupsize, scale, zero
     )
 
@@ -172,9 +173,11 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     def __new__(
         cls,
         packed_weight: torch.Tensor,
-        scale_and_zero: Union[torch.Tensor, List[torch.Tensor]],
+        scale_and_zero: torch.Tensor,
         transposed: bool,
         _layout: Layout,
+        scale: torch.Tensor = None,
+        zero: torch.Tensor = None,
     ):
         kwargs = {}
         kwargs["device"] = packed_weight.device
@@ -191,31 +194,38 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     def __init__(
         self,
         packed_weight: torch.Tensor,
-        scale_and_zero: Union[torch.Tensor, List[torch.Tensor]],
+        scale_and_zero: torch.Tensor,
         transposed: bool,
         _layout: Layout,
+        scale: torch.Tensor = None,
+        zero: torch.Tensor = None,
     ):
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
         self._layout = _layout
+        self.scale = scale
+        self.zero = zero
 
     def __tensor_flatten__(self):
-        return ["packed_weight", "scale_and_zero"], [self.transposed, self._layout]
+        if self.scale_and_zero is not None:
+            return ["packed_weight", "scale_and_zero"], [self.transposed, self._layout]
+        else:
+            return ["packed_weight", "scale", "zero"], [self.transposed, self._layout]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        packed_weight, scale_and_zero = (
-            tensor_data_dict["packed_weight"],
-            tensor_data_dict["scale_and_zero"],
-        )
+        packed_weight = tensor_data_dict["packed_weight"]
+        scale_and_zero = tensor_data_dict.get("scale_and_zero") if "scale_and_zero" in tensor_data_dict else None
+        scale = tensor_data_dict.get("scale") if "scale" in tensor_data_dict else None
+        zero = tensor_data_dict.get("zero") if "zero" in tensor_data_dict else None
         (
             transposed,
             _layout,
         ) = tensor_attributes
-        return cls(packed_weight, scale_and_zero, transposed, _layout)
+        return cls(packed_weight, scale_and_zero, transposed, _layout, scale, zero)
 
     @classmethod
     def from_plain(
@@ -244,10 +254,14 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
+        if zero_point.dtype == scale.dtype:
+            from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
-        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
-        return cls(packed_weight, scale_and_zero, False, _layout)
+            scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
+            return cls(packed_weight, scale_and_zero, False, _layout, None, None)
+        else:
+            return cls(packed_weight, None, False, _layout, scale.transpose(0, 1).contiguous(), \
+                       zero_point.transpose(0, 1).contiguous().to(torch.int8))
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -258,17 +272,21 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             )
         return self.__class__(
             self.packed_weight.to(device),
-            self.scale_and_zero.to(device) if not isinstance(self.scale_and_zero, list) else [self.scale_and_zero[0].to(device), self.scale_and_zero[1].to(device)],
+            self.scale_and_zero.to(device) if self.scale_and_zero is not None else None,
             self.transposed,
             self._layout,
+            self.scale.to(device) if self.scale is not None else None,
+            self.zero.to(device) if self.zero is not None else None
         )
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.packed_weight),
-            fn(self.scale_and_zero) if not isinstance(self.scale_and_zero, list) else [fn(self.scale_and_zero[0]), fn(self.scale_and_zero[1])],
+            fn(self.scale_and_zero) if self.scale_and_zero is not None else None,
             self.transposed,
             self._layout,
+            fn(self.scale) if self.scale is not None else None,
+            fn(self.zero) if self.zero is not None else None
         )
 
     @classmethod
@@ -294,6 +312,8 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 args[0].scale_and_zero,
                 not args[0].transposed,
                 args[0]._layout,
+                args[0].scale,
+                args[0].zero
             )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
 
@@ -342,7 +362,11 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
-        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
+        if self.scale_and_zero is not None:
+            scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
+        else:
+            scale = self.scale.transpose(0, 1).contiguous()
+            zero = self.zero.transpose(0, 1).contiguous()
 
         cur_shape = self.shape
         assert len(cur_shape) == 2
@@ -356,14 +380,14 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         quant_min = 0
         quant_max = 15
         assert len(block_size) == 2 and block_size[0] == 1
-        if isinstance(self.scale_and_zero, list):
+        if self.scale_and_zero is None:
             zero_point_domain = ZeroPointDomain.INT
-            dequantized = torch.ops.aten._weight_int4pack_mm_with_scale_and_zeros(
+            dequantized = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
                 torch.eye(eye_shape, device=device, dtype=original_dtype),
                 self.packed_weight,
                 groupsize,
-                self.scale_and_zero[0],
-                self.scale_and_zero[1],
+                self.scale,
+                self.zero,
             )
             dequantized = dequantized.t().contiguous()
             int_data = quantize_affine(

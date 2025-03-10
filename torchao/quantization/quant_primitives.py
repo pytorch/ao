@@ -412,6 +412,8 @@ def _quantize_affine_no_dtype_cast(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    if shape_after_reduction[0] == 12288:
+        import pdb; pdb.set_trace()
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None and zero_point.numel() > 0:
