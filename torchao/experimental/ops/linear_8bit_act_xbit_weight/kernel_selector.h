@@ -9,9 +9,9 @@
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
 
 #include <optional>
 #include <string>
@@ -120,6 +120,21 @@ void check_format(PackedWeightsFormat format,
   }
 }
 
+void log_registration(PackedWeightsFormat format, std::string description) {
+  // Logging is only supported in ATen mode
+#ifdef USE_ATEN
+  LOG(INFO) << "Registering ukernel config for linear_8bit_act_xbit_weight" << std::endl
+  << "\tDescription: " << description << std::endl
+  << "\tformat.type=" << static_cast<int>(format.type) << std::endl
+  << "\tformat.weight_nbit=" << format.weight_nbit << std::endl
+  << "\tformat.has_weight_zeros=" << format.has_weight_zeros << std::endl
+  << "\tformat.has_bias=" << format.has_bias << std::endl
+  << "\tformat.nr=" << format.nr << std::endl
+  << "\tformat.kr=" << format.kr << std::endl
+  << "\tformat.sr=" << format.sr << std::endl;
+#endif // USE_ATEN
+}
+
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
                                        PackedWeightsFormat format,
@@ -132,8 +147,9 @@ void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
       torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
 
   if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
     if (cpuinfo_has_arm_neon_dot()) {
+      log_registration(format, "universal");
       namespace kernel = torchao::kernels::cpu::aarch64::linear::
           channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
       table.register_ukernel_config(
@@ -159,7 +175,7 @@ void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
                                  has_clamp>}}}});
       return;
     }
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
   }
 }
 
@@ -210,6 +226,7 @@ void register_ukernel_config_kleidi(UKernelConfigRegistrationTable &table,
 #if defined(TORCHAO_ENABLE_ARM_I8MM)
     if (cpuinfo_has_arm_i8mm()) {
       constexpr int n_step = 8;
+      log_registration(format, "kleidiai: matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm");
       table.register_ukernel_config(
           format, uarch,
           UKernelConfig{
@@ -227,6 +244,7 @@ void register_ukernel_config_kleidi(UKernelConfigRegistrationTable &table,
 
     if (cpuinfo_has_arm_neon_dot()) {
       constexpr int n_step = 8;
+      log_registration(format, "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod");
       table.register_ukernel_config(
           format, uarch,
           UKernelConfig{
@@ -248,6 +266,7 @@ void register_ukernel_config_kleidi(UKernelConfigRegistrationTable &table,
     constexpr int sr = 2;
     if (cpuinfo_has_arm_neon_dot()) {
       constexpr int n_step = 4;
+      log_registration(format, "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod");
       table.register_ukernel_config(
           format, uarch,
           UKernelConfig{

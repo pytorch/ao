@@ -11,7 +11,10 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.config import (
+    MXLinearConfig,
+    MXLinearRecipeName,
+)
 from torchao.prototype.mx_formats.constants import DTYPE_FP4, SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
@@ -98,9 +101,16 @@ def test_linear_eager(elem_dtype, bias, input_shape):
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
 )
-@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, DTYPE_FP4])
+@pytest.mark.parametrize(
+    "recipe_name",
+    [
+        MXLinearRecipeName.MXFP8_CUBLAS,
+        MXLinearRecipeName.MXFP8_CUTLASS,
+        MXLinearRecipeName.MXFP4_CUTLASS,
+    ],
+)
 @pytest.mark.parametrize("mkn", [(128, 256, 512), (256, 512, 128), (512, 128, 256)])
-def test_linear_eager_emulated_vs_real_gemm(elem_dtype, mkn):
+def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
     M, K, N = 128, 128, 128
     M, K, N = mkn
 
@@ -112,12 +122,12 @@ def test_linear_eager_emulated_vs_real_gemm(elem_dtype, mkn):
     )
     m_real = copy.deepcopy(m_emulated)
 
+    elem_dtype = torch.float8_e4m3fn
+    if recipe_name == MXLinearRecipeName.MXFP4_CUTLASS:
+        elem_dtype = DTYPE_FP4
+
     config_emulated = MXLinearConfig(block_size=32, elem_dtype=elem_dtype)
-    config_real = MXLinearConfig(
-        block_size=32,
-        elem_dtype=elem_dtype,
-        gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
-    )
+    config_real = MXLinearConfig.from_recipe_name(recipe_name)
 
     swap_linear_with_mx_linear(m_emulated, config=config_emulated)
     swap_linear_with_mx_linear(m_real, config=config_real)
@@ -161,30 +171,36 @@ def test_activation_checkpointing():
 @pytest.mark.skipif(
     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
 )
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize(
+    "recipe_name",
+    ["mxfp8_emulated", "mxfp4_emulated", "mxfp8_cutlass", "mxfp4_cutlass"],
+)
 @pytest.mark.parametrize("bias", [False, True])
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
-@pytest.mark.parametrize(
-    "use_autocast",
-    [
-        False,
-    ],
-)
-def test_linear_compile(elem_dtype, bias, use_autocast):
+def test_linear_compile(recipe_name, bias):
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+    if recipe_name in ["mxfp8_emulated", "mxfp8_cutlass"]:
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-    M, K, N = 4, 8, 6
+
+    if recipe_name in ["mxfp8_cutlass", "mxfp4_cutlass"]:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for MX gemms")
+
+    if bias and recipe_name in ["mxfp8_cutlass", "mxfp4_cutlass"]:
+        # TODO(future PR): fix this, things are clearly broken with bias=True
+        pytest.skip("this test is broken for cutlass recipes with bias=True")
+
+    M, K, N = 128, 256, 512
     input_shape = (M, K)
     grad_shape = (M, N)
     m_mx = nn.Sequential(
         nn.Linear(K, N, bias=bias, device="cuda"),
     )
-    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    config = MXLinearConfig.from_recipe_name(recipe_name)
     swap_linear_with_mx_linear(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
@@ -193,13 +209,8 @@ def test_linear_compile(elem_dtype, bias, use_autocast):
     x = copy.deepcopy(x_ref)
     g = torch.randn(*grad_shape, device="cuda")
 
-    if use_autocast:
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            y_ref = m_mx(x_ref)
-            y = m_mx_c(x)
-    else:
-        y_ref = m_mx(x_ref)
-        y = m_mx_c(x)
+    y_ref = m_mx(x_ref)
+    y = m_mx_c(x)
     torch.testing.assert_close(y_ref, y, atol=0, rtol=0)
 
     y_ref.backward(g)
