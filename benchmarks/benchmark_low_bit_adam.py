@@ -249,9 +249,7 @@ if __name__ == "__main__":
         optim_cls = OPTIM_MAP[args.optim]
 
         if args.optim_cpu_offload == "ao":
-            optim_cls = partial(
-                optim.CPUOffloadOptimizer, optimizer_class=optim_cls
-            )
+            optim_cls = partial(optim.CPUOffloadOptimizer, optimizer_class=optim_cls)
         elif args.optim_cpu_offload == "ao_offload_grads":
             optim_cls = partial(
                 optim.CPUOffloadOptimizer,

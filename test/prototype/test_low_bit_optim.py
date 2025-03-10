@@ -201,9 +201,7 @@ class TestOptim(TestCase):
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(optim, optim_name)(
-            model2.parameters(), block_size=block_size
-        )
+        optim2 = getattr(optim, optim_name)(model2.parameters(), block_size=block_size)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -335,9 +333,7 @@ class TestOptim(TestCase):
             nn.Linear(32, 1024, bias=True), nn.ReLU(), nn.Linear(1024, 128, bias=True)
         )
         model1.to(device)
-        optim1 = optim.CPUOffloadOptimizer(
-            model1.parameters(), torch.optim.AdamW
-        )
+        optim1 = optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -352,9 +348,7 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = optim.CPUOffloadOptimizer(
-            model2.parameters(), torch.optim.AdamW
-        )
+        optim2 = optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
