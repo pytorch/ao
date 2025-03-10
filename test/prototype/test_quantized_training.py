@@ -46,7 +46,6 @@ def _reset():
     torch._dynamo.reset()
 
 
-# we always use `quantize_(set_inductor_config=False)` to reduce compile time in CI.
 class TestQuantizedTraining(TestCase):
     @parametrize("device", _DEVICES)
     def test_int8_stochastic_rounding(self, device):
@@ -81,7 +80,6 @@ class TestQuantizedTraining(TestCase):
         quantize_(
             linear_int8,
             int8_weight_only_quantized_training(),
-            set_inductor_config=False,
         )
         linear_fp32.weight.data = linear_int8.weight.data.dequantize()
 
@@ -108,7 +106,6 @@ class TestQuantizedTraining(TestCase):
         quantize_(
             linear_eager,
             int8_weight_only_quantized_training(),
-            set_inductor_config=False,
         )
         linear_compiled = copy.deepcopy(linear_eager)
         linear_compiled.compile()
@@ -145,9 +142,7 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim * 2, n_classes),
         ).to(device)
         model_int8 = copy.deepcopy(model_fp32)
-        quantize_(
-            model_int8, int8_weight_only_quantized_training(), set_inductor_config=False
-        )
+        quantize_(model_int8, int8_weight_only_quantized_training())
 
         if compile:
             model_fp32.compile()
@@ -195,7 +190,7 @@ class TestQuantizedTraining(TestCase):
         linear_int8mp = copy.deepcopy(linear)
         config.module_swap = module_swap
         apply_func = int8_mixed_precision_training(config)
-        quantize_(linear_int8mp, apply_func, set_inductor_config=False)
+        quantize_(linear_int8mp, apply_func)
 
         if compile:
             linear.compile()
@@ -255,7 +250,7 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim, embed_dim),
         ).to(device)
         model = copy.deepcopy(model_ref)
-        quantize_(model, bitnet_training(), set_inductor_config=False)
+        quantize_(model, bitnet_training())
 
         # change model_ref to use BitLinear
         model_ref[0].__class__ = BitLinear
@@ -346,8 +341,8 @@ class TestFSDP2(FSDPTest):
         base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
-        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
-        quantize_(fsdp_model.layers, quantize_fn, set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn)
+        quantize_(fsdp_model.layers, quantize_fn)
 
         for layer in fsdp_model.layers:
             fully_shard(layer, mp_policy=mp_policy)
