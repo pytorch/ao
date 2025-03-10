@@ -1043,22 +1043,10 @@ class TestQAT(unittest.TestCase):
     )
     def test_replace_linear_8da4w(self):
         module = torch.nn.ModuleList(
-            [torch.nn.Linear(in_features=256, out_features=50, bias=True)]
-        )
-        _replace_linear_8da4w(
-            module,
-            256,
-            False,
-            torch.float32,
-            torch.float32,
-            Int8DynActInt4WeightQATLinear,
-            copy_weights=True,
-        )
-        assert not isinstance(module[0], Int8DynActInt4WeightQATLinear) and isinstance(
-            module[0], torch.nn.Linear
-        )
-        module = torch.nn.ModuleList(
-            [torch.nn.Linear(in_features=256, out_features=50, bias=False)]
+            [
+                torch.nn.Linear(in_features=256, out_features=50, bias=True),
+                torch.nn.Linear(in_features=256, out_features=50, bias=False),
+            ]
         )
         _replace_linear_8da4w(
             module,
@@ -1070,6 +1058,7 @@ class TestQAT(unittest.TestCase):
             copy_weights=True,
         )
         assert isinstance(module[0], Int8DynActInt4WeightQATLinear)
+        assert isinstance(module[1], Int8DynActInt4WeightQATLinear)
 
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
