@@ -847,6 +847,7 @@ def triton_f6_e3m2_to_bf16(x: torch.Tensor) -> torch.Tensor:
 
 
 if TORCH_VERSION_AT_LEAST_2_4:
+
     @torch.library.custom_op("ao::triton_f6_e2m3_to_scaled_bf16", mutates_args=())
     def triton_f6_e2m3_to_scaled_bf16(
         x: torch.Tensor,
@@ -887,7 +888,6 @@ if TORCH_VERSION_AT_LEAST_2_4:
             e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
         )
         return output
-
 
     @torch.library.custom_op("ao::triton_f6_e3m2_to_scaled_bf16", mutates_args=())
     def triton_f6_e3m2_to_scaled_bf16(
@@ -930,13 +930,11 @@ if TORCH_VERSION_AT_LEAST_2_4:
         )
         return output
 
-
     @triton_f6_e3m2_to_scaled_bf16.register_fake
     def _(x, s_e8m0, mx_block_size):
         _padded_mx_block_size = 3 * mx_block_size // 4
         out_shape = (x.numel() // _padded_mx_block_size, mx_block_size)
         return torch.empty(*out_shape, device=x.device, dtype=torch.bfloat16)
-
 
     @triton_f6_e2m3_to_scaled_bf16.register_fake
     def _(x, s_e8m0, mx_block_size):
@@ -945,6 +943,7 @@ if TORCH_VERSION_AT_LEAST_2_4:
         return torch.empty(*out_shape, device=x.device, dtype=torch.bfloat16)
 
 else:
+
     def triton_f6_e2m3_to_scaled_bf16(
         x: torch.Tensor,
         s_e8m0: torch.Tensor,
@@ -958,7 +957,7 @@ else:
         mx_block_size: int,
     ) -> torch.Tensor:
         raise AssertionError("unsupported without torch >= 2.4")
-    
+
 
 # pack/unpack code copy-pasted from
 # https://github.com/pytorch-labs/ao/blob/main/torchao/dtypes/uint4.py
@@ -1040,6 +1039,7 @@ def pack_uint6_pytorch(uint8_data: torch.Tensor) -> torch.Tensor:
 
 
 if TORCH_VERSION_AT_LEAST_2_4:
+
     @torch.library.custom_op("ao::pack_uint6", mutates_args=())
     def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
         # ensure input data is contiguous before passing to kernel
@@ -1071,12 +1071,12 @@ if TORCH_VERSION_AT_LEAST_2_4:
 
         return packed_uint8_data
 
-
     @pack_uint6.register_fake
     def _(uint8_data):
         out_shape = (*uint8_data.shape[:-1], 3 * uint8_data.shape[-1] // 4)
         return torch.empty(*out_shape, device=uint8_data.device, dtype=torch.uint8)
 else:
+
     def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
         # Dummy placeholder op for torch < 2.4
         raise AssertionError("fp6 packing unsupported without torch >= 2.4")
