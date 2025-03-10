@@ -478,7 +478,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
                     w_qtensor.groupsize,
                     w_qtensor.scales_and_zeros)
             else:
-                y = aten._weight_int4pack_mm_with_scale_and_zeros(
+                y = aten._weight_int4pack_mm_with_scales_and_zeros(
                     act_mat.contiguous(),
                     w_qtensor.int_data,
                     w_qtensor.groupsize,

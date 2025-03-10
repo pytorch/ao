@@ -353,35 +353,22 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
 
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
-    if zeros.dtype == torch.int32:
-        guard_dtype_size(zeros, "zeros", dtype=torch.int32)
-        if scales.device.type == "xpu":
-            return [scales.transpose(0, 1).contiguous(), zeros.transpose(0, 1).contiguous().to(torch.int8)]
-        else:
-            raise AssertionError("Interger Zero Point is only supported on XPU\n")
-    elif zeros.dtype == dtype:
-        guard_dtype_size(zeros, "zeros", dtype=dtype)
-        return (
-            torch.cat(
-                [
-                    scales.reshape(scales.size(0), scales.size(1), 1),
-                    zeros.reshape(zeros.size(0), zeros.size(1), 1),
-                ],
-                2,
-            )
-            .transpose(0, 1)
-            .contiguous()
+    guard_dtype_size(zeros, "zeros", dtype=dtype)
+    return (
+        torch.cat(
+            [
+                scales.reshape(scales.size(0), scales.size(1), 1),
+                zeros.reshape(zeros.size(0), zeros.size(1), 1),
+            ],
+            2,
         )
-    else:
-        raise AssertionError("expect zeros to be int32 or the same data type of scales\n")
+        .transpose(0, 1)
+        .contiguous()
+    )
 
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
-    if isinstance(scales_and_zeros, list):
-        assert len(scales_and_zeros) == 2
-        return [scales_and_zeros[0].transpose(0, 1).contiguous(), scales_and_zeros[1].transpose(0, 1).contiguous()]
-    else:
-        assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-        return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
+    assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
+    return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
 def convert_weight_to_int4pack_xpu(weight, int_zp=False):
     assert weight.device.type == "xpu"
