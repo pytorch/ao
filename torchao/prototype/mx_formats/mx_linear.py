@@ -189,6 +189,7 @@ class MXInferenceLinear(torch.nn.Linear):
             config.elem_dtype,
             block_size=config.block_size,
             gemm_kernel_choice=config.gemm_kernel_choice,
+            pack_fp6=config.pack_fp6,
         )
         new_mod.bias = mod.bias
         new_mod.config = config

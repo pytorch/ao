@@ -59,14 +59,14 @@ def test_linear_eager(elem_dtype, bias, input_shape):
     """
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
-    grad_shape[-1] = 6
+    grad_shape[-1] = 8
 
     m = nn.Sequential(
-        nn.Linear(8, 6, bias=bias, device="cuda"),
+        nn.Linear(8, 8, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
-        block_size=2,
+        block_size=4,
         elem_dtype=elem_dtype[0],
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
@@ -151,14 +151,14 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_activation_checkpointing():
     input_shape = (2, 4)
-    grad_shape = (2, 6)
+    grad_shape = (2, 8)
     elem_dtype = torch.float8_e4m3fn
 
     m = nn.Sequential(
-        nn.Linear(4, 6, bias=True, device="cuda"),
-        nn.Linear(6, 6, bias=True, device="cuda"),
+        nn.Linear(4, 8, bias=True, device="cuda"),
+        nn.Linear(8, 8, bias=True, device="cuda"),
     )
-    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
     swap_linear_with_mx_linear(m, config=config)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
@@ -240,10 +240,10 @@ def test_inference_linear(elem_dtype, bias, input_shape):
     """
     Smoke test for inference linear module with mx weight
     """
-    m = nn.Sequential(nn.Linear(4, 6, bias=bias, dtype=torch.bfloat16))
+    m = nn.Sequential(nn.Linear(4, 8, bias=bias, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
     swap_linear_with_mx_inference_linear(m_mx, config=config)
 
     x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
@@ -268,10 +268,10 @@ def test_inference_compile_simple(elem_dtype):
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-    m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
+    m = nn.Sequential(nn.Linear(4, 8, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    config = MXLinearConfig(block_size=2, elem_dtype=elem_dtype)
+    config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
     swap_linear_with_mx_inference_linear(m_mx, config=config)
     m_mx = torch.compile(m_mx, fullgraph="true")
 
