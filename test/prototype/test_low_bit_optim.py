@@ -17,15 +17,15 @@ from torch.testing._internal.common_utils import (
 )
 
 from packaging.version import Version
-from torchao.prototype import low_bit_optim
-from torchao.prototype.low_bit_optim.quant_utils import (
+from torchao import optim
+from torchao.optim.quant_utils import (
     _fp32_to_bf16_sr,
     quantize_4bit_with_qmap,
     quantize_8bit_with_qmap,
 )
-from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
-from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
-from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
+from torchao.optim.subclass_4bit import OptimState4bit
+from torchao.optim.subclass_8bit import OptimState8bit
+from torchao.optim.subclass_fp8 import OptimStateFp8
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -125,29 +125,29 @@ class TestOptim(TestCase):
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
-        optim = getattr(low_bit_optim, optim_name)(model.parameters())
+        optimizer = getattr(optim, optim_name)(model.parameters())
 
         x = torch.randn(4, 32, device=device, dtype=dtype)
         loss = model(x).sum()
         loss.backward()
-        optim.step()
-        optim.zero_grad()
+        optimizer.step()
+        optimizer.zero_grad()
 
         # test serialization. also test the case CUDA optim loads CPU state dict
         with tempfile.NamedTemporaryFile() as f:
-            torch.save(optim.state_dict(), f.name)
+            torch.save(optimizer.state_dict(), f.name)
             state_dict = torch.load(f.name, map_location="cpu")
 
         model2 = copy.deepcopy(model)
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2 = getattr(optim, optim_name)(model2.parameters())
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device, dtype=dtype)
 
             model(x).sum().backward()
-            optim.step()
-            optim.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
             model2(x).sum().backward()
             optim2.step()
@@ -201,9 +201,7 @@ class TestOptim(TestCase):
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(
-            model2.parameters(), block_size=block_size
-        )
+        optim2 = getattr(optim, optim_name)(model2.parameters(), block_size=block_size)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -240,7 +238,7 @@ class TestOptim(TestCase):
             optim1 = lpmm.optim.AdamW(model1.parameters())
         else:
             raise ValueError(f"Unsupported {optim_name} optimizer for lpmm")
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2 = getattr(optim, optim_name)(model2.parameters())
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -286,7 +284,7 @@ class TestOptim(TestCase):
         model2 = copy.deepcopy(model1)
 
         optim1 = torch.optim.AdamW(model1.parameters())
-        optim2 = low_bit_optim.CPUOffloadOptimizer(
+        optim2 = optim.CPUOffloadOptimizer(
             model2.parameters(),
             torch.optim.AdamW,
             offload_gradients=offload_grad,
@@ -335,9 +333,7 @@ class TestOptim(TestCase):
             nn.Linear(32, 1024, bias=True), nn.ReLU(), nn.Linear(1024, 128, bias=True)
         )
         model1.to(device)
-        optim1 = low_bit_optim.CPUOffloadOptimizer(
-            model1.parameters(), torch.optim.AdamW
-        )
+        optim1 = optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -352,9 +348,7 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = low_bit_optim.CPUOffloadOptimizer(
-            model2.parameters(), torch.optim.AdamW
-        )
+        optim2 = optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
@@ -381,7 +375,7 @@ class TestOptim(TestCase):
         # small LR so that weight update is small
         # when bf16_stochastic_round=False, the test will fail after 1 iteration
         optim1 = torch.optim.AdamW(model1.parameters(), lr=1e-5)
-        optim2 = low_bit_optim._AdamW(
+        optim2 = optim._AdamW(
             model2.parameters(),
             lr=1e-5,
             bf16_stochastic_round=True,
@@ -424,9 +418,9 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
-        optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
+        optim_classes = [optim.AdamW8bit, optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
-            optim_classes.append(low_bit_optim.AdamWFp8)
+            optim_classes.append(optim.AdamWFp8)
 
         self.run_subtests(
             {"optim_cls": optim_classes},
@@ -545,13 +539,13 @@ class TestFSDP2(FSDPTest):
 
         # currently all of our low-bit Adam/AdamW share the same implementation.
         # thus, we only need to test for 1 optimizer class.
-        optim = low_bit_optim.AdamW8bit(model.parameters())
+        optimizer = optim.AdamW8bit(model.parameters())
 
         for _ in range(2):
             inputs = torch.randn(2, in_dim, device="cuda")
             model(inputs).sum().backward()
-            optim.step()
-            optim.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
 
 instantiate_parametrized_tests(TestQuantize)

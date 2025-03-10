@@ -10,7 +10,7 @@
   - `galore/kernels` - `triton` kernels that fuse various steps of the `GaLore` algorithm
   - `galore/docs` - implementation notes and discussion of issues faced in kernel design.
 - [`quant_llm`](quant_llm) - FP16 x Floatx mixed matmul kernel per [FP6-LLM](https://arxiv.org/abs/2401.14112)
-- [`low_bit_optim`](low_bit_optim) - re-implementation of 8-bit optimizers from [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and 4-bit optimizers from [lpmm](https://github.com/thu-ml/low-bit-optimizers).
+- ~~`low_bit_optim`~~ - re-implementation of 8-bit optimizers from [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and 4-bit optimizers from [lpmm](https://github.com/thu-ml/low-bit-optimizers). **Promoted to `torchao.optim`.**
 - [`spinquant`](spinquant) - re-implementation of [SpinQuant](https://arxiv.org/abs/2405.16406)
 
 #### Roadmap
