@@ -15,7 +15,7 @@ class TestBenchmarkRunner(unittest.TestCase):
     def setUp(self):
         self.config = {
             "quantization_config_recipe_names": ["baseline", "int8wo"],
-            "output_dir": "benchmarks/microbenchmarks/test/test_output",
+            "output_dir": "tmp",
             "model_params": {
                 "matrix_shapes": [
                     {
