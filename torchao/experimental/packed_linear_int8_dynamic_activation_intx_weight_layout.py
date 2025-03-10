@@ -213,9 +213,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         )
 
     def __tensor_flatten__(self):
-        return ["packed_weight"], [
-            self.get_layout()
-        ]
+        return ["packed_weight"], [self.get_layout()]
 
     @classmethod
     def __tensor_unflatten__(
