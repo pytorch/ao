@@ -278,7 +278,7 @@ class TestAffineQuantizedBasic(TestCase):
         (["xpu"] if torch.xpu.is_available() else [])
     COMMON_DTYPES = [torch.bfloat16]
 
-    @common_utils.parametrize("device", ["xpu"]) #COMMON_DEVICES)
+    @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
