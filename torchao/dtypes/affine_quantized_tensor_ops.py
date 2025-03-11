@@ -397,6 +397,11 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
 
 @implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
