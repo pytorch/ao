@@ -11,7 +11,7 @@ from typing import Dict
 
 import torch
 
-from benchmarks.microbenchmarks.utils import (
+from utils import (
     BenchmarkConfig,
     benchmark_model_inference_in_microseconds,
     clean_caches,

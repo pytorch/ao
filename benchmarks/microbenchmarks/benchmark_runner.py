@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 
-from benchmarks.microbenchmarks.utils import (
+from utils import (
     BenchmarkConfig,
     generate_results_csv,
     print_results,
@@ -68,7 +68,7 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
 
 def run_benchmarks_from_config(config_path: str) -> None:
     """Run benchmarks using configurations from YAML file"""
-    from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
+    from benchmark_inference import run as run_inference
 
     configs = load_benchmark_configs(config_path)
     results = []
