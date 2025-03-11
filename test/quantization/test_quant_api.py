@@ -21,9 +21,9 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
-from benchmarks._models.llama.model import Transformer, prepare_inputs_for_model
-from benchmarks._models.llama.tokenizer import get_tokenizer
 from torchao import quantize_
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
@@ -115,10 +115,10 @@ class TorchCompileDynamicQuantizer(Quantizer):
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64):
+    def __init__(self, m=64, n=32, k=64, bias=False):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=False).to(torch.float)
+        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
+        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
 
     def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
         return (
@@ -272,13 +272,28 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
+    )
+    def test_8da4w_quantizer_linear_bias(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
+        m = ToyLinearModel(bias=True).eval()
+        example_inputs = m.example_inputs()
+        m = quantizer.quantize(m)
+        assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
+        m(*example_inputs)
+
     # TODO: save model weights as artifacts and re-enable in CI
     # For now, to run this test, you will need to download the weights from HF
     # and run this script to convert them:
     # https://github.com/pytorch-labs/gpt-fast/blob/6253c6bb054e658d67566150f87329b87815ae63/scripts/convert_hf_checkpoint.py
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_8da4w_gptq_quantizer(self):
-        from benchmarks._models._eval import InputRecorder, TransformerEvalWrapper
+        from torchao._models._eval import InputRecorder, TransformerEvalWrapper
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
 
         # should be similar to TorchCompileDynamicQuantizer
@@ -348,7 +363,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch verion is 2.4 or lower"
     )
     def test_8da4w_quantizer_eval(self):
-        from benchmarks._models._eval import TransformerEvalWrapper
+        from torchao._models._eval import TransformerEvalWrapper
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         precision = torch.bfloat16
@@ -384,7 +399,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
-        from benchmarks._models._eval import (
+        from torchao._models._eval import (
             MultiTensorInputRecorder,
             TransformerEvalWrapper,
         )
@@ -454,7 +469,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
-        from benchmarks._models._eval import TransformerEvalWrapper
+        from torchao._models._eval import TransformerEvalWrapper
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
 
         precision = torch.bfloat16
@@ -492,7 +507,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
-        from benchmarks._models._eval import TransformerEvalWrapper
+        from torchao._models._eval import TransformerEvalWrapper
 
         precision = torch.bfloat16
         device = "cuda"
@@ -525,7 +540,7 @@ class TestQuantFlow(TestCase):
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper_llama3(self):
-        from benchmarks._models._eval import TransformerEvalWrapper
+        from torchao._models._eval import TransformerEvalWrapper
 
         precision = torch.bfloat16
         device = "cuda"
@@ -782,7 +797,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
-    def test_int4wo_cpu(self, dtype, x_dim):
+    @common_utils.parametrize("use_hqq", [True, False])
+    def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
         from torchao.dtypes import Int4CPULayout
 
         device = "cpu"
@@ -792,7 +808,12 @@ class TestQuantFlow(TestCase):
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
         with torch.no_grad():
-            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            quantize_(
+                m,
+                int4_weight_only(
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                ),
+            )
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
                 torch.compile(m, fullgraph=True, dynamic=True),

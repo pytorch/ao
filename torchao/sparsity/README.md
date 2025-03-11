@@ -28,7 +28,7 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
 |            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
 
-To reproduce our benchmarks please follow these [instructions](/benchmarks/_models/sam/README.md).
+To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
 
 ### LLama3
 
