@@ -156,11 +156,12 @@ __device__ inline void ldsm4(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  asm volatile(
-      "ds_read_b128 %0, %1 offset:0\n"
-      "ds_read_b128 %2, %1 offset:16\n"
-      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
-      : "v"(smem));
+   // MI300 specific implementation - try global_load if available
+    asm volatile(
+        "global_load_dwordx4 %0, %4\n"
+        "global_load_dwordx4 %2, %4 offset:16\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+        : "v"(smem));
   #else
   asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n"
                : "=r"(a[0]), "=r"(a[1]), "=r"(a[2]), "=r"(a[3])
@@ -189,11 +190,12 @@ __device__ inline void ldsm4_t(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  asm volatile(
-      "ds_read_b128 %0, %1 offset:0\n"
-      "ds_read_b128 %2, %1 offset:16\n"
-      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
-      : "v"(smem));
+   // MI300 specific implementation - try global_load if available
+    asm volatile(
+        "global_load_dwordx4 %0, %4\n"
+        "global_load_dwordx4 %2, %4 offset:16\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+        : "v"(smem));
   #else
   asm volatile(
       "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0,%1,%2,%3}, [%4];\n"
