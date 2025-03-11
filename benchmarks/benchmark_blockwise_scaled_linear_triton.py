@@ -12,12 +12,10 @@ from torchao.prototype.blockwise_fp8.blockwise_quantization import (
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_quant,
 )
-
 from torchao.quantization.quant_api import (
-    _int8_symm_per_token_reduced_range_quant_cutlass,
     _int4_symm_per_token_quant_cutlass,
+    _int8_symm_per_token_reduced_range_quant_cutlass,
 )
-
 from torchao.utils import is_sm_at_least_89
 
 
@@ -44,7 +42,7 @@ def get_blockwise_problem(
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,
-    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
     dtype_max = torch.finfo(dtype).max
     A = (dtype_max * (2 * torch.rand(m, k, device=device) - 1)).to(dtype)
     A_scale = torch.randn((m, k // block_size), dtype=torch.half, device=device)
