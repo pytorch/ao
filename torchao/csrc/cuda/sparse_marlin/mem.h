@@ -70,6 +70,7 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
     } else {
       // Fallback for other sizes
       __builtin_memcpy(smem, glob_ptr, BYTES);
+    }
   #else
   asm volatile(
       "{\n"
@@ -105,6 +106,7 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
     } else {
       // Fallback for other sizes
       __builtin_memcpy(smem, glob_ptr, BYTES); 
+    }
   #else
   asm volatile(
       "{\n"
@@ -140,6 +142,7 @@ __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
     } else {
       // Fallback for other sizes
       __builtin_memcpy(smem, glob_ptr, BYTES);
+    }
   #else
   asm volatile(
       "{\n"
