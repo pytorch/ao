@@ -606,13 +606,42 @@ def _torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
 
 
+# Supported AMD GPU Models and their LLVM gfx Codes:
+#
+# | AMD GPU Model | LLVM gfx Code          |
+# |---------------|------------------------|
+# | Navi4         | gfx1200, gfx1201       |
+# | MI300X        | gfx940, gfx941, gfx942 |
+# | MI350         | gfx950                 |
+
+
+def is_ROCM():
+    return torch.cuda.is_available() and torch.version.hip
+
+
 def is_MI300():
-    if torch.cuda.is_available() and torch.version.hip:
+    if is_ROCM():
         mxArchName = ["gfx940", "gfx941", "gfx942"]
         archName = torch.cuda.get_device_properties(0).gcnArchName
         for arch in mxArchName:
             if arch in archName:
                 return True
+    return False
+
+
+def is_MI350():
+    if is_ROCM():
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx950" in archName:
+            return True
+    return False
+
+
+def is_Navi4():
+    if is_ROCM():
+        archName = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx1200" or "gfx1201" in archName:
+            return True
     return False
 
 

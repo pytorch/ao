@@ -22,14 +22,13 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from torchao import quantize_
+from torchao import optim, quantize_
 from torchao._models.llama.model import (
     ModelArgs,
     RMSNorm,
     Transformer,
     transformer_configs,
 )
-from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
     bitnet_training,
     int8_mixed_precision_training,
@@ -190,10 +189,10 @@ if __name__ == "__main__":
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
     torch.cuda.reset_peak_memory_stats()  # don't count memory occupied by unquantized weights
 
-    # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
+    # only use optimizers from torchao.optim to support quantized training
     if args.optim == "AdamW":
         args.optim = "_AdamW"
-    optim = getattr(low_bit_optim, args.optim)(
+    optimizer = getattr(optim, args.optim)(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay,
@@ -228,15 +227,15 @@ if __name__ == "__main__":
         if step % args.log_interval == 0:
             log_dict = dict(
                 loss=loss.item(),
-                lr=optim.param_groups[0]["lr"],
+                lr=optimizer.param_groups[0]["lr"],
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
                 max_memory_reserved=torch.cuda.max_memory_reserved() / 1e9,
             )
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
 
-        optim.step()
-        optim.zero_grad()
+        optimizer.step()
+        optimizer.zero_grad()
 
         step += 1
         pbar.update()

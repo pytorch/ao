@@ -104,7 +104,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
-                    ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [False, True],
                 "dtype": [torch.float32, torch.bfloat16],
@@ -121,8 +120,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
-            return
-        elif scaling_type_weight is ScalingType.DELAYED and precompute:
             return
 
         # NOTE: Weight-tying does not compose with fp8 all-gather because the
@@ -465,16 +462,10 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED, ScalingType.STATIC],
+            [ScalingType.DYNAMIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
-            if scaling_type_weight is ScalingType.STATIC:
-                cast_config_weight = CastConfig(
-                    scaling_type=scaling_type_weight,
-                    static_scale=torch.tensor([1.0], device="cuda"),
-                )
-            else:
-                cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
 
             float8_linear_config1 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=False,
@@ -517,7 +508,7 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED],
+            [ScalingType.DYNAMIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
             float8_linear_config1 = Float8LinearConfig(
@@ -586,26 +577,6 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
             torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True),
             self.get_local_inp(torch.bfloat16),
         )
-
-    @unittest.skipIf(not TEST_CUDA, "no cuda")
-    def test_delayed_scaling_inplace_update(self):
-        """
-        Verify that `WeightWithDelayedFloat8CastTensor` updates buffers inplace
-        """
-        module = self.init_single_module()
-        float8_linear_config = Float8LinearConfig(
-            enable_fsdp_float8_all_gather=True,
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-        )
-        m_fp8 = convert_to_float8_training(
-            module,
-            config=float8_linear_config,
-        )
-
-        fp8_amax_weight_old = m_fp8.fp8_amax_weight.clone().detach()
-        dummy_mesh = None
-        data, scale = m_fp8.weight.fsdp_pre_all_gather(dummy_mesh)
-        self.assertNotEqual(fp8_amax_weight_old.item(), m_fp8.fp8_amax_weight.item())
 
 
 if __name__ == "__main__":

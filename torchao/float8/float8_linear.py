@@ -64,8 +64,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
     * if the arguments are in high precision, they are cast to float8 according
       to the specified config
     * if the arguments are in float8, we assume the cast honored the config
-
-    Only supports dynamic scaling, does not support delayed/static scaling.
     """
 
     @staticmethod
@@ -259,8 +257,7 @@ class Float8Linear(torch.nn.Linear):
     inside of this repository. Please file an issue if you would benefit
     from this being a public API.
 
-    A wrapper around a `torch.nn.Linear` module which does fp8 compute, and tracks
-    scales in way friendly to delayed scaling.
+    A wrapper around a `torch.nn.Linear` module which does fp8 compute.
     """
 
     def __init__(self, *args, **kwargs):
@@ -411,6 +408,7 @@ class Float8Linear(torch.nn.Linear):
         # 1. weight needs to be on the correct device to create the buffers
         # 2. buffers need to be already created for the delayed scaling version
         #    of the weight wrapper to be initialized
+        # TODO(future PR): see if we can simplify ^ now that delayed scaling is deleted
         if config.enable_fsdp_float8_all_gather:
             assert config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
             new_mod.weight = torch.nn.Parameter(

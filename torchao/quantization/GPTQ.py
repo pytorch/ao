@@ -741,8 +741,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -759,7 +758,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     if self.padding_allowed:
                         import torch.nn.functional as F
 
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
                         )
                         padded_in_features = find_multiple(in_features, 1024)
@@ -767,7 +766,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                             weight, pad=(0, padded_in_features - in_features)
                         )
                     else:
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
                             + "and that groupsize and inner_k_tiles*16 evenly divide into it"
                         )
@@ -924,6 +923,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
 def linear_forward_8da4w(
     x,
     weight_int8,
+    bias,
     scales,
     zeros,
     out_features,
@@ -957,7 +957,7 @@ def linear_forward_8da4w(
 
     # x = x.to(torch.float16)
     # w_dq = w_dq.to(torch.float16)
-    c = torch.nn.functional.linear(x, w_dq)
+    c = torch.nn.functional.linear(x, w_dq, bias)
 
     # new_shape = origin_x_size[:-1] + (out_features,)
     # c = c.reshape(new_shape)
@@ -971,6 +971,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
     in_features: int
     out_features: int
     weight: torch.Tensor
+    bias: torch.Tensor
 
     """
     This module implements a dynamic quantized linear layer with int4 weight.
@@ -1004,7 +1005,6 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         # )
         self.in_features = in_features
         self.out_features = out_features
-        assert not bias, "require bias=False"
         # TODO: align groupsize naming
         self.groupsize = groupsize
         # Precision of the activation which also indicates
@@ -1035,6 +1035,11 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
             ),
         )
 
+        if bias:
+            self.register_buffer("bias", torch.zeros(out_features, dtype=precision))
+        else:
+            self.bias = None
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(self.precision)
         # padding is removed for perf
@@ -1042,6 +1047,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         return linear_forward_8da4w(
             input,
             self.weight,
+            self.bias,
             self.scales,
             self.zeros,
             self.out_features,
@@ -1063,18 +1069,15 @@ def _replace_linear_8da4w(
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
     def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
-        # TODO: support linear bias
-        return (
-            isinstance(child, nn.Linear)
-            and child.bias is None
-            and (_check_linear_int4_k(child.in_features, groupsize) or padding_allowed)
+        return isinstance(child, nn.Linear) and (
+            _check_linear_int4_k(child.in_features, groupsize) or padding_allowed
         )
 
     def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
         new_linear = linear_class(
             child.in_features,
             child.out_features,
-            bias=False,
+            bias=child.bias is not None,
             device=child.weight.device,
             groupsize=groupsize,
             precision=precision,
@@ -1085,6 +1088,7 @@ def _replace_linear_8da4w(
         # copy the weights, and doing so will result in an error
         if copy_weights and child.weight.device != torch.device("meta"):
             new_linear.weight = child.weight
+            new_linear.bias = child.bias
         return new_linear
 
     _replace_with_custom_fn_if_matches_filter(module, replacement_fn, filter_fn)
@@ -1132,7 +1136,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
             if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
@@ -1147,7 +1150,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     if self.padding_allowed:
                         import torch.nn.functional as F
 
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
                         )
                         padded_in_features = find_multiple(in_features, 1024)
@@ -1155,7 +1158,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                             weight, pad=(0, padded_in_features - in_features)
                         )
                     else:
-                        logging.warn(
+                        logging.warning(
                             f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
                             + "and that groupsize and inner_k_tiles*16 evenly divide into it"
                         )
@@ -1174,7 +1177,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
                 cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)
                 cur_state_dict[f"{fqn}.zeros"] = zeros.to(self.device)
-                # TODO: support bias?
 
         return cur_state_dict
 

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from typing import List, Optional
 
 from setuptools import Extension, find_packages, setup
 
@@ -70,10 +71,62 @@ import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
     IS_WINDOWS,
+    ROCM_HOME,
     BuildExtension,
     CppExtension,
     CUDAExtension,
 )
+
+IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
+
+
+class BuildOptions:
+    def __init__(self):
+        # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
+        # The kernels require sdot/udot, which are not required on Arm until Armv8.4 or later,
+        # but are available on Arm-based Apple machines.  On non-Apple machines, the kernels
+        # can be built by explicitly setting TORCHAO_BUILD_CPU_AARCH64=1
+        self.build_cpu_aarch64 = self._os_bool_var(
+            "TORCHAO_BUILD_CPU_AARCH64",
+            default=(self._is_arm64() and self._is_macos()),
+        )
+        if self.build_cpu_aarch64:
+            assert (
+                self._is_arm64()
+            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+
+        # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
+        # 1) It increases the build time
+        # 2) It has some accuracy issues in CI tests due to BF16
+        self.build_kleidi_ai = self._os_bool_var(
+            "TORCHAO_BUILD_KLEIDIAI", default=False
+        )
+        if self.build_kleidi_ai:
+            assert (
+                self.build_cpu_aarch64
+            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+
+        # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
+        self.build_experimental_mps = self._os_bool_var(
+            "TORCHAO_BUILD_EXPERIMENTAL_MPS", default=False
+        )
+        if self.build_experimental_mps:
+            assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
+            assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
+            assert (
+                torch.mps.is_available()
+            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+
+    def _is_arm64(self) -> bool:
+        return platform.machine().startswith("arm64")
+
+    def _is_macos(self) -> bool:
+        return platform.system() == "Darwin"
+
+    def _os_bool_var(self, var, default) -> bool:
+        default_val = "1" if default else "0"
+        return os.getenv(var, default_val) == "1"
+
 
 # Constant known variables used throughout this file
 cwd = os.path.abspath(os.path.curdir)
@@ -165,34 +218,30 @@ class TorchAOBuildExt(BuildExtension):
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
 
-        build_type = "Debug" if use_debug_mode() else "Release"
-
-        from distutils.sysconfig import get_python_lib
-
-        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
-
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
 
         subprocess.check_call(
             [
                 "cmake",
-                ext.sourcedir,
-                "-DCMAKE_BUILD_TYPE=" + build_type,
-                # Disable now because 1) KleidiAI increases build time, and 2) KleidiAI has accuracy issues due to BF16
-                "-DTORCHAO_BUILD_KLEIDIAI=OFF",
-                "-DTorch_DIR=" + torch_dir,
-                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
-            ],
+                ext.cmake_lists_dir,
+            ]
+            + ext.cmake_args
+            + ["-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir],
             cwd=self.build_temp,
         )
         subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
 
 
 class CMakeExtension(Extension):
-    def __init__(self, name, sourcedir=""):
+    def __init__(
+        self, name, cmake_lists_dir: str = "", cmake_args: Optional[List[str]] = None
+    ):
         Extension.__init__(self, name, sources=[])
-        self.sourcedir = os.path.abspath(sourcedir)
+        self.cmake_lists_dir = os.path.abspath(cmake_lists_dir)
+        if cmake_args is None:
+            cmake_args = []
+        self.cmake_args = cmake_args
 
 
 def get_extensions():
@@ -204,13 +253,17 @@ def get_extensions():
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-    if CUDA_HOME is None and torch.cuda.is_available():
-        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
+    if (CUDA_HOME is None and ROCM_HOME is None) and torch.cuda.is_available():
+        print(
+            "CUDA toolkit or ROCm is not available. Skipping compilation of CUDA extensions"
+        )
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
 
-    use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
+    use_cuda = torch.cuda.is_available() and (
+        CUDA_HOME is not None or ROCM_HOME is not None
+    )
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
@@ -226,7 +279,8 @@ def get_extensions():
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
-            extra_compile_args["nvcc"].append("-g")
+            if "nvcc" in extra_compile_args:
+                extra_compile_args["nvcc"].append("-g")
             extra_link_args.extend(["-O0", "-g"])
     else:
         extra_compile_args["cxx"].extend(
@@ -238,8 +292,8 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    this_dir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(this_dir, "torchao", "csrc")
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
@@ -268,6 +322,33 @@ def get_extensions():
                 "-I" + cutlass_extensions_include_dir,
             ]
         )
+
+    # Get base directory and source paths
+    curdir = os.path.dirname(os.path.curdir)
+    extensions_dir = os.path.join(curdir, "torchao", "csrc")
+
+    # Collect C++ source files
+    sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+
+    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
+    cuda_sources = list(
+        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
+    )
+
+    extensions_hip_dir = os.path.join(
+        extensions_dir, "cuda", "tensor_core_tiled_layout"
+    )
+    hip_sources = list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
+    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+    hip_sources += list(
+        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+    )
+
+    # Collect CUDA source files if needed
+    if not IS_ROCM and use_cuda:
+        sources += cuda_sources
     else:
         # Remove CUTLASS-based kernels from the cuda_sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -278,6 +359,18 @@ def get_extensions():
             )
         )
         sources = [s for s in sources if s not in cutlass_sources]
+
+    # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    if IS_ROCM and use_cuda:
+        # Add ROCm GPU architecture check
+        gpu_arch = torch.cuda.get_device_properties(0).name
+        if gpu_arch != "gfx942":
+            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
+        else:
+            sources += hip_sources
 
     ext_modules = []
     if len(sources) > 0:
@@ -292,10 +385,33 @@ def get_extensions():
         )
 
     if build_torchao_experimental:
+        build_options = BuildOptions()
+
+        def bool_to_on_off(value):
+            return "ON" if value else "OFF"
+
+        from distutils.sysconfig import get_python_lib
+
+        torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
+
         ext_modules.append(
             CMakeExtension(
                 "torchao.experimental",
-                sourcedir="torchao/experimental",
+                cmake_lists_dir="torchao/experimental",
+                cmake_args=(
+                    [
+                        f"-DCMAKE_BUILD_TYPE={'Debug' if use_debug_mode() else 'Release'}",
+                        f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
+                        f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
+                        f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
+                        "-DTorch_DIR=" + torch_dir,
+                    ]
+                    + (
+                        ["-DCMAKE_INSTALL_PREFIX=cmake-out"]
+                        if build_options.build_experimental_mps
+                        else []
+                    )
+                ),
             )
         )
 
