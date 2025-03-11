@@ -22,6 +22,7 @@ from torchao.prototype.mx_formats.constants import (
     F8E4M3_MAX_POW2,
     F32_MIN_NORMAL,
 )
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 torch.manual_seed(0)
 
@@ -95,10 +96,17 @@ def scale_dim0_dim1_reference(
     x_hp: torch.Tensor, block_size
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     # normalize across dim0
-    x_hp_d0_normalized, scale_e8m0_dim0 = scale_dim0_reference(x_hp, block_size)
+    # x_hp_d0_normalized, scale_e8m0_dim0 = scale_dim0_reference(x_hp, block_size)
+    scale_e8m0_dim0, x_hp_d0_normalized = to_mx(x_hp, torch.float8_e4m3fn, block_size)
+    x_hp_d0_normalized = x_hp_d0_normalized.bfloat16()
+    scale_e8m0_dim0 = scale_e8m0_dim0.unsqueeze(1).view(torch.float8_e8m0fnu)
+
     # normalize across dim1
     x_hp_d1 = x_hp.t().contiguous()
-    x_hp_d1_normalized, scale_e8m0_dim1 = scale_dim0_reference(x_hp_d1, block_size)
+    # x_hp_d1_normalized, scale_e8m0_dim1 = scale_dim0_reference(x_hp_d1, block_size)
+    scale_e8m0_dim1, x_hp_d1_normalized = to_mx(x_hp_d1, torch.float8_e4m3fn, block_size)
+    x_hp_d1_normalized = x_hp_d1_normalized.bfloat16()
+    scale_e8m0_dim1 = scale_e8m0_dim1.unsqueeze(1).view(torch.float8_e8m0fnu)
     return x_hp_d0_normalized, x_hp_d1_normalized.t(), scale_e8m0_dim0, scale_e8m0_dim1
 
 
@@ -192,6 +200,10 @@ def normalization_kernel(
     # Broadcasting row_scale to match x_block's shape
     row_normalized = x_block / row_scale[:, None]
 
+    # fake quant to float8
+    row_normalized = row_normalized.to(tl.float8e4nv)
+    row_normalized = row_normalized.to(tl.bfloat16)
+
     # ----------------------------------------------------
     # Column-wise normalization
     # ----------------------------------------------------
@@ -201,6 +213,10 @@ def normalization_kernel(
     # Normalize each column by its maximum absolute value
     # Broadcasting col_scale to match x_block's shape
     col_normalized = x_block / col_scale[None, :]
+
+    # fake quant to float8
+    col_normalized = col_normalized.to(tl.float8e4nv)
+    col_normalized = col_normalized.to(tl.bfloat16)
 
     # Store the row-normalized result in row-major format
     tl.store(output_row_major_ptr + row_major_offsets, row_normalized, mask=mask)
@@ -299,8 +315,8 @@ def run(
         f"bf16 vs normalized reference sqnrs: dim0 {sqnr_bf16_vs_dim0_ref}, dim1 {sqnr_bf16_vs_dim1_ref}"
     )
     assert (
-        sqnr_bf16_vs_dim0_ref > 50 and sqnr_bf16_vs_dim1_ref > 50
-    ), "reference normlization numerics are incorrect"
+        sqnr_bf16_vs_dim0_ref > 28 and sqnr_bf16_vs_dim1_ref > 28
+    ), "reference mx numerics are incorrect"
 
     # basic triton kernel
     x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t = normalize_tiled(x, tile_size=BLOCK_SIZE)
