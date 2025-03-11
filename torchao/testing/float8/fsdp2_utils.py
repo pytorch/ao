@@ -21,7 +21,7 @@ def check_parity_no_mp(
     config: Float8LinearConfig,
     precompute: bool = False,
     compile_transformer_block: bool = False,
-):  
+):
     # check that requires_grad matches ref module
     for ref_param, fsdp_param in zip(ref_model.parameters(), fsdp_model.parameters()):
         test_cls.assertEqual(

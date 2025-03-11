@@ -67,8 +67,9 @@ class TestFloat8Common:
         return module
 
     def init_transformer(
-        self, weight_tying: bool, 
-        dtype: Optional[torch.dtype] = None, 
+        self,
+        weight_tying: bool,
+        dtype: Optional[torch.dtype] = None,
         requires_grad: bool = True,
     ) -> nn.Module:
         torch.manual_seed(42)
@@ -84,7 +85,7 @@ class TestFloat8Common:
         if dtype is not None:
             module = module.to(dtype=dtype)
 
-        # if requires_grad=False, just set requires_grad to False 
+        # if requires_grad=False, just set requires_grad to False
         # in the first layer to ensure we still train some params.
         if requires_grad is False:
             for param in module.layers[0].parameters():
@@ -127,7 +128,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         precompute: bool,
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
-        requires_grad: bool, 
+        requires_grad: bool,
         dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
@@ -138,7 +139,9 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
         weight_tying = not enable_fsdp_float8_all_gather
-        module = self.init_transformer(weight_tying=weight_tying, dtype=dtype, requires_grad=requires_grad)
+        module = self.init_transformer(
+            weight_tying=weight_tying, dtype=dtype, requires_grad=requires_grad
+        )
 
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
@@ -589,6 +592,7 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
             torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True),
             self.get_local_inp(torch.bfloat16),
         )
+
 
 if __name__ == "__main__":
     run_tests()
