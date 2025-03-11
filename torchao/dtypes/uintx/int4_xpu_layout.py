@@ -317,6 +317,11 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
 
+        if func is torch.ops.aten.copy_.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
