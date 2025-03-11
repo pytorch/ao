@@ -292,20 +292,8 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    curdir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(curdir, "torchao", "csrc")
-    sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-
-    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
-    )
-
-    if use_cuda:
-        sources += cuda_sources
-
     use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
+    if use_cuda and not IS_ROCM and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
         cutlass_include_dir = os.path.join(cutlass_dir, "include")
