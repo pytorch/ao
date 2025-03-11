@@ -91,9 +91,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.build_cpu_aarch64:
-            assert (
-                self._is_arm64()
-            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            assert self._is_arm64(), (
+                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            )
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -102,9 +102,9 @@ class BuildOptions:
             "TORCHAO_BUILD_KLEIDIAI", default=False
         )
         if self.build_kleidi_ai:
-            assert (
-                self.build_cpu_aarch64
-            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
         # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
         self.build_experimental_mps = self._os_bool_var(
@@ -113,9 +113,9 @@ class BuildOptions:
         if self.build_experimental_mps:
             assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
             assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
-            assert (
-                torch.mps.is_available()
-            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            assert torch.mps.is_available(), (
+                "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            )
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64")
@@ -269,7 +269,7 @@ def get_extensions():
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": ["-O3" if not debug_mode else "-O0", "-t=0", "-std=c++17"],
+        "nvcc": ["-O3" if not debug_mode else "-O0", "-std=c++17"],
     }
 
     if not IS_WINDOWS:
@@ -292,37 +292,6 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    curdir = os.path.dirname(os.path.curdir)
-    extensions_dir = os.path.join(curdir, "torchao", "csrc")
-    sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-
-    extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
-    cuda_sources = list(
-        glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
-    )
-
-    if use_cuda:
-        sources += cuda_sources
-
-    use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-        cutlass_tools_include_dir = os.path.join(
-            cutlass_dir, "tools", "util", "include"
-        )
-        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-                "-I" + cutlass_tools_include_dir,
-                "-I" + cutlass_extensions_include_dir,
-            ]
-        )
-
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
@@ -341,14 +310,44 @@ def get_extensions():
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
+
     extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
     hip_sources += list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
 
+    use_cutlass = False
+    if use_cuda and not IS_ROCM and not IS_WINDOWS:
+        use_cutlass = True
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_tools_include_dir = os.path.join(
+            cutlass_dir, "tools", "util", "include"
+        )
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
+                "-I" + cutlass_extensions_include_dir,
+            ]
+        )
+
     # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
+    elif IS_ROCM and use_cuda:
+        # Add ROCm GPU architecture check
+        gpu_arch = torch.cuda.get_device_properties(0).gcnArchName
+        if "gfx942" not in gpu_arch:
+            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
+        else:
+            sources += hip_sources
     else:
         # Remove CUTLASS-based kernels from the cuda_sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -359,18 +358,6 @@ def get_extensions():
             )
         )
         sources = [s for s in sources if s not in cutlass_sources]
-
-    # TOOD: Remove this and use what CUDA has once we fix all the builds.
-    if IS_ROCM and use_cuda:
-        # Add ROCm GPU architecture check
-        gpu_arch = torch.cuda.get_device_properties(0).name
-        if gpu_arch != "gfx942":
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print(
-                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
-            )
-        else:
-            sources += hip_sources
 
     ext_modules = []
     if len(sources) > 0:
