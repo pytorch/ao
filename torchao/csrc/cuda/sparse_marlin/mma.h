@@ -280,16 +280,16 @@ __device__ inline void scale_floats(float* c0, float* c1, float* c2, float* c3,
                                     FragS& s0, float* c4, float* c5, float* c6,
                                     float* c7, FragS& s1) {
   #ifdef USE_ROCM
-  // AMD implementation - fixed
-  *c0 = __ocml_fmul_f32(*c0, __half2float(s0[0].x));
-  *c1 = __ocml_fmul_f32(*c1, __half2float(s0[0].y));
-  *c2 = __ocml_fmul_f32(*c2, __half2float(s0[1].x));
-  *c3 = __ocml_fmul_f32(*c3, __half2float(s0[1].y));
+// AMD MI300X implementation
+  *c0 = *c0 * __half2float(s0[0].x);
+  *c1 = *c1 * __half2float(s0[0].y);
+  *c2 = *c2 * __half2float(s0[1].x);
+  *c3 = *c3 * __half2float(s0[1].y);
 
-  *c4 = __ocml_fmul_f32(*c4, __half2float(s1[0].x));
-  *c5 = __ocml_fmul_f32(*c5, __half2float(s1[0].y));
-  *c6 = __ocml_fmul_f32(*c6, __half2float(s1[1].x));
-  *c7 = __ocml_fmul_f32(*c7, __half2float(s1[1].y));
+  *c4 = *c4 * __half2float(s1[0].x);
+  *c5 = *c5 * __half2float(s1[0].y);
+  *c6 = *c6 * __half2float(s1[1].x);
+  *c7 = *c7 * __half2float(s1[1].y); 
   #else
   // NVIDIA implementation
   *c0 = __fmul_rn(*c0, __half2float(s0[0].x));
