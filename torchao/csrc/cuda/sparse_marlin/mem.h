@@ -67,10 +67,7 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
           "{\n"
           "   ds_load_b128 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else {
-      // Fallback for other sizes
-      __builtin_memcpy(smem, glob_ptr, BYTES);
-    }
+    } 
   #else
   asm volatile(
       "{\n"
@@ -103,9 +100,6 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
           "{\n"
           "   ds_load_b128 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else {
-      // Fallback for other sizes
-      __builtin_memcpy(smem, glob_ptr, BYTES); 
     }
   #else
   asm volatile(
@@ -139,10 +133,7 @@ __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
           "{\n"
           "   ds_load_b128 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else {
-      // Fallback for other sizes
-      __builtin_memcpy(smem, glob_ptr, BYTES);
-    }
+    } 
   #else
   asm volatile(
       "{\n"
