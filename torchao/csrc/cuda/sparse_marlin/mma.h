@@ -22,13 +22,21 @@
 #include <cudaTypedefs.h>
 #endif
 
+#ifdef USE_ROCM
+#include <hip/hip_runtime.h>
+#include <hip/hip_fp16.h>
+#include <device_functions.h>  // For some ROCm versions
+// Some intrinsics might require the compiler to be in the right mode
+// with the correct target architecture flags (-march=gfx942)
+#endif
+
 namespace torchao {
 
 // On CUDA earlier than 12.5, the ordered_metadata version of this instruction
 // is not supported. On later versions of CUDA the version without ordered
 // metadata results in the following warning:
-//  | Advisory: Modifier 'sp::ordered_metadata' should be used on instruction
-//  | 'mma' instead of modifier 'sp' as it is expected to have substantially
+//  | Advisory: Modifier ‘.sp::ordered_metadata’ should be used on instruction
+//  | ‘mma’ instead of modifier ‘.sp’ as it is expected to have substantially
 //  | reduced performance on some future architectures
 
 #if defined(USE_ROCM)
