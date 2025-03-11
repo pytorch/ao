@@ -27,8 +27,8 @@ namespace torchao {
 // On CUDA earlier than 12.5, the ordered_metadata version of this instruction
 // is not supported. On later versions of CUDA the version without ordered
 // metadata results in the following warning:
-//  | Advisory: Modifier ‘.sp::ordered_metadata’ should be used on instruction
-//  | ‘mma’ instead of modifier ‘.sp’ as it is expected to have substantially
+//  | Advisory: Modifier 'sp::ordered_metadata' should be used on instruction
+//  | 'mma' instead of modifier 'sp' as it is expected to have substantially
 //  | reduced performance on some future architectures
 
 #if defined(USE_ROCM)
@@ -143,8 +143,8 @@ __device__ __forceinline__ uint2 to_half4(float c0, float c1, float c2,
   uint2 r;
   #ifdef USE_ROCM
   // AMD implementation
-  r.x = __builtin_amdgcn_cvt_pkrtz(c0, c1);
-  r.y = __builtin_amdgcn_cvt_pkrtz(c2, c3);
+  r.x = __builtin_bit_cast(uint32_t, __builtin_amdgcn_cvt_pkrtz(c0, c1));
+  r.y = __builtin_bit_cast(uint32_t, __builtin_amdgcn_cvt_pkrtz(c2, c3));
   #else
   // NVIDIA implementation
   asm("{\n\t"
