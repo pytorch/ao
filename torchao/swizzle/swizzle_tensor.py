@@ -27,6 +27,8 @@ class SwizzleTensor(torch.Tensor):
         return torch.Tensor._make_subclass(cls, wrapper)
 
     def __init__(self, original):
+        # we pass in weights.T, but permute should be done on correct data
+        original = original.T
         assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
         if original.ndim == 2:
             M, K = original.shape
@@ -70,10 +72,11 @@ class SwizzleTensor(torch.Tensor):
             return undone.reshape(self.B, self.M, self.K)
 
     def as_tensor(self):
+        # note the transpose because this causes col major hipblaslt op to be TN
         if self.original_ndim == 2:
-            return self.x.reshape(self.alignedM, self.alignedK)
+            return self.x.reshape(self.alignedM, self.alignedK).T
         if self.original_ndim == 3:
-            return self.x.reshape(self.B, self.alignedM, self.alignedK)
+            return self.x.reshape(self.B, self.alignedM, self.alignedK).T
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):

@@ -240,7 +240,8 @@ c10::MaybeOwned<Tensor> inline prepare_matrix_for_cublas(const Tensor& tensor, b
 
 struct cublasCommonArgs {
   cublasCommonArgs(const Tensor& mat1, const Tensor& mat2, Tensor& c) {
-    bool transpose_result = false, transpose_mat1 = false, transpose_mat2 = false;
+    bool transpose_mat1 = false, transpose_mat2 = false;
+    transpose_result = false;
     result = prepare_matrix_for_cublas(c, transpose_result);
     mata = prepare_matrix_for_cublas(transpose_result ? mat2 : mat1, transpose_mat1, transpose_result);
     matb = prepare_matrix_for_cublas(transpose_result ? mat1 : mat2, transpose_mat2, transpose_result);
@@ -266,6 +267,7 @@ struct cublasCommonArgs {
   int64_t m, n, k;
   int64_t lda, ldb, result_ld;
   c10::MaybeOwned<Tensor> mata, matb, result;
+  bool transpose_result;
 };
 
 } // namespace
@@ -324,6 +326,9 @@ inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype), bool mat1_is_swizzle
     Bdesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, strideb);
     Cdesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, stridec);
   }
+
+  hipblasLtEpilogue_t epilogue = HIPBLASLT_EPILOGUE_DEFAULT;
+  computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_EPILOGUE, epilogue);
 
   HipBlasLtMatmulPreference preference;
   // See https://github.com/pytorch/pytorch/issues/73328 for reasoning behind
@@ -456,8 +461,8 @@ Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2, bool mat1_is_swizzled,
             beta_val,
             result_ptr,
             args.result_ld,
-            mat1_is_swizzled,
-            mat2_is_swizzled);
+            args.transpose_result ? mat2_is_swizzled : mat1_is_swizzled,
+            args.transpose_result ? mat1_is_swizzled : mat2_is_swizzled);
       });
 
     return result;
