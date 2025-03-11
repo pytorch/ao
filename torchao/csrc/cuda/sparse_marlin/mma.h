@@ -206,8 +206,8 @@ __device__ inline FragB dequant_4bit(int q) {
   const __half2* MUL_ptr = reinterpret_cast<const __half2*>(&MUL);
   const __half2* ADD_ptr = reinterpret_cast<const __half2*>(&ADD);
 
-  frag_b[0] = __hsub(*lo_ptr, *SUB_ptr);
-  frag_b[1] = __hfma(*hi_ptr, *MUL_ptr, *ADD_ptr);
+  frag_b[0] = __hsub2(*lo_ptr, *SUB_ptr);
+  frag_b[1] = __hfma2(*hi_ptr, *MUL_ptr, *ADD_ptr);
   #else
   // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
