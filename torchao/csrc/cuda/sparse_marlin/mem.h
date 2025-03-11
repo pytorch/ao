@@ -62,11 +62,6 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
           "{\n"
           "   ds_load_b64 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else if (BYTES == 16) {
-      asm volatile(
-          "{\n"
-          "   ds_load_b128 %0, %1\n"
-          "}\n" :: "v"(smem), "v"(glob_ptr));
     } 
   #else
   asm volatile(
@@ -95,11 +90,6 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
           "{\n"
           "   ds_load_b64 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else if (BYTES == 16) {
-      asm volatile(
-          "{\n"
-          "   ds_load_b128 %0, %1\n"
-          "}\n" :: "v"(smem), "v"(glob_ptr));
     }
   #else
   asm volatile(
@@ -127,11 +117,6 @@ __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
       asm volatile(
           "{\n"
           "   ds_load_b64 %0, %1\n"
-          "}\n" :: "v"(smem), "v"(glob_ptr));
-    } else if (BYTES == 16) {
-      asm volatile(
-          "{\n"
-          "   ds_load_b128 %0, %1\n"
           "}\n" :: "v"(smem), "v"(glob_ptr));
     } 
   #else
