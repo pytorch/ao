@@ -399,8 +399,9 @@ def _(func, types, args, kwargs):
 
 @implements(aten.copy_.default)
 def _(func, types, args, kwargs):
+    # import pdb; pdb.set_trace()
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+        func, args, kwargs, args[1]._apply_fn_to_data(torch.clone)
     )
 
 @implements(aten._to_copy.default)
