@@ -40,6 +40,7 @@ def compute_error(x, y):
 
 
 def get_scale_reference(x_hp):
+    # TODO(before land): reuse code with mx_tensor.py::to_mx
     # TODO(future PR): test block of all-zeros
     # TODO(future PR): support other rounding modes (currently only supports floor)
 
@@ -78,7 +79,8 @@ def get_scale_reference(x_hp):
     # has some gaps.  So, for now just set to the minimum normal value.
     scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
 
-    return max_abs
+    # return max_abs
+    return scale_fp
 
 
 def scale_dim0_reference(x_hp, block_size) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -87,7 +89,7 @@ def scale_dim0_reference(x_hp, block_size) -> Tuple[torch.Tensor, torch.Tensor]:
     scale = get_scale_reference(x_hp_block_abs)
     x_hp_block_normalized = x_hp_block / scale
     x_hp_normalized = x_hp_block_normalized.reshape(x_hp.shape)
-    return x_hp_normalized, scale
+    return x_hp_normalized.to(x_hp.dtype), scale
 
 
 def scale_dim0_dim1_reference(
@@ -103,11 +105,34 @@ def scale_dim0_dim1_reference(
 
 @triton.jit
 def _triton_calculate_scale(x, axis):
-    # Find the maximum absolute value for each row
     # We use a small epsilon to avoid division by zero
     epsilon = 1e-10
-    scale = tl.max(x, axis=axis) + epsilon
-    return scale
+
+    # TODO(before land): reuse the constants below instead of hardcoding
+    target_max_pow2 = 8
+    e8m0_exponent_bias = 127
+
+    # Find the maximum absolute value for each row
+    max_abs = tl.max(x, axis=axis)
+
+    scale_e8m0_unbiased = tl.floor(tl.log2(max_abs + epsilon)) - target_max_pow2
+
+    # Clamp to exponents that can be represented in e8m0
+    scale_e8m0_unbiased = tl.clamp(
+        scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias
+    )
+
+    # Create the biased e8m0 representation and cast it to 8 bits
+    scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+    scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+
+    # TODO(future PR): add NaN handling here
+
+    # For now, calculate the scale in floating point.
+    # TODO(future) audit if there is a need to bit shift exponents instead.
+    scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
+
+    return scale_fp
 
 
 @triton.jit
@@ -215,8 +240,12 @@ def normalize_tiled(x, tile_size=32):
     output_col_major = torch.empty((n_cols, n_rows), dtype=x.dtype, device=x.device)
 
     # Create tensors for row-wise and column-wise maximum absolute values
-    row_scale = torch.empty(n_rows, n_cols // tile_size, dtype=x.dtype, device=x.device)
-    col_scale = torch.empty(n_cols, n_rows // tile_size, dtype=x.dtype, device=x.device)
+    row_scale = torch.empty(
+        n_rows, n_cols // tile_size, dtype=torch.float, device=x.device
+    )
+    col_scale = torch.empty(
+        n_cols, n_rows // tile_size, dtype=torch.float, device=x.device
+    )
 
     # Calculate grid dimensions based on tile size
     grid_rows = triton.cdiv(n_rows, tile_size)
@@ -278,6 +307,7 @@ def run(
     # ensure bitwise equivalency of outputs with reference
     torch.testing.assert_close(x_d0, x_d0_t, atol=0, rtol=0)
     torch.testing.assert_close(x_d1, x_d1_t, atol=0, rtol=0)
+    print(1, amax_d0.dtype, 2, amax_d0_t.dtype)
     torch.testing.assert_close(amax_d0, amax_d0_t, atol=0, rtol=0)
     torch.testing.assert_close(amax_d1, amax_d1_t, atol=0, rtol=0)
     print("normalized reference vs normalized triton are bitwise equivalent")
