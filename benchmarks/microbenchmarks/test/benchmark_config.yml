@@ -2,6 +2,7 @@
 quantization_config_recipe_names:
   - "baseline"
   - "int8dq"
+  - "int4wo-128"
 output_dir: "benchmarks/microbenchmarks/test/results"  # Directory for results and plots
 model_params:
   matrix_shapes:
@@ -12,8 +13,7 @@ model_params:
         [4096, 4096, 1024]
       ]
   high_precision_dtype: "torch.bfloat16"
-  compile: true
-  compile_mode: "max-autotune"
+  compile: "max-autotune"
   device: "cuda"  # Change this to "cuda", "mps", "xpu", or "cpu" as needed
   model_type: "linear"
   sparsity: "2:4"
