@@ -181,7 +181,8 @@ __device__ inline void ldsm4_m(FragM& frag_m, const void* smem_ptr) {
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
   asm volatile(
-      "ds_read_b64 %0, %2 offset:0\n"
+      "ds_read_b32 %0, %2 offset:0\n"
+      "ds_read_b32 %1, %2 offset:4\n"
       : "=v"(a[0]), "=v"(a[1])
       : "v"(smem));
   #else
