@@ -41,11 +41,15 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     # libextension_threadpool.a
     # libcpuinfo.a
     # libpthreadpool.a
+    if(NOT DEFINED EXECUTORCH_INCLUDE_DIRS AND NOT DEFINED EXECUTORCH_LIBRARIES)
+        message(WARNING "EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES are not defined. Looking for ExecuTorch.")
+        find_package(ExecuTorch HINTS ${CMAKE_PREFIX_PATH}/executorch/share/cmake)
+    endif()
     # find_package(ExecuTorch HINTS ${CMAKE_PREFIX_PATH}/executorch/share/cmake)
-    file(GLOB _SRCS "${CMAKE_CURRENT_SOURCE_DIR}/op_linear_8bit_act_xbit_weight_executorch/*.cpp")
+    # file(GLOB _SRCS "${CMAKE_CURRENT_SOURCE_DIR}/op_linear_8bit_act_xbit_weight_executorch/*.cpp")
     add_library(torchao_ops_linear_8bit_act_xbit_weight_executorch OBJECT
         linear_8bit_act_xbit_weight.cpp
-        ${_SRCS}
+        op_linear_8bit_act_xbit_weight_executorch.cpp
     )
     target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_executorch executorch)
     target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
