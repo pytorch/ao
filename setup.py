@@ -55,11 +55,7 @@ build_torchao_experimental = (
     and platform.system() == "Darwin"
 )
 
-use_cpp_avx512 = (
-    os.getenv("USE_AVX512", "1") == "1"
-    and use_cpp == "1"
-    and platform.system() == "Linux"
-)
+use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and platform.system() == "Linux"
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
