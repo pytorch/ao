@@ -259,8 +259,26 @@ def run(
         lambda x, b: normalize_tiled(x, tile_size=BLOCK_SIZE), x, BLOCK_SIZE
     )
 
+    # calculate bytes read/written
+    bytes_per_el_bf16 = 2
+    bytes_per_el_fp8 = 1
+    triton_bytes_read = x.numel() * bytes_per_el_bf16
+    triton_bytes_written = (
+        sum(x.numel() for x in (x_d0_t, x_d1_t, amax_d0_t, amax_d1_t))
+        * bytes_per_el_fp8
+    )
+    triton_achieved_mem_bw_gbps = (triton_bytes_read + triton_bytes_written) / (
+        time_triton_us / 1e6
+    )
+    # TODO read 8.0 TB/s number from roofline_utils.py instead of hardcoding
+    triton_pct_peak_mem_bw = triton_achieved_mem_bw_gbps / 8.0e12
+
     print("time_reference_compile_us", time_reference_compile_us)
     print("time_triton_us", time_triton_us)
+    print("triton_achieved_mem_bw_gbps", triton_achieved_mem_bw_gbps)
+    # Note: as of 2025-03-11, inductor code for adding 1.0 to a large bf16 tensor
+    # can achieve around 50-70% of B200 peak mem bw
+    print("triton_pct_peak_mem_bw", triton_pct_peak_mem_bw)
     print("speedup", time_reference_compile_us / time_triton_us)
 
 
