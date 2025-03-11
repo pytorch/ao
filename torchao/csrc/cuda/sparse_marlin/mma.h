@@ -240,8 +240,8 @@ __device__ inline FragB dequant_8bit(int q) {
   __half2* hi_ptr = reinterpret_cast<__half2*>(&hi);
   const __half2* magic_num_ptr = reinterpret_cast<const __half2*>(&I8s_TO_F16s_MAGIC_NUM);
 
-  frag_b[0] = __hsub(*lo_ptr, *magic_num_ptr);
-  frag_b[1] = __hsub(*hi_ptr, *magic_num_ptr);
+  frag_b[0] = __hsub2(*lo_ptr, *magic_num_ptr);
+  frag_b[1] = __hsub2(*hi_ptr, *magic_num_ptr);
   #else
   // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
@@ -258,8 +258,8 @@ __device__ inline void scale(FragB& frag_b, FragS& frag_s, int i) {
   #ifdef USE_ROCM
   // AMD implementation
   __half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
-  frag_b[0] = __hmul(frag_b[0], s);
-  frag_b[1] = __hmul(frag_b[1], s);
+  frag_b[0] = __hmul2(frag_b[0], s);
+  frag_b[1] = __hmul2(frag_b[1], s);
   #else
   // NVIDIA implementation
   half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
