@@ -79,28 +79,27 @@ def get_scale_reference(x_hp):
     # has some gaps.  So, for now just set to the minimum normal value.
     scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
 
-    # return max_abs
-    return scale_fp
+    return scale_fp, scale_e8m0_biased.view(torch.float8_e8m0fnu)
 
 
 def scale_dim0_reference(x_hp, block_size) -> Tuple[torch.Tensor, torch.Tensor]:
     x_hp_block = x_hp.reshape(-1, block_size)
     x_hp_block_abs = x_hp_block.abs()
-    scale = get_scale_reference(x_hp_block_abs)
-    x_hp_block_normalized = x_hp_block / scale
+    scale_fp, scale_e8m0 = get_scale_reference(x_hp_block_abs)
+    x_hp_block_normalized = x_hp_block / scale_fp
     x_hp_normalized = x_hp_block_normalized.reshape(x_hp.shape)
-    return x_hp_normalized.to(x_hp.dtype), scale
+    return x_hp_normalized.to(x_hp.dtype), scale_e8m0
 
 
 def scale_dim0_dim1_reference(
     x_hp: torch.Tensor, block_size
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     # normalize across dim0
-    x_hp_d0_normalized, amax_dim0 = scale_dim0_reference(x_hp, block_size)
+    x_hp_d0_normalized, scale_e8m0_dim0 = scale_dim0_reference(x_hp, block_size)
     # normalize across dim1
     x_hp_d1 = x_hp.t().contiguous()
-    x_hp_d1_normalized, amax_dim1 = scale_dim0_reference(x_hp_d1, block_size)
-    return x_hp_d0_normalized, x_hp_d1_normalized.t(), amax_dim0, amax_dim1
+    x_hp_d1_normalized, scale_e8m0_dim1 = scale_dim0_reference(x_hp_d1, block_size)
+    return x_hp_d0_normalized, x_hp_d1_normalized.t(), scale_e8m0_dim0, scale_e8m0_dim1
 
 
 @triton.jit
@@ -132,7 +131,7 @@ def _triton_calculate_scale(x, axis):
     # TODO(future) audit if there is a need to bit shift exponents instead.
     scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
 
-    return scale_fp
+    return scale_fp, scale_e8m0_biased
 
 
 @triton.jit
@@ -187,7 +186,7 @@ def normalization_kernel(
     x_block_abs = tl.abs(x_block)
 
     # Find the maximum absolute value for each row
-    row_scale = _triton_calculate_scale(x_block_abs, axis=1)
+    row_scale, row_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=1)
 
     # Normalize each row by its maximum absolute value
     # Broadcasting row_scale to match x_block's shape
@@ -197,7 +196,7 @@ def normalization_kernel(
     # Column-wise normalization
     # ----------------------------------------------------
     # Find the maximum absolute value for each column
-    col_scale = _triton_calculate_scale(x_block_abs, axis=0)
+    col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
 
     # Normalize each column by its maximum absolute value
     # Broadcasting col_scale to match x_block's shape
@@ -221,13 +220,13 @@ def normalization_kernel(
     row_scale_start_ptr = row_scale_ptr + (pid_row * n_cols) + pid_col
     row_scale_indices = tl.arange(0, TILE_SIZE) * (n_cols // TILE_SIZE)
     # TODO(future): mask
-    tl.store(row_scale_start_ptr + row_scale_indices, row_scale)
+    tl.store(row_scale_start_ptr + row_scale_indices, row_scale_e8m0)
 
     # Vasiliy - deviating from Claude here for much simpler code
     col_scale_start_ptr = col_scale_ptr + (pid_col * n_rows) + pid_row
     col_scale_indices = tl.arange(0, TILE_SIZE) * (n_rows // TILE_SIZE)
     # TODO(future): mask
-    tl.store(col_scale_start_ptr + col_scale_indices, col_scale)
+    tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
 
 # Function to launch the kernel
@@ -241,10 +240,10 @@ def normalize_tiled(x, tile_size=32):
 
     # Create tensors for row-wise and column-wise maximum absolute values
     row_scale = torch.empty(
-        n_rows, n_cols // tile_size, dtype=torch.float, device=x.device
+        n_rows, n_cols // tile_size, dtype=torch.uint8, device=x.device
     )
     col_scale = torch.empty(
-        n_cols, n_rows // tile_size, dtype=torch.float, device=x.device
+        n_cols, n_rows // tile_size, dtype=torch.uint8, device=x.device
     )
 
     # Calculate grid dimensions based on tile size
@@ -266,8 +265,8 @@ def normalize_tiled(x, tile_size=32):
     return (
         output_row_major,
         output_col_major.t(),
-        row_scale.reshape(-1, 1),
-        col_scale.reshape(-1, 1),
+        row_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
+        col_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
     )
 
 
@@ -281,15 +280,17 @@ def run(
     print(f"torch version: {torch.__version__}")
     print(f"triton version: {triton.__version__}")
 
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
     scale_dim0_dim1_c = torch.compile(scale_dim0_dim1_reference)
 
     # reference implementation (plain PyTorch + torch.compile)
-    x_d0, x_d1, amax_d0, amax_d1 = scale_dim0_dim1_c(x, BLOCK_SIZE)
-    x_d0_and_back = (x_d0.reshape(-1, BLOCK_SIZE) * amax_d0).reshape(x_d0.shape)
+    x_d0, x_d1, scale_e8m0_d0, scale_e8m0_d1 = scale_dim0_dim1_c(x, BLOCK_SIZE)
+    scale_fp_d0 = scale_e8m0_d0.float()
+    scale_fp_d1 = scale_e8m0_d1.float()
+    x_d0_and_back = (x_d0.reshape(-1, BLOCK_SIZE) * scale_fp_d0).reshape(x_d0.shape)
     x_d1_and_back = (
-        (x_d1.t().reshape(-1, BLOCK_SIZE) * amax_d1).reshape(x_d1.t().shape).t()
+        (x_d1.t().reshape(-1, BLOCK_SIZE) * scale_fp_d1).reshape(x_d1.t().shape).t()
     )
 
     sqnr_bf16_vs_dim0_ref = compute_error(x, x_d0_and_back)
@@ -302,26 +303,25 @@ def run(
     ), "reference normlization numerics are incorrect"
 
     # basic triton kernel
-    x_d0_t, x_d1_t, amax_d0_t, amax_d1_t = normalize_tiled(x, tile_size=BLOCK_SIZE)
+    x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t = normalize_tiled(x, tile_size=BLOCK_SIZE)
 
     # ensure bitwise equivalency of outputs with reference
     torch.testing.assert_close(x_d0, x_d0_t, atol=0, rtol=0)
     torch.testing.assert_close(x_d1, x_d1_t, atol=0, rtol=0)
-    print(1, amax_d0.dtype, 2, amax_d0_t.dtype)
-    torch.testing.assert_close(amax_d0, amax_d0_t, atol=0, rtol=0)
-    torch.testing.assert_close(amax_d1, amax_d1_t, atol=0, rtol=0)
+    torch.testing.assert_close(scale_e8m0_d0, scale_e8m0_d0_t, atol=0, rtol=0)
+    torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_t, atol=0, rtol=0)
     print("normalized reference vs normalized triton are bitwise equivalent")
 
     if False:
         # for debugging
         sqnr_x_d0_ref_vs_t = compute_error(x_d0, x_d0_t)
         print("sqnr_x_d0_t", sqnr_x_d0_ref_vs_t)
-        sqnr_amax_d0_vs_t = compute_error(amax_d0, amax_d0_t)
-        print("sqnr_amax_d0_t", sqnr_amax_d0_vs_t)
+        sqnr_scale_e8m0_d0_vs_t = compute_error(scale_e8m0_d0, scale_e8m0_d0_t)
+        print("sqnr_scale_e8m0_d0_t", sqnr_scale_e8m0_d0_vs_t)
         sqnr_x_d1_ref_vs_t = compute_error(x_d1, x_d1_t)
         print("sqnr_x_d1_t", sqnr_x_d1_ref_vs_t)
-        sqnr_amax_d1_vs_t = compute_error(amax_d1, amax_d1_t)
-        print("sqnr_amax_d1_t", sqnr_amax_d1_vs_t)
+        sqnr_scale_e8m0_d1_vs_t = compute_error(scale_e8m0_d1, scale_e8m0_d1_t)
+        print("sqnr_scale_e8m0_d1_t", sqnr_scale_e8m0_d1_vs_t)
 
     # now, measure performance
 
@@ -344,7 +344,7 @@ def run(
     bytes_per_el_fp8 = 1
     triton_bytes_read = x.numel() * bytes_per_el_bf16
     triton_bytes_written = (
-        sum(x.numel() for x in (x_d0_t, x_d1_t, amax_d0_t, amax_d1_t))
+        sum(x.numel() for x in (x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t))
         * bytes_per_el_fp8
     )
     triton_achieved_mem_bw_gbps = (triton_bytes_read + triton_bytes_written) / (
