@@ -44,14 +44,7 @@ class BenchmarkConfig:
         self.high_precision_dtype = self._parse_precision(
             params["high_precision_dtype"]
         )
-        self.compile = params.get("compile", False)
-        # Handle compile_mode based on compile flag
-        if not self.compile:
-            self.compile_mode = None
-        else:
-            # Use provided compile_mode if exists, else use "default"
-            self.compile_mode = params.get("compile_mode", "default")
-
+        self.compile = params.get("compile", "false")
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
@@ -71,7 +64,6 @@ class BenchmarkConfig:
             "n": self.n,
             "high_precision_dtype": self.high_precision_dtype,
             "compile": self.compile,
-            "compile_mode": self.compile_mode,
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
@@ -372,7 +364,7 @@ def print_results(results: List[Dict[str, Any]]):
                 value = f"{value:.2f}" if isinstance(value, (int, float)) else value
             elif col == "compile":
                 # Show compile mode if compile is True, otherwise show False
-                value = result.get("compile_mode", "default") if value else "False"
+                value = result.get("compile", "default") if value else "False"
             row.append(value)
         table_data.append(row)
 

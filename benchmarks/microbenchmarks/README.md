@@ -47,8 +47,7 @@ model_params:
         [4096, 4096, 1024]
       ]
   high_precision_dtype: "torch.bfloat16"
-  compile: true
-  compile_mode: "max-autotune"
+  compile: "max-autotune" # Options: "default", "max-autotune", "false"
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
   model_type: "linear"  # Options: "linear", "ln_linear_sigmoid"
 ```

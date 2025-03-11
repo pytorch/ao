@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Dict
 
 import torch
-
 from utils import (
     BenchmarkConfig,
     benchmark_model_inference_in_microseconds,
@@ -18,6 +17,7 @@ from utils import (
     create_model_and_input,
     quantization_string_to_quantization_config,
 )
+
 from torchao.quantization import quantize_
 
 
@@ -44,9 +44,12 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
     )
     if quantization_config:
         quantize_(m_copy, quantization_config)
-    if config.compile:
+    if config.compile is not "false":
         print("Compiling model....")
-        m_copy = torch.compile(m_copy, mode=config.compile_mode, fullgraph=True)
+        if compile == "true":
+            m_copy = torch.compile(m_copy, fullgraph=True)
+        else:
+            m_copy = torch.compile(m_copy, mode=config.compile, fullgraph=True)
 
     # Run benchmarks
     result = {**config.to_dict()}

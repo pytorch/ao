@@ -18,7 +18,6 @@ from itertools import product
 from typing import Any, Dict, List, Tuple
 
 import yaml
-
 from utils import (
     BenchmarkConfig,
     generate_results_csv,

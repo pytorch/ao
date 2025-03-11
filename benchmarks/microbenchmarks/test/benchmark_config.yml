@@ -13,7 +13,6 @@ model_params:
         [4096, 4096, 1024]
       ]
   high_precision_dtype: "torch.bfloat16"
-  compile: true
-  compile_mode: "max-autotune"
+  compile: "max-autotune"
   device: "cuda"  # Change this to "cuda", "mps", "xpu", or "cpu" as needed
   model_type: "linear"
