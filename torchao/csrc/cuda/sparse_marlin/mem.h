@@ -51,11 +51,25 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
   int src_in_bytes = (zfill ? 0 : BYTES);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
- // Use LDS.G instruction for global to LDS transfer on MI300X
-    asm volatile(
-        "{\n"
-        "   ds_load_b%c2 %0, %1\n"
-        "}\n" :: "v"(smem), "v"(glob_ptr), "i"(BYTES));
+   // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 16) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b128 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else {
+      // Fallback for other sizes
+      __builtin_memcpy(smem, glob_ptr, BYTES);
   #else
   asm volatile(
       "{\n"
@@ -72,11 +86,25 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
   const int BYTES = 16;
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  // Use LDS.G instruction for global to LDS transfer on MI300X
-    asm volatile(
-        "{\n"
-        "   ds_load_b%c2 %0, %1\n"
-        "}\n" :: "v"(smem), "v"(glob_ptr), "i"(BYTES));
+    // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 16) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b128 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else {
+      // Fallback for other sizes
+      __builtin_memcpy(smem, glob_ptr, BYTES); 
   #else
   asm volatile(
       "{\n"
@@ -93,11 +121,25 @@ __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
   const int BYTES = 16;
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  // Use LDS.G instruction for global to LDS transfer on MI300X
-    asm volatile(
-        "{\n"
-        "   ds_load_b%c2 %0, %1\n"
-        "}\n" :: "v"(smem), "v"(glob_ptr), "i"(BYTES));
+   // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 16) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b128 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else {
+      // Fallback for other sizes
+      __builtin_memcpy(smem, glob_ptr, BYTES);
   #else
   asm volatile(
       "{\n"
