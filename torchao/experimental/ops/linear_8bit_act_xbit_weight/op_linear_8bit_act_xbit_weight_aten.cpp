@@ -9,22 +9,22 @@
 #define DEFINE_OP(weight_nbit)                                                                                                                 \
   m.def(                                                                                                                                       \
       "_pack_8bit_act_" #weight_nbit                                                                                                   \
-      "bit0zp_weight(Tensor weight_qvals, Tensor weight_scales, Tensor group_size) -> Tensor");                                                \
+      "bit0zp_weight(Tensor weight_qvals, Tensor weight_scales, int group_size) -> Tensor");                                                \
   m.def(                                                                                                                                       \
       "_pack_8bit_act_" #weight_nbit                                                                                                   \
-      "bit_weight(Tensor weight_qvals, Tensor weight_scales, Tensor weight_zeros, Tensor group_size) -> Tensor");                              \
+      "bit_weight(Tensor weight_qvals, Tensor weight_scales, Tensor weight_zeros, int group_size) -> Tensor");                              \
   m.def(                                                                                                                                       \
       "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit0zp_weight(Tensor activations, Tensor packed_weights, Tensor group_size, Tensor n, Tensor k) -> Tensor");                            \
+      "bit0zp_weight(Tensor activations, Tensor packed_weights, int group_size, int n, int k) -> Tensor");                            \
   m.def(                                                                                                                                       \
       "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit_weight(Tensor activations, Tensor packed_weights, Tensor group_size, Tensor n, Tensor k) -> Tensor");                               \
+      "bit_weight(Tensor activations, Tensor packed_weights, int group_size, int n, int k) -> Tensor");                               \
   m.def(                                                                                                                                       \
       "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit0zp_weight.out(Tensor activations, Tensor packed_weights, Tensor group_size, Tensor n, Tensor k, *, Tensor(a!) out) -> Tensor(a!)"); \
+      "bit0zp_weight.out(Tensor activations, Tensor packed_weights, int group_size, int n, int k, *, Tensor(a!) out) -> Tensor(a!)"); \
   m.def(                                                                                                                                       \
       "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit_weight.out(Tensor activations, Tensor packed_weights, Tensor group_size, Tensor n, Tensor k, *, Tensor(a!) out) -> Tensor(a!)")
+      "bit_weight.out(Tensor activations, Tensor packed_weights, int group_size, int n, int k, *, Tensor(a!) out) -> Tensor(a!)")
 
 #define DEFINE_CPU_IMPL(weight_nbit)                          \
   m.impl(                                                     \

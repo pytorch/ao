@@ -106,11 +106,6 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         cls,
         packed_weight: torch.Tensor,
         _layout: Layout,
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
-        group_size_tensor: torch.Tensor,
-        n_tensor: torch.Tensor,
-        k_tensor: torch.Tensor,
     ):
         kwargs = {}
         kwargs["device"] = packed_weight.device
@@ -124,18 +119,10 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         self,
         packed_weight: torch.Tensor,
         _layout: Layout,
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
-        group_size_tensor: torch.Tensor,
-        n_tensor: torch.Tensor,
-        k_tensor: torch.Tensor,
     ):
         assert isinstance(_layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         self.packed_weight = packed_weight
         self._layout = _layout
-        self.group_size_tensor = group_size_tensor
-        self.n_tensor = n_tensor
-        self.k_tensor = k_tensor
 
     def __repr__(self):
         return f"{self.__class__.__name__}(packed_weight={str(self.packed_weight)}, layout={self.get_layout()})"
@@ -164,13 +151,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             Target.ATEN,
         }, f"Unexpected target: {layout.target}"
 
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
         n, k = int_data.shape
-        group_size_tensor = torch.empty(0, layout.group_size, dtype=torch.int8)
-        n_tensor = torch.empty(0, n, dtype=torch.int8)
-        k_tensor = torch.empty(0, k, dtype=torch.int8)
-
         if layout.target == Target.ATEN:
             assert (
                 TORCH_VERSION_AT_LEAST_2_6
@@ -185,7 +166,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(
                 int_data, scale, bias, layout.group_size, k, n
             )
-            return cls(packed_weight, layout, group_size_tensor, n_tensor, k_tensor)
+            return cls(packed_weight, layout)
 
         assert not layout.has_bias, "has_bias is not supported yet"
         if layout.has_weight_zeros:
@@ -193,13 +174,13 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
                 int_data.to(torch.int8),
                 scale.reshape(-1),
                 zero_point.reshape(-1).to(torch.int8),
-                group_size_tensor,
+                layout.group_size,
             ]
         else:
             args = [
                 int_data.to(torch.int8),
                 scale.reshape(-1),
-                group_size_tensor,
+                layout.group_size,
             ]
 
         wzp_suffix = "" if layout.has_weight_zeros else "0zp"
@@ -208,16 +189,10 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             f"_pack_8bit_act_{layout.bit_width}bit{wzp_suffix}_weight",
         )(*args)
 
-        return cls(packed_weight, layout, group_size_tensor, n_tensor, k_tensor)
+        return cls(packed_weight, layout)
 
     def _apply_fn_to_data(self, fn):
         self.packed_weight = fn(self.packed_weight)
-
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
-        self.group_size_tensor = fn(self.group_size_tensor)
-        self.n_tensor = fn(self.n_tensor)
-        self.k_tensor = fn(self.k_tensor)
         return self
 
     @classmethod
@@ -238,26 +213,15 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         )
 
     def __tensor_flatten__(self):
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
-        return ["packed_weight", "group_size_tensor", "n_tensor", "k_tensor"], [
-            self.get_layout()
-        ]
+        return ["packed_weight"], [self.get_layout()]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         packed_weight = tensor_data_dict["packed_weight"]
-
-        # TODO(T200095131): remove group_size_tensor, n_tensor, k_tensor
-        # when AOTI supports int
-        group_size_tensor = tensor_data_dict["group_size_tensor"]
-        n_tensor = tensor_data_dict["n_tensor"]
-        k_tensor = tensor_data_dict["k_tensor"]
-
         (layout,) = tensor_attributes
-        return cls(packed_weight, layout, group_size_tensor, n_tensor, k_tensor)
+        return cls(packed_weight, layout)
 
 
 def _linear_check(input_tensor, weight_tensor, bias):
@@ -275,22 +239,16 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         assert k_ == k
         group_size = weight_tensor.tensor_impl.get_layout().group_size
 
-        assert group_size == weight_tensor.tensor_impl.group_size_tensor.shape[1]
-        assert n == weight_tensor.tensor_impl.n_tensor.shape[1]
-        assert k == weight_tensor.tensor_impl.k_tensor.shape[1]
-
         assert (
             not weight_tensor.tensor_impl.get_layout().has_bias
         ), "has_bias is not supported yet"
 
-        # TODO(T200095131): convert self.n, self.k, self.group_size to
-        # int when supported by AOTI
         args = (
             input_tensor,
             weight_tensor.tensor_impl.packed_weight,
-            weight_tensor.tensor_impl.group_size_tensor,
-            weight_tensor.tensor_impl.n_tensor,
-            weight_tensor.tensor_impl.k_tensor,
+            group_size,
+            n,
+            k,
         )
 
         has_weight_zeros = weight_tensor.zero_point_domain != ZeroPointDomain.NONE
@@ -315,7 +273,7 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         group_size = weight_tensor.tensor_impl.get_layout().group_size
         packed_weight = weight_tensor.tensor_impl.packed_weight
         return torch.ops.aten._dyn_quant_matmul_4bit(
-            input_tensor, packed_weight, group_size, k_, n
+            input_tensor, packed_weight, group_size, k, n
         )
 
     target = weight_tensor.tensor_impl.get_layout().target

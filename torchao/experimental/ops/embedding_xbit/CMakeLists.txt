@@ -27,6 +27,10 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     # libextension_threadpool.a
     # libcpuinfo.a
     # libpthreadpool.a
+    if(NOT DEFINED EXECUTORCH_INCLUDE_DIRS AND NOT DEFINED EXECUTORCH_LIBRARIES)
+        message(WARNING "EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES are not defined. Looking for ExecuTorch.")
+        find_package(ExecuTorch HINTS ${CMAKE_PREFIX_PATH}/executorch/share/cmake)
+    endif()
     add_library(torchao_ops_embedding_xbit_executorch OBJECT
         op_embedding_xbit_executorch.cpp
     )
