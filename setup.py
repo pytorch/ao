@@ -292,25 +292,6 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    use_cutlass = False
-    if use_cuda and not IS_ROCM and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-        cutlass_tools_include_dir = os.path.join(
-            cutlass_dir, "tools", "util", "include"
-        )
-        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-                "-I" + cutlass_tools_include_dir,
-                "-I" + cutlass_extensions_include_dir,
-            ]
-        )
-
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
@@ -334,6 +315,25 @@ def get_extensions():
     hip_sources += list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
+
+    use_cutlass = False
+    if use_cuda and not IS_ROCM and not IS_WINDOWS:
+        use_cutlass = True
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_tools_include_dir = os.path.join(
+            cutlass_dir, "tools", "util", "include"
+        )
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
+                "-I" + cutlass_extensions_include_dir,
+            ]
+        )
 
     # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
