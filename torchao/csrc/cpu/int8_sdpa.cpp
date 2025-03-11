@@ -23,6 +23,7 @@
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
 #include <ATen/native/CPUBlas.h>
+#include <ATen/native/transformers/sdp_utils_cpp.h>
 
 namespace torchao {
 
@@ -45,7 +46,6 @@ inline double calculate_scale(
 }
 
 #ifdef CPU_CAPABILITY_AVX512
-#include <ATen/native/transformers/sdp_utils_cpp.h>
 
 template <typename scalar_t>
 inline void fill_stub(scalar_t* data, scalar_t val, int64_t size) {
