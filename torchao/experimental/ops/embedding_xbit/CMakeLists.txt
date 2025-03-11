@@ -12,7 +12,7 @@ find_package(Torch REQUIRED)
 add_library(torchao_ops_embedding_xbit_aten OBJECT
     op_embedding_xbit_aten.cpp
 )
-target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "aten_openmp")
+target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "${TORCHAO_PARALLEL_BACKEND}")
 if (TORCHAO_BUILD_CPU_AARCH64)
     target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE torchao_kernels_aarch64)
 endif()
