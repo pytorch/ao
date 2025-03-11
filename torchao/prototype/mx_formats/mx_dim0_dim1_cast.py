@@ -17,6 +17,12 @@ import triton
 import triton.language as tl
 from torch._inductor.utils import do_bench_using_profiling
 
+from torchao.prototype.mx_formats.constants import (
+    E8M0_EXPONENT_BIAS,
+    F8E4M3_MAX_POW2,
+    F32_MIN_NORMAL,
+)
+
 torch.manual_seed(0)
 
 
@@ -33,25 +39,75 @@ def compute_error(x, y):
     return 20 * torch.log10(Ps / Pn)
 
 
+def get_scale_reference(x_hp):
+    # TODO(future PR): test block of all-zeros
+    # TODO(future PR): support other rounding modes (currently only supports floor)
+
+    # TODO(future PR): support other dtypes
+    target_max_pow2 = F8E4M3_MAX_POW2
+
+    epsilon = 1e-10
+    max_abs = torch.amax(x_hp, dim=1).unsqueeze(1)
+
+    scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + epsilon)) - target_max_pow2
+
+    # Clamp to exponents that can be represented in e8m0
+    scale_e8m0_unbiased = torch.clamp(
+        scale_e8m0_unbiased, min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS
+    )
+
+    # Create the biased e8m0 representation and cast it to 8 bits
+    scale_e8m0_biased = scale_e8m0_unbiased + E8M0_EXPONENT_BIAS
+    scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
+
+    # TODO(future PR): add NaN handling here
+
+    # For now, calculate the scale in floating point.
+    # TODO(future) audit if there is a need to bit shift exponents instead.
+    scale_fp = torch.pow(
+        torch.full(max_abs.size(), 2.0, device=scale_e8m0_biased.device),
+        scale_e8m0_unbiased,
+    )
+
+    # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
+    # float32 denormal range. For now, manually adjust the fp scale. This is
+    # relevant if all of the incoming block values are zeroes.
+    # See https://github.com/pytorch/pytorch/issues/125557 for details.
+    # Note: it would be more correct to set the minimum to 2**-127, but this
+    # does not work in triton either as it looks like subnormal value handling
+    # has some gaps.  So, for now just set to the minimum normal value.
+    scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+
+    return max_abs
+
+
+def scale_dim0_reference(x_hp, block_size) -> Tuple[torch.Tensor, torch.Tensor]:
+    x_hp_block = x_hp.reshape(-1, block_size)
+    x_hp_block_abs = x_hp_block.abs()
+    scale = get_scale_reference(x_hp_block_abs)
+    x_hp_block_normalized = x_hp_block / scale
+    x_hp_normalized = x_hp_block_normalized.reshape(x_hp.shape)
+    return x_hp_normalized, scale
+
+
 def scale_dim0_dim1_reference(
     x_hp: torch.Tensor, block_size
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     # normalize across dim0
-    x_hp_d0_block = x_hp.reshape(-1, block_size)
-    x_hp_d0_block_abs = x_hp_d0_block.abs()
-    amax_dim0 = torch.amax(x_hp_d0_block_abs, dim=1).unsqueeze(1)
-    x_hp_d0_block_normalized = x_hp_d0_block / amax_dim0
-    x_hp_d0_normalized = x_hp_d0_block_normalized.reshape(x_hp.shape)
-
+    x_hp_d0_normalized, amax_dim0 = scale_dim0_reference(x_hp, block_size)
     # normalize across dim1
     x_hp_d1 = x_hp.t().contiguous()
-    x_hp_d1_block = x_hp_d1.reshape(-1, block_size)
-    x_hp_d1_block_abs = x_hp_d1_block.abs()
-    amax_dim1 = torch.amax(x_hp_d1_block_abs, dim=1).unsqueeze(1)
-    x_hp_d1_block_normalized = x_hp_d1_block / amax_dim1
-    x_hp_d1_normalized = x_hp_d1_block_normalized.reshape(x_hp_d1.shape)
-
+    x_hp_d1_normalized, amax_dim1 = scale_dim0_reference(x_hp_d1, block_size)
     return x_hp_d0_normalized, x_hp_d1_normalized.t(), amax_dim0, amax_dim1
+
+
+@triton.jit
+def _triton_calculate_scale(x, axis):
+    # Find the maximum absolute value for each row
+    # We use a small epsilon to avoid division by zero
+    epsilon = 1e-10
+    scale = tl.max(x, axis=axis) + epsilon
+    return scale
 
 
 @triton.jit
@@ -59,8 +115,8 @@ def normalization_kernel(
     x_ptr,  # pointer to input tensor
     output_row_major_ptr,  # pointer to row-major output tensor (row-normalized)
     output_col_major_ptr,  # pointer to column-major output tensor (column-normalized)
-    row_max_abs_ptr,  # pointer to store row-wise maximum absolute values
-    col_max_abs_ptr,  # pointer to store column-wise maximum absolute values
+    row_scale_ptr,  # pointer to store row-wise maximum absolute values
+    col_scale_ptr,  # pointer to store column-wise maximum absolute values
     n_rows,  # number of rows in the tensor
     n_cols,  # number of columns in the tensor
     TILE_SIZE: tl.constexpr,  # tile size as a compile-time constant
@@ -106,23 +162,21 @@ def normalization_kernel(
     x_block_abs = tl.abs(x_block)
 
     # Find the maximum absolute value for each row
-    # We use a small epsilon to avoid division by zero
-    epsilon = 1e-10
-    row_max_abs = tl.max(x_block_abs, axis=1) + epsilon
+    row_scale = _triton_calculate_scale(x_block_abs, axis=1)
 
     # Normalize each row by its maximum absolute value
-    # Broadcasting row_max_abs to match x_block's shape
-    row_normalized = x_block / row_max_abs[:, None]
+    # Broadcasting row_scale to match x_block's shape
+    row_normalized = x_block / row_scale[:, None]
 
     # ----------------------------------------------------
     # Column-wise normalization
     # ----------------------------------------------------
     # Find the maximum absolute value for each column
-    col_max_abs = tl.max(x_block_abs, axis=0) + epsilon
+    col_scale = _triton_calculate_scale(x_block_abs, axis=0)
 
     # Normalize each column by its maximum absolute value
-    # Broadcasting col_max_abs to match x_block's shape
-    col_normalized = x_block / col_max_abs[None, :]
+    # Broadcasting col_scale to match x_block's shape
+    col_normalized = x_block / col_scale[None, :]
 
     # Store the row-normalized result in row-major format
     tl.store(output_row_major_ptr + row_major_offsets, row_normalized, mask=mask)
@@ -139,16 +193,16 @@ def normalization_kernel(
     col_mask = col_indices < n_cols
 
     # Vasiliy - deviating from Claude here for much simpler code
-    row_scale_start_ptr = row_max_abs_ptr + (pid_row * n_cols) + pid_col
+    row_scale_start_ptr = row_scale_ptr + (pid_row * n_cols) + pid_col
     row_scale_indices = tl.arange(0, TILE_SIZE) * (n_cols // TILE_SIZE)
     # TODO(future): mask
-    tl.store(row_scale_start_ptr + row_scale_indices, row_max_abs)
+    tl.store(row_scale_start_ptr + row_scale_indices, row_scale)
 
     # Vasiliy - deviating from Claude here for much simpler code
-    col_scale_start_ptr = col_max_abs_ptr + (pid_col * n_rows) + pid_row
+    col_scale_start_ptr = col_scale_ptr + (pid_col * n_rows) + pid_row
     col_scale_indices = tl.arange(0, TILE_SIZE) * (n_rows // TILE_SIZE)
     # TODO(future): mask
-    tl.store(col_scale_start_ptr + col_scale_indices, col_max_abs)
+    tl.store(col_scale_start_ptr + col_scale_indices, col_scale)
 
 
 # Function to launch the kernel
@@ -161,12 +215,8 @@ def normalize_tiled(x, tile_size=32):
     output_col_major = torch.empty((n_cols, n_rows), dtype=x.dtype, device=x.device)
 
     # Create tensors for row-wise and column-wise maximum absolute values
-    row_max_abs = torch.empty(
-        n_rows, n_cols // tile_size, dtype=x.dtype, device=x.device
-    )
-    col_max_abs = torch.empty(
-        n_cols, n_rows // tile_size, dtype=x.dtype, device=x.device
-    )
+    row_scale = torch.empty(n_rows, n_cols // tile_size, dtype=x.dtype, device=x.device)
+    col_scale = torch.empty(n_cols, n_rows // tile_size, dtype=x.dtype, device=x.device)
 
     # Calculate grid dimensions based on tile size
     grid_rows = triton.cdiv(n_rows, tile_size)
@@ -177,8 +227,8 @@ def normalize_tiled(x, tile_size=32):
         x_ptr=x,
         output_row_major_ptr=output_row_major,
         output_col_major_ptr=output_col_major,
-        row_max_abs_ptr=row_max_abs,
-        col_max_abs_ptr=col_max_abs,
+        row_scale_ptr=row_scale,
+        col_scale_ptr=col_scale,
         n_rows=n_rows,
         n_cols=n_cols,
         TILE_SIZE=tile_size,
@@ -187,8 +237,8 @@ def normalize_tiled(x, tile_size=32):
     return (
         output_row_major,
         output_col_major.t(),
-        row_max_abs.reshape(-1, 1),
-        col_max_abs.reshape(-1, 1),
+        row_scale.reshape(-1, 1),
+        col_scale.reshape(-1, 1),
     )
 
 
