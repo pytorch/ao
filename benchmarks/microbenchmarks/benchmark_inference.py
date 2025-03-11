@@ -40,7 +40,9 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
     quantization_config = quantization_string_to_quantization_config(
-        config.quantization, high_precision_dtype=config.high_precision_dtype
+        config.quantization,
+        config.sparsity,
+        high_precision_dtype=config.high_precision_dtype
     )
     if quantization_config:
         quantize_(m_copy, quantization_config)

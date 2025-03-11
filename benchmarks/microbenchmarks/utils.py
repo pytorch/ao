@@ -7,6 +7,10 @@ from tabulate import tabulate
 from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
+from torchao.dtypes import (
+    MarlinSparseLayout,
+    SemiSparseLayout,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -52,10 +56,18 @@ class BenchmarkConfig:
             # Use provided compile_mode if exists, else use "default"
             self.compile_mode = params.get("compile_mode", "default")
 
+        # Add sparsity configuration
+        self.sparsity = params.get("sparsity", None)  # Default to None if not specified
+
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
-        self.name = f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.compile else ''}"
+        # Update name to include sparsity info
+        self.name = (
+            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}"
+            + (f"_sparse_{self.sparsity}" if self.sparsity else "")
+            + ("_compile" if self.compile else "")
+        )
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -75,6 +87,7 @@ class BenchmarkConfig:
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
+            "sparsity": self.sparsity,
         }
 
 
@@ -115,7 +128,7 @@ def get_default_device() -> str:
 
 
 def quantization_string_to_quantization_config(
-    quantization: str, **kwargs
+    quantization: str, sparsity: str, **kwargs
 ) -> AOBaseConfig:
     """Get quantization config based on quantization string.
 
@@ -127,6 +140,7 @@ def quantization_string_to_quantization_config(
         AOBaseConfig: Quantization configuration object
     """
     high_precision_dtype = kwargs.get("high_precision_dtype", torch.bfloat16)
+
     if "int4wo" in quantization and not HAS_TRITON:
         print("Warning: Triton not available, falling back to baseline")
         return None
@@ -137,11 +151,17 @@ def quantization_string_to_quantization_config(
     if "int8wo" in quantization:
         return Int8WeightOnlyConfig()
     if "int8dq" in quantization:
+        if "2:4" or "semi" in sparsity:
+            return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
         if "int8dq_prefill_wo_decode" in quantization:
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
     if "int4wo" in quantization:
+        if "2:4" or "semi" in sparsity:
+            layout = MarlinSparseLayout()
+        else:
+            layout = None
         use_hqq = False
         if "hqq" in quantization:
             use_hqq = True
@@ -152,7 +172,9 @@ def quantization_string_to_quantization_config(
             128,
             256,
         ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq)
+        return Int4WeightOnlyConfig(
+            group_size=group_size, use_hqq=use_hqq, layout=layout
+        )
     elif "int8adq-int4w-symm" in quantization:
         from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -229,6 +251,30 @@ def quantization_string_to_quantization_config(
             granularity = PerTensor()
         return Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
     return None
+
+
+def sparsity_string_to_sparsity_config(sparsity: str) -> Dict[str, Any]:
+    """Convert sparsity string to sparsity config.
+
+    Args:
+        sparsity (str): sparsity string to be converted
+
+    """
+    from torchao.sparsity import (
+        block_sparse_weight,
+        semi_sparse_weight,
+    )
+
+    if sparsity is None:
+        return None
+
+    # Parse the sparsity string
+    if "2:4" in sparsity or "semi" in sparsity:
+        return semi_sparse_weight
+    if "block" in sparsity:
+        return block_sparse_weight
+    else:
+        raise ValueError(f"Unknown sparsity: {sparsity}")
 
 
 @torch.no_grad()
@@ -347,6 +393,7 @@ def print_results(results: List[Dict[str, Any]]):
         "m",
         "k",
         "n",
+        "sparsity",
         "benchmark_model_inference_in_microseconds",
         "compile",
     ]
@@ -358,6 +405,7 @@ def print_results(results: List[Dict[str, Any]]):
         "m": "M",
         "k": "K",
         "n": "N",
+        "sparsity": "Sparsity",
         "benchmark_model_inference_in_microseconds": "Time (μs)",
         "compile": "Compile",
     }
