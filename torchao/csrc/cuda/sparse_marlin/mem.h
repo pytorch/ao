@@ -156,11 +156,18 @@ __device__ inline void ldsm4(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-   // MI300 specific implementation - try global_load if available
+   // Try using multiple ds_read_b32 instructions which are more widely supported
     asm volatile(
-        "global_load_dwordx4 %0, %4\n"
-        "global_load_dwordx4 %2, %4 offset:16\n"
-        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+        "ds_read_b32 %0, %8 offset:0\n"
+        "ds_read_b32 %1, %8 offset:4\n"
+        "ds_read_b32 %2, %8 offset:8\n"
+        "ds_read_b32 %3, %8 offset:12\n"
+        "ds_read_b32 %4, %8 offset:16\n"
+        "ds_read_b32 %5, %8 offset:20\n"
+        "ds_read_b32 %6, %8 offset:24\n"
+        "ds_read_b32 %7, %8 offset:28\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3]), 
+          "=v"(a[4]), "=v"(a[5]), "=v"(a[6]), "=v"(a[7])
         : "v"(smem));
   #else
   asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n"
@@ -190,11 +197,18 @@ __device__ inline void ldsm4_t(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-   // MI300 specific implementation - try global_load if available
+   // Try using multiple ds_read_b32 instructions which are more widely supported
     asm volatile(
-        "global_load_dwordx4 %0, %4\n"
-        "global_load_dwordx4 %2, %4 offset:16\n"
-        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+        "ds_read_b32 %0, %8 offset:0\n"
+        "ds_read_b32 %1, %8 offset:4\n"
+        "ds_read_b32 %2, %8 offset:8\n"
+        "ds_read_b32 %3, %8 offset:12\n"
+        "ds_read_b32 %4, %8 offset:16\n"
+        "ds_read_b32 %5, %8 offset:20\n"
+        "ds_read_b32 %6, %8 offset:24\n"
+        "ds_read_b32 %7, %8 offset:28\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3]), 
+          "=v"(a[4]), "=v"(a[5]), "=v"(a[6]), "=v"(a[7])
         : "v"(smem));
   #else
   asm volatile(
