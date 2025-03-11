@@ -269,7 +269,7 @@ def get_extensions():
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": ["-O3" if not debug_mode else "-O0", "-t=0", "-std=c++17"],
+        "nvcc": ["-O3" if not debug_mode else "-O0", "-std=c++17"],
     }
 
     if not IS_WINDOWS:
