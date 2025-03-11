@@ -55,7 +55,7 @@ def fp8_blockwise_act_quant(
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,
-    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
     grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
@@ -117,7 +117,7 @@ def fp8_blockwise_weight_quant(
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,
-    ], f"dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
     M, N = x.size()
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)

@@ -7,7 +7,6 @@ from torchao.prototype.blockwise_fp8.blockwise_quantization import (
     fp8_blockwise_weight_dequant,
     fp8_blockwise_weight_quant,
 )
-
 from torchao.utils import is_sm_at_least_89
 
 BLOCKWISE_SIZE_MNK = [
