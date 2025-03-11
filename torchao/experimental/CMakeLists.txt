@@ -24,6 +24,10 @@ if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
 
+if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
+    set(TORCHAO_PARALLEL_BACKEND aten_openmp)
+endif()
+
 include(CMakePrintHelpers)
 
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
