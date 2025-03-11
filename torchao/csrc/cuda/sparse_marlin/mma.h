@@ -40,8 +40,8 @@ namespace torchao {
 //  | reduced performance on some future architectures
 
 #if defined(USE_ROCM)
-  // HIP ISA doesn't have an equivalent for ordered_metadata, so we'll use the standard mma instruction
-  #define MMA_SP_INST "v_mfma_f32_16x16x16f16 "
+  // Correct MFMA instruction for AMD GPUs
+  #define MMA_SP_INST "v_mfma_f32_16x16x16_f16 "
 #elif defined(CUDA_VERSION) && CUDA_VERSION >= 12050
   #define MMA_SP_INST \
     "mma.sp::ordered_metadata.sync.aligned.m16n8k32.row.col.f32.f16.f16.f32 "
@@ -62,20 +62,21 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
   float* c = reinterpret_cast<float*>(&frag_c);
   if (psel == 0) {
     #ifdef USE_ROCM
+    // AMD GPUs use a different syntax for MFMA instructions
+    // The operands need to be listed individually, not in curly braces
     asm volatile(MMA_SP_INST
-                 "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
-                 "{%12,%13,%14,%15}, %16, 0x0;\n"
+                 "%0, %4, %8, %12\n"
                  : "=v"(c[0]), "=v"(c[1]), "=v"(c[2]), "=v"(c[3])
-                 : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[0]),
-                   "r"(b[2]), "r"(b[4]), "r"(b[6]), "v"(c[0]), "v"(c[1]),
-                   "v"(c[2]), "v"(c[3]), "r"(e[0]));
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[0]), "v"(b[2]), "v"(b[4]), "v"(b[6]), 
+                   "v"(c[0]), "v"(c[1]), "v"(c[2]), "v"(c[3]));
+    
     asm volatile(MMA_SP_INST
-                 "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
-                 "{%12,%13,%14,%15}, %16, 0x0;\n"
+                 "%0, %4, %8, %12\n"
                  : "=v"(c[4]), "=v"(c[5]), "=v"(c[6]), "=v"(c[7])
-                 : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[1]),
-                   "r"(b[3]), "r"(b[5]), "r"(b[7]), "v"(c[4]), "v"(c[5]),
-                   "v"(c[6]), "v"(c[7]), "r"(e[0]));
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[1]), "v"(b[3]), "v"(b[5]), "v"(b[7]), 
+                   "v"(c[4]), "v"(c[5]), "v"(c[6]), "v"(c[7]));
     #else
     asm volatile(MMA_SP_INST
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
@@ -95,19 +96,17 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
   } else {
     #ifdef USE_ROCM
    asm volatile(MMA_SP_INST
-                 "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
-                 "{%12,%13,%14,%15}, %16, 0x1;\n"
+                 "%0, %4, %8, %12\n"
                  : "=v"(c[0]), "=v"(c[1]), "=v"(c[2]), "=v"(c[3])
-                 : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[0]),
-                   "r"(b[2]), "r"(b[4]), "r"(b[6]), "v"(c[0]), "v"(c[1]),
-                   "v"(c[2]), "v"(c[3]), "r"(e[0]));
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[0]), "v"(b[2]), "v"(b[4]), "v"(b[6]), 
+                   "v"(c[0]), "v"(c[1]), "v"(c[2]), "v"(c[3]));
     asm volatile(MMA_SP_INST
-                 "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
-                 "{%12,%13,%14,%15}, %16, 0x1;\n"
+                 "%0, %4, %8, %12\n"
                  : "=v"(c[4]), "=v"(c[5]), "=v"(c[6]), "=v"(c[7])
-                 : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[1]),
-                   "r"(b[3]), "r"(b[5]), "r"(b[7]), "v"(c[4]), "v"(c[5]),
-                   "v"(c[6]), "v"(c[7]), "r"(e[0])); 
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[1]), "v"(b[3]), "v"(b[5]), "v"(b[7]), 
+                   "v"(c[4]), "v"(c[5]), "v"(c[6]), "v"(c[7])); 
     #else
     asm volatile(MMA_SP_INST
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
