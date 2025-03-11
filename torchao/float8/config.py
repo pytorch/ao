@@ -11,24 +11,20 @@ from typing import Optional, Union
 
 import torch
 
+from torchao.utils import is_MI300
+
 logger: logging.Logger = logging.getLogger()
 
 
 class ScalingType(enum.Enum):
-    DELAYED = "delayed"
     DYNAMIC = "dynamic"
-    STATIC = "static"
     # ScalingType.DISABLED means "skip scaling for this tensor, leave it in
     # its original precision.
     DISABLED = "disabled"
 
     def short_str(self):
-        if self is ScalingType.DELAYED:
-            return "del"
-        elif self is ScalingType.DYNAMIC:
+        if self is ScalingType.DYNAMIC:
             return "dyn"
-        elif self is ScalingType.STATIC:
-            return "sta"
         else:
             assert self is ScalingType.DISABLED
             return "dis"
@@ -58,7 +54,7 @@ class Float8TypeConfig:
     """
     Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
 
-    Currently, ROCm only supports fnuz variants.
+    Currently, ROCm supports 1. fnuz variants in MI300. 2. OCP F8 variants in MI350/Navi4.
     """
 
     # The preferred e4m3 type.
@@ -68,12 +64,9 @@ class Float8TypeConfig:
     e5m2_dtype = torch.float8_e5m2
 
     def __post_init__(self):
-        if torch.version.hip and torch.cuda.is_available():
-            prop = torch.cuda.get_device_properties(0)
-            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
-            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
-                self.e4m3_dtype = torch.float8_e4m3fnuz
-                self.e5m2_dtype = torch.float8_e5m2fnuz
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            self.e4m3_dtype = torch.float8_e4m3fnuz
+            self.e5m2_dtype = torch.float8_e5m2fnuz
 
 
 # User defined type for using the individual F8 type based on config
@@ -90,7 +83,6 @@ class CastConfig:
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
-    static_scale: Optional[torch.Tensor] = None
     target_dtype: Optional[torch.dtype] = None
 
     def short_str(self):
@@ -98,10 +90,6 @@ class CastConfig:
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
-        if self.scaling_type is ScalingType.STATIC:
-            assert (
-                self.static_scale is not None
-            ), "static_scale must be specified for static scaling"
         if self.scaling_granularity is ScalingGranularity.AXISWISE:
             assert (
                 self.scaling_type is ScalingType.DYNAMIC
@@ -109,30 +97,6 @@ class CastConfig:
         assert self.target_dtype is None or (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
-
-
-@dataclass(frozen=True)
-class DelayedScalingConfig:
-    """
-    Configuration for delayed scaling.
-
-    Note: for now, `history_len` values must be the same for all layers in the
-    model using delayed scaling.
-
-    TODO(future): serialization for recipes
-    """
-
-    # Controls the history length of amax buffers
-    history_len: int = 16
-
-    # Controls the way to calculate current scale from amax history
-    # TODO(future): add other functions as needed, hardcoded or user defined
-    scale_fn_name: str = "max"
-
-    def __post_init__(self):
-        assert (
-            self.scale_fn_name == "max"
-        ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
 
 
 @dataclass(frozen=True)
@@ -215,14 +179,6 @@ class Float8LinearConfig:
     # Per-linear configuration
     #
 
-    # This configuration option is deprecated and no longer has an effect. It may
-    # be removed in a future release.
-    enable_amax_init: bool = True
-
-    # This configuration option is deprecated and no longer has an effect. It may
-    # be removed in a future release.
-    enable_pre_and_post_forward: bool = True
-
     # If True, then uses a tensor subclass for the float8 linear module's weight that
     # implements pre/post-all-gather methods to do float8 all-gather with FSDP2.
     enable_fsdp_float8_all_gather: bool = False
@@ -235,13 +191,6 @@ class Float8LinearConfig:
 
     # If True, emulation is used instead of hardware accelerated gemm
     emulate: bool = False
-
-    # Configuration for delayed scaling
-    # Note: this is actually applied per-tensor, but only using the same
-    # configuration for all tensors and layers in the model is currently
-    # supported. If in the future we add support for a more fine grained
-    # configuration, this field may move to per-tensor configs.
-    delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
 
     # If the option is enabled, fp8_weight will always be re-computed in backward.
     # It's recommended to enable this flag when using FSDP.
@@ -334,16 +283,6 @@ class Float8LinearConfig:
         ):
             logger.warning(
                 "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
-            )
-
-        # Future deprecation warning for delayed scaling
-        if (
-            self.cast_config_input.scaling_type != ScalingType.DYNAMIC
-            or self.cast_config_weight.scaling_type != ScalingType.DYNAMIC
-            or self.cast_config_grad_output.scaling_type != ScalingType.DYNAMIC
-        ):
-            logger.warning(
-                "Note: delayed and static scaling will be deprecated in a future release of torchao. Please see https://github.com/pytorch/ao/issues/1680 for more details."
             )
 
     @staticmethod

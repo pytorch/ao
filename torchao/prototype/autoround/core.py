@@ -165,6 +165,10 @@ def apply_auto_round():
     More details about the auto-round can be found at https://arxiv.org/abs/2309.05516.
     """
 
+    raise AssertionError(
+        "Please migrate this function to direct configuration, see https://github.com/pytorch/ao/issues/1690 for details"
+    )
+
     def _apply_auto_round(optimized_model: torch.nn.Module):
         """
         The `optimized_model` includes `Linear` layers optimized by auto-round, which includes `qdq_weight`, `scale`, `zp`.

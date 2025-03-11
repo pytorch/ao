@@ -208,7 +208,7 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 quantized_linear = Int8DynActInt4WeightLinear(
                     child.in_features,
                     child.out_features,
-                    bias=False,
+                    child.bias is not None,
                     groupsize=config.group_size,
                     precision=child.weight.dtype,
                     scales_precision=config.scale_precision,
@@ -237,6 +237,8 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 quantized_linear.weight = q_weight
                 quantized_linear.scales = s
                 quantized_linear.zeros = zp
+                if child.bias is not None:
+                    quantized_linear.bias = child.bias
             else:
                 self._convert_qat_linear_8da4w(child)
 

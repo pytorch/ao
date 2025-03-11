@@ -27,8 +27,16 @@ lib.define(
 lib.define(
     "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
 )
-lib.define("mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
-lib.define("mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor")
+# Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
+# to honor the layout constraints for `b` in the two ops below.
+lib.define(
+    "mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
+)
+lib.define(
+    "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
+)
 
 
 def register_custom_op(name):

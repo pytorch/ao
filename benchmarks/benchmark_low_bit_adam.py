@@ -34,7 +34,7 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype import low_bit_optim
+from torchao import optim
 from torchao.utils import get_available_devices
 
 _DEVICE = get_available_devices()[-1]
@@ -43,9 +43,9 @@ assert _DEVICE in ["cuda", "xpu"], "Benchmark currently only supports CUDA & XPU
 OPTIM_MAP = dict(
     AdamW=partial(torch.optim.AdamW, fused=True),
     AdamW8bitBnb=bnb.optim.AdamW8bit,
-    AdamW8bitAo=low_bit_optim.AdamW8bit,
-    AdamWFp8Ao=low_bit_optim.AdamWFp8,
-    AdamW4bitAo=low_bit_optim.AdamW4bit,
+    AdamW8bitAo=optim.AdamW8bit,
+    AdamWFp8Ao=optim.AdamWFp8,
+    AdamW4bitAo=optim.AdamW4bit,
 )
 
 try:
@@ -249,12 +249,10 @@ if __name__ == "__main__":
         optim_cls = OPTIM_MAP[args.optim]
 
         if args.optim_cpu_offload == "ao":
-            optim_cls = partial(
-                low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls
-            )
+            optim_cls = partial(optim.CPUOffloadOptimizer, optimizer_class=optim_cls)
         elif args.optim_cpu_offload == "ao_offload_grads":
             optim_cls = partial(
-                low_bit_optim.CPUOffloadOptimizer,
+                optim.CPUOffloadOptimizer,
                 optimizer_class=optim_cls,
                 offload_gradients=True,
             )

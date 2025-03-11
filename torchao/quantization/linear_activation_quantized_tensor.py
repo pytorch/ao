@@ -112,6 +112,18 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         )
 
 
+def _same_metadata(
+    self: LinearActivationQuantizedTensor, src: LinearActivationQuantizedTensor
+):
+    return (
+        isinstance(self, LinearActivationQuantizedTensor)
+        and isinstance(src, LinearActivationQuantizedTensor)
+        and self.shape == src.shape
+        and self.input_quant_func == src.input_quant_func
+        and self.quant_kwargs == src.quant_kwargs
+    )
+
+
 implements = LinearActivationQuantizedTensor.implements
 
 
@@ -188,6 +200,20 @@ def _(func, types, args, kwargs):
         args,
         kwargs,
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+    )
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    self = args[0]
+    src = args[1]
+    if _same_metadata(self, src):
+        self_tensors = self.__tensor_flatten__()[0]
+        for tensor_name in self_tensors:
+            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+        return
+    raise ValueError(
+        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
     )
 
 

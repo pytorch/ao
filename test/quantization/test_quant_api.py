@@ -115,10 +115,10 @@ class TorchCompileDynamicQuantizer(Quantizer):
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64):
+    def __init__(self, m=64, n=32, k=64, bias=False):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=False).to(torch.float)
+        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
+        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
 
     def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
         return (
@@ -266,6 +266,21 @@ class TestQuantFlow(TestCase):
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = ToyLinearModel().eval()
+        example_inputs = m.example_inputs()
+        m = quantizer.quantize(m)
+        assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
+        m(*example_inputs)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
+    )
+    def test_8da4w_quantizer_linear_bias(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
+        m = ToyLinearModel(bias=True).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
@@ -782,7 +797,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
-    def test_int4wo_cpu(self, dtype, x_dim):
+    @common_utils.parametrize("use_hqq", [True, False])
+    def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
         from torchao.dtypes import Int4CPULayout
 
         device = "cpu"
@@ -792,7 +808,12 @@ class TestQuantFlow(TestCase):
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
         with torch.no_grad():
-            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            quantize_(
+                m,
+                int4_weight_only(
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                ),
+            )
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
                 torch.compile(m, fullgraph=True, dynamic=True),

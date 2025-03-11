@@ -8,7 +8,6 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
-import torchao.prototype.mx_formats.config as config
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -26,7 +25,10 @@ from torchao.prototype.mx_formats.custom_cast import (
     f32_to_f6_e3m2_unpacked,
     get_bits,
     pack_uint4,
+    pack_uint6,
     triton_f4_to_bf16,
+    triton_f6_e2m3_to_bf16,
+    triton_f6_e3m2_to_bf16,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.fp_format_spec import (
@@ -329,12 +331,16 @@ def test_fp4_triton_unscaled_cast():
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_ref = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_triton = MXTensor.to_mx(
+        orig_vals,
+        block_size=32,
+        elem_dtype=DTYPE_FP4,
+        use_fp4_custom_triton_dequant_kernel=True,
+    )
 
-    f32_ref = mxtensor.to_dtype(torch.float)
-    config.use_fp4_custom_triton_dequant_kernel = True
-    f32_triton = mxtensor.to_dtype(torch.float)
-    config.use_fp4_custom_triton_dequant_kernel = False
+    f32_ref = mxtensor_ref.to_dtype(torch.float)
+    f32_triton = mxtensor_triton.to_dtype(torch.float)
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
 
@@ -411,3 +417,41 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
     f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(-f32_val, device=device))
     assert f6_e3m2_unpacked.item() == (f6_e3m2_enc | 0b100000)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
+def test_fp6_e2m3_pack_unpack():
+    orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(
+        "cuda"
+    )
+    orig_vals_f6_unpacked = f32_to_f6_e2m3_unpacked(orig_vals)
+    orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
+    assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
+    orig_vals_f6_packed_unpacked = triton_f6_e2m3_to_bf16(orig_vals_f6_packed).to(
+        torch.float32
+    )
+    assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
+@pytest.mark.skipif(
+    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
+)
+def test_fp6_e3m2_pack_unpack():
+    orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(
+        "cuda"
+    )
+    orig_vals_f6_unpacked = f32_to_f6_e3m2_unpacked(orig_vals)
+    orig_vals_f6_packed = pack_uint6(orig_vals_f6_unpacked)
+    assert orig_vals_f6_packed.numel() == (3 * orig_vals.numel() // 4)
+    orig_vals_f6_packed_unpacked = triton_f6_e3m2_to_bf16(orig_vals_f6_packed).to(
+        torch.float32
+    )
+    assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)

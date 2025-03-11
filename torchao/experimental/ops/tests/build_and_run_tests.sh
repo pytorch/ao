@@ -9,7 +9,7 @@ target=${1:-"native"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 export CMAKE_OUT=/tmp/cmake-out/torch_ao/tests
 
-export TORCH_DIR = $(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib() + '/torch/share/cmake/Torch')")
+export TORCH_DIR=$(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib() + '/torch/share/cmake/Torch')")
 
 IS_ARM64=0
 BUILD_ARM_I8MM=0
@@ -45,6 +45,7 @@ fi
 cmake \
     ${EXTRA_ARGS} \
     -DCMAKE_BUILD_TYPE=Debug \
+    -DTORCHAO_BUILD_CPU_AARCH64=${IS_ARM64} \
     -DTORCHAO_BUILD_KLEIDIAI=${IS_ARM64} \
     -DTORCHAO_BUILD_ARM_I8MM=${BUILD_ARM_I8MM} \
     -DTorch_DIR=${TORCH_DIR} \

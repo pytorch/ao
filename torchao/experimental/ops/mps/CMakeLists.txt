@@ -28,12 +28,13 @@ find_package(Torch REQUIRED)
 # Generate metal_shader_lib.h by running gen_metal_shader_lib.py
 set(METAL_SHADERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/metal)
 file(GLOB METAL_FILES ${METAL_SHADERS_DIR}/*.metal)
+set(METAL_SHADERS_YAML ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/metal.yaml)
 set(GEN_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/codegen/gen_metal_shader_lib.py)
 set(GENERATED_METAL_SHADER_LIB ${CMAKE_INSTALL_PREFIX}/include/torchao/experimental/kernels/mps/src/metal_shader_lib.h)
 add_custom_command(
     OUTPUT ${GENERATED_METAL_SHADER_LIB}
     COMMAND python ${GEN_SCRIPT} ${GENERATED_METAL_SHADER_LIB}
-    DEPENDS ${METAL_FILES} ${GEN_SCRIPT}
+    DEPENDS ${METAL_FILES} ${METAL_SHADERS_YAML} ${GEN_SCRIPT}
     COMMENT "Generating metal_shader_lib.h using gen_metal_shader_lib.py"
 )
 add_custom_target(generated_metal_shader_lib ALL DEPENDS ${GENERATED_METAL_SHADER_LIB})

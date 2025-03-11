@@ -6,9 +6,9 @@
 
 #pragma once
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
 #include <torchao/experimental/kernels/cpu/aarch64/embedding/embedding.h>
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
 
 #include <torchao/experimental/ops/embedding_xbit/packed_weights_header.h>
 #include <torchao/experimental/ops/library.h>
@@ -145,7 +145,7 @@ Tensor embedding_out_cpu(
       index = index64_ptr[idx];
     }
     TORCHAO_CHECK(index >= 0 && index < num_embeddings, "index out of bounds");
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
     torchao::kernels::cpu::aarch64::embedding::embedding<weight_nbit>(
         out.mutable_data_ptr<float>() + idx * embedding_dim,
         embedding_dim,
@@ -157,7 +157,7 @@ Tensor embedding_out_cpu(
         index);
 #else
     TORCHAO_CHECK(false, "Unsupported platform");
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_BUILD_CPU_AARCH64
   });
 
   return out;
@@ -234,7 +234,7 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
   header.write(out.mutable_data_ptr());
 
   torchao::parallel_1d(0, num_embeddings, [&](int64_t idx) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
     torchao::kernels::cpu::aarch64::embedding::pack_embedding_weight_qvals<
         weight_nbit>(
         out.mutable_data_ptr<int8_t>() +
@@ -244,7 +244,7 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
         idx);
 #else
     TORCHAO_CHECK(false, "Unsupported platform");
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // defined(TORCHAO_BUILD_CPU_AARCH64)
   });
 
   return out;
