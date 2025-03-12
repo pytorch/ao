@@ -154,15 +154,11 @@ class HipBlasLtMatmulPreference : public HipBlasLtDescriptor<
 
 static size_t _parseChosenWorkspaceSize() {
   auto val = c10::utils::get_env("CUBLASLT_WORKSPACE_SIZE");
-#ifdef USE_ROCM
   if (!val.has_value()) {
     // accept either env var
     val = c10::utils::get_env("HIPBLASLT_WORKSPACE_SIZE");
   }
   size_t workspace_size = 76*1024; /* Use 76 MB for hipBLASLt */
-#else
-  size_t workspace_size = 1024; /* default size in KiB according to #73328 */
-#endif
 
   if (val.has_value()) {
     try {
@@ -335,15 +331,6 @@ inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype), bool mat1_is_swizzle
   // setting this to 1M.
   size_t workspaceSize = _getWorkspaceSize();
   preference.setAttribute(HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, workspaceSize);
-
-#ifndef USE_ROCM
-  uint32_t a_alignment = _getAlignment(reinterpret_cast<uintptr_t>(a));
-  uint32_t b_alignment = _getAlignment(reinterpret_cast<uintptr_t>(b));
-  uint32_t c_alignment = _getAlignment(reinterpret_cast<uintptr_t>(c));
-  preference.setAttribute(CUBLASLT_MATMUL_PREF_MIN_ALIGNMENT_A_BYTES, a_alignment);
-  preference.setAttribute(CUBLASLT_MATMUL_PREF_MIN_ALIGNMENT_B_BYTES, b_alignment);
-  preference.setAttribute(CUBLASLT_MATMUL_PREF_MIN_ALIGNMENT_C_BYTES, c_alignment);
-#endif
 
   auto workspace = at::empty(static_cast<int64_t>(workspaceSize), at::TensorOptions().dtype(at::kByte).device(at::kCUDA));
 
