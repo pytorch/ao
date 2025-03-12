@@ -83,7 +83,7 @@ def _triton_calculate_scale(x, axis):
 
 
 @triton.jit
-def normalization_kernel(
+def to_mxfp8_across_dim0_and_dim1_kernel(
     x_ptr,  # pointer to input tensor
     output_row_major_ptr,  # pointer to row-major output tensor (row-normalized)
     output_col_major_ptr,  # pointer to column-major output tensor (column-normalized)
@@ -141,7 +141,7 @@ def normalization_kernel(
     row_normalized = x_block / row_scale[:, None]
 
     # quant to float8
-    # TODO clamp?
+    # TODO(this PR): clamp?
     row_normalized = row_normalized.to(tl.float8e4nv)
 
     # ----------------------------------------------------
@@ -155,7 +155,7 @@ def normalization_kernel(
     col_normalized = x_block / col_scale[None, :]
 
     # quant to float8
-    # TODO clamp?
+    # TODO(this PR): clamp?
     col_normalized = col_normalized.to(tl.float8e4nv)
 
     # Store the row-normalized result in row-major format
@@ -185,8 +185,29 @@ def normalization_kernel(
     tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
 
-# Function to launch the kernel
-def normalize_tiled(x, tile_size=32):
+def to_mxfp8_across_dim0_and_dim1(x, tile_size=32):
+    """
+    This is a single fused triton kernel to cast `x` to MX across dim0 and dim1.
+    This is useful for MX training with the mxfp8 recipe family.
+
+    The kernel loads data in 2d tiles, and performs the necessary casting across both
+    dim0 and dim1 for each tile.
+
+    Note that for now, there is only one level of tiling (32 for MX). In the future,
+    we expect that adding an outer tile (of size up to 128 on B200s) can provide a
+    further speedup.
+
+    Input:
+    * `x` - input tensor, in row major memory layout
+    * `tile_size` - size of tiles to normalize across, default is 32 for MX recipes
+
+    Output:
+    * `output_row_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0
+    * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
+    * `row_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
+    * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
+    """
+    assert x.is_contiguous(), "`x` must be contiguous"
     # Get tensor shape
     n_rows, n_cols = x.shape
 
@@ -209,7 +230,7 @@ def normalize_tiled(x, tile_size=32):
     grid_cols = triton.cdiv(n_cols, tile_size)
 
     # Launch the kernel
-    normalization_kernel[(grid_rows, grid_cols)](
+    to_mxfp8_across_dim0_and_dim1_kernel[(grid_rows, grid_cols)](
         x_ptr=x,
         output_row_major_ptr=output_row_major,
         output_col_major_ptr=output_col_major,
@@ -262,7 +283,7 @@ def run(
     ), "reference mx numerics are incorrect"
 
     # basic triton kernel
-    x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t = normalize_tiled(
+    x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t = to_mxfp8_across_dim0_and_dim1(
         x, tile_size=BLOCK_SIZE
     )
     x_d0_t, x_d1_t = x_d0_t.bfloat16(), x_d1_t.bfloat16()
@@ -285,9 +306,11 @@ def run(
 
     # warm up
     for _ in range(2):
-        __ = normalize_tiled(x, tile_size=BLOCK_SIZE)
+        __ = to_mxfp8_across_dim0_and_dim1(x, tile_size=BLOCK_SIZE)
     time_triton_us = benchmark_cuda_function_in_microseconds(
-        lambda x, b: normalize_tiled(x, tile_size=BLOCK_SIZE), x, BLOCK_SIZE
+        lambda x, b: to_mxfp8_across_dim0_and_dim1(x, tile_size=BLOCK_SIZE),
+        x,
+        BLOCK_SIZE,
     )
 
     # calculate bytes read/written
