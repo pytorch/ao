@@ -6,4 +6,5 @@
 semi_sparse_weight
 ==================
 
-.. autofunction:: semi_sparse_weight
+.. autoclass:: semi_sparse_weight
+    :members:
