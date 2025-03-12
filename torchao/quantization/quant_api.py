@@ -486,7 +486,7 @@ def _get_linear_subclass_inserter(
 
 def quantize_(
     model: torch.nn.Module,
-    config: Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]],
+    config: AOBaseConfig,
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
     set_inductor_config: Optional[bool] = None,
     device: Optional[torch.types.Device] = None,
@@ -495,7 +495,7 @@ def quantize_(
 
     Args:
         model (torch.nn.Module): input model
-        config (Union[AOBaseConfig, Callable[[torch.nn.Module], torch.nn.Module]]): either (1) a workflow configuration object or (2) a function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor). Note: (2) will be deleted in a future release.
+        config (AOBaseConfig): a workflow configuration object.
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to None)
@@ -546,19 +546,8 @@ def quantize_(
         )
 
     else:
-        # old behavior, keep to avoid breaking BC
-        warnings.warn(
+        raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
-        )
-
-        # make the variable name make sense
-        apply_tensor_subclass = config
-
-        _replace_with_custom_fn_if_matches_filter(
-            model,
-            apply_tensor_subclass,
-            _is_linear if filter_fn is None else filter_fn,
-            device=device,
         )
 
 
