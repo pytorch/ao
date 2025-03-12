@@ -215,15 +215,16 @@ and tensorwise scaling. The training benchmarks were all run using:
 - `torch.compile`
 - FSDP2
 
-| Model         | Scaling      | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
-| ------------- | ------------ | ------------------------ | ------------------| -------------------- | ---------------------
-| Llama3-8b     |  none (bf16) | per op SAC               | 47.65             |  6019                | -
-| Llama3-8b     |  tensorwise  | per op SAC               | 47.77             |  7190                | 19.45%
-| Llama3-8b     |  rowwise     | per op SAC               | 47.79             |  6649                | 10.47%
+| Model         | Scaling                           | Activation checkpointing | Peak Memory (GB)  | Median tokens/second | Speedup over baseline
+| ------------- | --------------------------------- | ------------------------ | ------------------| -------------------- | ---------------------
+| Llama3-8b     |  none (bf16)                      | per op SAC               | 47.65             |  6150                | -
+| Llama3-8b     |  tensorwise with optimal settings | per op SAC               | 47.77             |  7689.5              | 25.03%
+| Llama3-8b     |  rowwise                          | per op SAC               | 47.79             |  6768                | 10.05%
 
 **Important notes**:
 - Speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes ((example)[https://pytorch.org/blog/training-using-float8-fsdp2/]).
 - Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve.
+- Tensorwise scaling benchmarks were ran with optimal settings, namely: `enable_fsdp_float8_all_gather`, `precompute_float8_dynamic_scale_for_fsdp`, `force_recompute_fp8_weight_in_bwd`.
 
 **Reproducing training benchmarks**
 To reproduce these benchmarks, you can follow these steps:
@@ -233,7 +234,7 @@ including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=re
 2. Install torchao following these [steps](https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation).
 3. From the `torchao/float8/benchmarking/` directory, you can run the following commands to reproduce the benchmarks above:
    - bf16 + compile: `TORCHTITAN_ROOT=<path> ./float8_training_benchmark.sh`
-   - float8 tensorwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE="tensorwise" ./float8_training_benchmark.sh`
-   - float8 rowwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE="rowwise" ./float8_training_benchmark.sh`
+   - float8 tensorwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="tensorwise" ./float8_training_benchmark.sh`
+   - float8 rowwise: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="rowwise" ./float8_training_benchmark.sh`
 
 See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README.md) for more details.
