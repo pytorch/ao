@@ -416,7 +416,8 @@ class Float8Linear(torch.nn.Linear):
                     new_mod.weight,
                     new_mod.linear_mm_config,
                     new_mod.config.cast_config_weight.target_dtype,
-                )
+                ),
+                requires_grad=new_mod.weight.requires_grad,
             )
 
         return new_mod
