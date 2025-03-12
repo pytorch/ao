@@ -492,7 +492,6 @@ from torchao.dtypes.utils import Layout
 from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     Target,
-    to_affine_quantized_intx_experimental,
 )
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
@@ -635,7 +634,7 @@ def _int8_dynamic_activation_intx_weight_transform(
     quant_min = -(1 << (bit_width - 1))
     quant_max = (1 << (bit_width - 1)) - 1
 
-    weight = to_affine_quantized_intx_experimental(
+    weight = to_affine_quantized_intx(
         input_float=weight,
         mapping_type=weight_mapping_type,
         block_size=(1, group_size),
