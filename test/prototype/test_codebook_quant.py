@@ -5,7 +5,9 @@ import torch
 from torchao.prototype.quantization.codebook import (
     CodebookQuantizedTensor,
     choose_qparams_codebook,
+    codebook_weight_only,
 )
+from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 
 
@@ -61,6 +63,11 @@ class TestCodebookQuantization(unittest.TestCase):
 
         sqnr = compute_error(dequant, self.input)
         self.assertGreater(sqnr, 30)
+
+    def test_quantize_api(self):
+        m = torch.nn.Sequential(torch.nn.Linear(64, 64))
+        quantize_(m, codebook_weight_only())
+        assert type(m[0].weight) == CodebookQuantizedTensor
 
 
 if __name__ == "__main__":
