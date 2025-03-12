@@ -985,15 +985,6 @@ def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
 
 
-def nf4_weight_only(block_size: int = 64, scaler_block_size: int = 256):
-    from torchao.quantization.quant_api import _get_linear_subclass_inserter
-
-    def _to_nf4(tensor: torch.Tensor):
-        return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
-
-    return _get_linear_subclass_inserter(_to_nf4)
-
-
 NF4_TORCH_FUNCTIONS = {}
 
 
