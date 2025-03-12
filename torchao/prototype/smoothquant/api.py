@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 import torch
 
+import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
 from torchao.prototype.smoothquant.core import (
@@ -158,11 +159,13 @@ class SmoothQuantConfig(AOBaseConfig):
         smoothing_factor: The smoothing factor for the layer. Acquired from the layer's observer if None.
         act_scales: The activation scales for the layer. Acquired from the layer's observer if None.
         wei_scales: The weight scales for the layer. Acquired from the layer's observer if None.
+        set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
     """
 
     smoothing_factor: Optional[torch.Tensor] = None
     act_scales: Optional[torch.Tensor] = None
     wei_scales: Optional[torch.Tensor] = None
+    set_inductor_config: bool = True
 
 
 @register_quantize_module_handler(SmoothQuantConfig)
@@ -173,6 +176,8 @@ def _smooth_quant_transform(
     smoothing_factor = config.smoothing_factor
     act_scales = config.act_scales
     wei_scales = config.wei_scales
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
     observed_linear = module
 
     linear = torch.nn.Linear(

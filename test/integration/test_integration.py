@@ -113,7 +113,7 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_weight_only(), set_inductor_config=False)
+        quantize_(mod, int8_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5 or (
             not TORCH_VERSION_AT_LEAST_2_6 and torch._inductor.config.freezing
         ):
@@ -124,7 +124,7 @@ def _int8wo_api(mod):
 
 def _int8wo_groupwise_api(mod):
     group_size = 32
-    quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
+    quantize_(mod, int8_weight_only(group_size=group_size, set_inductor_config=False))
 
 
 def _int8da_int8w_api(
@@ -136,8 +136,8 @@ def _int8da_int8w_api(
             mod,
             int8_dynamic_activation_int8_weight(
                 act_mapping_type=act_mapping_type,
+                set_inductor_config=False,
             ),
-            set_inductor_config=False,
         )
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
@@ -152,12 +152,13 @@ def _int4wo_api(mod, use_hqq=False):
     ):
         quantize_(
             mod,
-            int4_weight_only(layout=Int4CPULayout(), use_hqq=use_hqq),
-            set_inductor_config=False,
+            int4_weight_only(
+                layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
+            ),
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int4_weight_only(), set_inductor_config=False)
+        quantize_(mod, int4_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
@@ -165,7 +166,7 @@ def _int4wo_api(mod, use_hqq=False):
 
 
 def _int8da_int4w_api(mod):
-    quantize_(mod, int8_dynamic_activation_int4_weight(), set_inductor_config=False)
+    quantize_(mod, int8_dynamic_activation_int4_weight(set_inductor_config=False))
     if not TORCH_VERSION_AT_LEAST_2_5:
         unwrap_tensor_subclass(mod)
 

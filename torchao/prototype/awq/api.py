@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import torch
 
+import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     TensorCoreTiledLayout,
@@ -101,11 +102,13 @@ class AWQUIntXConfig(AOBaseConfig):
         quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
         group_size: Quantization granularity. Use -1 for channel wise quantization
         weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
+        set_inductor_config: if True, adjusts `torchinductor` settings to recommended values.
     """
 
     quant_dtype: torch.dtype = torch.uint4
     group_size: int = 64
     use_hqq: bool = False
+    set_inductor_config: bool = True
 
 
 # for bc
@@ -120,6 +123,8 @@ def _awq_uintx_transform(
     quant_dtype = config.quant_dtype
     group_size = config.group_size
     use_hqq = config.use_hqq
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
     observed_linear = module
 
     assert (
