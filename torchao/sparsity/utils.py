@@ -1,5 +1,3 @@
-import random
-
 import torch
 from torch.ao.quantization.observer import UniformQuantizationObserverBase
 
@@ -29,12 +27,17 @@ def create_semi_structured_tensor(r, c, dtype):
     Note that this means this matrix will also be 2:4 and 4:8 sparse as well.
     """
 
-    choices = [[0, 1], [1, 0]]
-    mask_entries = [random.choice(choices) for i in range(r * c // 2)]
-
+    # Choices are [0, 1] and [1, 0] - this is practically one-hot
+    # encoding for two classes, so for better performance the mask is
+    # built as random selection between these two encodings.
+    choice_indices = torch.randint(0, 2, (r * c // 2,)).cuda()
     mask = (
-        torch.tensor(mask_entries, dtype=torch.int32).reshape(r, c).contiguous()
-    ).cuda()
+        torch.nn.functional.one_hot(choice_indices, num_classes=2)
+        .reshape(r, c)
+        .contiguous()
+        .to(torch.int32)
+    )
+
     sparse_weight = torch.rand(r, c).cuda() * mask
     return sparse_weight.to(dtype)
 

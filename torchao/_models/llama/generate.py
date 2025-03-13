@@ -334,11 +334,13 @@ def main(
 
     if quantization:
         from torchao.quantization import (
+            Float8DynamicActivationFloat8SemiSparseWeightConfig,
             autoquant,
             float8_dynamic_activation_float8_weight,
             float8_weight_only,
             fpx_weight_only,
             gemlite_uintx_weight_only,
+            int4_dynamic_activation_int4_weight,
             int4_weight_only,
             int8_dynamic_activation_int4_weight,
             int8_dynamic_activation_int8_weight,
@@ -434,18 +436,30 @@ def main(
                 ]
             ), f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
-        elif "int8adq-int4w-symm" in quantization:
+        elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
-            quantize_(
-                model,
-                int8_dynamic_activation_int4_weight(
-                    group_size=None,
-                    mapping_type=MappingType.SYMMETRIC,
-                    act_mapping_type=MappingType.SYMMETRIC,
-                    layout=CutlassInt4PackedLayout(),
-                ),
-            )
+            nbits = int(quantization.removeprefix("int4dq-"))
+            assert nbits == 4 or nbits == 8
+            if nbits == 4:
+                quantize_(
+                    model,
+                    int4_dynamic_activation_int4_weight(
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=CutlassInt4PackedLayout(),
+                    ),
+                )
+            elif nbits == 8:
+                quantize_(
+                    model,
+                    int8_dynamic_activation_int4_weight(
+                        group_size=None,
+                        mapping_type=MappingType.SYMMETRIC,
+                        act_mapping_type=MappingType.SYMMETRIC,
+                        layout=CutlassInt4PackedLayout(),
+                    ),
+                )
         if "marlin" in quantization:
             if "qqq" in quantization:
                 from torchao.dtypes import MarlinQQQLayout
@@ -564,16 +578,24 @@ def main(
         elif "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         elif "float8dq" in quantization:
-            granularity = str(quantization.split("-")[-1])
-            if granularity == "tensor":
-                granularity = PerTensor()
-            elif granularity == "row":
-                granularity = PerRow()
+            if sparsity and "semi" in sparsity:
+                quantize_(
+                    model,
+                    Float8DynamicActivationFloat8SemiSparseWeightConfig(),
+                    filter_fn=ffn_only,
+                )
             else:
-                granularity = PerTensor()
-            quantize_(
-                model, float8_dynamic_activation_float8_weight(granularity=granularity)
-            )
+                granularity = str(quantization.split("-")[-1])
+                if granularity == "tensor":
+                    granularity = PerTensor()
+                elif granularity == "row":
+                    granularity = PerRow()
+                else:
+                    granularity = PerTensor()
+                quantize_(
+                    model,
+                    float8_dynamic_activation_float8_weight(granularity=granularity),
+                )
         elif "autoquant_v2" in quantization:
             from torchao._models._eval import InputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
@@ -1130,7 +1152,7 @@ if __name__ == "__main__":
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, "
             + "autoquant-int4, autoquant-gemlite-int4, autoquant-float8, autoquant-sparse, autoquant-all, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
-            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, int8adq-int4w-symm"
+            + "embed-int8wo, marlin_qqq, gemlite-<pack_bitwidth>-<nbits>-<groupsize>, float8dq, int4dq-<nbits>"
         ),
     )
     parser.add_argument(
