@@ -30,6 +30,7 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     CutlassInt4PackedLayout,
+    CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
     MarlinQQQLayout,
@@ -122,6 +123,7 @@ __all__ = [
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
+    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -633,7 +635,7 @@ def _int8_dynamic_activation_int4_weight_transform(
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant
         elif isinstance(layout, CutlassInt4PackedLayout):
-            input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+            input_quant_func = _int8_symm_cutlass_quant
         else:
             input_quant_func = _int8_symm_per_token_quant
     else:
@@ -643,6 +645,8 @@ def _int8_dynamic_activation_int4_weight_transform(
         weight = to_marlinqqq_quantized_intx(
             weight, block_size, quant_min, quant_max, _layout=layout
         )
+    elif isinstance(layout, CutlassInt4PackedLayout):
+        weight = _int4_symm_cutlass_quant(weight)
     else:
         weight = to_affine_quantized_intx(
             weight,
@@ -701,20 +705,10 @@ def _int4_dynamic_activation_int4_weight_transform(
     if act_mapping_type != MappingType.SYMMETRIC:
         raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
 
-    weight = to_affine_quantized_intx(
-        weight,
-        mapping_type=mapping_type,
-        block_size=(1, weight.shape[1]),
-        target_dtype=torch.int8,
-        quant_min=-8,
-        quant_max=7,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-        _layout=layout,
-    )
+    weight = _int4_symm_cutlass_quant(weight)
     weight = to_linear_activation_quantized(
         weight,
-        _int4_symm_per_token_quant_cutlass,
+        _int4_symm_cutlass_quant,
     )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -966,28 +960,19 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
         )
 
 
-def _int8_symm_per_token_reduced_range_quant_cutlass(
-    x: torch.Tensor,
-) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
+def _int8_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(
         x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        scale_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
         zero_point_domain=ZeroPointDomain.NONE,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=torch.float16 if x.dtype == torch.float16 else None,
     )
 
 
-def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
+def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(
         x,
         mapping_type=MappingType.SYMMETRIC,
@@ -995,9 +980,36 @@ def _int4_symm_per_token_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
         target_dtype=torch.int8,
         quant_min=-8,
         quant_max=7,
-        eps=1e-5,
+        scale_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
         zero_point_domain=ZeroPointDomain.NONE,
         _layout=CutlassInt4PackedLayout(),
+    )
+
+
+def _float8_cutlass_quant(
+    x: torch.Tensor,
+    target_dtype: torch.dtype,
+) -> torch.Tensor:
+    return to_affine_quantized_floatx(
+        x,
+        block_size=_get_per_token_block_size(x),
+        scale_dtype=torch.float32,
+        target_dtype=target_dtype,
+        _layout=Float8Layout(mm_config=None),
+    )
+
+
+def _float8_cutlass_quant_sparse(
+    x: torch.Tensor,
+    target_dtype: torch.dtype,
+) -> (torch.Tensor, torch.Tensor):
+    return to_affine_quantized_floatx(
+        x,
+        block_size=_get_per_token_block_size(x),
+        scale_dtype=torch.float32,
+        target_dtype=target_dtype,
+        _layout=CutlassSemiSparseLayout(),
     )
 
 
@@ -1334,6 +1346,50 @@ def _float8_dynamic_activation_float8_weight_transform(
 
 
 @dataclass
+class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
+    """
+    Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.
+
+    Args:
+        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
+        `activation_dtype`: data type for quantized activation tensor.
+        `weight_dtype`: data type for quantized weight tensor.
+    """
+
+    layout: Layout = CutlassSemiSparseLayout()
+    activation_dtype: torch.dtype = torch.float8_e5m2
+    weight_dtype: torch.dtype = torch.float8_e4m3fn
+
+
+@register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
+def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
+    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
+):
+    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
+
+    weight = module.weight
+    weight_dtype = config.weight_dtype
+    activation_dtype = config.activation_dtype
+    layout = config.layout
+
+    if not isinstance(layout, CutlassSemiSparseLayout):
+        raise NotImplementedError(
+            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
+        )
+
+    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
+    weight = to_linear_activation_quantized(
+        weight,
+        _float8_cutlass_quant,
+        quant_kwargs={"target_dtype": activation_dtype},
+    )
+
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
 class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 static symmetric quantization to
@@ -1569,8 +1625,10 @@ if TORCH_VERSION_AT_LEAST_2_5:
         [
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
-            _int8_symm_per_token_reduced_range_quant_cutlass,
-            _int4_symm_per_token_quant_cutlass,
             _input_activation_quant_func_fp8,
+            _int4_symm_cutlass_quant,
+            _int8_symm_cutlass_quant,
+            _float8_cutlass_quant,
+            _float8_cutlass_quant_sparse,
         ]
     )
