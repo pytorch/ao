@@ -3,6 +3,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import glob
 import os
 import subprocess
@@ -75,6 +76,7 @@ from torch.utils.cpp_extension import (
     BuildExtension,
     CppExtension,
     CUDAExtension,
+    _get_cuda_arch_flags,
 )
 
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
@@ -269,7 +271,12 @@ def get_extensions():
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": ["-O3" if not debug_mode else "-O0", "-t=0", "-std=c++17"],
+        "nvcc": [
+            "-DNDEBUG" if not debug_mode else "-DDEBUG",
+            "-O3" if not debug_mode else "-O0",
+            "-t=0",
+            "-std=c++17",
+        ],
     }
 
     if not IS_WINDOWS:
@@ -304,25 +311,6 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
-    use_cutlass = False
-    if use_cuda and not IS_WINDOWS:
-        use_cutlass = True
-        cutlass_dir = os.path.join(third_party_path, "cutlass")
-        cutlass_include_dir = os.path.join(cutlass_dir, "include")
-        cutlass_tools_include_dir = os.path.join(
-            cutlass_dir, "tools", "util", "include"
-        )
-        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
-    if use_cutlass:
-        extra_compile_args["nvcc"].extend(
-            [
-                "-DTORCHAO_USE_CUTLASS",
-                "-I" + cutlass_include_dir,
-                "-I" + cutlass_tools_include_dir,
-                "-I" + cutlass_extensions_include_dir,
-            ]
-        )
-
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
@@ -349,16 +337,6 @@ def get_extensions():
     # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
-    else:
-        # Remove CUTLASS-based kernels from the cuda_sources list.  An
-        # assumption is that these files will have "cutlass" in its
-        # name.
-        cutlass_sources = list(
-            glob.glob(
-                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
-            )
-        )
-        sources = [s for s in sources if s not in cutlass_sources]
 
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
     if IS_ROCM and use_cuda:
@@ -372,6 +350,72 @@ def get_extensions():
         else:
             sources += hip_sources
 
+    use_cutlass = False
+    cutlass_90a_sources = None
+    if use_cuda and not IS_ROCM and not IS_WINDOWS:
+        use_cutlass = True
+        cutlass_dir = os.path.join(third_party_path, "cutlass")
+        cutlass_include_dir = os.path.join(cutlass_dir, "include")
+        cutlass_tools_include_dir = os.path.join(
+            cutlass_dir, "tools", "util", "include"
+        )
+        cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
+    if use_cutlass:
+        extra_compile_args["nvcc"].extend(
+            [
+                "-DTORCHAO_USE_CUTLASS",
+                "-I" + cutlass_include_dir,
+                "-I" + cutlass_tools_include_dir,
+                "-I" + cutlass_extensions_include_dir,
+                "-DCUTE_USE_PACKED_TUPLE=1",
+                "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
+                "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
+                "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+                "--ftemplate-backtrace-limit=0",
+                # "--keep",
+                # "--ptxas-options=--verbose,--register-usage-level=5,--warn-on-local-memory-usage",
+                # "--resource-usage",
+                # "-lineinfo",
+                # "-DCUTLASS_ENABLE_GDC_FOR_SM90",  # https://github.com/NVIDIA/cutlass/blob/main/media/docs/dependent_kernel_launch.md
+            ]
+        )
+
+        cuda_arch_flags = _get_cuda_arch_flags()
+        build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
+        build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
+        if build_for_sm90 and not build_for_sm90a:
+            cutlass_90a_sources = [
+                os.path.join(
+                    extensions_cuda_dir,
+                    "rowwise_scaled_linear_sparse_cutlass",
+                    "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+                ),
+                os.path.join(
+                    extensions_cuda_dir,
+                    "to_sparse_semi_structured_cutlass_sm9x",
+                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+                ),
+            ]
+            for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
+                cutlass_90a_sources.append(
+                    os.path.join(
+                        extensions_cuda_dir,
+                        "rowwise_scaled_linear_sparse_cutlass",
+                        "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
+                    )
+                )
+            sources = [s for s in sources if s not in cutlass_90a_sources]
+    else:
+        # Remove CUTLASS-based kernels from the sources list.  An
+        # assumption is that these files will have "cutlass" in its
+        # name.
+        cutlass_sources = list(
+            glob.glob(
+                os.path.join(extensions_cuda_dir, "**/*cutlass*.cu"), recursive=True
+            )
+        )
+        sources = [s for s in sources if s not in cutlass_sources]
+
     ext_modules = []
     if len(sources) > 0:
         ext_modules.append(
@@ -380,6 +424,21 @@ def get_extensions():
                 sources,
                 py_limited_api=True,
                 extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    if cutlass_90a_sources is not None and len(cutlass_90a_sources) > 0:
+        cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        cutlass_90a_extra_compile_args["nvcc"].extend(
+            cuda_arch_flags + ["-gencode=arch=compute_90a,code=sm_90a"]
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C",
+                cutlass_90a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_90a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )

@@ -12,7 +12,7 @@ find_package(Torch REQUIRED)
 add_library(torchao_ops_embedding_xbit_aten OBJECT
     op_embedding_xbit_aten.cpp
 )
-target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "aten_openmp")
+target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_aten "${TORCHAO_PARALLEL_BACKEND}")
 if (TORCHAO_BUILD_CPU_AARCH64)
     target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE torchao_kernels_aarch64)
 endif()
@@ -27,6 +27,10 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     # libextension_threadpool.a
     # libcpuinfo.a
     # libpthreadpool.a
+    if(NOT DEFINED EXECUTORCH_INCLUDE_DIRS AND NOT DEFINED EXECUTORCH_LIBRARIES)
+        message(WARNING "EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES are not defined. Looking for ExecuTorch.")
+        find_package(ExecuTorch HINTS ${CMAKE_PREFIX_PATH}/executorch/share/cmake)
+    endif()
     add_library(torchao_ops_embedding_xbit_executorch OBJECT
         op_embedding_xbit_executorch.cpp
     )
