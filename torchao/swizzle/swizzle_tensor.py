@@ -22,14 +22,16 @@ class SwizzleTensor(torch.Tensor):
     def __new__(
         cls,
         original: torch.Tensor,
+        shallow: bool = False,
     ):
         wrapper = torch.empty_like(original, device="meta")
         return torch.Tensor._make_subclass(cls, wrapper)
 
-    def __init__(self, original):
-        # we pass in weights.T, but permute should be done on correct data
-        original = original.T
-        assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
+    def __init__(self, original, shallow=False):
+        if shallow:
+            return
+        #assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
+        assert original.ndim == 2, "SwizzleTensor only supports ndim 2"
         if original.ndim == 2:
             M, K = original.shape
             B = 0
@@ -55,6 +57,7 @@ class SwizzleTensor(torch.Tensor):
         self.paddedM = paddedM
         self.paddedK = paddedK
         self.original_ndim = original.ndim
+        self.is_transposed = False
 
     def __repr__(self):
         return f"{self.__class__.__name__}(original={self.unswizzle()})"
@@ -74,9 +77,39 @@ class SwizzleTensor(torch.Tensor):
     def as_tensor(self):
         # note the transpose because this causes col major hipblaslt op to be TN
         if self.original_ndim == 2:
-            return self.x.reshape(self.alignedM, self.alignedK).T
+            tmp = self.x.reshape(self.alignedM, self.alignedK)
+            if self.is_transposed:
+                tmp = tmp.T
+            return tmp
         if self.original_ndim == 3:
-            return self.x.reshape(self.B, self.alignedM, self.alignedK).T
+            tmp = self.x.reshape(self.B, self.alignedM, self.alignedK)
+            if self.is_transposed:
+                tmp = tmp.T
+            return tmp
+
+    def shallow_transpose(self):
+        shape = (self.M, self.K) if self.original_ndim == 2 else (self.B, self.M, self.K),
+        new_obj = SwizzleTensor(
+                torch.empty(*shape, dtype=self.dtype, layout=self.layout, device="meta"),
+                True)
+        new_obj.x = self.x
+        new_obj.B = self.B
+        new_obj.M = self.M
+        new_obj.K = self.K
+        new_obj.alignedM = self.alignedM
+        new_obj.alignedK = self.alignedK
+        new_obj.paddedM = self.paddedM
+        new_obj.paddedK = self.paddedK
+        new_obj.original_ndim = self.original_ndim
+        new_obj.is_transposed = not self.is_transposed
+        return new_obj
+
+    @property
+    def shape(self):
+        return torch.Size((self.K, self.M) if self.is_transposed else (self.M, self.K))
+
+    def stride(self):
+        return (1, self.K) if self.is_transposed else (self.K, 1)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):

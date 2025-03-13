@@ -629,7 +629,7 @@ def test_swizzle_mm():
 
     opcheck(
         torch.ops.torchao.swizzle_mm,
-        (mat1, mat2),
+        (mat1, mat2, False, False),
         test_utils=test_utils,
     )
 

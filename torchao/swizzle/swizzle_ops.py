@@ -67,3 +67,10 @@ def swizzle_addmm(aten_op, args, kwargs=None):
     return aten_op(bias, a, b, args[3:], **kwargs)
 
 
+@implements([aten.permute.default])
+def swizzle_permute(aten_op, args, kwargs=None):
+    tensor = args[0]
+    dims = args[1]
+    if len(dims) == 2 and dims[0] == 1 and dims[1] == 0:
+        return tensor.shallow_transpose()
+    return aten_op(tensor.unswizzle(), dims)
