@@ -116,7 +116,7 @@ def aot_compile(
 
     from torch.export import export_for_inference
 
-    exported = export_for_inference(fn, sample_args, sample_kwargs)
+    exported = export_for_inference(fn, sample_args, sample_kwargs, strict=True)
     output_path = torch._inductor.aoti_compile_and_package(
         exported,
         package_path=str(path),
