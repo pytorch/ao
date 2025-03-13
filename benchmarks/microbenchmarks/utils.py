@@ -36,7 +36,7 @@ except ImportError:
 class BenchmarkConfig:
     def __init__(
         self,
-        quantization: str,
+        quantization: str,  # Quantization string format is similar to the format being used for llama/generate.py
         params: Dict[str, Any],
         shape_name: str,
         shape: List[int],
@@ -46,28 +46,14 @@ class BenchmarkConfig:
         self.m, self.k, self.n = shape
         self.shape_name = shape_name
         self.high_precision_dtype = self._parse_precision(
-            params["high_precision_dtype"]
+            params.get("high_precision_dtype", "torch.bfloat16")
         )
-        self.compile = params.get("compile", False)
-        # Handle compile_mode based on compile flag
-        if not self.compile:
-            self.compile_mode = None
-        else:
-            # Use provided compile_mode if exists, else use "default"
-            self.compile_mode = params.get("compile_mode", "default")
-
-        # Add sparsity configuration
-        self.sparsity = params.get("sparsity", None)  # Default to None if not specified
-
+        self.use_torch_compile = bool(params.get("use_torch_compile", False))
+        self.torch_compile_mode = params.get("torch_compile_mode", "default")
         self.device = params.get("device", get_default_device())
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
-        # Update name to include sparsity info
-        self.name = (
-            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}"
-            + (f"_sparse_{self.sparsity}" if self.sparsity else "")
-            + ("_compile" if self.compile else "")
-        )
+        self.name = f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -82,12 +68,28 @@ class BenchmarkConfig:
             "k": self.k,
             "n": self.n,
             "high_precision_dtype": self.high_precision_dtype,
-            "compile": self.compile,
-            "compile_mode": self.compile_mode,
+            "use_torch_compile": self.use_torch_compile,
+            "torch_compile_mode": self.torch_compile_mode,
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
-            "sparsity": self.sparsity,
+        }
+
+
+class BenchmarkResult:
+    def __init__(
+        self,
+        config: BenchmarkConfig,
+    ):
+        self.config = config
+        self.output_dir = config.output_dir
+        self.model_inference_time_in_ms = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert result to dictionary for main function"""
+        return {
+            **self.config.to_dict(),
+            "model_inference_time_in_ms": self.model_inference_time_in_ms,
         }
 
 
@@ -127,14 +129,12 @@ def get_default_device() -> str:
         return "cpu"
 
 
-def quantization_string_to_quantization_config(
-    quantization: str, sparsity: str, **kwargs
-) -> AOBaseConfig:
+def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
     """Get quantization config based on quantization string.
 
     Args:
-        quantization (str): quantization method to be used
-        **kwargs: additional arguments to be passed to the quantization method
+        quantization (str): Quantization method to be used. The quantiation string format is similar to the format being used for llama/generate.py.
+        **kwargs: Additional arguments to be passed to the quantization method
 
     Returns:
         AOBaseConfig: Quantization configuration object
@@ -278,7 +278,7 @@ def sparsity_string_to_sparsity_config(sparsity: str) -> Dict[str, Any]:
 
 
 @torch.no_grad()
-def benchmark_model_inference_in_microseconds(model, input_data):
+def model_inference_time_in_ms(model, input_data):
     """Benchmark model inference time without compile overhead.
 
     Args:
@@ -349,14 +349,14 @@ def clean_caches():
 
 
 def generate_results_csv(
-    results: List[Dict[str, Any]],
+    results: List[BenchmarkResult],
     output_dir: str,
     file_name: str = "results.csv",
 ):
     """Generate a CSV file with the results of the benchmarking.
 
     Args:
-        results (List[Dict[str, Any]]): List Dictionary containing the results of the benchmarking with the config.
+        results (List[BenchmarkResult]): List Dictionary containing the results of the benchmarking with the config.
         output_dir (str): Directory to save the CSV file.
         file_name (str, optional): Name of the CSV file. Defaults to "results.csv".
     """
@@ -368,19 +368,19 @@ def generate_results_csv(
     with open(file_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         # Write the header row
-        header = results[0].keys()
+        header = results[0].to_dict().keys()
         writer.writerow(header)
         for result in results:
-            writer.writerow(result.values())
+            writer.writerow(result.to_dict().values())
 
     print(f"Results saved to {file_path}")
 
 
-def print_results(results: List[Dict[str, Any]]):
+def print_results(results: List[BenchmarkResult]):
     """Print benchmark results in a formatted table.
 
     Args:
-        results (List[Dict[str, Any]]): List of benchmark results
+        results (List[BenchmarkResult]): List of benchmark results
     """
     if not results:
         print("No results to display")
@@ -393,9 +393,8 @@ def print_results(results: List[Dict[str, Any]]):
         "m",
         "k",
         "n",
-        "sparsity",
-        "benchmark_model_inference_in_microseconds",
-        "compile",
+        "model_inference_time_in_ms",
+        "use_torch_compile",
     ]
 
     # Format data for tabulate
@@ -405,22 +404,26 @@ def print_results(results: List[Dict[str, Any]]):
         "m": "M",
         "k": "K",
         "n": "N",
-        "sparsity": "Sparsity",
-        "benchmark_model_inference_in_microseconds": "Time (μs)",
-        "compile": "Compile",
+        "model_inference_time_in_ms": "Time (μs)",
+        "use_torch_compile": "Compile Mode",
     }
 
     # Extract and format data
     table_data = []
     for result in results:
+        result_dict = result.to_dict()
         row = []
         for col in display_columns:
-            value = result.get(col, "N/A")
-            if col == "benchmark_model_inference_in_microseconds":
+            value = result_dict.get(col, "N/A")
+            if col == "model_inference_time_in_ms":
                 value = f"{value:.2f}" if isinstance(value, (int, float)) else value
-            elif col == "compile":
+            elif col == "use_torch_compile":
                 # Show compile mode if compile is True, otherwise show False
-                value = result.get("compile_mode", "default") if value else "False"
+                value = (
+                    result_dict.get("torch_compile_mode", "default")
+                    if result_dict.get("use_torch_compile")
+                    else "False"
+                )
             row.append(value)
         table_data.append(row)
 

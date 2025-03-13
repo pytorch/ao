@@ -6,6 +6,7 @@ import torch
 
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
+    BenchmarkResult,
     LNLinearSigmoid,
     ToyLinearModel,
     clean_caches,
@@ -18,8 +19,8 @@ class TestUtils(unittest.TestCase):
     def test_benchmark_config(self):
         params = {
             "high_precision_dtype": "torch.bfloat16",
-            "compile": True,
-            "compile_mode": "max-autotune",
+            "use_torch_compile": True,
+            "torch_compile_mode": "max-autotune",
             "device": "cuda",
             "model_type": "linear",
         }
@@ -36,8 +37,8 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(config.k, 1024)
         self.assertEqual(config.n, 1024)
         self.assertEqual(config.high_precision_dtype, torch.bfloat16)
-        self.assertEqual(config.compile, True)
-        self.assertEqual(config.compile_mode, "max-autotune")
+        self.assertEqual(config.use_torch_compile, True)
+        self.assertEqual(config.torch_compile_mode, "max-autotune")
         self.assertEqual(config.device, "cuda")
         self.assertEqual(config.model_type, "linear")
         self.assertEqual(config.output_dir, "test_output")
@@ -88,20 +89,24 @@ class TestUtils(unittest.TestCase):
 
     def test_generate_results_csv(self):
         results = [
-            {
-                "quantization": "int8wo",
-                "m": 1024,
-                "k": 1024,
-                "n": 1024,
-                "time_us": 100.0,
-            },
-            {
-                "quantization": "int4wo",
-                "m": 1024,
-                "k": 1024,
-                "n": 1024,
-                "time_us": 50.0,
-            },
+            BenchmarkResult(
+                BenchmarkConfig(
+                    quantization="int8wo",
+                    params={},
+                    shape_name="custom",
+                    shape=[1024, 1024, 1024],
+                    output_dir="test_output",
+                ),
+            ),
+            BenchmarkResult(
+                BenchmarkConfig(
+                    quantization="int4wo",
+                    params={},
+                    shape_name="custom",
+                    shape=[1024, 1024, 1024],
+                    output_dir="test_output",
+                ),
+            ),
         ]
 
         with tempfile.TemporaryDirectory() as tmp_dir:

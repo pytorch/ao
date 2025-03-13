@@ -7,7 +7,7 @@ import yaml
 from benchmarks.microbenchmarks.benchmark_runner import (
     get_shapes_for_config,
     load_benchmark_configs,
-    run_benchmarks_from_config,
+    run_inference_benchmarks_from_config,
 )
 
 
@@ -24,7 +24,7 @@ class TestBenchmarkRunner(unittest.TestCase):
                     }
                 ],
                 "high_precision_dtype": "torch.float32",
-                "compile": False,
+                "use_torch_compile": False,
                 "device": "cpu",
                 "model_type": "linear",
             },
@@ -72,8 +72,8 @@ class TestBenchmarkRunner(unittest.TestCase):
         self.assertEqual(configs[0].quantization, "baseline")
         self.assertEqual(configs[1].quantization, "int8wo")
 
-    def test_run_benchmarks_from_config(self):
-        run_benchmarks_from_config(self.config_path)
+    def test_run_inference_benchmarks_from_config(self):
+        run_inference_benchmarks_from_config(self.config_path)
         results_file = os.path.join(self.config["output_dir"], "results.csv")
         self.assertTrue(os.path.exists(results_file))
 

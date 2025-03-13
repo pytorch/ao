@@ -7,21 +7,21 @@ This script runs inference benchmarks and generates a micro-benchmarking report 
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict
 
 import torch
 
-from utils import (
+from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
-    benchmark_model_inference_in_microseconds,
+    BenchmarkResult,
     clean_caches,
     create_model_and_input,
-    quantization_string_to_quantization_config,
+    model_inference_time_in_ms,
+    string_to_config,
 )
 from torchao.quantization import quantize_
 
 
-def run(config: BenchmarkConfig) -> Dict[str, float]:
+def run(config: BenchmarkConfig) -> BenchmarkResult:
     """Run inference benchmarks"""
     clean_caches()  # Clean caches
 
@@ -39,25 +39,22 @@ def run(config: BenchmarkConfig) -> Dict[str, float]:
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    quantization_config = quantization_string_to_quantization_config(
-        config.quantization,
-        config.sparsity,
-        high_precision_dtype=config.high_precision_dtype
+    quantization_config = string_to_config(
+        config.quantization, high_precision_dtype=config.high_precision_dtype
     )
-    if quantization_config:
+    if quantization_config is not None:
         quantize_(m_copy, quantization_config)
-    if config.compile:
+    if config.use_torch_compile:
         print("Compiling model....")
-        m_copy = torch.compile(m_copy, mode=config.compile_mode, fullgraph=True)
+        m_copy = torch.compile(m_copy, mode=config.torch_compile_mode, fullgraph=True)
 
     # Run benchmarks
-    result = {**config.to_dict()}
+    result = BenchmarkResult(config=config)
 
     # Benchmark time to run an inference call for quantized model
-    model_time = benchmark_model_inference_in_microseconds(
+    result.model_inference_time_in_ms = model_inference_time_in_ms(
         model=m_copy, input_data=input_data
     )
-    result["benchmark_model_inference_in_microseconds"] = model_time
 
     # TODO: Benchmark time using profiler
     # Profile dtype model evaluation

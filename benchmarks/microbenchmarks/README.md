@@ -47,8 +47,7 @@ model_params:
         [4096, 4096, 1024]
       ]
   high_precision_dtype: "torch.bfloat16"
-  compile: true
-  compile_mode: "max-autotune"
+  compile: "max-autotune" # Options: "default", "max-autotune", "false"
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
   model_type: "linear"  # Options: "linear", "ln_linear_sigmoid"
 ```
@@ -56,6 +55,7 @@ model_params:
 ## Configuration Options
 
 ### Quantization Methods
+Currently, quantization string is in same format as the one being passed in llama/generate.py.
 - `baseline`: No quantization
 - `int8wo`: 8-bit weight-only quantization
 - `int4wo-{group_size}`: 4-bit weight-only quantization with specified group size
