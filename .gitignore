@@ -376,6 +376,3 @@ checkpoints/
 # Experimental
 torchao/experimental/cmake-out
 torchao/experimental/deps
-
-# Benchmarking results
-benchmarks/microbenchmarks/test/results/

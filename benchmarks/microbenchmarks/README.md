@@ -55,6 +55,7 @@ model_params:
 ## Configuration Options
 
 ### Quantization Methods
+Currently, quantization string is in same format as the one being passed in llama/generate.py.
 - `baseline`: No quantization
 - `int8wo`: 8-bit weight-only quantization
 - `int4wo-{group_size}`: 4-bit weight-only quantization with specified group size

@@ -18,7 +18,8 @@ from itertools import product
 from typing import Any, Dict, List, Tuple
 
 import yaml
-from utils import (
+
+from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     generate_results_csv,
     print_results,
@@ -65,9 +66,9 @@ def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
     return configs
 
 
-def run_benchmarks_from_config(config_path: str) -> None:
+def run_inference_benchmarks_from_config(config_path: str) -> None:
     """Run benchmarks using configurations from YAML file"""
-    from benchmark_inference import run as run_inference
+    from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 
     configs = load_benchmark_configs(config_path)
     results = []
@@ -99,5 +100,24 @@ if __name__ == "__main__":
         required=True,
         help="Path to benchmark configuration file",
     )
+    parser.add_argument(
+        "--benchmark_mode",
+        "-m",
+        type=str,
+        default="inference",
+        choices=["inference", "training"],
+        help="Benchmark mode to run: inference or training",
+    )
     args = parser.parse_args()
-    run_benchmarks_from_config(args.config)
+
+    # Run benchmarks
+    if args.benchmark_mode == "inference":
+        run_inference_benchmarks_from_config(args.config)
+    elif args.benchmark_mode == "training":
+        print("Training mode not implemented yet")
+    else:
+        raise ValueError(
+            f"Invalid benchmark mode: {args.benchmark_mode}, choose from inference or training"
+        )
+
+    # TODO: Add support for args to override config values and run smaller benchmarks

@@ -8,7 +8,7 @@ class TestBenchmarkInference(unittest.TestCase):
     def setUp(self):
         self.params = {
             "high_precision_dtype": "torch.float32",  # Use float32 for testing
-            "compile": False,
+            "use_torch_compile": False,
             "device": "cpu",  # Use CPU for testing
             "model_type": "linear",
         }
@@ -23,13 +23,9 @@ class TestBenchmarkInference(unittest.TestCase):
     def test_run_inference(self):
         result = run(self.config)
 
-        # Check result contains all config attributes
-        for key in self.config.to_dict():
-            self.assertIn(key, result)
-
         # Check benchmark result is present and reasonable
-        self.assertIn("benchmark_model_inference_in_microseconds", result)
-        self.assertGreater(result["benchmark_model_inference_in_microseconds"], 0)
+        self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
+        self.assertGreater(result.model_inference_time_in_ms, 0)
 
 
 if __name__ == "__main__":
