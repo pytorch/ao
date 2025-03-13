@@ -16,7 +16,7 @@ from benchmarks.microbenchmarks.utils import (
     clean_caches,
     create_model_and_input,
     model_inference_time_in_ms,
-    quantization_string_to_quantization_config,
+    string_to_config,
 )
 from torchao.quantization import quantize_
 
@@ -39,10 +39,10 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    quantization_config = quantization_string_to_quantization_config(
+    quantization_config = string_to_config(
         config.quantization, high_precision_dtype=config.high_precision_dtype
     )
-    if quantization_config:
+    if quantization_config is not None:
         quantize_(m_copy, quantization_config)
     if config.use_torch_compile:
         print("Compiling model....")

@@ -125,9 +125,7 @@ def get_default_device() -> str:
         return "cpu"
 
 
-def quantization_string_to_quantization_config(
-    quantization: str, **kwargs
-) -> AOBaseConfig:
+def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
     """Get quantization config based on quantization string.
 
     Args:
