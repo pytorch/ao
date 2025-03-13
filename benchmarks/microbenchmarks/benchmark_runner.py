@@ -101,9 +101,13 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
     results = []
     print("Benchmarking Inference ......")
     for config in configs:
-        print(f"Running: {config.name}")
-        result = run_inference(config)  # Pass the config object directly
-        results.append(result)
+        try:
+            print(f"Running: {config.name}")
+            result = run_inference(config)  # Pass the config object directly
+            results.append(result)
+        except Exception as e:
+            print(f"Error running benchmark {config.name}: {e}")
+            continue
 
     # Add results to csv
     generate_results_csv(results, configs[0].output_dir)
