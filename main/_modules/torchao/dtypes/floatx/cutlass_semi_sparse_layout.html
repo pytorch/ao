@@ -10,7 +10,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>torchao.dtypes.uintx.cutlass_int4_packed_layout &mdash; torchao main documentation</title>
+  <title>torchao.dtypes.floatx.cutlass_semi_sparse_layout &mdash; torchao main documentation</title>
   
 
   
@@ -374,7 +374,7 @@
         
           <li><a href="../../../index.html">Module code</a> &gt;</li>
         
-      <li>torchao.dtypes.uintx.cutlass_int4_packed_layout</li>
+      <li>torchao.dtypes.floatx.cutlass_semi_sparse_layout</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
@@ -406,7 +406,7 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <h1>Source code for torchao.dtypes.uintx.cutlass_int4_packed_layout</h1><div class="highlight"><pre>
+  <h1>Source code for torchao.dtypes.floatx.cutlass_semi_sparse_layout</h1><div class="highlight"><pre>
 <span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
 
@@ -419,72 +419,69 @@
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">register_layout</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.plain_layout</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">_aqt_is_int8</span><span class="p">,</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">AQTTensorImpl</span><span class="p">,</span> <span class="n">Layout</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">rowwise_scaled_linear_sparse_cutlass_f8f8</span><span class="p">,</span>
+    <span class="n">to_sparse_semi_structured_cutlass_sm9x_f8</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">AQTTensorImpl</span><span class="p">,</span> <span class="n">Layout</span><span class="p">,</span> <span class="n">PlainLayout</span>
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_aqt_is_int4</span><span class="p">(</span><span class="n">aqt</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if an AffineQuantizedTensor is int4 quantized Tensor&quot;&quot;&quot;</span>
-    <span class="c1"># TODO: use torch.int4</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_same_metadata</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;CutlassSemiSparseTensorImpl&quot;</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="s2">&quot;CutlassSemiSparseTensorImpl&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
     <span class="k">return</span> <span class="p">(</span>
-        <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
-        <span class="ow">and</span> <span class="n">aqt</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">==</span> <span class="o">-</span><span class="mi">8</span>
-        <span class="ow">and</span> <span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">==</span> <span class="mi">7</span>
-    <span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;Int4PackedTensorImpl&quot;</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="s2">&quot;Int4PackedTensorImpl&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-    <span class="k">return</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">Int4PackedTensorImpl</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">Int4PackedTensorImpl</span><span class="p">)</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">CutlassSemiSparseTensorImpl</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">CutlassSemiSparseTensorImpl</span><span class="p">)</span>
         <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">shape</span>
-        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">shape</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">shape</span>
         <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span>
         <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span> <span class="o">==</span> <span class="nb">type</span><span class="p">(</span><span class="n">src</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span>
     <span class="p">)</span>
 
 
-<div class="viewcode-block" id="CutlassInt4PackedLayout"><a class="viewcode-back" href="../../../../generated/torchao.dtypes.CutlassInt4PackedLayout.html#torchao.dtypes.CutlassInt4PackedLayout">[docs]</a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">CutlassInt4PackedLayout</span><span class="p">(</span><span class="n">Layout</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Layout class for int4 packed layout for affine quantized tensor, for cutlass kernel.&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="CutlassSemiSparseLayout"><a class="viewcode-back" href="../../../../generated/torchao.dtypes.CutlassSemiSparseLayout.html#torchao.dtypes.CutlassSemiSparseLayout">[docs]</a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CutlassSemiSparseLayout</span><span class="p">(</span><span class="n">Layout</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Layout class for float8 2:4 sparsity layout for affine quantized tensor, for cutlass kernel.&quot;&quot;&quot;</span>
 
-    <span class="k">pass</span></div>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pre_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dense</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># prune to 2:4 if not already</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.sparsity.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">mask_creator</span>
+
+        <span class="k">return</span> <span class="n">dense</span> <span class="o">*</span> <span class="n">mask_creator</span><span class="p">(</span><span class="n">dense</span><span class="p">)</span><span class="o">.</span><span class="n">bool</span><span class="p">()</span></div>
 
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">CutlassInt4PackedLayout</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Int4PackedTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for int4 packed layout for affine quantized tensor.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
+<span class="nd">@register_layout</span><span class="p">(</span><span class="n">CutlassSemiSparseLayout</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CutlassSemiSparseTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">sparse</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">meta</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">device</span>
+        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sparse</span><span class="o">.</span><span class="n">device</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;layout&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="k">else</span> <span class="n">int_data</span><span class="o">.</span><span class="n">layout</span>
+            <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="k">else</span> <span class="n">sparse</span><span class="o">.</span><span class="n">layout</span>
         <span class="p">)</span>
-        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sparse</span><span class="o">.</span><span class="n">dtype</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;requires_grad&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="n">shape</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="n">sparse</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">sparse</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">sparse</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">meta</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">=</span> <span class="n">int_data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span> <span class="o">=</span> <span class="n">sparse</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">meta</span> <span class="o">=</span> <span class="n">meta</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span> <span class="o">=</span> <span class="n">_layout</span>
 
@@ -496,7 +493,6 @@
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
                 <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
             <span class="p">)</span>
-
         <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
             <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
             <span class="n">src</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
@@ -510,39 +506,70 @@
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Int4PackedTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;CutlassSemiSparseTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">],</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;sparse&quot;</span><span class="p">,</span> <span class="s2">&quot;meta&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">],</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">]</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">tensor_attributes</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span>
     <span class="p">):</span>
-        <span class="n">int_data</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">]</span>
+        <span class="n">sparse</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;sparse&quot;</span><span class="p">]</span>
+        <span class="n">meta</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;meta&quot;</span><span class="p">]</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;scale&quot;</span><span class="p">]</span>
         <span class="p">(</span><span class="n">_layout</span><span class="p">,)</span> <span class="o">=</span> <span class="n">tensor_attributes</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">sparse</span><span class="p">,</span> <span class="n">meta</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">int_data</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
-            <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">4</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">&gt;&gt;</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span>
-        <span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],))</span>
-        <span class="k">return</span> <span class="n">int_data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="c1"># No support in CUTLASS to convert back to dense from sparse</span>
+        <span class="c1"># semi-structured format, so multiplying with identity matrix,</span>
+        <span class="c1"># and using identity scale factors, for the conversion.</span>
+        <span class="n">cols</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="nb">input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">input_scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">cols</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">device</span>
+        <span class="p">)</span>
+        <span class="n">sparse_scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
+        <span class="n">out_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="n">dense</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">rowwise_scaled_linear_sparse_cutlass_f8f8</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span>
+                <span class="n">input_scale</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">meta</span><span class="p">,</span>
+                <span class="n">sparse_scale</span><span class="p">,</span>
+                <span class="n">out_dtype</span><span class="o">=</span><span class="n">out_dtype</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">t</span><span class="p">()</span>
+            <span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">dense</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="kc">None</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_plain</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">dense</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">torch</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">zero_point</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="n">int_data_s4</span> <span class="o">=</span> <span class="p">((</span><span class="n">int_data</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&amp;</span> <span class="mh">0xF</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">int_data</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&amp;</span> <span class="mh">0xF</span><span class="p">)</span>
+
+        <span class="c1"># FIXME: remove this when CUTLASS PR #2110 merged.</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">dense</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+        <span class="n">dense</span><span class="p">[</span><span class="n">dense</span> <span class="o">==</span> <span class="mi">128</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">dense</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="n">sparse</span><span class="p">,</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">to_sparse_semi_structured_cutlass_sm9x_f8</span><span class="p">(</span><span class="n">dense</span><span class="p">)</span>
+
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">int_data_s4</span><span class="p">,</span>
+            <span class="n">sparse</span><span class="p">,</span>
+            <span class="n">meta</span><span class="p">,</span>
             <span class="n">scale</span><span class="p">,</span>
             <span class="n">_layout</span><span class="p">,</span>
         <span class="p">)</span>
@@ -551,23 +578,24 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sparse</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sparse</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">meta</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">meta</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int8_act_int4_weight_cutlass_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_linear_fp8_act_fp8_weight_sparse_cutlass_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Layout</span>
+
     <span class="k">return</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">PlainLayout</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">_aqt_is_int8</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">Float8Layout</span><span class="p">)</span>
         <span class="ow">and</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
         <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span>
         <span class="ow">and</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
         <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
         <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">CutlassInt4PackedLayout</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">_aqt_is_int4</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">CutlassSemiSparseLayout</span><span class="p">)</span>
         <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
         <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
         <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
@@ -577,52 +605,18 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int8_act_int4_weight_cutlass_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.ops</span><span class="w"> </span><span class="kn">import</span> <span class="n">rowwise_scaled_linear_cutlass_s8s4</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_linear_fp8_act_fp8_weight_sparse_cutlass_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.ops</span><span class="w"> </span><span class="kn">import</span> <span class="n">rowwise_scaled_linear_sparse_cutlass_f8f8</span>
 
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">weight_scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="nb">input</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
     <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">sparse</span>
+    <span class="n">weight_meta</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">meta</span>
+    <span class="n">weight_scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">out_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
 
-    <span class="n">out</span> <span class="o">=</span> <span class="n">rowwise_scaled_linear_cutlass_s8s4</span><span class="p">(</span>
-        <span class="nb">input</span><span class="p">,</span> <span class="n">input_scale</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">weight_scale</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">out_dtype</span>
-    <span class="p">)</span>
-
-    <span class="k">return</span> <span class="n">out</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int4_act_int4_weight_cutlass_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="k">return</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">CutlassInt4PackedLayout</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">_aqt_is_int4</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span>
-        <span class="ow">and</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
-        <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">CutlassInt4PackedLayout</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">_aqt_is_int4</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
-        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
-        <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_linear_int4_act_int4_weight_cutlass_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.ops</span><span class="w"> </span><span class="kn">import</span> <span class="n">rowwise_scaled_linear_cutlass_s4s4</span>
-
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">weight_scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="nb">input</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="n">out_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
-
-    <span class="n">out</span> <span class="o">=</span> <span class="n">rowwise_scaled_linear_cutlass_s4s4</span><span class="p">(</span>
-        <span class="nb">input</span><span class="p">,</span> <span class="n">input_scale</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">weight_scale</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">out_dtype</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">rowwise_scaled_linear_sparse_cutlass_f8f8</span><span class="p">(</span>
+        <span class="nb">input</span><span class="p">,</span> <span class="n">input_scale</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">weight_meta</span><span class="p">,</span> <span class="n">weight_scale</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">out_dtype</span>
     <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">out</span>

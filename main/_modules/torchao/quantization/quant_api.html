@@ -439,6 +439,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">CutlassInt4PackedLayout</span><span class="p">,</span>
+    <span class="n">CutlassSemiSparseLayout</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
     <span class="n">Int4CPULayout</span><span class="p">,</span>
     <span class="n">MarlinQQQLayout</span><span class="p">,</span>
@@ -531,6 +532,7 @@
     <span class="s2">&quot;float8_static_activation_float8_weight&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Float8DynamicActivationFloat8SemiSparseWeightConfig&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span> <span class="o">=</span> <span class="p">{</span>
@@ -1042,7 +1044,7 @@
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinQQQLayout</span><span class="p">):</span>
             <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_quant</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">CutlassInt4PackedLayout</span><span class="p">):</span>
-            <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_reduced_range_quant_cutlass</span>
+            <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_cutlass_quant</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_quant</span>
     <span class="k">else</span><span class="p">:</span>
@@ -1052,6 +1054,8 @@
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_marlinqqq_quantized_intx</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span>
         <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">CutlassInt4PackedLayout</span><span class="p">):</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">_int4_symm_cutlass_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span>
@@ -1110,20 +1114,10 @@
     <span class="k">if</span> <span class="n">act_mapping_type</span> <span class="o">!=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Only act_mapping_type=SYMMETRIC is supported.&quot;</span><span class="p">)</span>
 
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
-        <span class="n">weight</span><span class="p">,</span>
-        <span class="n">mapping_type</span><span class="o">=</span><span class="n">mapping_type</span><span class="p">,</span>
-        <span class="n">block_size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span>
-        <span class="n">target_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
-        <span class="n">quant_min</span><span class="o">=-</span><span class="mi">8</span><span class="p">,</span>
-        <span class="n">quant_max</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
-        <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-        <span class="n">_layout</span><span class="o">=</span><span class="n">layout</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">_int4_symm_cutlass_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
         <span class="n">weight</span><span class="p">,</span>
-        <span class="n">_int4_symm_per_token_quant_cutlass</span><span class="p">,</span>
+        <span class="n">_int4_symm_cutlass_quant</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
@@ -1375,28 +1369,19 @@
         <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_int8_symm_per_token_reduced_range_quant_cutlass</span><span class="p">(</span>
-    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-    <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
-    <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
-    <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
-    <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
-    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int8_symm_cutlass_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">x</span><span class="p">,</span>
-        <span class="n">mapping_type</span><span class="p">,</span>
-        <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
-        <span class="n">target_dtype</span><span class="p">,</span>
-        <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-        <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
-        <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
-        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_int4_symm_per_token_quant_cutlass</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int4_symm_cutlass_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">x</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
@@ -1404,9 +1389,36 @@
         <span class="n">target_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="o">=-</span><span class="mi">8</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>
-        <span class="n">eps</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
         <span class="n">_layout</span><span class="o">=</span><span class="n">CutlassInt4PackedLayout</span><span class="p">(),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_float8_cutlass_quant</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_float8_cutlass_quant_sparse</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
+        <span class="n">_layout</span><span class="o">=</span><span class="n">CutlassSemiSparseLayout</span><span class="p">(),</span>
     <span class="p">)</span>
 
 
@@ -1743,6 +1755,50 @@
 
 
 <span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationFloat8SemiSparseWeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.</span>
+<span class="sd">        `activation_dtype`: data type for quantized activation tensor.</span>
+<span class="sd">        `weight_dtype`: data type for quantized weight tensor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">CutlassSemiSparseLayout</span><span class="p">()</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8DynamicActivationFloat8SemiSparseWeightConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_float8_dynamic_activation_float8_semi_sparse_weight_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8SemiSparseWeightConfig</span>
+<span class="p">):</span>
+    <span class="k">assert</span> <span class="n">is_sm_at_least_90</span><span class="p">(),</span> <span class="s2">&quot;Float8 quantization is only supported on CUDA&gt;=9.0&quot;</span>
+
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
+    <span class="n">activation_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span>
+    <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">CutlassSemiSparseLayout</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Only CutlassSemiSparseLayout layout is supported. Received </span><span class="si">{</span><span class="n">layout</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">_float8_cutlass_quant_sparse</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">weight_dtype</span><span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
+        <span class="n">weight</span><span class="p">,</span>
+        <span class="n">_float8_cutlass_quant</span><span class="p">,</span>
+        <span class="n">quant_kwargs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;target_dtype&quot;</span><span class="p">:</span> <span class="n">activation_dtype</span><span class="p">},</span>
+    <span class="p">)</span>
+
+    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">module</span>
+
+
+<span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8StaticActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Configuration for applying float8 static symmetric quantization to</span>
@@ -1978,9 +2034,11 @@
         <span class="p">[</span>
             <span class="n">_int8_asymm_per_token_quant</span><span class="p">,</span>
             <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">,</span>
-            <span class="n">_int8_symm_per_token_reduced_range_quant_cutlass</span><span class="p">,</span>
-            <span class="n">_int4_symm_per_token_quant_cutlass</span><span class="p">,</span>
             <span class="n">_input_activation_quant_func_fp8</span><span class="p">,</span>
+            <span class="n">_int4_symm_cutlass_quant</span><span class="p">,</span>
+            <span class="n">_int8_symm_cutlass_quant</span><span class="p">,</span>
+            <span class="n">_float8_cutlass_quant</span><span class="p">,</span>
+            <span class="n">_float8_cutlass_quant_sparse</span><span class="p">,</span>
         <span class="p">]</span>
     <span class="p">)</span>
 </pre></div>
