@@ -12,7 +12,10 @@ from torch import Tensor, nn
 from torch.distributed._tensor import DTensor
 from torch.utils._triton import has_triton
 
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.core.config import AOBaseConfig
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 from torchao.utils import TorchAOBaseTensor
 
 from .int8 import quantize_int8_rowwise
@@ -232,10 +235,22 @@ class _BitNetTrainingLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-def bitnet_training():
-    return _get_linear_subclass_inserter(
-        BitNetTrainingLinearWeight, allow_requires_grad=True
-    )
+class BitNetTrainingConfig(AOBaseConfig):
+    pass
+
+
+# for bc
+bitnet_training = BitNetTrainingConfig
+
+
+@register_quantize_module_handler(BitNetTrainingConfig)
+def _bitnet_training_transform(
+    module: torch.nn.Module,
+    config: BitNetTrainingConfig,
+) -> torch.nn.Module:
+    new_weight = BitNetTrainingLinearWeight(module.weight)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=True)
+    return module
 
 
 def _pack_i2_in_i8(x: Tensor):
