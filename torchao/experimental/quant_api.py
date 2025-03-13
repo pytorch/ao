@@ -586,7 +586,7 @@ def _int8_dynamic_activation_intx_weight_transform(
             bit_width=bit_width,
             group_size=group_size,
             has_weight_zeros=has_weight_zeros,
-            has_bias=False,
+            has_bias=(bias is not None),
         )
 
         assert (

@@ -168,25 +168,18 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             )
             return cls(packed_weight, layout)
 
-        assert not layout.has_bias, "has_bias is not supported yet"
-        if layout.has_weight_zeros:
-            args = [
-                int_data.to(torch.int8),
-                scale.reshape(-1),
-                zero_point.reshape(-1).to(torch.int8),
-                layout.group_size,
-            ]
-        else:
-            args = [
-                int_data.to(torch.int8),
-                scale.reshape(-1),
-                layout.group_size,
-            ]
+        args = [
+            int_data.to(torch.int8),
+            scale.reshape(-1),
+            zero_point.reshape(-1).to(torch.int8) if layout.has_weight_zeros else None,
+            layout.group_size,
+            bias if layout.has_bias else None,
+            None,  # target, if not passed a packing format will be chosen on C++ side
+        ]
 
-        wzp_suffix = "" if layout.has_weight_zeros else "0zp"
         packed_weight = getattr(
             torch.ops.torchao,
-            f"_pack_8bit_act_{layout.bit_width}bit{wzp_suffix}_weight",
+            f"_pack_8bit_act_{layout.bit_width}bit_weight",
         )(*args)
 
         return cls(packed_weight, layout)
@@ -239,10 +232,6 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         assert k_ == k
         group_size = weight_tensor.tensor_impl.get_layout().group_size
 
-        assert (
-            not weight_tensor.tensor_impl.get_layout().has_bias
-        ), "has_bias is not supported yet"
-
         args = (
             input_tensor,
             weight_tensor.tensor_impl.packed_weight,
@@ -251,17 +240,14 @@ def _linear_impl(input_tensor, weight_tensor, bias):
             k,
         )
 
-        has_weight_zeros = weight_tensor.zero_point_domain != ZeroPointDomain.NONE
-
         assert len(weight_tensor.block_size) == 2
         assert weight_tensor.block_size[0] == 1
         assert group_size == weight_tensor.block_size[1]
         bit_width = weight_tensor.tensor_impl.get_layout().bit_width
 
-        wzp_suffix = "" if has_weight_zeros else "0zp"
-        return getattr(
-            torch.ops.torchao, f"_linear_8bit_act_{bit_width}bit{wzp_suffix}_weight"
-        )(*args)
+        return getattr(torch.ops.torchao, f"_linear_8bit_act_{bit_width}bit_weight")(
+            *args
+        )
 
     def _impl_2d_aten(input_tensor, weight_tensor):
         assert input_tensor.dim() == 2

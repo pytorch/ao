@@ -52,8 +52,7 @@ size_t inline activation_data_size_impl(
   return row_size * m;
 }
 
-template <bool has_weight_zeros>
-void prepare_activation_data_impl(
+void inline prepare_activation_data_impl(
     // Output
     void* activation_data,
     // Inputs
@@ -61,7 +60,8 @@ void prepare_activation_data_impl(
     int k,
     // Ignored if has_weight_zeros = false
     int group_size,
-    const float* activations) {
+    const float* activations,
+    bool has_weight_zeros) {
   auto activation_data_byte_ptr = (char*)activation_data;
 
   float vmin, vmax, scale;
@@ -82,7 +82,7 @@ void prepare_activation_data_impl(
     *(int8_t*)activation_data_byte_ptr = (int8_t)zero;
     activation_data_byte_ptr += sizeof(int8_t);
 
-    if constexpr (has_weight_zeros) {
+    if (has_weight_zeros) {
       for (int k_idx = 0; k_idx < k; k_idx += group_size) {
         torchao::kernels::cpu::aarch64::quantization::quantize(
             /*qvals=*/(int8_t*)activation_data_byte_ptr,
