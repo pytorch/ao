@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
 
@@ -12,39 +13,80 @@ from benchmarks.microbenchmarks.utils import (
     clean_caches,
     create_model_and_input,
     generate_results_csv,
+    get_default_device,
+    string_to_config,
 )
 
 
 class TestUtils(unittest.TestCase):
-    def test_benchmark_config(self):
-        params = {
+    def setUp(self):
+        self.test_params = {
+            "name": "test_model",
             "high_precision_dtype": "torch.bfloat16",
             "use_torch_compile": True,
             "torch_compile_mode": "max-autotune",
-            "device": "cuda",
+            "device": "cpu",
             "model_type": "linear",
         }
+        self.test_shape = [1024, 1024, 1024]
+        self.test_output_dir = Path("test_output")
+
+    def test_benchmark_config(self):
         config = BenchmarkConfig(
-            quantization="int8wo",
-            params=params,
+            quantization="baseline",
+            params=self.test_params,
             shape_name="custom",
-            shape=[1024, 1024, 1024],
-            output_dir="test_output",
+            shape=self.test_shape,
+            output_dir=str(self.test_output_dir),
+            benchmark_mode="inference",
         )
 
-        self.assertEqual(config.quantization, "int8wo")
+        self.assertEqual(config.quantization, "baseline")
         self.assertEqual(config.m, 1024)
         self.assertEqual(config.k, 1024)
         self.assertEqual(config.n, 1024)
         self.assertEqual(config.high_precision_dtype, torch.bfloat16)
         self.assertEqual(config.use_torch_compile, True)
         self.assertEqual(config.torch_compile_mode, "max-autotune")
-        self.assertEqual(config.device, "cuda")
+        self.assertEqual(config.device, "cpu")
         self.assertEqual(config.model_type, "linear")
-        self.assertEqual(config.output_dir, "test_output")
-        self.assertEqual(
-            config.name, "benchmark_int8wo_linear_m1024_k1024_n1024_compile"
+        self.assertEqual(config.benchmark_mode, "inference")
+
+    def test_benchmark_result(self):
+        config = BenchmarkConfig(
+            quantization="baseline",
+            params=self.test_params,
+            shape_name="custom",
+            shape=self.test_shape,
+            output_dir=str(self.test_output_dir),
+            benchmark_mode="inference",
         )
+        result = BenchmarkResult(config=config)
+
+        self.assertEqual(result.config, config)
+        self.assertEqual(result.model_inference_time_in_ms, 0.0)
+
+    def test_get_default_device(self):
+        # Test CPU fallback
+        device = get_default_device("not_a_real_device")
+        self.assertEqual(device, "cpu")
+
+        # Test explicit CPU request
+        device = get_default_device("cpu")
+        self.assertEqual(device, "cpu")
+
+    def test_string_to_config(self):
+        # Test baseline
+        config = string_to_config("baseline")
+        self.assertIsNone(config)
+
+        # Test int8wo
+        config = string_to_config("int8wo")
+        self.assertIsNotNone(config)
+
+        # Test invalid config
+        config = string_to_config("not_a_real_config")
+        self.assertIsNone(config)
 
     def test_toy_linear_model(self):
         model = ToyLinearModel(k=64, n=32, dtype=torch.float32)
@@ -96,6 +138,7 @@ class TestUtils(unittest.TestCase):
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
                     output_dir="test_output",
+                    benchmark_mode="inference",
                 ),
             ),
             BenchmarkResult(
@@ -105,6 +148,7 @@ class TestUtils(unittest.TestCase):
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
                     output_dir="test_output",
+                    benchmark_mode="inference",
                 ),
             ),
         ]

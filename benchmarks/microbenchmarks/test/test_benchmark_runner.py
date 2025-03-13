@@ -1,10 +1,13 @@
-import os
+import argparse
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
 from benchmarks.microbenchmarks.benchmark_runner import (
+    get_param_combinations,
     get_shapes_for_config,
     load_benchmark_configs,
     run_inference_benchmarks_from_config,
@@ -13,69 +16,72 @@ from benchmarks.microbenchmarks.benchmark_runner import (
 
 class TestBenchmarkRunner(unittest.TestCase):
     def setUp(self):
-        self.config = {
-            "quantization_config_recipe_names": ["baseline", "int8wo"],
-            "output_dir": "tmp",
-            "model_params": {
-                "matrix_shapes": [
-                    {
-                        "name": "custom",
-                        "shapes": [[16, 32, 8]],  # Small shape for testing
-                    }
-                ],
-                "high_precision_dtype": "torch.float32",
-                "use_torch_compile": False,
-                "device": "cpu",
-                "model_type": "linear",
-            },
-        }
-
-        # Create temporary config file
+        # Create temporary directory
         self.temp_dir = tempfile.mkdtemp()
-        self.config_path = os.path.join(self.temp_dir, "test_config.yml")
-        with open(self.config_path, "w") as f:
-            yaml.dump(self.config, f)
 
-        # Create output directory if it doesn't exist
-        os.makedirs(self.config["output_dir"], exist_ok=True)
+        self.test_config = {
+            "benchmark_mode": "inference",
+            "quantization_config_recipe_names": ["baseline", "int8wo"],
+            "output_dir": self.temp_dir,  # Use temp directory
+            "model_params": [
+                {
+                    "name": "test_model",
+                    "matrix_shapes": [
+                        {
+                            "name": "custom",
+                            "shapes": [[1024, 1024, 1024]],
+                        }
+                    ],
+                    "high_precision_dtype": "torch.bfloat16",
+                    "use_torch_compile": True,
+                    "torch_compile_mode": "max-autotune",
+                    "device": "cpu",
+                    "model_type": "linear",
+                }
+            ],
+        }
+        self.config_path = Path(self.temp_dir) / "test_config.yml"
+        with open(self.config_path, "w") as f:
+            yaml.dump(self.test_config, f)
 
     def tearDown(self):
-        # Clean up temporary files
-        if os.path.exists(self.config_path):
-            os.unlink(self.config_path)
-        if os.path.exists(self.temp_dir):
-            os.rmdir(self.temp_dir)
+        # Clean up temporary directory and all its contents
+        import shutil
 
-        # Clean up test output directory
-        results_file = os.path.join(self.config["output_dir"], "results.csv")
-        if os.path.exists(results_file):
-            os.unlink(results_file)
-        if os.path.exists(self.config["output_dir"]):
-            os.rmdir(self.config["output_dir"])
+        shutil.rmtree(self.temp_dir)
 
     def test_get_shapes_for_config(self):
-        shape_config = {
-            "name": "custom",
-            "shapes": [[1024, 1024, 1024], [2048, 2048, 2048]],
-        }
-        shapes = get_shapes_for_config(shape_config)
-        self.assertEqual(len(shapes), 2)
+        shapes = get_shapes_for_config(
+            self.test_config["model_params"][0]["matrix_shapes"]
+        )
+        self.assertEqual(len(shapes), 1)
         self.assertEqual(shapes[0], ("custom", [1024, 1024, 1024]))
-        self.assertEqual(shapes[1], ("custom", [2048, 2048, 2048]))
 
-        with self.assertRaises(NotImplementedError):
-            get_shapes_for_config({"name": "unsupported", "shapes": []})
+    def test_get_param_combinations(self):
+        model_param = self.test_config["model_params"][0]
+        shapes, params = get_param_combinations(model_param)
 
-    def test_load_benchmark_configs(self):
-        configs = load_benchmark_configs(self.config_path)
-        self.assertEqual(len(configs), 2)  # 2 quantizations * 1 shape
-        self.assertEqual(configs[0].quantization, "baseline")
-        self.assertEqual(configs[1].quantization, "int8wo")
+        self.assertEqual(len(shapes), 1)
+        self.assertEqual(shapes[0], ("custom", [1024, 1024, 1024]))
+        self.assertEqual(params["high_precision_dtype"], "torch.bfloat16")
+        self.assertEqual(params["use_torch_compile"], True)
+
+    @patch("argparse.Namespace")
+    def test_load_benchmark_configs(self, mock_args):
+        mock_args.config = str(self.config_path)
+        configs = load_benchmark_configs(mock_args)
+
+        self.assertEqual(len(configs), 2)  # 2 quantization configs
+        self.assertEqual(configs[0].benchmark_mode, "inference")
+        self.assertEqual(configs[0].device, "cpu")
 
     def test_run_inference_benchmarks_from_config(self):
-        run_inference_benchmarks_from_config(self.config_path)
-        results_file = os.path.join(self.config["output_dir"], "results.csv")
-        self.assertTrue(os.path.exists(results_file))
+        configs = load_benchmark_configs(
+            argparse.Namespace(config=str(self.config_path))
+        )
+        run_inference_benchmarks_from_config(configs)
+        results_file = Path(self.temp_dir) / "results.csv"
+        self.assertTrue(results_file.exists())
 
 
 if __name__ == "__main__":

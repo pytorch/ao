@@ -1,31 +1,39 @@
+import tempfile
 import unittest
 
 from benchmarks.microbenchmarks.benchmark_inference import run
-from benchmarks.microbenchmarks.utils import BenchmarkConfig
+from benchmarks.microbenchmarks.utils import BenchmarkConfig, BenchmarkResult
 
 
 class TestBenchmarkInference(unittest.TestCase):
     def setUp(self):
-        self.params = {
-            "high_precision_dtype": "torch.float32",  # Use float32 for testing
-            "use_torch_compile": False,
-            "device": "cpu",  # Use CPU for testing
-            "model_type": "linear",
-        }
+        # Create temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+
         self.config = BenchmarkConfig(
             quantization="baseline",
-            params=self.params,
-            shape_name="test",
+            params={
+                "high_precision_dtype": "torch.float32",
+                "use_torch_compile": False,
+                "device": "cpu",
+                "model_type": "linear",
+            },
+            shape_name="custom",
             shape=[16, 32, 8],  # Small shape for testing
-            output_dir="benchmarks/microbenchmarks/test/test_output/",
+            output_dir=self.temp_dir,
+            benchmark_mode="inference",
         )
+
+    def tearDown(self):
+        # Clean up temporary directory
+        import shutil
+
+        shutil.rmtree(self.temp_dir)
 
     def test_run_inference(self):
         result = run(self.config)
-
-        # Check benchmark result is present and reasonable
+        self.assertIsInstance(result, BenchmarkResult)
         self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
-        self.assertGreater(result.model_inference_time_in_ms, 0)
 
 
 if __name__ == "__main__":

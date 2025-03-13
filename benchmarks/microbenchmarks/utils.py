@@ -29,6 +29,20 @@ except ImportError:
     HAS_TRITON = False
 
 
+def get_default_device(device: str = "cuda") -> str:
+    if device == "cuda" and torch.cuda.is_available():
+        return "cuda"
+    elif device == "xpu" and torch.xpu.is_available():
+        return "xpu"
+    elif device == "mps" and torch.backends.mps.is_available():
+        return "mps"
+    elif device == "cpu":
+        return "cpu"
+    else:
+        print(f"Warning: Running on CPU as {device} support was not found")
+        return "cpu"
+
+
 class BenchmarkConfig:
     def __init__(
         self,
@@ -37,7 +51,9 @@ class BenchmarkConfig:
         shape_name: str,
         shape: List[int],
         output_dir: str,
+        benchmark_mode: str,
     ):
+        self.benchmark_mode = benchmark_mode
         self.quantization = quantization
         self.m, self.k, self.n = shape
         self.shape_name = shape_name
@@ -45,11 +61,18 @@ class BenchmarkConfig:
             params.get("high_precision_dtype", "torch.bfloat16")
         )
         self.use_torch_compile = bool(params.get("use_torch_compile", False))
-        self.torch_compile_mode = params.get("torch_compile_mode", "default")
-        self.device = params.get("device", get_default_device())
+        self.torch_compile_mode = (
+            params.get("torch_compile_mode", "default")
+            if self.use_torch_compile
+            else None
+        )
+        self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
         self.output_dir = output_dir
-        self.name = f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}"
+        self.name = params.get(
+            "name",
+            f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
+        )
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -59,6 +82,7 @@ class BenchmarkConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for main function"""
         return {
+            "name": self.name,
             "quantization": self.quantization,
             "m": self.m,
             "k": self.k,
@@ -111,18 +135,6 @@ class LNLinearSigmoid(torch.nn.Module):
         x = self.fc(x)
         x = self.sigmoid(x)
         return x
-
-
-def get_default_device() -> str:
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.xpu.is_available():
-        return "xpu"
-    elif torch.backends.mps.is_available():
-        return "mps"
-    else:
-        print("Warning: Running on CPU as no GPU support was found")
-        return "cpu"
 
 
 def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:

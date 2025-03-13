@@ -14,6 +14,7 @@ Usage:
 The YAML file should contain all necessary configuration parameters for the benchmarks.
 """
 
+import argparse
 from itertools import product
 from typing import Any, Dict, List, Tuple
 
@@ -26,51 +27,77 @@ from benchmarks.microbenchmarks.utils import (
 )
 
 
-def get_shapes_for_config(shape_config: Dict[str, Any]) -> List[Tuple[str, List[int]]]:
-    """Get shapes for a given configuration"""
-    name = shape_config["name"]
-    if name == "custom":
-        return [(name, shape) for shape in shape_config["shapes"]]
-    else:
-        raise NotImplementedError(
-            f"Shape config {name} not supported. Currently only supports custom shapes."
-        )
+def get_shapes_for_config(
+    shape_configs: List[Dict[str, Any]],
+) -> List[Tuple[str, List[int]]]:
+    """Get shapes for a given configuration.
+
+    Args:
+        shape_configs: List of shape configurations from YAML
+
+    Returns:
+        List of tuples containing (shape_name, shape)
+    """
+    shapes = []
+    for shape_config in shape_configs:
+        name = shape_config["name"]
+        if name == "custom":
+            shapes.extend([(name, shape) for shape in shape_config["shapes"]])
+        else:
+            raise NotImplementedError(
+                f"Shape config {name} not supported. Currently only supports custom shapes."
+            )
+    return shapes
 
 
-def load_benchmark_configs(config_path: str) -> List[BenchmarkConfig]:
-    """Load benchmark configurations from YAML file"""
-    with open(config_path, "r") as f:
-        config_data = yaml.safe_load(f)
+def get_param_combinations(model_param):
+    """Extract all parameter combinations from a model config"""
+    # Get all shapes
+    shapes = get_shapes_for_config(model_param["matrix_shapes"])
 
-    quantization_config_recipe_names = config_data["quantization_config_recipe_names"]
-    params = config_data["model_params"]
-    output_dir = config_data.get("output_dir", "benchmarks/microbenchmarks/results")
+    # Extract all other parameters (excluding matrix_shapes)
+    base_params = {
+        key: value for key, value in model_param.items() if key not in ["matrix_shapes"]
+    }
 
+    return shapes, base_params
+
+
+def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig]:
+    """Load benchmark configurations from CLI arguments and YAML file."""
+    with open(cli_args.config, "r") as f:
+        config = yaml.safe_load(f)
+
+    output_dir = config.get("output_dir", "benchmarks/microbenchmarks/results")
+    benchmark_mode = config.get("benchmark_mode", "inference")
+
+    # Create all possible combinations
     configs = []
-    # Process each shape configuration
-    for shape_config in params["matrix_shapes"]:
-        shapes = get_shapes_for_config(shape_config)
-        # Generate combinations for each shape
-        for quant, (shape_name, shape) in product(
-            quantization_config_recipe_names, shapes
+    for model_param in config["model_params"]:
+        shapes, params = get_param_combinations(model_param)
+
+        # Create configs for all combinations
+        for quant_config, (shape_name, shape) in product(
+            config.get("quantization_config_recipe_names", ["baseline"]), shapes
         ):
             configs.append(
                 BenchmarkConfig(
-                    quantization=quant,
+                    quantization=quant_config,
                     params=params,
                     shape_name=shape_name,
                     shape=shape,
                     output_dir=output_dir,
+                    benchmark_mode=benchmark_mode,
                 )
             )
+
     return configs
 
 
-def run_inference_benchmarks_from_config(config_path: str) -> None:
+def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None:
     """Run benchmarks using configurations from YAML file"""
     from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 
-    configs = load_benchmark_configs(config_path)
     results = []
     print("Benchmarking Inference ......")
     for config in configs:
@@ -100,24 +127,18 @@ if __name__ == "__main__":
         required=True,
         help="Path to benchmark configuration file",
     )
-    parser.add_argument(
-        "--benchmark_mode",
-        "-m",
-        type=str,
-        default="inference",
-        choices=["inference", "training"],
-        help="Benchmark mode to run: inference or training",
-    )
+    # TODO: Add support for args to override config values and run smaller benchmarks
     args = parser.parse_args()
 
+    configs = load_benchmark_configs(cli_args=args)
     # Run benchmarks
-    if args.benchmark_mode == "inference":
-        run_inference_benchmarks_from_config(args.config)
-    elif args.benchmark_mode == "training":
+    if configs[0].benchmark_mode == "inference":
+        run_inference_benchmarks_from_config(configs)
+    elif configs[0].benchmark_mode == "training":
         print("Training mode not implemented yet")
     else:
         raise ValueError(
-            f"Invalid benchmark mode: {args.benchmark_mode}, choose from inference or training"
+            f"Invalid benchmark mode: {configs[0].benchmark_mode}, choose from inference or training"
         )
 
     # TODO: Add support for args to override config values and run smaller benchmarks
