@@ -16,6 +16,7 @@ import torch
 import triton
 from torch._inductor.utils import do_bench_using_profiling
 
+from torchao.testing.float8.roofline_utils import get_specs
 from torchao.prototype.mx_formats.custom_cast import (
     to_mxfp8_across_dim0_and_dim1,
     to_mxfp8_across_dim0_and_dim1_reference,
@@ -41,6 +42,7 @@ def run(
     M: int = 4096,
     K: int = 2048,
     BLOCK_SIZE: int = 32,
+    check_accuracy: bool = True,
 ):
     print(f"M {M} K {K} BLOCK_SIZE {BLOCK_SIZE}")
     print(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -81,11 +83,14 @@ def run(
     x_d0_t, x_d1_t = x_d0_t.bfloat16(), x_d1_t.bfloat16()
 
     # ensure bitwise equivalency of outputs with reference
-    torch.testing.assert_close(x_d0, x_d0_t, atol=0, rtol=0)
-    torch.testing.assert_close(x_d1, x_d1_t, atol=0, rtol=0)
-    torch.testing.assert_close(scale_e8m0_d0, scale_e8m0_d0_t, atol=0, rtol=0)
-    torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_t, atol=0, rtol=0)
-    print("normalized reference vs normalized triton are bitwise equivalent")
+    if check_accuracy:
+        torch.testing.assert_close(x_d0, x_d0_t, atol=0, rtol=0)
+        torch.testing.assert_close(x_d1, x_d1_t, atol=0, rtol=0)
+        torch.testing.assert_close(scale_e8m0_d0, scale_e8m0_d0_t, atol=0, rtol=0)
+        torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_t, atol=0, rtol=0)
+        print("normalized reference vs normalized triton are bitwise equivalent")
+    else:
+        print("accuracy checking skipped")
 
     # now, measure performance
 
@@ -113,15 +118,15 @@ def run(
         sum(x.numel() for x in (x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t))
         * bytes_per_el_fp8
     )
-    triton_achieved_mem_bw_gbps = (triton_bytes_read + triton_bytes_written) / (
+    triton_achieved_mem_bw_bps = (triton_bytes_read + triton_bytes_written) / (
         time_triton_us / 1e6
     )
-    # TODO(future PR): read 8.0 TB/s number from roofline_utils.py instead of hardcoding
-    triton_pct_peak_mem_bw = triton_achieved_mem_bw_gbps / 8.0e12
+    peak_mem_bw = get_specs()["peak_mem_bw_bytes_sec"]
+    triton_pct_peak_mem_bw = triton_achieved_mem_bw_bps / peak_mem_bw
 
     print("time_reference_compile_us", time_reference_compile_us)
     print("time_triton_us", time_triton_us)
-    print("triton_achieved_mem_bw_gbps", triton_achieved_mem_bw_gbps)
+    print("triton_achieved_mem_bw_gbps", triton_achieved_mem_bw_bps / 1e9)
     # Note: as of 2025-03-11, inductor code for adding 1.0 to a large bf16 tensor
     # can achieve around 50-70% of B200 peak mem bw
     print("triton_pct_peak_mem_bw", triton_pct_peak_mem_bw)

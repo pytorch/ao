@@ -24,7 +24,7 @@ add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
     linear_8bit_act_xbit_weight.cpp
     op_linear_8bit_act_xbit_weight_aten.cpp
 )
-target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_aten aten_openmp)
+target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_aten "${TORCHAO_PARALLEL_BACKEND}")
 
 if(TORCHAO_BUILD_CPU_AARCH64)
     target_link_libraries(torchao_ops_linear_8bit_act_xbit_weight_aten PRIVATE torchao_kernels_aarch64)
