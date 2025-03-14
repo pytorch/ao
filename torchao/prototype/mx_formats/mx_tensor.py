@@ -76,12 +76,57 @@ class ScaleCalculationMode(Enum):
            It uses X = 2^ceil(log2(max_abs(v))-max_exp).
     EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
            It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+    CUBLAS_CEIL: This method is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
+           Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
     By default, we use the EVEN method for better accuracy.
     """
 
     FLOOR = auto()
     CEIL = auto()
     EVEN = auto()
+    CUBLAS_CEIL = auto()
+
+
+def _to_mx_nvidia(
+    data_hp: torch.Tensor,
+    max_abs: torch.Tensor,
+    max_pos: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    A prototype implementation of MXFP scale factor derivation method described in
+    https://docs.nvidia.com/cuda/cublas/#d-block-quantization
+
+    Args:
+        data_hp: High precision data.
+        max_abs: Maximum absolute value for data_hp along specified dimension/block_size.
+        max_pos: The maximum value of the low precision data type.
+
+    Returns:
+        exponent: The biased exponent with dtype E8M0 in uint8 container.
+        data_lp: The targeted low precision data, in high precision container
+            (requires cast to low precision data type).
+    """
+    descale = max_abs / max_pos
+    # TODO: nan/inf needs to be set for any value
+    # of nan/inf in input not just amax.
+    exponent = torch.where(
+        torch.isnan(descale), 0xFF,  # Handle biased exponent for nan
+        # NOTE: descale < (torch.finfo(torch.float32).smallest_normal / 2) is handled through clamping
+        (torch.clamp(
+            torch.ceil(torch.log2(descale)),
+            min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS
+        ) + E8M0_EXPONENT_BIAS).to(torch.uint8)
+    )
+
+    descale_fp = torch.where(
+        exponent == 0, 1.0, torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32))
+    )
+
+    # scale and saturated cast the data elements to max of target dtype
+    data_lp = torch.clamp(
+        data_hp * descale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
+    )
+    return exponent, data_lp
 
 
 def to_mx(
@@ -126,89 +171,85 @@ def to_mx(
     if elem_dtype == torch.float8_e4m3fn:
         target_max_pow2 = F8E4M3_MAX_POW2
         mbits = MBITS_F8_E4M3
+        max_pos = F8E4M3_MAX
     elif elem_dtype == torch.float8_e5m2:
         target_max_pow2 = F8E5M2_MAX_POW2
         mbits = MBITS_F8_E5M2
+        max_pos = F8E5M2_MAX
     elif elem_dtype == DTYPE_FP6_E2M3:
         target_max_pow2 = F6_E2M3_MAX_POW2
         mbits = MBITS_F6_E2M3
+        max_pos = F6_E2M3_MAX
     elif elem_dtype == DTYPE_FP6_E3M2:
         target_max_pow2 = F6_E3M2_MAX_POW2
         mbits = MBITS_F6_E3M2
+        max_pos = F6_E3M2_MAX
     elif elem_dtype == DTYPE_FP4:
         target_max_pow2 = F4_E2M1_MAX_POW2
         mbits = MBITS_F4_E2M1
+        max_pos = F4_E2M1_MAX
     else:
         raise AssertionError("unsupported element dtype")
 
-    # rounding before calculating the largest power of 2
-    # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
-    if scaling_mode == ScaleCalculationMode.EVEN:
-        nan_mask = torch.isnan(max_abs)
-        max_abs = max_abs.to(torch.float32).view(torch.int32)
-        val_to_add = 1 << (MBITS_F32 - mbits - 1)
-        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
-        max_abs = (max_abs + val_to_add) & mask
-        max_abs = max_abs.view(torch.float32)
-        max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
-
-    # Calculate the scale for different modes
-    if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
-        scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + eps)) - target_max_pow2
-    elif scaling_mode == ScaleCalculationMode.CEIL:
-        scale_e8m0_unbiased = torch.ceil(torch.log2(max_abs + eps)) - target_max_pow2
+    if scaling_mode == ScaleCalculationMode.CUBLAS_CEIL:
+        scale_e8m0_biased, data_lp = _to_mx_nvidia(data_hp, max_abs, max_pos)
     else:
-        raise AssertionError("unsupported scaling calculation mode")
+        # rounding before calculating the largest power of 2
+        # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
+        if scaling_mode == ScaleCalculationMode.EVEN:
+            nan_mask = torch.isnan(max_abs)
+            max_abs = max_abs.to(torch.float32).view(torch.int32)
+            val_to_add = 1 << (MBITS_F32 - mbits - 1)
+            mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+            max_abs = (max_abs + val_to_add) & mask
+            max_abs = max_abs.view(torch.float32)
+            max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
 
-    # Clamp to exponents that can be represented in e8m0
-    scale_e8m0_unbiased = torch.clamp(
-        scale_e8m0_unbiased, min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS
-    )
+        # Calculate the scale for different modes
+        if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
+            scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + eps)) - target_max_pow2
+        elif scaling_mode == ScaleCalculationMode.CEIL:
+            scale_e8m0_unbiased = torch.ceil(torch.log2(max_abs + eps)) - target_max_pow2
+        else:
+            raise AssertionError("unsupported scaling calculation mode")
 
-    # Create the biased e8m0 representation and cast it to 8 bits
-    scale_e8m0_biased = scale_e8m0_unbiased + E8M0_EXPONENT_BIAS
-    scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
+        # Clamp to exponents that can be represented in e8m0
+        scale_e8m0_unbiased = torch.clamp(
+            scale_e8m0_unbiased, min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS
+        )
 
-    # Conversion to torch.uint8 sets NaN values to 0, fix this by
-    # explicitly setting known NaN values to 255
-    scale_e8m0_biased = torch.where(
-        torch.isnan(scale_e8m0_unbiased),
-        E8M0_EXPONENT_NAN_VAL,
-        scale_e8m0_biased,
-    )
+        # Create the biased e8m0 representation and cast it to 8 bits
+        scale_e8m0_biased = scale_e8m0_unbiased + E8M0_EXPONENT_BIAS
+        scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
 
-    # For now, calculate the scale in floating point.
-    # TODO(future) audit if there is a need to bit shift exponents instead.
-    scale_fp = torch.pow(
-        torch.full(max_abs.size(), 2.0, device=scale_e8m0_biased.device),
-        scale_e8m0_unbiased,
-    )
+        # Conversion to torch.uint8 sets NaN values to 0, fix this by
+        # explicitly setting known NaN values to 255
+        scale_e8m0_biased = torch.where(
+            torch.isnan(scale_e8m0_unbiased),
+            E8M0_EXPONENT_NAN_VAL,
+            scale_e8m0_biased,
+        )
 
-    # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
-    # float32 denormal range. For now, manually adjust the fp scale. This is
-    # relevant if all of the incoming block values are zeroes.
-    # See https://github.com/pytorch/pytorch/issues/125557 for details.
-    # Note: it would be more correct to set the minimum to 2**-127, but this
-    # does not work in triton either as it looks like subnormal value handling
-    # has some gaps.  So, for now just set to the minimum normal value.
-    scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+        # For now, calculate the scale in floating point.
+        # TODO(future) audit if there is a need to bit shift exponents instead.
+        scale_fp = torch.pow(
+            torch.full(max_abs.size(), 2.0, device=scale_e8m0_biased.device),
+            scale_e8m0_unbiased,
+        )
 
-    # scale and saturated cast the data elements to max of target dtype
-    if elem_dtype == torch.float8_e4m3fn:
-        max_pos = F8E4M3_MAX
-    elif elem_dtype == torch.float8_e5m2:
-        max_pos = F8E5M2_MAX
-    elif elem_dtype == DTYPE_FP6_E2M3:
-        max_pos = F6_E2M3_MAX
-    elif elem_dtype == DTYPE_FP6_E3M2:
-        max_pos = F6_E3M2_MAX
-    elif elem_dtype == DTYPE_FP4:
-        max_pos = F4_E2M1_MAX
-    else:
-        raise AssertionError("unsupported")
-    data_lp = torch.clamp(
-        data_hp / scale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
-    )
+        # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
+        # float32 denormal range. For now, manually adjust the fp scale. This is
+        # relevant if all of the incoming block values are zeroes.
+        # See https://github.com/pytorch/pytorch/issues/125557 for details.
+        # Note: it would be more correct to set the minimum to 2**-127, but this
+        # does not work in triton either as it looks like subnormal value handling
+        # has some gaps.  So, for now just set to the minimum normal value.
+        scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+
+        # scale and saturated cast the data elements to max of target dtype
+        data_lp = torch.clamp(
+            data_hp / scale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
+        )
 
     # cast to target dtype
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
