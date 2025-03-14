@@ -9,11 +9,11 @@ import re
 import sys
 from typing import List
 
-COPYRIGHT_HEADER = """# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD 3-Clause license found in the
-# LICENSE file in the root directory of this source tree."""
+BASE_COPYRIGHT_TEXT = """Copyright (c) Meta Platforms, Inc. and affiliates.
+All rights reserved.
+
+This source code is licensed under the BSD 3-Clause license found in the
+LICENSE file in the root directory of this source tree."""
 
 EXTENSIONS = {".py", ".cu", ".h", ".cuh", ".sh", ".metal"}
 PRIVACY_PATTERNS = [
@@ -22,6 +22,19 @@ PRIVACY_PATTERNS = [
     r"[0-9]{4}-present(\.|,)? Facebook",
     r"[0-9]{4}(\.|,)? Facebook",
 ]
+
+
+def get_copyright_header(file_ext: str) -> str:
+    if file_ext in {".cu", ".h", ".cuh", ".cpp", ".metal"}:
+        # C/C++ style files use // comments
+        return "\n".join(
+            "// " + line if line else "//" for line in BASE_COPYRIGHT_TEXT.split("\n")
+        )
+    else:
+        # Python and shell scripts use # comments
+        return "\n".join(
+            "# " + line if line else "#" for line in BASE_COPYRIGHT_TEXT.split("\n")
+        )
 
 
 def has_copyright_header(content: str) -> bool:
@@ -35,8 +48,10 @@ def add_copyright_header(filename: str) -> None:
         content = f.read()
 
     if not has_copyright_header(content):
+        ext = os.path.splitext(filename)[1]
+        header = get_copyright_header(ext)
         with open(filename, "w") as f:
-            f.write(COPYRIGHT_HEADER + "\n" + content)
+            f.write(header + "\n\n" + content)
 
 
 def main(argv: List[str] = None) -> int:
@@ -53,7 +68,7 @@ def main(argv: List[str] = None) -> int:
                 content = f.read()
 
             if not has_copyright_header(content):
-                print(f"Adding privacy policy to {filename}")
+                print(f"Adding copyright header to {filename}")
                 add_copyright_header(filename)
                 retval = 1
 
