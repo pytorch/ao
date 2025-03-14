@@ -1,0 +1,64 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+import argparse
+import os
+import re
+import sys
+from typing import List
+
+COPYRIGHT_HEADER = """# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree."""
+
+EXTENSIONS = {".py", ".cu", ".h", ".cuh", ".sh", ".metal"}
+PRIVACY_PATTERNS = [
+    r"Meta Platforms, Inc\. and affiliates",
+    r"Facebook, Inc(\.|,)? and its affiliates",
+    r"[0-9]{4}-present(\.|,)? Facebook",
+    r"[0-9]{4}(\.|,)? Facebook",
+]
+
+
+def has_copyright_header(content: str) -> bool:
+    # Check first 16 lines for privacy policy
+    first_16_lines = "\n".join(content.split("\n")[:16])
+    return any(re.search(pattern, first_16_lines) for pattern in PRIVACY_PATTERNS)
+
+
+def add_copyright_header(filename: str) -> None:
+    with open(filename, "r") as f:
+        content = f.read()
+
+    if not has_copyright_header(content):
+        with open(filename, "w") as f:
+            f.write(COPYRIGHT_HEADER + "\n" + content)
+
+
+def main(argv: List[str] = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filenames", nargs="*", help="Filenames to check")
+    args = parser.parse_args(argv)
+
+    retval = 0
+
+    for filename in args.filenames:
+        ext = os.path.splitext(filename)[1]
+        if ext in EXTENSIONS:
+            with open(filename, "r") as f:
+                content = f.read()
+
+            if not has_copyright_header(content):
+                print(f"Adding privacy policy to {filename}")
+                add_copyright_header(filename)
+                retval = 1
+
+    return retval
+
+
+if __name__ == "__main__":
+    sys.exit(main())
