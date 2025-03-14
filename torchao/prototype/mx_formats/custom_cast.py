@@ -1398,30 +1398,21 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_mask = col_indices < n_cols
 
         col_scale_start_offsets = (
-            (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))  # number of columns in a row
-            + pid_row # increment ROW_TILE_SIZE
+            (
+                pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
+            )  # number of columns in a row
+            + pid_row  # increment ROW_TILE_SIZE
         )
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
         col_scale_indices = tl.arange(0, COL_TILE_SIZE) * (n_rows // ROW_TILE_SIZE)
         # TODO(future): mask
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
-
-    def to_mxfp8_dim1(x, tile_size=32):
+    def to_mxfp8_dim1(x, row_tile_size=32):
         """
-        This is a single fused triton kernel to cast `x` to MX across dim0 and dim1.
-        This is useful for MX training with the mxfp8 recipe family.
-
-        The kernel loads data in 2d tiles, and performs the necessary casting across both
-        dim0 and dim1 for each tile.
-
-        Note that for now, there is only one level of tiling (32 for MX). In the future,
-        we expect that adding an outer tile (of size up to 128 on B200s) can provide a
-        further speedup.
-
         Input:
         * `x` - input tensor, in row major memory layout
-        * `tile_size` - size of tiles to normalize across, default is 32 for MX recipes
+        * `row_tile_size` - size of tiles to normalize across, default is 32 for MX recipes
 
         Output:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
@@ -1433,13 +1424,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # print('rows', n_rows, 'cols', n_cols)
 
         # TODO autotune col_tile_size
-        col_tile_size = 32
-        col_tile_size = 64
-        # TODO(next): scale offsets are broken if col_tile_size != row_tile_size
-        # col_tile_size = 8
-
-        # should be 32 for MX
-        row_tile_size = tile_size
+        col_tile_size = 128
 
         # Create output tensors (both row-major and column-major)
         output_col_major = torch.empty(
@@ -1454,7 +1439,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # Calculate grid dimensions based on tile size
         grid_rows = triton.cdiv(n_rows, row_tile_size)
         grid_cols = triton.cdiv(n_cols, col_tile_size)
-
 
         # Launch the kernel
         to_mxfp8_dim1_kernel[(grid_rows, grid_cols)](

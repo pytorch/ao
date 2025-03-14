@@ -94,7 +94,7 @@ def run(
     ), "reference mx numerics are incorrect"
 
     # triton kernel for dim1 only
-    x_d1_only_t, scale_e8m0_d1_only_t = to_mxfp8_dim1(x, tile_size=BLOCK_SIZE)
+    x_d1_only_t, scale_e8m0_d1_only_t = to_mxfp8_dim1(x, row_tile_size=BLOCK_SIZE)
 
     # triton kernel for dim0 and dim1
     x_d0_t, x_d1_t, scale_e8m0_d0_t, scale_e8m0_d1_t = to_mxfp8_across_dim0_and_dim1(
@@ -142,9 +142,9 @@ def run(
     )
 
     for _ in range(2):
-        __ = to_mxfp8_dim1(x, tile_size=BLOCK_SIZE)
+        __ = to_mxfp8_dim1(x, row_tile_size=BLOCK_SIZE)
     time_triton_dim1_us = benchmark_cuda_function_in_microseconds(
-        lambda x, b: to_mxfp8_dim1(x, tile_size=BLOCK_SIZE),
+        lambda x, b: to_mxfp8_dim1(x, row_tile_size=BLOCK_SIZE),
         x,
         BLOCK_SIZE,
     )
