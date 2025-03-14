@@ -7,41 +7,55 @@ from torchao.ops import (
     rowwise_scaled_linear_cutlass_s4s4,
     rowwise_scaled_linear_cutlass_s8s4,
 )
+from torchao.quantization.quant_api import (
+    _int4_symm_cutlass_quant,
+    _int8_symm_cutlass_quant,
+)
+
+dtype = torch.bfloat16
+dtypeq = torch.int8
+dtype_scale = torch.float32
+device = torch.device("cuda")
 
 
 def benchmark_microseconds(f, *args):
     return do_bench(lambda: f(*args), return_mode="median") * 1e3
 
 
-def get_problem(m: int, n: int, k: int, A_nbits: int, B_nbits: int):
-    assert A_nbits in (4, 8) and B_nbits in (4, 8)
+def get_problem(m: int, n: int, k: int, Xq_nbits: int):
+    assert k % 2 == 0
+    assert Xq_nbits in [4, 8]
 
-    dev = torch.device("cuda")
-    A = torch.randint(-128, 127, (m, k * A_nbits // 8), dtype=torch.int8, device=dev)
-    A_scale = torch.randn((m,), dtype=torch.half, device=dev)
-    B = torch.randint(
-        -128, 127, size=(n, k * B_nbits // 8), dtype=torch.int8, device=dev
+    X_ref = torch.randn((m, k), dtype=dtype, device=device)
+    W_ref = torch.rand((n, k), dtype=dtype, device=device)
+
+    X_quant_func = (
+        _int4_symm_cutlass_quant if Xq_nbits == 4 else _int8_symm_cutlass_quant
     )
-    B_scale = torch.randn((n,), dtype=torch.half, device=dev)
-    C = None
+    W_quant_func = _int4_symm_cutlass_quant
+    X_aqt = X_quant_func(X_ref)
+    W_aqt = W_quant_func(W_ref)
 
-    return A, A_scale, B, B_scale, C
+    Xq = X_aqt.tensor_impl.int_data
+    X_scale = X_aqt.tensor_impl.scale
+    Wq = W_aqt.tensor_impl.int_data
+    W_scale = W_aqt.tensor_impl.scale
+    bias = None
+    out_dtype = dtype
+
+    return (X_ref, W_ref), (Xq, X_scale, Wq, W_scale, bias, out_dtype)
 
 
 def benchmark(m: int, k: int, n: int):
-    dev = torch.device("cuda")
-    A_ref = torch.randn((m, k), dtype=torch.half, device=dev)
-    B_ref = torch.randn((n, k), dtype=torch.half, device=dev)
-    fp16_time = benchmark_microseconds(torch.nn.functional.linear, A_ref, B_ref)
-
-    A, A_scale, B, B_scale, C = get_problem(m, n, k, 8, 4)
-    rowwise_scaled_linear_cutlass_s8s4_time = benchmark_microseconds(
-        rowwise_scaled_linear_cutlass_s8s4, A, A_scale, B, B_scale, C
+    ref_args, args = get_problem(m, n, k, 4)
+    fp16_time = benchmark_microseconds(torch.nn.functional.linear, *ref_args)
+    rowwise_scaled_linear_cutlass_s4s4_time = benchmark_microseconds(
+        rowwise_scaled_linear_cutlass_s4s4, *args
     )
 
-    A, A_scale, B, B_scale, C = get_problem(m, n, k, 4, 4)
-    rowwise_scaled_linear_cutlass_s4s4_time = benchmark_microseconds(
-        rowwise_scaled_linear_cutlass_s4s4, A, A_scale, B, B_scale, C
+    _, args = get_problem(m, n, k, 8)
+    rowwise_scaled_linear_cutlass_s8s4_time = benchmark_microseconds(
+        rowwise_scaled_linear_cutlass_s8s4, *args
     )
 
     return {

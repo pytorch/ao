@@ -65,9 +65,11 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         """
         m = 3
         n = 1071
-        k = 4096
+        k = 2048
         activations = torch.randn(m, k)
-        model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=True)])
+        model = torch.nn.Sequential(
+            *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
+        )
 
         quantized_model = copy.deepcopy(model)
         quantize_(
@@ -103,10 +105,11 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     def test_accuracy_aten(self):
         m = 3
         n = 1024
-        k = 4096
+        k = 2048
         activations = torch.randn(m, k)
-        model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=True)])
-
+        model = torch.nn.Sequential(
+            *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
+        )
         weight_dtype = torch.int4
         granularity = PerGroup(128)
         has_weight_zeros = False

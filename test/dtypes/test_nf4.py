@@ -26,11 +26,11 @@ from torch.testing._internal.common_utils import (
 
 import torchao
 from packaging import version
+from torchao.dtypes._nf4tensor_api import nf4_weight_only
 from torchao.dtypes.nf4tensor import (
     _INNER_TENSOR_NAMES_FOR_SHARDING,
     NF4Tensor,
     linear_nf4,
-    nf4_weight_only,
     to_nf4,
 )
 from torchao.testing.utils import skip_if_rocm
