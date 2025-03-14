@@ -6,59 +6,38 @@
 
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight-impl.h>
 
-#define DEFINE_OP(weight_nbit)                                                                                                                 \
-  m.def(                                                                                                                                       \
-      "_pack_8bit_act_" #weight_nbit                                                                                                   \
-      "bit0zp_weight(Tensor weight_qvals, Tensor weight_scales, int group_size) -> Tensor");                                                \
-  m.def(                                                                                                                                       \
-      "_pack_8bit_act_" #weight_nbit                                                                                                   \
-      "bit_weight(Tensor weight_qvals, Tensor weight_scales, Tensor weight_zeros, int group_size) -> Tensor");                              \
-  m.def(                                                                                                                                       \
-      "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit0zp_weight(Tensor activations, Tensor packed_weights, int group_size, int n, int k) -> Tensor");                            \
-  m.def(                                                                                                                                       \
-      "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit_weight(Tensor activations, Tensor packed_weights, int group_size, int n, int k) -> Tensor");                               \
-  m.def(                                                                                                                                       \
-      "_linear_8bit_act_" #weight_nbit                                                                                                         \
-      "bit0zp_weight.out(Tensor activations, Tensor packed_weights, int group_size, int n, int k, *, Tensor(a!) out) -> Tensor(a!)"); \
-  m.def(                                                                                                                                       \
-      "_linear_8bit_act_" #weight_nbit                                                                                                         \
+#define DEFINE_OP(weight_nbit)                                                                                                             \
+  m.def(                                                                                                                                   \
+      "_pack_8bit_act_" #weight_nbit                                                                                                       \
+      "bit_weight(Tensor weight_qvals, Tensor weight_scales, Tensor? weight_zeros, int group_size, Tensor? bias, str? target) -> Tensor"); \
+  m.def(                                                                                                                                   \
+      "_linear_8bit_act_" #weight_nbit                                                                                                     \
+      "bit_weight(Tensor activations, Tensor packed_weights, int group_size, int n, int k) -> Tensor");                                    \
+  m.def(                                                                                                                                   \
+      "_linear_8bit_act_" #weight_nbit                                                                                                     \
       "bit_weight.out(Tensor activations, Tensor packed_weights, int group_size, int n, int k, *, Tensor(a!) out) -> Tensor(a!)")
 
-#define DEFINE_CPU_IMPL(weight_nbit)                          \
-  m.impl(                                                     \
-      "_pack_8bit_act_" #weight_nbit "bit0zp_weight", \
-      &pack_weights_without_zeros_cpu<weight_nbit>);          \
-  m.impl(                                                     \
-      "_pack_8bit_act_" #weight_nbit "bit_weight",    \
-      &pack_weights_with_zeros_cpu<weight_nbit>);             \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit0zp_weight",       \
-      &linear_cpu<weight_nbit, false>);                       \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit_weight",          \
-      &linear_cpu<weight_nbit, true>);                        \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit0zp_weight.out",   \
-      &linear_out_cpu<weight_nbit, false>);                   \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit_weight.out",      \
-      &linear_out_cpu<weight_nbit, true>)
+#define DEFINE_CPU_IMPL(weight_nbit)                     \
+  m.impl(                                                \
+      "_pack_8bit_act_" #weight_nbit "bit_weight",       \
+      &pack_weights_cpu<weight_nbit>);                   \
+  m.impl(                                                \
+      "_linear_8bit_act_" #weight_nbit "bit_weight",     \
+      &linear_cpu<weight_nbit>);                         \
+  m.impl(                                                \
+      "_linear_8bit_act_" #weight_nbit "bit_weight.out", \
+      &linear_out_cpu<weight_nbit>)
 
-#define DEFINE_META_IMPL(weight_nbit)                         \
-  m.impl(                                                     \
+#define DEFINE_META_IMPL(weight_nbit)                 \
+  m.impl(                                             \
       "_pack_8bit_act_" #weight_nbit "bit0zp_weight", \
-      &pack_weights_without_zeros_meta<weight_nbit>);         \
-  m.impl(                                                     \
+      &pack_weights_meta<weight_nbit>);               \
+  m.impl(                                             \
       "_pack_8bit_act_" #weight_nbit "bit_weight",    \
-      &pack_weights_with_zeros_meta<weight_nbit>);            \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit0zp_weight",       \
-      &linear_meta<weight_nbit, false>);                      \
-  m.impl(                                                     \
-      "_linear_8bit_act_" #weight_nbit "bit_weight",          \
-      &linear_meta<weight_nbit, true>);
+      &pack_weights_meta<weight_nbit>);               \
+  m.impl(                                             \
+      "_linear_8bit_act_" #weight_nbit "bit_weight",  \
+      &linear_meta<weight_nbit>);
 
 TORCH_LIBRARY_FRAGMENT(torchao, m) {
   DEFINE_OP(1);

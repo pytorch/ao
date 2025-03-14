@@ -226,7 +226,7 @@ and tensorwise scaling. The training benchmarks were all run using:
 | Llama3-8b     |  rowwise with bfloat16 all-gather  | per op SAC               | 47.79             |  6768                | 10.05%
 
 **Important notes**:
-- E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes ((example)[https://pytorch.org/blog/training-using-float8-fsdp2/]).
+- E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes ([example](https://pytorch.org/blog/training-using-float8-fsdp2/)).
 - Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve.
 
 **Reproducing training benchmarks**
