@@ -41,11 +41,12 @@ def addmm_float8_unwrapped(
     b_inverse_scale = b_scale.reciprocal()
 
     post_inverse_scale = None
-    if (
-        a_scale.shape == (a_data.shape[0], 1)
-        and b_scale.shape == (1, b_data.shape[1])
-        and not use_fast_accum
-    ):
+    is_rowwise_scaling = a_scale.shape == (a_data.shape[0], 1) and b_scale.shape == (
+        1,
+        b_data.shape[1],
+    )
+
+    if is_rowwise_scaling and not use_fast_accum:
         # The rowwise CUTLASS-based kernel is so slow without fast-accum that
         # we'd rather use the tensorwise cuBLAS-based kernel and do the scaling
         # manually afterwards (hoping Inductor will be able to fuse it).
