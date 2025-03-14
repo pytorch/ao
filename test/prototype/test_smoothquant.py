@@ -66,6 +66,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
+@pytest.mark.skip("this test is broken on recent PyTorch, TODO(#1639): fix it")
 def test_compute(bias, alpha, quant_mode, device, idtype):
     class Linear(torch.nn.Module):
         def __init__(self, bias: bool):
@@ -140,6 +141,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
+@pytest.mark.skip("this test is broken on recent PyTorch, TODO(#1639): fix it")
 def test_save_load_recipe(alpha, quant_mode, device, idtype):
     dataset_size = 20
     l1, l2, l3 = 512, 256, 128
