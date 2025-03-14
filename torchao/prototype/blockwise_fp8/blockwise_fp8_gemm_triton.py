@@ -1,9 +1,7 @@
 import torch
-
-if torch.cuda.is_available():
-    import triton
-    import triton.language as tl
-    from triton import Config
+import triton
+import triton.language as tl
+from triton import Config
 
 # Original implementation at https://github.com/deepseek-ai/DeepSeek-V3/blob/main/inference/kernel.py
 

@@ -1,10 +1,8 @@
 from typing import Tuple
 
 import torch
-
-if torch.cuda.is_available():
-    import triton
-    import triton.language as tl
+import triton
+import triton.language as tl
 
 
 @triton.jit
