@@ -21,7 +21,7 @@ jobs:
         include:
           - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/cu124'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu124'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
 
