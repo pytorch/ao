@@ -1,6 +1,8 @@
 import pytest
 import torch
 
+triton = pytest.importorskip("triton", reason="Triton required to run this test")
+
 from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import blockwise_fp8_gemm
 from torchao.prototype.blockwise_fp8.blockwise_quantization import (
     fp8_blockwise_act_quant,

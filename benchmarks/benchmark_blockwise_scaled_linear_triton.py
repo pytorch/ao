@@ -1,22 +1,24 @@
-import pandas as pd
 import torch
-from tqdm import tqdm
 
 if torch.cuda.is_available():
+    import pandas as pd
+    from tqdm import tqdm
     from triton.testing import do_bench
 
-from torchao.float8.float8_utils import compute_error
-from torchao.ops import rowwise_scaled_linear_cutlass_s8s4
-from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import blockwise_fp8_gemm
-from torchao.prototype.blockwise_fp8.blockwise_quantization import (
-    fp8_blockwise_act_quant,
-    fp8_blockwise_weight_quant,
-)
-from torchao.quantization.quant_api import (
-    _int4_symm_per_token_quant_cutlass,
-    _int8_symm_per_token_reduced_range_quant_cutlass,
-)
-from torchao.utils import is_sm_at_least_89
+    from torchao.float8.float8_utils import compute_error
+    from torchao.ops import rowwise_scaled_linear_cutlass_s8s4
+    from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import (
+        blockwise_fp8_gemm,
+    )
+    from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+        fp8_blockwise_act_quant,
+        fp8_blockwise_weight_quant,
+    )
+    from torchao.quantization.quant_api import (
+        _int4_symm_per_token_quant_cutlass,
+        _int8_symm_per_token_reduced_range_quant_cutlass,
+    )
+    from torchao.utils import is_sm_at_least_89
 
 
 def benchmark_microseconds(f, *args):
