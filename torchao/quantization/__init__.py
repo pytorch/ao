@@ -46,8 +46,10 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -57,6 +59,8 @@ from .quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    PlainLayout,
+    TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
@@ -190,4 +194,9 @@ __all__ = [
     "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
+    # Layouts for quant_api
+    "PlainLayout",
+    "TensorCoreTiledLayout",
+    "CutlassInt4PackedLayout",
+    "Float8MMConfig",
 ]
