@@ -67,6 +67,28 @@ def swizzle_addmm(aten_op, args, kwargs=None):
     return aten_op(bias, a, b, args[3:], **kwargs)
 
 
+@implements([aten._scaled_mm.default])
+def swizzle_scaled_mm(aten_op, args, kwargs=None):
+    print("in swizzle_scaled_mm")
+    a = args[0]
+    b = args[1]
+    scale_a = args[2]
+    scale_b = args[3]
+    bias = None if len(args) <= 4 else args[4]
+    scale_result = None if len(args) <= 5 else args[5]
+    out_dtype = None if len(args) <= 6 else args[6]
+
+    a_is_swizzled = False
+    b_is_swizzled = False
+    if isinstance(a, SwizzleTensor):
+        a = a.as_tensor()
+        a_is_swizzled = True
+    if isinstance(b, SwizzleTensor):
+        b = b.as_tensor()
+        b_is_swizzled = True
+    return torchao.ops.swizzle_scaled_mm(a, b, a_is_swizzled, b_is_swizzled, scale_a, scale_b, bias, scale_result, out_dtype, **kwargs)
+
+
 @implements([aten.permute.default])
 def swizzle_permute(aten_op, args, kwargs=None):
     tensor = args[0]

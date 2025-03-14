@@ -32,21 +32,24 @@ class SwizzleTensor(torch.Tensor):
             return
         #assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
         assert original.ndim == 2, "SwizzleTensor only supports ndim 2"
+        assert original.itemsize == 1 or original.itemsize == 2
+        kdiv = 32 if original.itemsize == 2 else 64
+        lastdim = 8 if original.itemsize == 2 else 16
         if original.ndim == 2:
             M, K = original.shape
             B = 0
         if original.ndim == 3:
             B, M, K = original.shape
         alignedM = _get_min_alignment(M, 16)
-        alignedK = _get_min_alignment(K, 32)
+        alignedK = _get_min_alignment(K, kdiv)
         paddedM = alignedM - M
         paddedK = alignedK - K
         x = torch.nn.functional.pad(original, (0, paddedK, 0, paddedM), "constant", 0)
         if original.ndim == 2:
-            x = x.view(alignedM//16, 16, alignedK//32, 4, 8)
+            x = x.view(alignedM//16, 16, alignedK//kdiv, 4, lastdim)
             x = x.permute(0, 2, 3, 1, 4)
         if original.ndim == 3:
-            x = x.view(B, alignedM//16, 16, alignedK//32, 4, 8)
+            x = x.view(B, alignedM//16, 16, alignedK//kdiv, 4, lastdim)
             x = x.permute(0, 1, 3, 4, 2, 5)
         self.x = x.contiguous()
         self.B = B
@@ -63,16 +66,20 @@ class SwizzleTensor(torch.Tensor):
         return f"{self.__class__.__name__}(original={self.unswizzle()})"
 
     def unswizzle(self):
+        undone = None
         if self.original_ndim == 2:
             undone = self.x.permute(0, 3, 1, 2, 4).contiguous()
             undone = undone.reshape(self.alignedM, self.alignedK)
             undone = undone[0:self.M, 0:self.K]
-            return undone.reshape(self.M, self.K)
+            undone = undone.reshape(self.M, self.K)
+            if self.is_transposed:
+                undone = undone.T
         if self.original_ndim == 3:
             undone = self.x.permute(0, 1, 4, 2, 3, 5).contiguous()
             undone = undone.reshape(self.B, self.alignedM, self.alignedK)
             undone = undone[0:self.B, 0:self.M, 0:self.K]
-            return undone.reshape(self.B, self.M, self.K)
+            undone = undone.reshape(self.B, self.M, self.K)
+        return undone
 
     def as_tensor(self):
         # note the transpose because this causes col major hipblaslt op to be TN

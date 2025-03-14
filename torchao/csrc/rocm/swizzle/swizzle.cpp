@@ -1,17 +1,25 @@
 #include <hip/hip_runtime.h>
+#include <hipblaslt/hipblaslt-ext.hpp>
 
 #include <ATen/ATen.h>
 #include <ATen/OpMathType.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/core/Tensor.h>
+#include <ATen/hip/HIPDataType.h>
 #include <ATen/hip/HIPBlas.h>
+#include <ATen/native/Resize.h>
+#include <c10/core/ScalarType.h>
+#include <ATen/hip/impl/HIPCachingAllocatorMasqueradingAsCUDA.h>
 #include <c10/util/ArrayRef.h>
 #include <torch/library.h>
 
 using at::Scalar;
 using at::Tensor;
 using at::TensorArg;
+using c10::kFloat;
+using c10::ScalarType;
 using c10::IntArrayRef;
+using at::cuda::ScalarTypeToCudaDataType;
 
 //
 // copied from aten/src/ATen/cuda/CUDABlas.cpp
@@ -179,6 +187,19 @@ static size_t _getWorkspaceSize() {
   return workspace_size;
 }
 
+static bool _scaled_mm_is_fnuz() {
+    auto dprops = at::cuda::getCurrentDeviceProperties();
+    std::string device_arch = dprops->gcnArchName;
+    static const std::vector<std::string> archs = {"gfx940", "gfx941", "gfx942"};
+    for (std::string arch : archs) {
+        size_t substring = device_arch.find(arch);
+        if (substring != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 //
@@ -235,36 +256,142 @@ c10::MaybeOwned<Tensor> inline prepare_matrix_for_cublas(const Tensor& tensor, b
 }
 
 struct cublasCommonArgs {
-  cublasCommonArgs(const Tensor& mat1, const Tensor& mat2, Tensor& c) {
-    bool transpose_mat1 = false, transpose_mat2 = false;
-    transpose_result = false;
+  cublasCommonArgs(
+      const Tensor& mat1,
+      const Tensor& mat2,
+      bool swizzle1,
+      bool swizzle2,
+      Tensor& c,
+      const std::optional<Tensor>& scale_a = std::nullopt,
+      const std::optional<Tensor>& scale_b = std::nullopt,
+      const std::optional<Tensor>& scale_result = std::nullopt) {
+    bool transpose_result = false, transpose_a = false, transpose_b = false;
     result = prepare_matrix_for_cublas(c, transpose_result);
-    mata = prepare_matrix_for_cublas(transpose_result ? mat2 : mat1, transpose_mat1, transpose_result);
-    matb = prepare_matrix_for_cublas(transpose_result ? mat1 : mat2, transpose_mat2, transpose_result);
-    auto mat1_sizes = mat1.sizes();
-    auto mat2_sizes = mat2.sizes();
-    if (transpose_result) {
-      transpose_mat1 = !transpose_mat1;
-      transpose_mat2 = !transpose_mat2;
-      mat1_sizes = mata->sizes();
-      mat2_sizes = matb->sizes();
+    mata = prepare_matrix_for_cublas(transpose_result ? mat2 : mat1, transpose_a, transpose_result);
+    matb = prepare_matrix_for_cublas(transpose_result ? mat1 : mat2, transpose_b, transpose_result);
+
+    // Handle scale tensors if provided
+    if (scale_a && scale_b) {
+      // By default since we return in row-major we run the gemm
+      // as B.T @ A.T, check transpose_result to determine if we flip the scales
+      scale_mata_ptr = transpose_result ? scale_b->data_ptr() : scale_a->data_ptr();
+      scale_mata_dtype = transpose_result ? scale_b->scalar_type() : scale_a->scalar_type();
+      scale_matb_ptr = transpose_result ? scale_a->data_ptr() : scale_b->data_ptr();
+      scale_matb_dtype = transpose_result ? scale_a->scalar_type() : scale_b->scalar_type();
     }
 
-    m = mat1_sizes[transpose_result ? 1 : 0];
-    k = mat1_sizes[transpose_result ? 0 : 1];
-    n = mat2_sizes[transpose_result ? 0 : 1];
-    lda = mata->stride((transpose_mat1 == transpose_result) ? 1 : 0);
-    ldb = matb->stride((transpose_mat2 == transpose_result) ? 1 : 0);
+    if (scale_result) {
+      scale_result_ptr = scale_result->data_ptr();
+      scale_result_dtype = scale_result->scalar_type();
+    }
+
+    // Update transpose flags
+    if (transpose_result) {
+      transpose_a = !transpose_a;
+      transpose_b = !transpose_b;
+    }
+
+    auto sizes_a = mata->sizes();
+    auto sizes_b = matb->sizes();
+
+    m = sizes_a[transpose_result ? 1 : 0];
+    k = sizes_a[transpose_result ? 0 : 1];
+    n = sizes_b[transpose_result ? 0 : 1];
+    lda = mata->stride((transpose_a == transpose_result) ? 1 : 0);
+    ldb = matb->stride((transpose_b == transpose_result) ? 1 : 0);
     result_ld = result->stride(transpose_result ? 0 : 1);
-    transa = transpose_mat1 ?  mata->is_conj() ? 'c' : 't' : 'n';
-    transb = transpose_mat2 ?  matb->is_conj() ? 'c' : 't' : 'n';
+    transa = transpose_a ? mata->is_conj() ? 'c' : 't' : 'n';
+    transb = transpose_b ? matb->is_conj() ? 'c' : 't' : 'n';
+
+    mata_is_swizzled = transpose_result ? swizzle2 : swizzle1;
+    matb_is_swizzled = transpose_result ? swizzle1 : swizzle2;
   }
+
+  // Matrix members
   char transa, transb;
   int64_t m, n, k;
   int64_t lda, ldb, result_ld;
   c10::MaybeOwned<Tensor> mata, matb, result;
-  bool transpose_result;
+
+  // Scale members
+  void* scale_mata_ptr = nullptr;
+  void* scale_matb_ptr = nullptr;
+  void* scale_result_ptr = nullptr;
+  std::optional<c10::ScalarType> scale_mata_dtype;
+  std::optional<c10::ScalarType> scale_matb_dtype;
+  std::optional<c10::ScalarType> scale_result_dtype;
+
+  // swizzle members
+  bool mata_is_swizzled;
+  bool matb_is_swizzled;
 };
+
+enum class ScalingType {
+  TensorWise,
+  RowWise,
+  Error
+};
+
+ScalingType get_scaling_type(
+    const at::Tensor& scale_a,
+    const at::Tensor& scale_b,
+    int64_t dim_m,
+    int64_t dim_n) {
+  // Both Per-Tensor and Row-wise scaling expect fp32 tensors
+  TORCH_CHECK(
+      scale_a.scalar_type() == kFloat && scale_b.scalar_type() == kFloat,
+      "Both scale_a and scale_b must be float (fp32) tensors.");
+
+  // Check the singluar scale case for per-tensor scaling
+  if (scale_a.numel() == 1 && scale_b.numel() == 1) {
+    return ScalingType::TensorWise;
+  }
+
+  // For non-TensorWise scaling, enforce 2D input tensors
+  TORCH_CHECK(
+      scale_a.dim() == 2 && scale_b.dim() == 2,
+      "For non-TensorWise scaling, scale tensors must be 2-dimensional, "
+      "but got scale_a.dim()=",
+      scale_a.dim(),
+      " and scale_b.dim()=",
+      scale_b.dim());
+
+  // Check for RowWise scaling
+  if (scale_a.size(0) == dim_m && scale_a.size(1) == 1 &&
+      scale_b.size(0) == 1 && scale_b.size(1) == dim_n) {
+#if defined(HIPBLASLT_VEC_EXT)
+    TORCH_CHECK(
+        scale_a.is_contiguous() && scale_b.is_contiguous(),
+        "Both scale_a and scale_b must be contiguous for RowWise scaling.");
+    return ScalingType::RowWise;
+#else
+    TORCH_CHECK(false, "Per-row scaling is not supported for this platform!");
+    return ScalingType::Error;
+#endif
+  }
+
+  // If we reach here, the input doesn't match any valid scaling type
+  TORCH_CHECK(
+      false,
+      "Invalid scaling configuration. For TensorWise scaling, both scales should be scalar. "
+      "For RowWise scaling, scale_a should be (",
+      dim_m,
+      ", 1) and scale_b should be (1, ",
+      dim_n,
+      "). "
+      "Got scale_a.size()=(",
+      scale_a.size(0),
+      ", ",
+      scale_a.size(1),
+      ") and ",
+      "scale_b.size()=(",
+      scale_b.size(0),
+      ", ",
+      scale_b.size(1),
+      ")");
+
+  return ScalingType::Error;
+}
 
 } // namespace
 
@@ -420,7 +547,7 @@ Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2, bool mat1_is_swizzled,
   Tensor result = at::empty_like(meta_result, mat1.device());
   at::ScalarType scalar_type = result.scalar_type();
 
-  cublasCommonArgs args(mat1, mat2, result);
+  cublasCommonArgs args(mat1, mat2, mat1_is_swizzled, mat2_is_swizzled, result);
 
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
@@ -448,13 +575,333 @@ Tensor swizzle_mm(const Tensor& mat1, const Tensor& mat2, bool mat1_is_swizzled,
             beta_val,
             result_ptr,
             args.result_ld,
-            args.transpose_result ? mat2_is_swizzled : mat1_is_swizzled,
-            args.transpose_result ? mat1_is_swizzled : mat2_is_swizzled);
+            args.mata_is_swizzled,
+            args.matb_is_swizzled);
       });
 
     return result;
 }
 
+void _scaled_gemm(
+    char transa,
+    char transb,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    const void* mat1_ptr,
+    const void* mat1_scale_ptr,
+    int64_t mat1_ld,
+    ScalarType mat1_dtype,
+    ScalarType mat1_scale_dtype,
+    bool mat1_is_swizzled,
+    const void* mat2_ptr,
+    const void* mat2_scale_ptr,
+    int64_t mat2_ld,
+    ScalarType mat2_dtype,
+    ScalarType mat2_scale_dtype,
+    bool mat2_is_swizzled,
+    const void* bias_ptr,
+    ScalarType bias_dtype,
+    void* result_ptr,
+    const void *result_scale_ptr,
+    int64_t result_ld,
+    ScalarType result_dtype,
+    bool use_rowwise) {
+  const auto computeType = HIPBLAS_COMPUTE_32F;
+  const auto scaleType = HIP_R_32F;
+  const float alpha_val = 1.0;
+  const float beta_val = 0.0;
+  HipBlasLtMatmulDescriptor computeDesc(computeType, scaleType);
+  computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_TRANSA, _cublasOpFromChar(transa));
+  computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_TRANSB, _cublasOpFromChar(transb));
+  hipblasLtMatmulDescAttributes_t matmulDescA = HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER;
+  hipblasLtMatmulDescAttributes_t matmulDescB = HIPBLASLT_MATMUL_DESC_B_SCALE_POINTER;
+#if defined(HIPBLASLT_VEC_EXT)
+  if (use_rowwise) {
+    matmulDescA = HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT;
+    matmulDescB = HIPBLASLT_MATMUL_DESC_B_SCALE_POINTER_VEC_EXT;
+  }
+#else
+  // rowwise isn't supported using cublaslt or older hipblaslt
+  TORCH_INTERNAL_ASSERT(use_rowwise == false, "rowwise scaled_gemm not supported with blaslt");
+#endif
+  computeDesc.setAttribute(matmulDescA, mat1_scale_ptr);
+  computeDesc.setAttribute(matmulDescB, mat2_scale_ptr);
+  if (result_scale_ptr != nullptr) {
+    computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_D_SCALE_POINTER, result_scale_ptr);
+  }
+  HipBlasLtMatrixLayout Adesc(ScalarTypeToCudaDataType(mat1_dtype), m, k, mat1_ld, transa == 't');
+  HipBlasLtMatrixLayout Bdesc(ScalarTypeToCudaDataType(mat2_dtype), k, n, mat2_ld, transb == 't');
+  // Cdesc is unused, beta is 0. But hipblaslt needs this set to something reasonable.
+  HipBlasLtMatrixLayout Cdesc(ScalarTypeToCudaDataType(result_dtype), m, n, result_ld);
+  HipBlasLtMatrixLayout Ddesc(ScalarTypeToCudaDataType(result_dtype), m, n, result_ld);
+  if (bias_ptr) {
+    computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_BIAS_POINTER, bias_ptr);
+    computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_EPILOGUE, HIPBLASLT_EPILOGUE_BIAS);
+    computeDesc.setAttribute(HIPBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, ScalarTypeToCudaDataType(bias_dtype));
+  }
+
+#ifdef HIPBLASLT_HAS_ORDER_COL16
+  if (mat1_is_swizzled) {
+    Adesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_ORDER, HIPBLASLT_ORDER_COL16_4R16);
+  }
+  if (mat2_is_swizzled) {
+    Bdesc.setAttribute(HIPBLASLT_MATRIX_LAYOUT_ORDER, HIPBLASLT_ORDER_COL16_4R16);
+  }
+#endif
+
+  auto stream = c10::hip::getCurrentHIPStreamMasqueradingAsCUDA();
+  size_t workspaceSize = _getWorkspaceSize();
+  auto& allocator = *::c10::hip::HIPCachingAllocatorMasqueradingAsCUDA::get();
+  auto workspace = allocator.allocate(workspaceSize);
+  auto workspace_ptr = workspace.mutable_get();
+  TORCH_CHECK(workspace_ptr != nullptr, "OOM trying to allocate workspace for cublaslt");
+
+  HipBlasLtMatmulPreference preference;
+  preference.setAttribute(HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, workspaceSize);
+  hipblasLtMatmulHeuristicResult_t heuristicResult = {};
+  int returnedResult = 0;
+  hipblasLtHandle_t ltHandle = at::cuda::getCurrentCUDABlasLtHandle();
+  TORCH_CUDABLAS_CHECK(hipblasLtMatmulAlgoGetHeuristic(
+      ltHandle,
+      computeDesc.descriptor(),
+      Adesc.descriptor(),
+      Bdesc.descriptor(),
+      Cdesc.descriptor(),
+      Ddesc.descriptor(),
+      preference.descriptor(),
+      1,
+      &heuristicResult,
+      &returnedResult));
+  if (returnedResult == 0) {
+    // hipblaslt might be able to recover by returning all algos
+    std::vector<hipblasLtMatmulHeuristicResult_t> all_algos;
+    TORCH_CUDABLAS_CHECK(hipblaslt_ext::getAllAlgos(
+        ltHandle,
+        hipblaslt_ext::GemmType::HIPBLASLT_GEMM,
+        _cublasOpFromChar(transa),
+        _cublasOpFromChar(transb),
+        ScalarTypeToCudaDataType(mat1_dtype),
+        ScalarTypeToCudaDataType(mat2_dtype),
+        // C is nullptr and beta=0, so set to something reasonable. See above.
+        //ScalarTypeToCudaDataType(bias_dtype),
+        ScalarTypeToCudaDataType(result_dtype),
+        ScalarTypeToCudaDataType(result_dtype),
+        HIPBLAS_COMPUTE_32F,
+        all_algos));
+    if (all_algos.size() == 0) {
+      TORCH_CUDABLAS_CHECK(HIPBLAS_STATUS_NOT_SUPPORTED);
+    }
+    // pick first valid solution
+    bool found = false;
+    for (size_t i = 0; i < all_algos.size(); i++) {
+        size_t ret_workspace_size = 0;
+        auto is_valid_status = hipblaslt_ext::matmulIsAlgoSupported(
+                ltHandle,
+                computeDesc.descriptor(),
+                &alpha_val,
+                Adesc.descriptor(),
+                Bdesc.descriptor(),
+                &beta_val,
+                Cdesc.descriptor(),
+                Ddesc.descriptor(),
+                all_algos[i].algo,
+                ret_workspace_size);
+        if (is_valid_status == HIPBLAS_STATUS_SUCCESS) {
+            if (ret_workspace_size <= workspaceSize) {
+                heuristicResult = all_algos[i];
+                found = true;
+                break;
+            }
+        }
+    }
+    TORCH_CHECK(found, "could not find valid hipblaslt solution");
+  }
+  hipblasStatus_t cublasStatus = hipblasLtMatmul(
+      ltHandle,
+      computeDesc.descriptor(),
+      &alpha_val,
+      mat1_ptr,
+      Adesc.descriptor(),
+      mat2_ptr,
+      Bdesc.descriptor(),
+      &beta_val,
+      result_ptr, // unused, since beta_val is 0, but hipblaslt can't handle nullptr
+      Cdesc.descriptor(),
+      result_ptr,
+      Ddesc.descriptor(),
+      &heuristicResult.algo,
+      workspace_ptr,
+      workspaceSize,
+      stream);
+  TORCH_CHECK(
+      cublasStatus == HIPBLAS_STATUS_SUCCESS,
+      "CUDA error: ",
+      at::cuda::blas::_cublasGetErrorEnum(cublasStatus),
+      " when calling hipblasLtMatmul with transpose_mat1 ",
+      transa,
+      " transpose_mat2 ",
+      transb,
+      " m ",
+      m,
+      " n ",
+      n,
+      " k ",
+      k,
+      " mat1_ld ",
+      mat1_ld,
+      " mat2_ld ",
+      mat2_ld,
+      " result_ld ",
+      result_ld,
+      " computeType ",
+      computeType,
+      " scaleType ",
+      scaleType);
+  return;
+}
+
+Tensor&
+_scaled_mm_out(const Tensor& mat1, const Tensor& mat2,
+          bool mat1_is_swizzled,
+          bool mat2_is_swizzled,
+          const Tensor& scale_a,
+          const Tensor& scale_b,
+          const std::optional<at::Tensor>& bias,
+          const std::optional<at::Tensor>& scale_result,
+          std::optional<c10::ScalarType> out_dtype,
+          Tensor& out) {
+  // Check sizes
+  TORCH_CHECK(mat1.dim() == 2, "mat1 must be a matrix");
+  TORCH_CHECK(mat2.dim() == 2, "mat2 must be a matrix");
+  TORCH_CHECK(
+      mat1.sizes()[1] == mat2.sizes()[0], "mat1 and mat2 shapes cannot be multiplied (",
+      mat1.sizes()[0], "x", mat1.sizes()[1], " and ", mat2.sizes()[0], "x", mat2.sizes()[1], ")");
+
+  // Check what type of scaling we are doing based on inputs
+  ScalingType scaling_choice = get_scaling_type(scale_a, scale_b, mat1.size(0), mat2.size(1));
+  TORCH_INTERNAL_ASSERT(scaling_choice != ScalingType::Error, "Scaling type not supported");
+
+  TORCH_CHECK(!scale_result || (scale_result->numel() == 1 && scale_result->scalar_type() == kFloat),
+       "scale_result must be a float scalar");
+  TORCH_CHECK(!bias || bias->numel() == mat2.sizes()[1], "Bias must be size ", mat2.sizes()[1],
+       " but got ", bias->numel());
+  TORCH_CHECK(
+      mat1.sizes()[1] % 16 == 0,
+      "Expected trailing dimension of mat1 to be divisible by 16 ",
+      "but got mat1 shape: (",
+      mat1.sizes()[0],
+      "x",
+      mat1.sizes()[1],
+      ").");
+  TORCH_CHECK(mat2.sizes()[0] % 16 == 0 && mat2.sizes()[1] % 16 == 0, "mat2 shape (", mat2.sizes()[0], "x",
+       mat2.sizes()[1], ") must be divisible by 16");
+  // Check types
+  TORCH_CHECK(!out_dtype || *out_dtype == out.scalar_type(), "out_dtype must match output matrix type");
+  TORCH_CHECK(isFloat8Type(mat1.scalar_type()), "Expected mat1 to be Float8 matrix got ", mat1.scalar_type());
+  TORCH_CHECK(isFloat8Type(mat2.scalar_type()), "Expected mat2 to be Float8 matrix got ", mat2.scalar_type());
+  if (bias) {
+    TORCH_CHECK(out.scalar_type() != kFloat, "Bias is not supported when out_dtype is set to Float32");
+    TORCH_CHECK(bias->scalar_type() == ScalarType::BFloat16 || bias->scalar_type() == ScalarType::Half,
+         "Bias must be either Half or BFloat16, but got ", bias->scalar_type());
+    TORCH_CHECK((out.scalar_type() != kFloat && out.scalar_type() != ScalarType::BFloat16) ||
+          bias->scalar_type() == ScalarType::BFloat16,
+          "Bias must be BFloat16 to compute ", out.scalar_type(), " output, but got ", bias->scalar_type());
+    TORCH_CHECK(out.scalar_type() != ScalarType::Half || bias->scalar_type() == ScalarType::Half,
+          "Bias must be Float16 to compute ", out.scalar_type(), " output, but got ", bias->scalar_type());
+  }
+  {
+    auto bias_ = bias.value_or(Tensor());
+    auto scale_result_ = scale_result.value_or(Tensor());
+
+    // NOLINTNEXTLINE(*c-array*)
+    TensorArg targs[]{{out, "out", 0}, {mat1, "mat1", 1}, {mat2, "mat2", 2},
+                      {bias_, "bias", 3}, {scale_a, "scale_a", 4}, {scale_b, "scale_b", 5},
+                      {scale_result_, "scale_result", 6}};
+    checkAllSameGPU(__func__, targs);
+  }
+  // Validation checks have passed lets resize the output to actual size
+  IntArrayRef mat1_sizes = mat1.sizes();
+  IntArrayRef mat2_sizes = mat2.sizes();
+  at::native::resize_output(out, {mat1_sizes[0], mat2_sizes[1]});
+
+  // If any of M, K, N is 0 - return early (the tensorwise/rowwise float8 gemm kernels
+  // do not support this case).
+  if (mat1_sizes[0] == 0 || mat1_sizes[1] == 0 || mat2_sizes[1] == 0) {
+    // `out` was created with `at::empty`. In the case where we are multiplying
+    // MxK by KxN and K is the zero dim, we need to initialize here to properly
+    // return a tensor of zeros.
+    if (mat1_sizes[1] == 0) {
+      out.zero_();
+    }
+
+    return out;
+  }
+
+  if (scaling_choice == ScalingType::RowWise) {
+    // For ROCm, match behavior of f8f8bf16_rowwise type checking, for unit test purposes.
+    Tensor b = mat2;
+    if (_scaled_mm_is_fnuz()) {
+      TORCH_CHECK(b.dtype() == at::kFloat8_e4m3fnuz);
+    }
+    else {
+      TORCH_CHECK(b.dtype() == at::kFloat8_e4m3fn);
+    }
+    // Until more than bf16 is supported.
+    TORCH_CHECK(out.scalar_type() == ScalarType::BFloat16,
+         "hipblaslt rowwise _scaled_mm only supports BFloat16 output but got ", out.scalar_type());
+  }
+
+  cublasCommonArgs args(mat1, mat2, mat1_is_swizzled, mat2_is_swizzled, out, scale_a, scale_b, scale_result);
+  const auto out_dtype_ = args.result->scalar_type();
+  TORCH_CHECK(args.transa == 't' && args.transb == 'n', "Only multiplication of row-major and column-major matrices is supported by cuBLASLt");
+
+  {
+    _scaled_gemm(
+        args.transa,
+        args.transb,
+        args.m,
+        args.n,
+        args.k,
+        args.mata->data_ptr(),
+        args.scale_mata_ptr,
+        args.lda,
+        args.mata->scalar_type(),
+        args.scale_mata_dtype.value(),
+        args.mata_is_swizzled,
+        args.matb->data_ptr(),
+        args.scale_matb_ptr,
+        args.ldb,
+        args.matb->scalar_type(),
+        args.scale_matb_dtype.value(),
+        args.matb_is_swizzled,
+        bias ? bias->data_ptr(): nullptr,
+        bias ? bias->scalar_type() : isFloat8Type(out_dtype_) ? at::ScalarType::Half : out_dtype_,
+        args.result->data_ptr(),
+        args.scale_result_ptr,
+        args.result_ld,
+        out_dtype_,
+        scaling_choice == ScalingType::RowWise);
+  }
+
+  return out;
+}
+
+Tensor
+swizzle_scaled_mm(const Tensor& mat_a, const Tensor& mat_b,
+          bool mat1_is_swizzled,
+          bool mat2_is_swizzled,
+          const Tensor& scale_a,
+          const Tensor& scale_b,
+          const std::optional<at::Tensor>& bias,
+          const std::optional<at::Tensor>& scale_result,
+          std::optional<c10::ScalarType> out_dtype) {
+  const auto out_dtype_ = out_dtype.value_or(mat_a.scalar_type());
+  Tensor out = at::empty({0}, mat_a.options().dtype(out_dtype_));
+  return _scaled_mm_out(mat_a, mat_b, mat1_is_swizzled, mat2_is_swizzled, scale_a, scale_b, bias, scale_result, out_dtype, out);
+}
+
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::swizzle_mm", &swizzle_mm);
+  m.impl("torchao::swizzle_scaled_mm", &swizzle_scaled_mm);
 }
