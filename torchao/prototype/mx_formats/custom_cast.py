@@ -1320,10 +1320,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         ROW_TILE_SIZE: tl.constexpr,  # should be 32 for MX
         COL_TILE_SIZE: tl.constexpr,  # can be autotuned
     ):
-        """
-        credit: mostly Claude, some Vasiliy
-        """
-
         # Get program ID
         pid_row = tl.program_id(0)
         pid_col = tl.program_id(1)
@@ -1354,39 +1350,19 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # Load the entire block in a single operation
         x_block = tl.load(x_ptr + row_major_offsets, mask=mask)
 
-        # ----------------------------------------------------
-        # Row-wise normalization
-        # ----------------------------------------------------
         # Calculate the absolute values of elements in the block
         x_block_abs = tl.abs(x_block)
 
-        # Find the maximum absolute value for each row
-        row_scale, row_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=1)
-
-        # Normalize each row by its maximum absolute value
-        # Broadcasting row_scale to match x_block's shape
-        row_normalized = x_block / row_scale[:, None]
-
-        # quant to float8
-        # TODO(this PR): clamp?
-        row_normalized = row_normalized.to(tl.float8e4nv)
-
-        # ----------------------------------------------------
-        # Column-wise normalization
-        # ----------------------------------------------------
         # Find the maximum absolute value for each column
         col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
 
-        # Normalize each column by its maximum absolute value
+        # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
         col_normalized = x_block / col_scale[None, :]
 
-        # quant to float8
+        # Quantize to float8
         # TODO(this PR): clamp?
         col_normalized = col_normalized.to(tl.float8e4nv)
-
-        # Store the row-normalized result in row-major format
-        # tl.store(output_row_major_ptr + row_major_offsets, row_normalized, mask=mask)
 
         # Store the column-normalized result in column-major format
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
@@ -1400,7 +1376,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_scale_start_offsets = (
             (
                 pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
-            )  # number of columns in a row
+            )  # number of blocks seen so far
             + pid_row  # increment ROW_TILE_SIZE
         )
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
@@ -1412,7 +1388,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         """
         Input:
         * `x` - input tensor, in row major memory layout
-        * `row_tile_size` - size of tiles to normalize across, default is 32 for MX recipes
+        * `row_tile_size` - size of tiles to scale across, default is 32 for MX recipes
 
         Output:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
@@ -1421,17 +1397,16 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         assert x.is_contiguous(), "`x` must be contiguous"
         # Get tensor shape
         n_rows, n_cols = x.shape
-        # print('rows', n_rows, 'cols', n_cols)
 
         # TODO autotune col_tile_size
         col_tile_size = 128
 
-        # Create output tensors (both row-major and column-major)
+        # Create output tensors
         output_col_major = torch.empty(
             (n_cols, n_rows), dtype=torch.float8_e4m3fn, device=x.device
         )
 
-        # Create tensors for row-wise and column-wise maximum absolute values
+        # Create scale tensors
         col_scale = torch.empty(
             n_cols, n_rows // row_tile_size, dtype=torch.uint8, device=x.device
         )

@@ -4,11 +4,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Starting with https://github.com/vkuzo/pytorch_scripts/blob/main/mx_cast_poc/20250305_mx_dim0_dim1_cast.py
-and making it nice.
-"""
-
 from typing import Callable
 
 import fire
@@ -23,6 +18,7 @@ from torchao.prototype.mx_formats.custom_cast import (
     to_mxfp8_dim1,
     to_mxfp8_dim1_reference,
 )
+from torchao.quantization.utils import compute_error
 from torchao.testing.float8.roofline_utils import get_specs
 
 torch.manual_seed(0)
@@ -38,25 +34,16 @@ def benchmark_cuda_function_in_microseconds(func: Callable, *args, **kwargs) -> 
     return time * 1e3
 
 
-def compute_error(x, y):
-    Ps = torch.linalg.norm(x)
-    Pn = torch.linalg.norm(x - y)
-    return 20 * torch.log10(Ps / Pn)
-
-
 def run(
     M: int = 4096,
     K: int = 2048,
     BLOCK_SIZE: int = 32,
     check_accuracy: bool = True,
-    mode: str = "dim0_and_dim1",
 ):
     print(f"M {M} K {K} BLOCK_SIZE {BLOCK_SIZE}")
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"torch version: {torch.__version__}")
     print(f"triton version: {triton.__version__}")
-    print(f"mode: {mode}")
-    assert mode in "dim0_and_dim1", "dim1"
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
@@ -67,14 +54,17 @@ def run(
     to_mxfp8_dim1_reference_c = torch.compile(to_mxfp8_dim1_reference)
 
     # reference implementation (plain PyTorch + torch.compile)
-    if mode == "dim0_and_dim1":
-        # TODO remove the mode here?
-        x_d0, x_d1, scale_e8m0_d0, scale_e8m0_d1 = (
-            to_mxfp8_across_dim0_and_dim1_reference_c(x, BLOCK_SIZE)
-        )
-    else:  # dim1
-        x_d0, scale_e8m0_d0 = to_mxfp8_dim0_reference_c(x, BLOCK_SIZE)
-        x_d1, scale_e8m0_d1 = to_mxfp8_dim1_reference_c(x, BLOCK_SIZE)
+    x_d0, x_d1, scale_e8m0_d0, scale_e8m0_d1 = (
+        to_mxfp8_across_dim0_and_dim1_reference_c(x, BLOCK_SIZE)
+    )
+
+    # verify reference dim0_dim1 matches dim0 and dim1 separately
+    x_d0_separate, scale_e8m0_d0_separate = to_mxfp8_dim0_reference_c(x, BLOCK_SIZE)
+    x_d1_separate, scale_e8m0_d1_separate = to_mxfp8_dim1_reference_c(x, BLOCK_SIZE)
+    torch.testing.assert_close(x_d0, x_d0_separate, atol=0, rtol=0)
+    torch.testing.assert_close(x_d1, x_d1_separate, atol=0, rtol=0)
+    torch.testing.assert_close(scale_e8m0_d0, scale_e8m0_d0_separate, atol=0, rtol=0)
+    torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_separate, atol=0, rtol=0)
 
     x_d0, x_d1 = x_d0.bfloat16(), x_d1.bfloat16()
     scale_fp_d0 = scale_e8m0_d0.float()
@@ -112,16 +102,28 @@ def run(
         torch.testing.assert_close(x_d1, x_d1_t, atol=0, rtol=0)
         torch.testing.assert_close(scale_e8m0_d0, scale_e8m0_d0_t, atol=0, rtol=0)
         torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_t, atol=0, rtol=0)
+        print("reference vs triton dim0_dim1 are bitwise equivalent")
         torch.testing.assert_close(x_d1, x_d1_only_t, atol=0, rtol=0)
-        # print('reference', scale_e8m0_d1)
-        # print('triton', scale_e8m0_d1_only_t)
         torch.testing.assert_close(scale_e8m0_d1, scale_e8m0_d1_only_t, atol=0, rtol=0)
-        print("normalized reference vs normalized triton are bitwise equivalent")
-        # return
+        print("reference vs triton dim1 are bitwise equivalent")
     else:
         print("accuracy checking skipped")
 
     # now, measure performance
+
+    # define a speed-of-light torch.compile kernel to get a sense of
+    # achievable mem bandwidth
+    def add_one(x):
+        x = x + 1
+        return x
+
+    add_one_c = torch.compile(add_one)
+
+    for _ in range(2):
+        __ = add_one_c(x)
+    time_add_one_compile_us = benchmark_cuda_function_in_microseconds(
+        lambda x: add_one(x), x
+    )
 
     for _ in range(2):
         __ = to_mxfp8_across_dim0_and_dim1_reference_c(x, BLOCK_SIZE)
@@ -161,6 +163,9 @@ def run(
     # calculate memory bandwidth
     peak_mem_bw = get_specs()["peak_mem_bw_bytes_sec"]
 
+    # add_one kernel
+    add_one_bps = x.numel() * bytes_per_el_bf16 * 2 / (time_add_one_compile_us / 1e6)
+
     # dim0 or dim1 kernel
     dim0_bytes_read = x.numel() * bytes_per_el_bf16
     dim0_bytes_written = (x_d0_t.numel() + scale_e8m0_d0_t.numel()) * bytes_per_el_fp8
@@ -180,11 +185,13 @@ def run(
     ) / (time_triton_dim0_dim1_us / 1e6)
     triton_dim0_dim1_pct_peak_mem = triton_dim0_dim1_bps / peak_mem_bw
 
+    print("time_add_one_compile_us", time_add_one_compile_us)
     print("time_ref_dim0_dim1_compile_us", time_ref_dim0_dim1_compile_us)
     print("time_ref_dim0_compile_us", time_ref_dim0_compile_us)
     print("time_ref_dim1_compile_us", time_ref_dim1_compile_us)
     print("time_triton_dim1_us", time_triton_dim1_us)
     print("time_triton_dim0_dim1_us", time_triton_dim0_dim1_us)
+    print("add_one_gbps", add_one_bps / 1e9)
     print("ref_dim0_mem_bw_gbps", ref_dim0_bps / 1e9)
     print("ref_dim1_mem_bw_gbps", ref_dim1_bps / 1e9)
     print("triton_dim1_mem_bw_gbps", triton_dim1_bps / 1e9)
