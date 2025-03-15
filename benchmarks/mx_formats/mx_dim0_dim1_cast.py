@@ -7,6 +7,7 @@
 from typing import Callable
 
 import fire
+import pandas as pd
 import torch
 import triton
 from torch._inductor.utils import do_bench_using_profiling
@@ -185,21 +186,17 @@ def run(
     ) / (time_triton_dim0_dim1_us / 1e6)
     triton_dim0_dim1_pct_peak_mem = triton_dim0_dim1_bps / peak_mem_bw
 
-    print("time_add_one_compile_us", time_add_one_compile_us)
-    print("time_ref_dim0_dim1_compile_us", time_ref_dim0_dim1_compile_us)
-    print("time_ref_dim0_compile_us", time_ref_dim0_compile_us)
-    print("time_ref_dim1_compile_us", time_ref_dim1_compile_us)
-    print("time_triton_dim1_us", time_triton_dim1_us)
-    print("time_triton_dim0_dim1_us", time_triton_dim0_dim1_us)
-    print("add_one_gbps", add_one_bps / 1e9)
-    print("ref_dim0_mem_bw_gbps", ref_dim0_bps / 1e9)
-    print("ref_dim1_mem_bw_gbps", ref_dim1_bps / 1e9)
-    print("triton_dim1_mem_bw_gbps", triton_dim1_bps / 1e9)
-    print("triton_dim0_dim1_mem_bw_gbps", triton_dim0_dim1_bps / 1e9)
-    # Note: as of 2025-03-11, inductor code for adding 1.0 to a large bf16 tensor
-    # can achieve around 50-70% of B200 peak mem bw
-    print("triton_dim0_dim1_pct_peak_mem", triton_dim0_dim1_pct_peak_mem)
-    print("dim0_dim1 speedup", time_ref_dim0_dim1_compile_us / time_triton_dim0_dim1_us)
+    results = [
+        ["add_one", time_add_one_compile_us, add_one_bps / 1e9],
+        ["compile_dim0", time_ref_dim0_compile_us, ref_dim0_bps / 1e9],
+        ["compile_dim1", time_ref_dim1_compile_us, ref_dim1_bps / 1e9],
+        ["compile_dim0_dim1", time_ref_dim0_dim1_compile_us, triton_dim0_dim1_bps / 1e9],
+        ["triton_dim1", time_triton_dim1_us, triton_dim1_bps / 1e9],
+        ["triton_dim0_dim1", time_triton_dim0_dim1_us, triton_dim0_dim1_bps / 1e9],
+    ]
+    df = pd.DataFrame(results, columns=["experiment", "time_us", "mem_bw_gbps"])
+    df["mem_bw_pct_peak"] = df["mem_bw_gbps"] * 1e9 / peak_mem_bw
+    print("\n",df)
 
 
 if __name__ == "__main__":
