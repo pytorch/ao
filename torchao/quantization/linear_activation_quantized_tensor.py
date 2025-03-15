@@ -203,6 +203,16 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.alias.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0].detach(),
+    )
+
+
 @implements(aten.copy_.default)
 def _(func, types, args, kwargs):
     self = args[0]
