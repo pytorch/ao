@@ -42,9 +42,12 @@ from torchao.prototype.mx_formats.fp_format_spec import (
     sem_vals_to_f32,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_100
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7, is_sm_at_least_100
 
 torch.manual_seed(0)
+
+if not TORCH_VERSION_AT_LEAST_2_7:
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 @pytest.mark.skip(
@@ -311,7 +314,6 @@ def test_fp4_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 @pytest.mark.skipif(
     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
 )
@@ -324,7 +326,6 @@ def test_fp4_triton_unscaled_cast():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 @pytest.mark.skipif(
     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
 )
@@ -421,7 +422,6 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 @pytest.mark.skipif(
     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
 )
@@ -440,7 +440,6 @@ def test_fp6_e2m3_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 @pytest.mark.skipif(
     is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
 )
