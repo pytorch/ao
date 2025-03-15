@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import torch
 from torch._inductor.async_compile import AsyncCompile
 from torch._inductor.select_algorithm import extern_kernels

@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 /*
  * Copyright (C) 2024 Roberto Lopez Castro (roberto.lopez.castro@udc.es). All
  * Rights Reserved.
@@ -28,7 +33,7 @@ template<typename T>
 __device__ __forceinline__ uint32_t cvta_to_shared(const T* ptr) {
     // First get the address as a size_t to handle all pointer sizes
     size_t addr = reinterpret_cast<size_t>(ptr);
-    
+
     // Extract the lower 32 bits which represent the shared memory offset
     // This is safe because shared memory addresses are always within 32-bit range
     return static_cast<uint32_t>(addr & 0xFFFFFFFF);

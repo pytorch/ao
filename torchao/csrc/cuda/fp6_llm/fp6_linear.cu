@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/fp6_linear.cu
 //
 // MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
@@ -52,8 +57,8 @@ static void Kernel_Ex(cudaStream_t    stream,
                       OutputDataType  *C,
                       const size_t    M_Global,
                       const size_t    N_Global,
-                      const size_t    K_Global, 
-                      int             Split_K) 
+                      const size_t    K_Global,
+                      int             Split_K)
 {
     #ifdef DEBUG_MODE
         printf("\n");
@@ -86,7 +91,7 @@ void        fpx_linear_kernel(cudaStream_t    stream,
                               InputDataType   *C,
                               const size_t    M_Global,
                               const size_t    N_Global,
-                              const size_t    K_Global, 
+                              const size_t    K_Global,
                               float           *Reduction_Workspace,  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
                               int             Split_K)
 {

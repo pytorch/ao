@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from .adam_downproj_fused import fused_adam_mm_launcher
 from .adam_step import triton_adam_launcher
 from .matmul import triton_mm_launcher

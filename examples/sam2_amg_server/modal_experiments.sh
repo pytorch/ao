@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 #!/bin/bash
 
 set -ex
@@ -40,7 +45,7 @@ modal app stop torchao-sam-2-cli-mps
 
 echo "amg vs baseline"
 python compare_rle_lists.py ~/blogs/outputs/amg  ~/blogs/outputs/amg_baseline --compare-folders --strict
-echo "sps vs baseline"                                               
+echo "sps vs baseline"
 python compare_rle_lists.py ~/blogs/outputs/sps  ~/blogs/outputs/sps_baseline --compare-folders --strict
-echo "mps vs baseline"                                               
+echo "mps vs baseline"
 python compare_rle_lists.py ~/blogs/outputs/mps  ~/blogs/outputs/mps_baseline --compare-folders --strict

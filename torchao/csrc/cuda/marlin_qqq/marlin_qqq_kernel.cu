@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 /*
  * Adapted from
  * https://github.com/IST-DASLab/marlin/blob/master/marlin/marlin_cuda_kernel.cu

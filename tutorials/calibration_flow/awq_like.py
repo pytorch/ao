@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 """
 Demo for awq like flow that applies equalization scale to input activation
 * insert_observers_: insert observer for activation and weight
