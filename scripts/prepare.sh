@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 python scripts/download.py --repo_id meta-llama/Llama-2-7b-chat-hf
 python scripts/download.py --repo_id meta-llama/Meta-Llama-3-8B
 python scripts/download.py --repo_id meta-llama/Meta-Llama-3.1-8B
