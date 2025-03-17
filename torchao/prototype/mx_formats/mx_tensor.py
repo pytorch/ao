@@ -229,7 +229,10 @@ def to_mx(
     else:
         raise AssertionError("unsupported")
     data_lp = data_hp / scale_fp32.unsqueeze(1)
-    if not torch._dynamo.is_compiling():
+    if (
+        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+        and not torch._dynamo.is_compiling()
+    ):
         # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
         # is unsaturated. This cast is saturated in triton. If we are compute bound,
         # we see a speedup if we remove this redundant clamp if we are compiling
