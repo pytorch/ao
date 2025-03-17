@@ -1,0 +1,43 @@
+# Sample configuration for inference benchmarks
+benchmark_mode: "inference"
+quantization_config_recipe_names:
+  - "baseline"
+  - "int4wo-32"
+  - "int4wo-128"
+output_dir: "benchmarks/microbenchmarks/results"
+model_params:
+  - name: "small_bf16_linear"
+    matrix_shapes:
+      - name: "custom"
+        shapes: [
+          [1024, 1024, 1024],  # [m, k, n]
+        ]
+    high_precision_dtype: "torch.bfloat16"
+    use_torch_compile: true
+    torch_compile_mode: "max-autotune"
+    device: "cuda"
+    model_type: "linear"
+
+  - name: "large_bf16_ln_linear"
+    matrix_shapes:
+      - name: "custom"
+        shapes: [
+          [2048, 4096, 1024],
+          [4096, 4096, 1024]
+        ]
+    high_precision_dtype: "torch.bfloat16"
+    use_torch_compile: true
+    torch_compile_mode: "max-autotune"
+    device: "cuda"
+    model_type: "ln_linear_sigmoid"
+
+  - name: "cpu_fp32_linear"
+    matrix_shapes:
+      - name: "custom"
+        shapes: [
+          [4096, 4096, 1024]
+        ]
+    high_precision_dtype: "torch.float32"
+    use_torch_compile: false
+    device: "cpu"
+    model_type: "linear"
