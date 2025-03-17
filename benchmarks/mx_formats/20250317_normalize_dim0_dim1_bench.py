@@ -5,9 +5,12 @@ import torch
 import triton
 from torch._inductor.utils import do_bench_using_profiling
 
+from torchao.prototype.mx_formats.mx_tensor import to_mx
+
 torch.manual_seed(0)
 
 bytes_per_el_bf16 = 2
+bytes_per_el_fp8 = 1
 
 
 def scale_dim0_reference(x_hp, block_size) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -41,6 +44,11 @@ def scale_dim0_dim1_reference(
     return x_hp_d0_normalized, x_hp_d1_normalized.t(), amax_dim0, amax_dim1
 
 
+def to_mx_dim0_reference(x_hp, block_size):
+    scale_d0, data_d0 = to_mx(x_hp, torch.float8_e4m3fn, block_size)
+    return data_d0, scale_d0
+
+
 def benchmark_cuda_function_in_microseconds(func: Callable, *args, **kwargs) -> float:
     """Thin wrapper around do_bench_using_profiling"""
     no_args = lambda: func(*args, **kwargs)
@@ -59,7 +67,7 @@ def run(
     print(f"torch version: {torch.__version__}")
     print(f"triton version: {triton.__version__}")
     print(f"mode: {mode}")
-    assert mode in ("dim0", "dim1", "dim0_dim1")
+    assert mode in ("dim0", "dim1", "dim0_dim1", "dim0_mx")
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
@@ -75,6 +83,8 @@ def run(
             BLOCK_SIZE,
         )
 
+        assert y_d0.dtype == torch.bfloat16
+        assert s_d0.dtype == torch.bfloat16
         bytes_rw = sum(t.numel() for t in [x, y_d0, s_d0]) * bytes_per_el_bf16
         bps = bytes_rw / (time_us / 1e6)
 
@@ -90,11 +100,12 @@ def run(
             BLOCK_SIZE,
         )
 
+        assert y_d1.dtype == torch.bfloat16
+        assert s_d1.dtype == torch.bfloat16
         bytes_rw = sum(t.numel() for t in [x, y_d1, s_d1]) * bytes_per_el_bf16
         bps = bytes_rw / (time_us / 1e6)
 
-    else:
-        assert mode == "dim0_dim1"
+    elif mode == "dim0_dim1":
         scale_dim0_dim1_reference_c = torch.compile(scale_dim0_dim1_reference)
         y_d0, y_d1, s_d0, s_d1 = scale_dim0_dim1_reference_c(x, BLOCK_SIZE)
 
@@ -106,10 +117,35 @@ def run(
             BLOCK_SIZE,
         )
 
+        assert y_d0.dtype == torch.bfloat16
+        assert s_d0.dtype == torch.bfloat16
+        assert y_d1.dtype == torch.bfloat16
+        assert s_d1.dtype == torch.bfloat16
         bytes_rw = (
             sum(t.numel() for t in [x, y_d0, y_d1, s_d0, s_d1]) * bytes_per_el_bf16
         )
         bps = bytes_rw / (time_us / 1e6)
+
+    elif mode == "dim0_mx":
+        to_mx_dim0_reference_c = torch.compile(to_mx_dim0_reference)
+        y_d0, s_d0 = to_mx_dim0_reference_c(x, BLOCK_SIZE)
+
+        for _ in range(2):
+            __ = to_mx_dim0_reference_c(x, BLOCK_SIZE)
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: to_mx_dim0_reference_c(x, BLOCK_SIZE),
+            x,
+            BLOCK_SIZE,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.uint8
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    else:
+        raise AssertionError(f"unknown mode {mode}")
 
     print("time_us", time_us)
     print("mem_bw_gbps", bps / 1e9)
