@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 
 #include <ATen/ATen.h>
@@ -174,7 +179,7 @@ __global__ void _dequantize_int4_kernel(
       if (scales_and_zeros) {
         const auto& sz = *scales_and_zeros;
         const __nv_bfloat16* pSZ = reinterpret_cast<const __nv_bfloat16*>(&sz[qgroup][n0][0]);
-        
+
         scale2 = __bfloat162bfloat162(pSZ[0]);
         zero2 = __bfloat162bfloat162(pSZ[1]);
       }

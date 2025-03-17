@@ -28,3 +28,12 @@ repos:
           - --isolated
           - --select
           - F821,F823,W191
+
+  - repo: local
+    hooks:
+      - id: privacy-policy-check
+        name: Check Privacy Policy Headers
+        entry: python scripts/check_copyright_header.py
+        language: python
+        types_or: [python, c, c++, shell, text]
+        files: \.(py|cu|h|cuh|sh|metal)$

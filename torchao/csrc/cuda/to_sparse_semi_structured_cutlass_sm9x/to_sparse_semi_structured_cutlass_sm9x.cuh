@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 #pragma once
 
 #include <tuple>
@@ -34,7 +39,7 @@ std::tuple<at::Tensor, at::Tensor>
 to_sparse_semi_structured_kernel_cutlass_sm9x(const at::Tensor& W) {
   // The kernel doesn't check, but assumes instead, that the input
   // tensor is a structured sparse tensor.
-  
+
   static_assert(std::is_same_v<DtypeW, cutlass::float_e5m2_t> ||
                 std::is_same_v<DtypeW, cutlass::float_e4m3_t>);
 
@@ -124,7 +129,7 @@ to_sparse_semi_structured_kernel_cutlass_sm9x(const at::Tensor& W) {
 
   return std::make_tuple(W_compressed, W_meta);
 }
-  
+
 template<typename DtypeW>
 void
 to_sparse_semi_structured_cutlass_sm9x_check_inputs(const at::Tensor& W) {
@@ -170,5 +175,5 @@ to_sparse_semi_structured_cutlass_sm9x(const at::Tensor& W) {
   return std::make_tuple(at::Tensor{}, at::Tensor{});
 #endif
 }
-  
+
 }  // namespace torchao
