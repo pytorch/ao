@@ -159,7 +159,6 @@ def to_mx(
     extracted_pow2 = extracted_pow2.to(torch.bfloat16)
 
     if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
-        # scale_e8m0_unbiased = torch.floor(extracted_pow2) - target_max_pow2
         scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
     elif scaling_mode == ScaleCalculationMode.CEIL:
         # round up: add one to scale if the mantissa is larger than 0
