@@ -62,6 +62,10 @@ def main(argv: List[str] = None) -> int:
     retval = 0
 
     for filename in args.filenames:
+        # Skip __init__.py files
+        if os.path.basename(filename) == "__init__.py":
+            continue
+
         ext = os.path.splitext(filename)[1]
         if ext in EXTENSIONS:
             with open(filename, "r") as f:
