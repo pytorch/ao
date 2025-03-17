@@ -39,6 +39,7 @@ from torchao.prototype.mx_formats.constants import (
     F8E4M3_MAX_POW2,
     F8E5M2_MAX,
     F8E5M2_MAX_POW2,
+    F32_EXP_BIAS,
     F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
@@ -153,16 +154,26 @@ def to_mx(
         max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
 
     # Calculate the scale for different modes
+    max_abs_int32 = (max_abs + eps).to(torch.float32).view(torch.int32)
+    extracted_pow2 = ((max_abs_int32 >> MBITS_F32) & 0b11111111) - F32_EXP_BIAS
+    extracted_pow2 = extracted_pow2.to(torch.bfloat16)
+
     if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
-        scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + eps)) - target_max_pow2
+        # scale_e8m0_unbiased = torch.floor(extracted_pow2) - target_max_pow2
+        scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
     elif scaling_mode == ScaleCalculationMode.CEIL:
-        scale_e8m0_unbiased = torch.ceil(torch.log2(max_abs + eps)) - target_max_pow2
+        # round up: add one to scale if the mantissa is larger than 0
+        # 0x7FFFFF is equal to 23 ones
+        mantissa_gt_one = (max_abs_int32 & 0x7FFFFF) > 0
+        extracted_pow2 += mantissa_gt_one
+        scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
     else:
         raise AssertionError("unsupported scaling calculation mode")
 
     # Clamp to exponents that can be represented in e8m0
+    # add one to positive range to capture NaNs
     scale_e8m0_unbiased = torch.clamp(
-        scale_e8m0_unbiased, min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS
+        scale_e8m0_unbiased, min=-E8M0_EXPONENT_BIAS, max=E8M0_EXPONENT_BIAS + 1
     )
 
     # Create the biased e8m0 representation and cast it to 8 bits
@@ -172,7 +183,7 @@ def to_mx(
     # Conversion to torch.uint8 sets NaN values to 0, fix this by
     # explicitly setting known NaN values to 255
     scale_e8m0_biased = torch.where(
-        torch.isnan(scale_e8m0_unbiased),
+        torch.isnan(max_abs),
         E8M0_EXPONENT_NAN_VAL,
         scale_e8m0_biased,
     )
