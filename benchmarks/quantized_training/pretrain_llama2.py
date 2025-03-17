@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
 # pip install huggingface_hub sentencepiece wandb
 #
