@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 # This actually belongs to test_ops.py, extracted here for easier
 # maintenance.
 
@@ -13,6 +18,7 @@ from torchao.quantization.quant_api import (
     _float8_cutlass_quant_sparse,
 )
 from torchao.sparsity.utils import create_semi_structured_tensor
+from torchao.testing.utils import skip_if_rocm
 
 DTYPES = [torch.float16, torch.bfloat16]
 XQ_WQ_DTYPES = [
@@ -99,6 +105,7 @@ def run_test_for_op(
     )
 
 
+@skip_if_rocm("does not yet work on ROCm")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not SM90OrLater, reason="FP8 is only supported on H100+ devices")
 @pytest.mark.parametrize(
