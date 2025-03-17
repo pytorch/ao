@@ -23,6 +23,7 @@ import torch
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
+    BF16_EXP_BIAS,
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP4,
     DTYPE_FP6_E2M3,
@@ -60,6 +61,7 @@ from torchao.prototype.mx_formats.custom_cast import (
 
 # TODO(later): read from somewhere else?
 SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
+EBITS_BF16, MBITS_BF16 = 8, 7
 EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
@@ -142,21 +144,35 @@ def to_mx(
     else:
         raise AssertionError("unsupported element dtype")
 
+    if data_hp.dtype is torch.float32:
+        hp_int_dtype = torch.int32
+        hp_mbits = MBITS_F32
+        hp_ebits = EBITS_F32
+        hp_exp_bias = F32_EXP_BIAS
+    else:
+        assert data_hp.dtype is torch.bfloat16
+        hp_int_dtype = torch.int16
+        hp_mbits = MBITS_BF16
+        hp_ebits = EBITS_BF16
+        hp_exp_bias = BF16_EXP_BIAS
+
     # rounding before calculating the largest power of 2
     # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
     if scaling_mode == ScaleCalculationMode.EVEN:
         nan_mask = torch.isnan(max_abs)
-        max_abs = max_abs.to(torch.float32).view(torch.int32)
-        val_to_add = 1 << (MBITS_F32 - mbits - 1)
-        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+        max_abs = max_abs.view(hp_int_dtype)
+        val_to_add = 1 << (hp_mbits - mbits - 1)
+        mask = ((1 << (hp_ebits + SBITS)) - 1) << hp_mbits
         max_abs = (max_abs + val_to_add) & mask
-        max_abs = max_abs.view(torch.float32)
-        max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
+        max_abs = max_abs.view(data_hp.dtype)
+        max_abs[nan_mask] = torch.tensor(
+            float("nan"), device=max_abs.device, dtype=max_abs.dtype
+        )
 
     # Calculate the scale for different modes
-    max_abs_int32 = (max_abs + eps).to(torch.float32).view(torch.int32)
-    extracted_pow2 = ((max_abs_int32 >> MBITS_F32) & 0b11111111) - F32_EXP_BIAS
-    extracted_pow2 = extracted_pow2.to(torch.bfloat16)
+    max_abs_int32 = (max_abs + eps).view(hp_int_dtype)
+    extracted_pow2 = ((max_abs_int32 >> hp_mbits) & 0b11111111) - hp_exp_bias
+    extracted_pow2 = extracted_pow2.to(data_hp.dtype)
 
     if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
         scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
