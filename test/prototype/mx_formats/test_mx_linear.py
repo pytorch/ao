@@ -25,14 +25,14 @@ from torchao.prototype.mx_formats.mx_linear import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_5:
+if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -169,10 +169,6 @@ def test_activation_checkpointing():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    is_sm_at_least_100(),
-    reason="triton does not work yet on CUDA capability 10.0",
-)
 @pytest.mark.parametrize(
     "recipe_name",
     [
@@ -265,9 +261,6 @@ def test_inference_linear(elem_dtype, bias, input_shape):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_inference_compile_simple(elem_dtype):
     """
@@ -294,10 +287,6 @@ def test_inference_compile_simple(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    is_sm_at_least_100(),
-    reason="triton does not work yet on CUDA capability 10.0",
-)
 @pytest.mark.skipif(
     not is_sm_at_least_100(),
     reason="MX gemms require CUDA capability 10.0",
