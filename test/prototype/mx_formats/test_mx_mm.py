@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import pytest
 import torch
 
@@ -5,9 +10,9 @@ from torchao.float8.float8_utils import compute_error
 from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
 from torchao.prototype.mx_formats.mx_tensor import DTYPE_FP4, MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_100
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8, is_sm_at_least_100
 
-if not TORCH_VERSION_AT_LEAST_2_4:
+if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
