@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/kernel_matmul.cuh
 //
 // MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
@@ -31,8 +36,8 @@
 #define SMEM_SIZE_PER_WARP_1BIT    (WEIGHT_PER_WARP*BIT_WIDTH_1/8)                                            // 512 Bytes,  doubleBuffer not taken into consideration
 #define SMEM_SIZE_PER_WARP_2BIT    (WEIGHT_PER_WARP*BIT_WIDTH_2/8)                                            // 1024 Bytes, doubleBuffer not taken into consideration
 #define SMEM_SIZE_PER_WARP_4BIT    (WEIGHT_PER_WARP*BIT_WIDTH_4/8)                                            // 2048 Bytes, doubleBuffer not taken into consideration
-#define SMEM_SIZE_PER_TB_1BIT      (SMEM_SIZE_PER_WARP_1BIT*TilingConfig::BLOCK_WARPS*PIPELINE_LEVEL_GMEM)    // #WARP=4; Trible-Buffer for 3-level pipeline for A = 6 KB;  double buffer for 2-level pipeline A= 4  KB. 
-#define SMEM_SIZE_PER_TB_2BIT      (SMEM_SIZE_PER_WARP_2BIT*TilingConfig::BLOCK_WARPS*PIPELINE_LEVEL_GMEM)    // #WARP=4; Trible-Buffer for 3-level pipeline for A = 12 KB; double buffer for 2-level pipeline A= 8  KB.   
+#define SMEM_SIZE_PER_TB_1BIT      (SMEM_SIZE_PER_WARP_1BIT*TilingConfig::BLOCK_WARPS*PIPELINE_LEVEL_GMEM)    // #WARP=4; Trible-Buffer for 3-level pipeline for A = 6 KB;  double buffer for 2-level pipeline A= 4  KB.
+#define SMEM_SIZE_PER_TB_2BIT      (SMEM_SIZE_PER_WARP_2BIT*TilingConfig::BLOCK_WARPS*PIPELINE_LEVEL_GMEM)    // #WARP=4; Trible-Buffer for 3-level pipeline for A = 12 KB; double buffer for 2-level pipeline A= 8  KB.
 #define SMEM_SIZE_PER_TB_4BIT      (SMEM_SIZE_PER_WARP_4BIT*TilingConfig::BLOCK_WARPS*PIPELINE_LEVEL_GMEM)    // #WARP=4; Trible-Buffer for 3-level pipeline for A = 24 KB; double buffer for 2-level pipeline A= 16 KB.
 #define SMEM_SIZE_PER_TB_A_TILE    (SMEM_SIZE_PER_TB_1BIT+SMEM_SIZE_PER_TB_2BIT+SMEM_SIZE_PER_TB_4BIT)        // used in fp6_linear.cu, Kernel_Ex().
 /******************** Gloabl Memory Layout For QUANTIZED DATA *******************/
@@ -45,7 +50,7 @@
  * A: row major with ahead-of-time layout transformation, FP6
  * B: col major, FP16
  * C: col major, FP16
- */ 
+ */
  template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
 __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
                                   const half *B,
@@ -71,7 +76,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   const uint4* Weight_2bit = Weight_1bit + (USE_SEG_1BIT ? M_Global*K_Global*BIT_WIDTH_1/128 : 0);
   const uint4* Weight_4bit = Weight_2bit + (USE_SEG_2BIT ? M_Global*K_Global*BIT_WIDTH_2/128 : 0);
   // Dynamic shared memory for FP16 A tiles， 128 Bytes aligned
-  extern __shared__ __align__(128) half smem[];   
+  extern __shared__ __align__(128) half smem[];
   half (*smem_array)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = reinterpret_cast<half (*)[WARP_K+PADDING_SHARED_MEM_FOR_B_8]> ( smem + SMEM_SIZE_PER_TB_A_TILE/2 ); // Dynamic shared memory for FP16 B tiles
   __shared__ half QuantScales[64*TilingConfig::BLOCK_WARPS];  // static shared memory for quantization scales, 64 row per warp * 4 warps = 512 Bytes
   // Thread Block Mapping, considering SplitK
@@ -85,9 +90,9 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   const size_t AverageNumBlock_K = NumBlock_K/Split_K;
   const size_t ExtraNumBlock_K   = NumBlock_K - AverageNumBlock_K * Split_K;
   size_t NumIter = AverageNumBlock_K;
-  size_t StartBlockID_K = AverageNumBlock_K*BatchID;  
+  size_t StartBlockID_K = AverageNumBlock_K*BatchID;
   if(BatchID<ExtraNumBlock_K){
-    NumIter ++; 
+    NumIter ++;
     StartBlockID_K += BatchID;
   }
   else
@@ -136,7 +141,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   const half *BTile_GPTR = B + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
   for(int i=0; i<PIPELINE_LEVEL_GMEM-1; i++) {
     CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (smem_array+i*TilingConfig::TILE_N, BTile_GPTR, K_Global, NumColumnToCopy);
-    BTile_GPTR += TilingConfig::TILE_K;    
+    BTile_GPTR += TilingConfig::TILE_K;
   }
   // Register Allocation for A,B, and C, Initilazed to Zeros /////////////////////////////////////////////////////////////////////
   constexpr int NumRegSets_a = WARP_ROW_MMA_TENSORS;                                                                  // 1 set = 4 registers, containing a 16*16 MMA block
