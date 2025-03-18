@@ -159,6 +159,10 @@ class MXLinear(torch.nn.Linear):
             y = y + self.bias
         return y
 
+    def extra_repr(self):
+        s = f"{super().extra_repr()}, config={self.config}"
+        return s
+
 
 class MXInferenceLinear(torch.nn.Linear):
     """
@@ -200,6 +204,10 @@ class MXInferenceLinear(torch.nn.Linear):
         w_hp = self.weight_mx.to_dtype(x.dtype)
         y = F.linear(x, w_hp, self.bias)
         return y
+
+    def extra_repr(self):
+        s = f"{super().extra_repr()}, config={self.config}"
+        return s
 
 
 def replace_with_custom_fn_if_matches_filter(
