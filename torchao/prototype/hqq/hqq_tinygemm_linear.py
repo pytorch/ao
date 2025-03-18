@@ -252,11 +252,6 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
             c = torch.ops.aten._weight_int4pack_mm_for_cpu(
                 x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
             )
-        if is_device(x.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7 \
-            and not isinstance(self.scales_and_zeros, torch.Tensor):
-            c = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
-                x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
-            )
         else:
             c = torch.ops.aten._weight_int4pack_mm(
                 x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
