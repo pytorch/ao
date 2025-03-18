@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 import torch
+import torch.nn as nn
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -16,6 +17,7 @@ from torch.testing._internal.common_utils import (
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
+    Int8DynamicActivationInt8WeightConfig,
     float8_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -297,6 +299,13 @@ class TestAffineQuantizedBasic(TestCase):
             ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
             reconstruct_res = ql(*example_inputs)
             self.assertEqual(reconstruct_res, ref)
+
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_alias(self, device, dtype):
+        dummy = nn.Linear(128, 256, dtype=dtype, device=device)
+        quantize_(dummy, Int8DynamicActivationInt8WeightConfig())
+        _ = dummy.weight[...]
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
