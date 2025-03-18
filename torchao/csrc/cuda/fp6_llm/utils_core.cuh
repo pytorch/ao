@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/utils_core.cuh
 
 #ifndef UTILS_CORE_CUH
@@ -57,7 +62,7 @@ __device__ __forceinline__ void initialize_mma_slice(uint32_t                  (
     if(USE_SEG_1BIT) CopyFromSharedToRegister_AFrag<1>   (a_1bit, A_1BIT_SPTR_read, 0);
     if(USE_SEG_2BIT) CopyFromSharedToRegister_AFrag<2>   (a_2bit, A_2BIT_SPTR_read, 0);
     if(USE_SEG_4BIT) CopyFromSharedToRegister_AFrag<4>   (a_4bit, A_4BIT_SPTR_read, 0);
-    Dequant_32FP6_4Way<EXPONENT, MANTISSA, USE_BF16>(a, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FPx to FP16 at register level, dequantizing a slice each time 
+    Dequant_32FP6_4Way<EXPONENT, MANTISSA, USE_BF16>(a, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FPx to FP16 at register level, dequantizing a slice each time
     B_FromSharedToReg<TilingConfig>(b, B_SPTR_read, 0); // Loading B from shared to registers
 }
 
@@ -91,7 +96,7 @@ __device__ __forceinline__ void core_mma_slice(float                     c[][REG
     uint32_t (*a_write)[4] = a;
     uint32_t (*b_read )[4] = b;
     uint32_t (*b_write)[4] = b;
-    if(slice_id%2==1)   { b_write += NumRegSets_b; a_write += NumRegSets_a;} 
+    if(slice_id%2==1)   { b_write += NumRegSets_b; a_write += NumRegSets_a;}
     else                { b_read  += NumRegSets_b; a_read  += NumRegSets_a;}
 
     // Reading registers and issuing core tensor core computations (a slice of A and B tile in shared memory)
@@ -100,7 +105,7 @@ __device__ __forceinline__ void core_mma_slice(float                     c[][REG
         if(TilingConfig::WARP_COL_MMA_TENSORS==1) {
             MMA_FP16_M16N8K16<USE_BF16>( c_uint_ptr[i], a_read[i], b_read[0] );
         }
-        else {            
+        else {
             #pragma unroll
             for (int j = 0; j < TilingConfig::WARP_COL_MMA_TENSORS/2; j++) {
                 MMA_FP16_M16N8K16<USE_BF16>( c_uint_ptr[i + j * WARP_ROW_MMA_TENSORS],     a_read[i], b_read[j]     );
@@ -116,7 +121,7 @@ __device__ __forceinline__ void core_mma_slice(float                     c[][REG
     if(USE_SEG_1BIT) CopyFromSharedToRegister_AFrag<1>   (a_1bit, A_1bit_SPTR_read, slice_id);
     if(USE_SEG_2BIT) CopyFromSharedToRegister_AFrag<2>   (a_2bit, A_2bit_SPTR_read, slice_id);
     if(USE_SEG_4BIT) CopyFromSharedToRegister_AFrag<4>   (a_4bit, A_4bit_SPTR_read, slice_id);
-    Dequant_32FP6_4Way<EXPONENT, MANTISSA, USE_BF16>(a_write, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FP6 to FP16 at register level, dequantizing a slice each time 
+    Dequant_32FP6_4Way<EXPONENT, MANTISSA, USE_BF16>(a_write, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FP6 to FP16 at register level, dequantizing a slice each time
     B_FromSharedToReg<TilingConfig>     (b_write, B_SPTR_read, slice_id); // Loading B from shared to registers
 }
 
