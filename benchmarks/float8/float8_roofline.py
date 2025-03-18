@@ -372,7 +372,7 @@ def run(
             ).requires_grad_()
 
             # get the gradient of the right shape
-            grad_output = torch.randn(N_val, K_val, dtype=torch.bfloat16, device="cuda")
+            grad_output = torch.randn(M_val, N_val, dtype=torch.bfloat16, device="cuda")
 
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
