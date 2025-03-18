@@ -197,7 +197,7 @@ assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
-quant_lib = torch.library.Library("quant", "FRAGMENT")
+quant_lib = torch.library.Library("torchao_quant", "FRAGMENT")
 
 register_custom_op = _register_custom_op(quant_lib)
 
