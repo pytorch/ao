@@ -228,9 +228,18 @@ def to_mx(
         max_pos = F4_E2M1_MAX
     else:
         raise AssertionError("unsupported")
-    data_lp = torch.clamp(
-        data_hp / scale_fp32.unsqueeze(1), min=-1 * max_pos, max=max_pos
-    )
+    data_lp = data_hp / scale_fp32.unsqueeze(1)
+    if (
+        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+        and not torch._dynamo.is_compiling()
+    ):
+        # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
+        # is unsaturated. This cast is saturated in triton. If we are compute bound,
+        # we see a speedup if we remove this redundant clamp if we are compiling
+        # to triton.
+        # TODO(#1912): make the saturated cast work in eager mode and remove this
+        # workaround.
+        data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
