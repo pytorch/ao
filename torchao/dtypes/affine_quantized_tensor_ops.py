@@ -341,7 +341,7 @@ def _(func, types, args, kwargs):
         return func(input_tensor, weight_tensor)
 
 
-@implements(aten.detach.default)
+@implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
