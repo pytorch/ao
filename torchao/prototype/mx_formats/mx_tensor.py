@@ -204,11 +204,7 @@ def to_mx(
     )
 
     # For now, calculate the scale in floating point.
-    # TODO(future) audit if there is a need to bit shift exponents instead.
-    scale_fp = torch.pow(
-        torch.full(max_abs.size(), 2.0, device=scale_e8m0_biased.device),
-        scale_e8m0_unbiased,
-    )
+    scale_fp32 = (scale_e8m0_biased.to(torch.int32) << MBITS_F32).view(torch.float32)
 
     # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
     # float32 denormal range. For now, manually adjust the fp scale. This is
@@ -217,7 +213,7 @@ def to_mx(
     # Note: it would be more correct to set the minimum to 2**-127, but this
     # does not work in triton either as it looks like subnormal value handling
     # has some gaps.  So, for now just set to the minimum normal value.
-    scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+    scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
 
     # scale and saturated cast the data elements to max of target dtype
     if elem_dtype == torch.float8_e4m3fn:
@@ -233,7 +229,7 @@ def to_mx(
     else:
         raise AssertionError("unsupported")
     data_lp = torch.clamp(
-        data_hp / scale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
+        data_hp / scale_fp32.unsqueeze(1), min=-1 * max_pos, max=max_pos
     )
 
     # cast to target dtype
