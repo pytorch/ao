@@ -82,11 +82,10 @@ def get_quantization_functions(
                 )
                 base_functions.append(int4_dynamic_activation_int4_weight())
 
-    if do_sparse:
-        if device != "xpu":
-            base_functions.append(
-                int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
-            )
+    if do_sparse and device != "xpu":
+        base_functions.append(
+            int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
+        )
 
     if is_sm_at_least_89():
         base_functions.append(float8_weight_only())

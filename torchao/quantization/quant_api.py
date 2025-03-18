@@ -206,7 +206,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, int_zp = False, filter_fn=None
+    model, groupsize=128, inner_k_tiles=8, zero_point_domain_is_int = False, filter_fn=None
 ):
     """
     Converts all linear weight tensors to the
@@ -233,7 +233,7 @@ def change_linear_weights_to_int4_woqtensors(
             enable_parametrization=False,
             groupsize=groupsize,
             inner_k_tiles=inner_k_tiles,
-            int_zp=int_zp
+            zero_point_domain_is_int=zero_point_domain_is_int
         ),
         filter_fn,
     )
@@ -975,13 +975,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
 
-    mapping_type = MappingType.ASYMMETRIC
-    block_size = (1, group_size)
-    target_dtype = torch.int32
-    quant_min = 0
-    quant_max = 15
-    eps = 1e-6
-    zero_point_dtype = torch.bfloat16
+    # mapping_type = MappingType.ASYMMETRIC
+    # block_size = (1, group_size)
+    # target_dtype = torch.int32
+    # quant_min = 0
+    # quant_max = 15
+    # eps = 1e-6
+    # zero_point_dtype = torch.bfloat16
 
 # for BC
 # TODO maybe change other callsites

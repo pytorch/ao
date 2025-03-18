@@ -316,7 +316,7 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     return dequantized
 
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, int_zp=False):
+def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, zero_point_domain_is_int=False):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -331,7 +331,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     quant_max = 2**n_bit - 1
     eps = 1e-6
     scale_dtype = dtype
-    zero_point_dtype = dtype if not int_zp else torch.int32
+    zero_point_dtype = dtype if not zero_point_domain_is_int else torch.int32
 
     scale, zero_point = choose_qparams_affine(
         w,
@@ -343,8 +343,8 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=int_zp,
-        zero_point_domain=ZeroPointDomain.FLOAT if not int_zp else ZeroPointDomain.INT
+        preserve_zero=zero_point_domain_is_int,
+        zero_point_domain=ZeroPointDomain.FLOAT if not zero_point_domain_is_int else ZeroPointDomain.INT
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
@@ -370,10 +370,10 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
-def convert_weight_to_int4pack_xpu(weight, int_zp=False):
+def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):
     assert weight.device.type == "xpu"
 
-    if int_zp:
+    if zero_point_domain_is_int:
         # int_data = weight.to(dtype=torch.uint8)
         int_data = (weight[::, 1::2] << 4 | weight[::, ::2]).to(torch.uint8)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(
@@ -472,9 +472,10 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     )
 
 
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, int_zp=False):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype, int_zp=int_zp)
-    zero_point_domain = ZeroPointDomain.FLOAT if not int_zp else ZeroPointDomain.INT
+def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, zero_point_domain_is_int=False):
+    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype,\
+                                                  zero_point_domain_is_int=zero_point_domain_is_int)
+    zero_point_domain = ZeroPointDomain.FLOAT if not zero_point_domain_is_int else ZeroPointDomain.INT
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize, zero_point_domain=zero_point_domain
     )
