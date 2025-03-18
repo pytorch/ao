@@ -9,12 +9,12 @@ from .fake_quantize import (
     FakeQuantize,
     FakeQuantizeBase,
     FixedQParamsFakeQuantize,
+    FusedMovingAvgObsFakeQuantize,
     enable_fake_quant,
     enable_observer,
 )
 from .observer import (
     FixedQParamsObserver,
-    FusedMovingAvgObsFakeQuantize,
     Granularity,
     HistogramObserver,
     MappingType,
