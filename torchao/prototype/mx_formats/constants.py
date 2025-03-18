@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import torch
 
 # This is conceptually an enum of non-core dtypes
@@ -30,6 +35,7 @@ E8M0_EXPONENT_BIAS = 127
 E8M0_EXPONENT_NAN_VAL = 255
 
 F32_EXP_BIAS = 127
+BF16_EXP_BIAS = 127
 F6_E2M3_EXP_BIAS = 1
 F6_E3M2_EXP_BIAS = 3
 F4_E2M1_EXP_BIAS = 1

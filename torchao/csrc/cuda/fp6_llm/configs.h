@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/configs.h
 
 #ifndef CONFIGS_H
@@ -33,7 +38,7 @@
 
 /******************** Register Allocation For GEMM ********************/
 #define REG_PER_THREAD_C_TENSOR_16_16       8   // 8 for FP32 Accumulation
-/********************** Memory Padding Parameters **********************/   
+/********************** Memory Padding Parameters **********************/
 // Eliminating bank-conflict
 #define PADDING_BYTES_16                    16 // Padding 16 bytes each column
 #define PADDING_SHARED_MEM_FOR_B_8          8  // Padding 8 half  each column, during CopyFromGlobalToShared() for B
@@ -48,7 +53,7 @@ struct TilingConfig {
     // Depending on "n" dimension of the GEMM
     static constexpr int BLOCK_ROW_WARPS        = BLOCK_ROW_WARPS_;
     static constexpr int BLOCK_COL_WARPS        = BLOCK_COL_WARPS_;
-    static constexpr int WARP_COL_MMA_TENSORS   = WARP_COL_MMA_TENSORS_;    
+    static constexpr int WARP_COL_MMA_TENSORS   = WARP_COL_MMA_TENSORS_;
     /************************* WARP Tiling part-2 *************************/
     static constexpr int WARP_N                 = WARP_COL_MMA_TENSORS * MMA_8;
     /*************************Thread Block Tiling *************************/
