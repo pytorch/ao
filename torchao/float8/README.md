@@ -139,7 +139,7 @@ Example 2 (large shapes):
 To reproduce the raw data for table above, you can run the following script
 
 ```lang=shell
-python benchmarks/float8/float8_roofline.py your_output_filename.csv --gemm_time_strategy benchmarks --shape_gen_name sweep
+python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
 ```
 
 ## Derivation
