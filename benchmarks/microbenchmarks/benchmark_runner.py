@@ -30,7 +30,6 @@ from benchmarks.microbenchmarks.utils import (
     generate_results_csv,
     print_results,
 )
-from torchao import sparsity
 
 
 def get_shapes_for_config(
@@ -68,6 +67,7 @@ def get_param_combinations(model_param):
 
     return shapes, base_params
 
+
 def get_quantization_sparsity_recipes(
     quantization_recipes: str, sparsity_recipes: str
 ) -> List[Tuple[str, str]]:
@@ -75,9 +75,14 @@ def get_quantization_sparsity_recipes(
 
     config_recipes = []
     for quant_config, sparse_config in product(quantization_recipes, sparsity_recipes):
-        if sparse_config != "None" and quant_config != "baseline":
+        if sparse_config != "None":
             if "semi" in sparse_config or "2:4" in sparse_config:
-                if "marlin" in quant_config or "int8dq" in quant_config or "float8dq" in quant_config:
+                if (
+                    "marlin" in quant_config
+                    or "int8dq" in quant_config
+                    or "float8dq" in quant_config
+                    or quant_config == "baseline"
+                ):
                     pass
                 else:
                     continue
@@ -86,10 +91,8 @@ def get_quantization_sparsity_recipes(
             else:
                 raise ValueError(f"Invalid sparsity recipe: {sparse_config}")
         config_recipes.append((quant_config, sparse_config))
-    print('Generated config recipes: ', config_recipes)
     return config_recipes
 
-    
 
 def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig]:
     """Load benchmark configurations from CLI arguments and YAML file."""
@@ -109,8 +112,8 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
             get_quantization_sparsity_recipes(
                 config.get("quantization_config_recipe_names", ["baseline"]),
                 config.get("sparsity_config_recipe_names", ["None"]),
-                ),
-            shapes
+            ),
+            shapes,
         ):
             configs.append(
                 BenchmarkConfig(
