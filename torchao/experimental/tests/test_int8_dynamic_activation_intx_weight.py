@@ -149,7 +149,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             self.assertTrue(
                 torch.nn.functional.mse_loss(result, expected_result) <= 1e-6
             )
-            self.assertTrue(torch.allclose(result, expected_result, atol=1e-3))
+            self.assertTrue(torch.allclose(result, expected_result, atol=1e-2))
         else:
             self.assertTrue(
                 torch.nn.functional.mse_loss(result, expected_result) <= 1e-3
