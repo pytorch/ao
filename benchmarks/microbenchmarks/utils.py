@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
-from typing import Any, Dict, List
+from pickle import NONE
+from typing import Any, Dict, List, Optional
 
 import torch
 from tabulate import tabulate
@@ -24,7 +25,9 @@ from torchao.quantization import (
     PerRow,
     PerTensor,
     UIntXWeightOnlyConfig,
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
 )
+from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 
 try:
     import triton  # noqa: F401
@@ -51,7 +54,8 @@ def get_default_device(device: str = "cuda") -> str:
 class BenchmarkConfig:
     def __init__(
         self,
-        quantization: str,  # Quantization string format is similar to the format being used for llama/generate.py
+        quantization: Optional[str],  # Quantization string format is similar to the format being used for llama/generate.py
+        sparsity: Optional[str],  # Specify the type of sparsity to be used
         params: Dict[str, Any],
         shape_name: str,
         shape: List[int],
@@ -60,6 +64,7 @@ class BenchmarkConfig:
     ):
         self.benchmark_mode = benchmark_mode
         self.quantization = quantization
+        self.sparsity = sparsity
         self.m, self.k, self.n = shape
         self.shape_name = shape_name
         self.high_precision_dtype = self._parse_precision(
@@ -142,16 +147,24 @@ class LNLinearSigmoid(torch.nn.Module):
         return x
 
 
-def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
+def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwargs) -> AOBaseConfig:
     """Get quantization config based on quantization string.
 
     Args:
         quantization (str): Quantization method to be used. The quantiation string format is similar to the format being used for llama/generate.py.
+        sparsity (str): Sparsity method to be used. The sparsity string format is similar to the format being used for llama/generate.py.
         **kwargs: Additional arguments to be passed to the quantization method
 
     Returns:
         AOBaseConfig: Quantization configuration object
     """
+    if quantization is None and sparsity is not None:
+        if "semi" in sparsity or "2:4" in sparsity:
+            return SemiSparseWeightConfig()
+        if sparsity == "block":
+            return BlockSparseWeightConfig()
+    if quantization is None and sparsity is None:
+        return None
     high_precision_dtype = kwargs.get("high_precision_dtype", torch.bfloat16)
     if "int4wo" in quantization and not HAS_TRITON:
         print("Warning: Triton not available, falling back to baseline")
@@ -163,7 +176,9 @@ def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
     if "int8wo" in quantization:
         return Int8WeightOnlyConfig()
     if "int8dq" in quantization:
-        if "int8dq_prefill_wo_decode" in quantization:
+        if sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
+            return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
+        elif "int8dq_prefill_wo_decode" in quantization:
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
@@ -198,6 +213,9 @@ def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
                 act_mapping_type=MappingType.SYMMETRIC,
                 layout=MarlinQQQLayout(),
             )
+        elif sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
+            from torchao.dtypes import MarlinSparseLayout
+            return Int4WeightOnlyConfig(layout=MarlinSparseLayout())
     if "fp6" in quantization:
         return FPXWeightOnlyConfig(3, 2)
     elif "uintx" in quantization:
@@ -246,6 +264,8 @@ def string_to_config(quantization: str, **kwargs) -> AOBaseConfig:
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
     elif "float8dq" in quantization:
+        if sparsity and "semi" in sparsity:
+                return Float8DynamicActivationFloat8SemiSparseWeightConfig()
         granularity = str(quantization.split("-")[-1])
         if granularity == "tensor":
             granularity = PerTensor()
@@ -369,6 +389,7 @@ def print_results(results: List[BenchmarkResult]):
     # Extract relevant columns for display
     display_columns = [
         "quantization",
+        "sparsity",
         "model_type",
         "m",
         "k",
@@ -380,6 +401,7 @@ def print_results(results: List[BenchmarkResult]):
     # Format data for tabulate
     headers = {
         "quantization": "Quantization",
+        "sparsity": "Sparsity",
         "model_type": "Model Type",
         "m": "M",
         "k": "K",

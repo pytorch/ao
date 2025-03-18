@@ -17,6 +17,7 @@ class TestBenchmarkInference(unittest.TestCase):
 
         self.config = BenchmarkConfig(
             quantization="baseline",
+            sparsity="semi-sparse",
             params={
                 "high_precision_dtype": "torch.float32",
                 "use_torch_compile": False,
