@@ -82,9 +82,10 @@ def aot_compile(
             "triton.cudagraphs": True,
         }
 
-    from torch.export import export_for_inference
+    from torch.export import export_for_training
 
-    exported = export_for_inference(fn, sample_args, sample_kwargs)
+    exported = export_for_training(fn, sample_args, sample_kwargs, strict=True)
+    exported.run_decompositions()
     output_path = torch._inductor.aoti_compile_and_package(
         exported,
         package_path=str(path),
