@@ -22,7 +22,7 @@ jobs:
         include:
           - name: ROCM Nightly
             runs-on: linux.rocm.gpu.mi300.2
-            torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
             gpu-arch-type: "rocm"
             gpu-arch-version: "6.3"
 

@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Any, Callable, Dict, Optional
 
 import torch
@@ -179,10 +184,10 @@ def _(func, types, args, kwargs):
         return func(qtensor, original_weight_tensor)
 
 
-@implements(aten.detach.default)
+@implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+        func, args, kwargs, args[0]._apply_fn_to_data(func)
     )
 
 

@@ -25,14 +25,13 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
-    is_sm_at_least_100,
 )
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_4:
+if not TORCH_VERSION_AT_LEAST_2_8:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -207,8 +206,6 @@ def test_transpose(elem_dtype, fp4_triton):
     """
     if elem_dtype != DTYPE_FP4 and fp4_triton:
         pytest.skip("unsupported configuration")
-    elif fp4_triton and is_sm_at_least_100():
-        pytest.skip("triton does not work yet on CUDA capability 10.0")
 
     M, K = 128, 256
     block_size = 32
@@ -265,9 +262,6 @@ def test_fp6_packing(elem_dtype, pack_fp6):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])
@@ -325,9 +319,6 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
-@pytest.mark.skipif(
     not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
@@ -343,3 +334,55 @@ def test_to_mx_inductor_single_kernel():
     to_mx_c = torch.compile(MXTensor.to_mx, fullgraph=True)
     out, code = run_and_get_code(to_mx_c, x, torch.float8_e4m3fn, block_size)
     FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(code[0])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+def test_cast_to_float8_e4m3fn_saturation_behavior():
+    # TODO(#1912): make the saturated cast work in eager mode and remove this
+    # test
+    max_val = torch.finfo(torch.float8_e4m3fn).max
+
+    # create example data inside the representable range
+    data_in_range_bf16 = torch.tensor(
+        [
+            max_val,
+            -1 * max_val,
+        ],
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+
+    # create example data outside the representable range
+    data_out_of_range_bf16 = torch.tensor(
+        [
+            max_val * 2,
+            -1 * (max_val * 2),
+        ],
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+
+    # verify that in eager mode PyTorch casting to float8 is unsaturated
+    data_in_range_f8 = data_in_range_bf16.to(torch.float8_e4m3fn)
+    data_out_of_range_f8 = data_out_of_range_bf16.to(torch.float8_e4m3fn)
+    assert not torch.any(torch.isnan(data_in_range_f8))
+    assert torch.all(torch.isnan(data_out_of_range_f8))
+
+    # verify that in triton, casting to float8 is saturated
+    # for simplicity, use torch.compile to generate triton code
+    def to_f8(x):
+        x = x.to(torch.float8_e4m3fn)
+        return x
+
+    to_f8_c = torch.compile(to_f8)
+    data_in_range_f8_c = to_f8_c(data_in_range_bf16)
+    data_out_of_range_f8_c = to_f8_c(data_out_of_range_bf16)
+    assert not torch.any(torch.isnan(data_in_range_f8_c))
+    assert not torch.any(torch.isnan(data_out_of_range_f8_c))
+    torch.testing.assert_close(
+        data_in_range_f8_c, data_out_of_range_f8_c, atol=0, rtol=0
+    )

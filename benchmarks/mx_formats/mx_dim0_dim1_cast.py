@@ -184,19 +184,22 @@ def run(
     triton_dim0_dim1_bps = (
         triton_dim0_dim1_bytes_read + triton_dim0_dim1_bytes_written
     ) / (time_triton_dim0_dim1_us / 1e6)
-    triton_dim0_dim1_pct_peak_mem = triton_dim0_dim1_bps / peak_mem_bw
 
     results = [
         ["add_one", time_add_one_compile_us, add_one_bps / 1e9],
         ["compile_dim0", time_ref_dim0_compile_us, ref_dim0_bps / 1e9],
         ["compile_dim1", time_ref_dim1_compile_us, ref_dim1_bps / 1e9],
-        ["compile_dim0_dim1", time_ref_dim0_dim1_compile_us, triton_dim0_dim1_bps / 1e9],
+        [
+            "compile_dim0_dim1",
+            time_ref_dim0_dim1_compile_us,
+            triton_dim0_dim1_bps / 1e9,
+        ],
         ["triton_dim1", time_triton_dim1_us, triton_dim1_bps / 1e9],
         ["triton_dim0_dim1", time_triton_dim0_dim1_us, triton_dim0_dim1_bps / 1e9],
     ]
     df = pd.DataFrame(results, columns=["experiment", "time_us", "mem_bw_gbps"])
     df["mem_bw_pct_peak"] = df["mem_bw_gbps"] * 1e9 / peak_mem_bw
-    print("\n",df)
+    print("\n", df)
 
 
 if __name__ == "__main__":
