@@ -8,16 +8,17 @@ cmake_minimum_required(VERSION 3.19)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../Utils.cmake)
 
- # For some reason cpuinfo package has unused functions/variables
- # TODO (T215533422): fix upstream
-add_compile_options(-Wno-unused-function -Wno-unused-variable)
-include(FetchContent)
-FetchContent_Declare(cpuinfo
-    GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
-    GIT_TAG aaac07ee499895770c89163ce0920ef8bb41ed23)
-FetchContent_MakeAvailable(
-    cpuinfo)
-
+if (NOT TARGET cpuinfo)
+    # For some reason cpuinfo package has unused functions/variables
+    # TODO (T215533422): fix upstream
+    add_compile_options(-Wno-unused-function -Wno-unused-variable)
+    include(FetchContent)
+    FetchContent_Declare(cpuinfo
+        GIT_REPOSITORY https://github.com/pytorch/cpuinfo.git
+        GIT_TAG aaac07ee499895770c89163ce0920ef8bb41ed23)
+    FetchContent_MakeAvailable(
+        cpuinfo)
+endif()
 
 find_package(Torch REQUIRED)
 add_library(torchao_ops_linear_8bit_act_xbit_weight_aten OBJECT
