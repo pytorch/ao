@@ -6,7 +6,6 @@ from collections import Counter
 
 import torch
 from torch._dynamo.test_case import TestCase as TorchDynamoTestCase
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import IS_WINDOWS, skipIfCrossRef
 
@@ -25,6 +24,9 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.export import export_for_training
 
 
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")

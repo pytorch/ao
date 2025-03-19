@@ -24,7 +24,6 @@ from torch.ao.quantization.quantize_fx import (
     convert_to_reference_fx,
     prepare_fx,
 )
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -43,9 +42,11 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.export import export_for_training
+
 
 @skipIfNoQNNPACK
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestXNNPACKQuantizer(PT2EQuantizationTestCase):
     def test_conv1d(self):
         quantizer = XNNPACKQuantizer()

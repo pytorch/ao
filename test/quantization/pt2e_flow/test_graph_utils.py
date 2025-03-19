@@ -11,10 +11,8 @@ from torchao.quantization.pt2e_flow.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestGraphUtils(TestCase):
     @unittest.skipIf(IS_WINDOWS, "torch.compile is not supported on Windows")
     def test_conv_bn_conv_relu(self):
