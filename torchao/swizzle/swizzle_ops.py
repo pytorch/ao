@@ -69,7 +69,6 @@ def swizzle_addmm(aten_op, args, kwargs=None):
 
 @implements([aten._scaled_mm.default])
 def swizzle_scaled_mm(aten_op, args, kwargs=None):
-    print("in swizzle_scaled_mm")
     a = args[0]
     b = args[1]
     scale_a = args[2]
