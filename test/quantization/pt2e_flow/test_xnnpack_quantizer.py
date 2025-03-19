@@ -1,6 +1,7 @@
 # Owner(s): ["oncall: mobile"]
 import copy
 import operator
+import unittest
 
 import torch
 import torch._dynamo as torchdynamo
@@ -40,9 +41,11 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @skipIfNoQNNPACK
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestXNNPACKQuantizer(PT2EQuantizationTestCase):
     def test_conv1d(self):
         quantizer = XNNPACKQuantizer()
@@ -1030,6 +1033,7 @@ class TestXNNPACKQuantizer(PT2EQuantizationTestCase):
 
 
 # TODO: express this using self._test_quantizer, add test for inception_v4
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestXNNPACKQuantizerModels(PT2EQuantizationTestCase):
     @skip_if_no_torchvision
     @skipIfNoQNNPACK

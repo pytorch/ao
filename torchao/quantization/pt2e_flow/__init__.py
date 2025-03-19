@@ -14,6 +14,7 @@ from .fake_quantize import (
     enable_observer,
 )
 from .observer import (
+    AffineQuantizedObserverBase,
     FixedQParamsObserver,
     Granularity,
     HistogramObserver,
@@ -38,7 +39,6 @@ from .observer import (
     ZeroPointDomain,
     get_block_size,
 )
-from .pt2e._affine_quantization import AffineQuantizedObserverBase
 from .pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,

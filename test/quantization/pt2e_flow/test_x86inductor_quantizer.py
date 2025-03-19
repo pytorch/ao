@@ -1,6 +1,7 @@
 # Owner(s): ["oncall: quantization"]
 import copy
 import itertools
+import unittest
 from enum import Enum
 
 import torch
@@ -28,6 +29,7 @@ from torchao.quantization.pt2e_flow.quantizer.x86_inductor_quantizer import (
     QUANT_ANNOTATION_KEY,
     X86InductorQuantizer,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class NodePosType(Enum):
@@ -599,6 +601,7 @@ class X86InductorQuantTestCase(QuantizationTestCase):
 
 
 @skipIfNoInductorSupport
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
     @skipIfNoX86
     def test_conv2d(self):

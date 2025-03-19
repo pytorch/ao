@@ -1,5 +1,6 @@
 # Owner(s): ["oncall: quantization"]
 import copy
+import unittest
 from typing import Any, Optional
 
 import torch
@@ -20,9 +21,11 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @skipIfNoQNNPACK
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestPT2ERepresentation(QuantizationTestCase):
     def _test_representation(
         self,

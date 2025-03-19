@@ -16,6 +16,7 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
 from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class TestHelperModules:
@@ -59,6 +60,7 @@ _QUANT_OPS = {
 
 # TODO: rename to TestPortMetadataPass to align with the util name?
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestMetaDataPorting(QuantizationTestCase):
     def _test_quant_tag_preservation_through_decomp(
         self, model, example_inputs, from_node_to_tags

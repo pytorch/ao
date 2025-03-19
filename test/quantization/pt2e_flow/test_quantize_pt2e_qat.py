@@ -41,6 +41,7 @@ from torchao.quantization.pt2e_flow.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class PT2EQATTestCase(QuantizationTestCase):
@@ -860,6 +861,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
 
 
 @skipIfNoQNNPACK
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestQuantizePT2EQAT_ConvBn1d(TestQuantizePT2EQAT_ConvBn_Base):
     dim = 1
     example_inputs = (torch.randn(1, 3, 5),)
@@ -869,6 +871,7 @@ class TestQuantizePT2EQAT_ConvBn1d(TestQuantizePT2EQAT_ConvBn_Base):
 
 
 @skipIfNoQNNPACK
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
     dim = 2
     example_inputs = (torch.randn(1, 3, 5, 5),)
@@ -1037,6 +1040,7 @@ class ConvBnDerivedBiasQuantizer(Quantizer):
 
 
 @skipIfNoQNNPACK
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestQuantizePT2EQATModels(PT2EQATTestCase):
     @skip_if_no_torchvision
     @skipIfNoQNNPACK
@@ -1059,6 +1063,7 @@ class TestQuantizePT2EQATModels(PT2EQATTestCase):
             self._verify_symmetric_xnnpack_qat_numerics(m, example_inputs)
 
 
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "only works for torch 2.5+")
 class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
     class TwoLinear(torch.nn.Module):
         def __init__(self) -> None:
