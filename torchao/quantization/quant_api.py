@@ -975,14 +975,6 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
 
-    # mapping_type = MappingType.ASYMMETRIC
-    # block_size = (1, group_size)
-    # target_dtype = torch.int32
-    # quant_min = 0
-    # quant_max = 15
-    # eps = 1e-6
-    # zero_point_dtype = torch.bfloat16
-
 # for BC
 # TODO maybe change other callsites
 int4_weight_only = Int4WeightOnlyConfig
