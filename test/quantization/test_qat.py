@@ -1136,6 +1136,62 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
+    def test_qat_prototype_bc(self):
+        """
+        Just to make sure we can import all the old prototype paths.
+        We will remove this test in the near future when we actually break BC.
+        """
+        from torchao.quantization.prototype.qat import (  # noqa: F401, F811, I001
+            disable_4w_fake_quant,
+            disable_8da4w_fake_quant,
+            enable_4w_fake_quant,
+            enable_8da4w_fake_quant,
+            ComposableQATQuantizer,
+            Int8DynActInt4WeightQATLinear,
+            Int4WeightOnlyEmbeddingQATQuantizer,
+            Int4WeightOnlyQATQuantizer,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+        from torchao.quantization.prototype.qat._module_swap_api import (  # noqa: F401, F811
+            disable_4w_fake_quant_module_swap,
+            enable_4w_fake_quant_module_swap,
+            disable_8da4w_fake_quant_module_swap,
+            enable_8da4w_fake_quant_module_swap,
+            Int4WeightOnlyQATQuantizerModuleSwap,
+            Int8DynActInt4WeightQATQuantizerModuleSwap,
+        )
+        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (  # noqa: F401, F811
+            AffineFakeQuantizedTensor,
+            to_affine_fake_quantized,
+        )
+        from torchao.quantization.prototype.qat.api import (  # noqa: F401, F811
+            ComposableQATQuantizer,
+            FakeQuantizeConfig,
+        )
+        from torchao.quantization.prototype.qat.embedding import (  # noqa: F401, F811
+            FakeQuantizedEmbedding,
+            Int4WeightOnlyEmbeddingQATQuantizer,
+            Int4WeightOnlyEmbedding,
+            Int4WeightOnlyQATEmbedding,
+        )
+        from torchao.quantization.prototype.qat.fake_quantizer import (  # noqa: F401, F811
+            FakeQuantizer,
+        )
+        from torchao.quantization.prototype.qat.linear import (  # noqa: F401, F811
+            disable_4w_fake_quant,
+            disable_8da4w_fake_quant,
+            enable_4w_fake_quant,
+            enable_8da4w_fake_quant,
+            FakeQuantizedLinear,
+            Int4WeightOnlyQATLinear,
+            Int4WeightOnlyQATQuantizer,
+            Int8DynActInt4WeightQATLinear,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
     def test_quantize_api_standalone(self):
         """
         Test that the following:
