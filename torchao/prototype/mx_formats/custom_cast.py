@@ -1096,11 +1096,23 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # TODO(before land): reuse the constants below instead of hardcoding
         target_max_pow2 = 8
         e8m0_exponent_bias = 127
+        bf16_mbits = 7
+        bf16_exp_bias = 127
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
+        # return max_abs, max_abs.to(tl.uint8)
 
+        # TODO 1: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1908/files
+        # before: 1.7 TB/s
+        # after: ?
         scale_e8m0_unbiased = tl.floor(tl.log2(max_abs + epsilon)) - target_max_pow2
+        # max_abs = max_abs + epsilon
+        # max_abs = max_abs.to(tl.bfloat16)
+        # max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+        # extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
+        # extracted_pow2 = extracted_pow2 - target_max_pow2
+        # scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
 
         # Clamp to exponents that can be represented in e8m0
         scale_e8m0_unbiased = tl.clamp(
@@ -1115,6 +1127,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         # For now, calculate the scale in floating point.
         # TODO(future) audit if there is a need to bit shift exponents instead.
+        # TODO 2: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1910/files
         scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
 
         return scale_fp, scale_e8m0_biased
@@ -1178,7 +1191,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         row_normalized = x_block / row_scale[:, None]
 
         # quant to float8
-        # TODO(this PR): clamp?
         row_normalized = row_normalized.to(tl.float8e4nv)
 
         # ----------------------------------------------------
@@ -1192,7 +1204,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_normalized = x_block / col_scale[None, :]
 
         # quant to float8
-        # TODO(this PR): clamp?
         col_normalized = col_normalized.to(tl.float8e4nv)
 
         # Store the row-normalized result in row-major format
@@ -1244,6 +1255,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
         assert x.is_contiguous(), "`x` must be contiguous"
+        assert x.dtype == torch.bfloat16
         # Get tensor shape
         n_rows, n_cols = x.shape
 
@@ -1361,7 +1373,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_normalized = x_block / col_scale[None, :]
 
         # Quantize to float8
-        # TODO(this PR): clamp?
         col_normalized = col_normalized.to(tl.float8e4nv)
 
         # Store the column-normalized result in column-major format
@@ -1395,11 +1406,16 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
         assert x.is_contiguous(), "`x` must be contiguous"
+        assert x.dtype == torch.bfloat16
         # Get tensor shape
         n_rows, n_cols = x.shape
 
         # TODO autotune col_tile_size
-        col_tile_size = 128
+        # input 16k by 16k
+        # triton scaling mostly commented out
+        # row_tile_size=256, col_tile_size=64: 3.47 TB/s
+        # TODO(next): make calculations work with ^
+        col_tile_size = 64
 
         # Create output tensors
         output_col_major = torch.empty(
