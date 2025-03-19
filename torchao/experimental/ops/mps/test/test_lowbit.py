@@ -10,7 +10,8 @@ import unittest
 import torch
 from parameterized import parameterized
 
-import torchao  # noqa: F401
+# Need to import to load the ops
+from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer  # noqa: F401
 
 try:
     for nbit in range(1, 8):
