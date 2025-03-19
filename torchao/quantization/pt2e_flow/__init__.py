@@ -10,6 +10,7 @@ from .fake_quantize import (
     FakeQuantizeBase,
     FixedQParamsFakeQuantize,
     FusedMovingAvgObsFakeQuantize,
+    default_fake_quant,
     enable_fake_quant,
     enable_observer,
 )
@@ -114,6 +115,7 @@ __all__ = [
     "TorchAODType",
     "ZeroPointDomain",
     "get_block_size",
+    "default_fake_quant",
 ]
 
 
