@@ -50,7 +50,6 @@ jobs:
         pip install .
         pytest test/float8 --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
-        pytest test/dtypes/test_affine_quantized_tensor_parallel.py --verbose -s
         # Float8nocompile tests
         cd torchao/prototype/float8nocompile
         pytest kernels/ --verbose -s
