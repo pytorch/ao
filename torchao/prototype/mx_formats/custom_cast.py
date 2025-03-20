@@ -1096,8 +1096,8 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # TODO(before land): reuse the constants below instead of hardcoding
         target_max_pow2 = 8
         e8m0_exponent_bias = 127
-        bf16_mbits = 7
-        bf16_exp_bias = 127
+        # bf16_mbits = 7
+        # bf16_exp_bias = 127
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
@@ -1329,8 +1329,10 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_scale_ptr,  # pointer to store column-wise maximum absolute values
         n_rows,  # number of rows in the tensor
         n_cols,  # number of columns in the tensor
-        ROW_TILE_SIZE: tl.constexpr,  # should be 32 for MX
+        ROW_TILE_SIZE: tl.constexpr,  # can be autotuned
         COL_TILE_SIZE: tl.constexpr,  # can be autotuned
+        RENAME_ME_TILE_SIZE: tl.constexpr,
+        INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
     ):
         # Get program ID
         pid_row = tl.program_id(0)
@@ -1360,17 +1362,44 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_major_offsets = (cols * n_rows + rows).to(tl.int32)
 
         # Load the entire block in a single operation
+        # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
         x_block = tl.load(x_ptr + row_major_offsets, mask=mask)
 
+        # Transpose dim0 and dim1
+        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE)
+        x_block_t = tl.trans(x_block)
+
+        # Reshape to inner tile size
+        # TODO: make this generic and nice
+        # inner_block_size = 32
+        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
+        x_block_t_r = x_block_t.reshape(RENAME_ME_TILE_SIZE, INNER_BLOCK_SIZE)
+
         # Calculate the absolute values of elements in the block
-        x_block_abs = tl.abs(x_block)
+        x_block_abs_t_r = tl.abs(x_block_t_r)
 
         # Find the maximum absolute value for each column
-        col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
+        # col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
+        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
+        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
+        # tl.device_print("col_scale.shape", col_scale.shape[0])
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
-        col_normalized = x_block / col_scale[None, :]
+        # x_block shape (n_rows, n_cols)
+        # col_scale shape (n_cols,) -> (1, n_cols)
+        # col_normalized = x_block / col_scale[None, :]
+
+        # x_block_t shape (COL_TILE_SIZE, ROW_TILE_SIZE)
+        # x_block_t_r shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
+        # col_scale shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, 1)
+        col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
+
+        # Reshape back to original tile size 
+        col_normalized_t = tl.reshape(col_normalized_t_r, COL_TILE_SIZE, ROW_TILE_SIZE)
+
+        # Undo the transpose
+        col_normalized = tl.trans(col_normalized_t)
 
         # Quantize to float8
         col_normalized = col_normalized.to(tl.float8e4nv)
@@ -1379,27 +1408,63 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
 
         # Create 1D ranges for storing row and column max values
-        col_indices = start_col + tl.arange(0, COL_TILE_SIZE)
+        # col_indices = start_col + tl.arange(0, COL_TILE_SIZE)
 
         # Create masks for valid rows and columns
-        col_mask = col_indices < n_cols
+        # col_mask = col_indices < n_cols
+
+        # reshape col_scale_e8m0_r to col_scale_e8m0
+        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
+        # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        # col_scale_e8m0 = col_scale_e8m0_r.ravel()
+
+        # col_scale_start_offsets = (
+        #     (
+        #         pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
+        #     )  # number of blocks seen so far
+        #     + pid_row  # increment ROW_TILE_SIZE
+        # )
+
+        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
         col_scale_start_offsets = (
             (
                 pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
-            )  # number of blocks seen so far
-            + pid_row  # increment ROW_TILE_SIZE
+            )  * factor # number of blocks seen so far
+            + pid_row * factor # increment ROW_TILE_SIZE
         )
+
+        # tl.device_print("offset", col_scale_start_offsets)
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
-        col_scale_indices = tl.arange(0, COL_TILE_SIZE) * (n_rows // ROW_TILE_SIZE)
+        # col_scale_start_ptr = col_scale_ptr
+
+        # col_scale_indices = tl.arange(0, COL_TILE_SIZE) * (n_rows // ROW_TILE_SIZE)
+
+        # calculate col_scale_indices, this is a bit convoluted
+        # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
+        # from example: [0, 1, 2, 3, 4, 5, 6, 7]
+        col_scale_indices = tl.arange(0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        # add offset for inner blocks
+        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
+
+        # needs better name
+        jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
+        # tl.device_print("jump_vals_per_col", jump_vals_per_col)
+
+        # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
+        col_scale_indices = col_scale_indices + (tl.floor(col_scale_indices / factor) * jump_vals_per_col).to(tl.int32)
+        # tl.static_print(col_scale_indices)
+        # tl.device_print("indices", col_scale_indices)
+
         # TODO(future): mask
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
-    def to_mxfp8_dim1(x, row_tile_size=32):
+    def to_mxfp8_dim1(x, inner_block_size=32):
         """
         Input:
         * `x` - input tensor, in row major memory layout
-        * `row_tile_size` - size of tiles to scale across, default is 32 for MX recipes
+        * `inner_block_size` - size of tiles to scale across, default is 32 for MX recipes
 
         Output:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
@@ -1410,12 +1475,20 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # Get tensor shape
         n_rows, n_cols = x.shape
 
+        # can be autotuned
+        # row_tile_size = 32
+        row_tile_size = 256
+        # row_tile_size = 4
+
+        assert row_tile_size >= inner_block_size
+
         # TODO autotune col_tile_size
         # input 16k by 16k
         # triton scaling mostly commented out
         # row_tile_size=256, col_tile_size=64: 3.47 TB/s
         # TODO(next): make calculations work with ^
         col_tile_size = 64
+        # col_tile_size = 4
 
         # Create output tensors
         output_col_major = torch.empty(
@@ -1423,13 +1496,17 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         )
 
         # Create scale tensors
+        # TODO(before land): switch back to empty
         col_scale = torch.empty(
-            n_cols, n_rows // row_tile_size, dtype=torch.uint8, device=x.device
+            n_cols, n_rows // inner_block_size, dtype=torch.uint8, device=x.device
         )
 
         # Calculate grid dimensions based on tile size
         grid_rows = triton.cdiv(n_rows, row_tile_size)
         grid_cols = triton.cdiv(n_cols, col_tile_size)
+
+        # inner_block_size = 32
+        rename_me_tile_size = row_tile_size * col_tile_size // inner_block_size
 
         # Launch the kernel
         to_mxfp8_dim1_kernel[(grid_rows, grid_cols)](
@@ -1440,6 +1517,8 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
             n_cols=n_cols,
             COL_TILE_SIZE=col_tile_size,
             ROW_TILE_SIZE=row_tile_size,
+            RENAME_ME_TILE_SIZE=rename_me_tile_size,
+            INNER_BLOCK_SIZE=inner_block_size,
         )
 
         return (
