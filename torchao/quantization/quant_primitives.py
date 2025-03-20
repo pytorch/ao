@@ -956,14 +956,14 @@ def _choose_qparams_affine(
         if zero_point_domain == ZeroPointDomain.NONE.name:
             zero_point = None
         else:
-            if preserve_zero:
+            if zero_point_domain == ZeroPointDomain.INT.name:
                 zero_point = quant_min - torch.round(min_val_neg / scale)
                 zero_point = torch.clamp(zero_point, quant_min, quant_max)
                 zero_point_dtype = torch.int32
             else:
                 assert (
                     zero_point_domain == ZeroPointDomain.FLOAT.name
-                ), "if not preserve_zero, zero_point must be in FLOAT domain"
+                ), "zero_point must be in FLOAT/INT/None domain for asymmetric quantization"
                 mid_point = (quant_max + quant_min + 1) / 2
                 # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
                 # TODO move the conversion of zero_point out of quant_primitives

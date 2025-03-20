@@ -967,6 +967,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `use_hqq`: whether to use hqq or default quantization mode, default is False
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
+        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
     """
 
     group_size: int = 128
@@ -974,6 +975,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     use_hqq: bool = False
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
+    preserve_zero: Optional[bool] = None
 
 # for BC
 # TODO maybe change other callsites
@@ -1025,7 +1027,8 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
-    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)] if zero_point_domain!=ZeroPointDomain.INT else True
+    preserve_zero = config.preserve_zero if config.preserve_zero is not None \
+          else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     # Sparse Marlin only supports symmetric quantization.
     # NOTE: If we start having lots of layouts that require different configurations,
     # we should consider moving this logic somewhere else.
