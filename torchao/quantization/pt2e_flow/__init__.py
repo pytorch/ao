@@ -5,6 +5,24 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.quantization.pt2e_flow.pt2e._numeric_debugger import (  # noqa: F401
+    CUSTOM_KEY,
+    NUMERIC_DEBUG_HANDLE_KEY,
+    compare_results,
+    extract_results_from_loggers,
+    generate_numeric_debug_handle,
+    prepare_for_propagation_comparison,
+)
+from torchao.quantization.pt2e_flow.pt2e.export_utils import (
+    _allow_exported_model_train_eval as allow_exported_model_train_eval,
+)
+from torchao.quantization.pt2e_flow.pt2e.export_utils import (
+    _move_exported_model_to_eval as move_exported_model_to_eval,
+)
+from torchao.quantization.pt2e_flow.pt2e.export_utils import (
+    _move_exported_model_to_train as move_exported_model_to_train,
+)
+
 from .fake_quantize import (
     FakeQuantize,
     FakeQuantizeBase,
@@ -40,24 +58,6 @@ from .observer import (
     ZeroPointDomain,
     get_block_size,
 )
-from .pt2e._numeric_debugger import (  # noqa: F401
-    CUSTOM_KEY,
-    NUMERIC_DEBUG_HANDLE_KEY,
-    compare_results,
-    extract_results_from_loggers,
-    generate_numeric_debug_handle,
-    prepare_for_propagation_comparison,
-)
-from .pt2e.export_utils import (
-    _allow_exported_model_train_eval as allow_exported_model_train_eval,
-)
-from .pt2e.export_utils import (
-    _move_exported_model_to_eval as move_exported_model_to_eval,
-)
-from .pt2e.export_utils import (
-    _move_exported_model_to_train as move_exported_model_to_train,
-)
-from .qconfig import *  # noqa: F403
 
 # ensure __module__ is set correctly for public APIs
 ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
