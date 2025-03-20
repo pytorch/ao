@@ -264,7 +264,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
-        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
+        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):
