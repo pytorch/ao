@@ -1233,9 +1233,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # reshape col_scale_e8m0_r to col_scale_e8m0
         # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
         # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
-        col_scale_e8m0 = col_scale_e8m0_r.reshape(
-            COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
-        )
+        col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
         col_scale_start_offsets = (
             (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
@@ -1248,9 +1246,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # calculate col_scale_indices, this is a bit convoluted
         # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
         # from example: [0, 1, 2, 3, 4, 5, 6, 7]
-        col_scale_indices = tl.arange(
-            0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
-        )
+        col_scale_indices = tl.arange(0, COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
         # needs better name
         jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
