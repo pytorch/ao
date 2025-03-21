@@ -1129,6 +1129,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         return scale_fp, scale_e8m0_biased
 
     def _get_mxfp8_dim1_kernel_autotune_configs():
+        # Values to sweep over here were determined by a manual
+        # sweep over a small set of shapes, it's likely that this
+        # can be improved in the future.
         results = []
         for ROW_TILE_SIZE in (64, 128):
             for COL_TILE_SIZE in (64, 128):
@@ -1261,6 +1264,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         col_normalized = col_normalized.to(tl.float8e4nv)
 
         # Store the column-normalized result in column-major format
+        # TODO(future): this mask is for row-major likely need to transpose it for col-major
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
 
         # reshape col_scale_e8m0_r to col_scale_e8m0
@@ -1288,7 +1292,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
             tl.floor(col_scale_indices / BLOCKS_PER_ROW_TILE) * jump_vals_per_col
         ).to(tl.int32)
 
-        # TODO(future): mask
+        # TODO(future): mask this store
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
     def to_mxfp8_dim1(x, inner_block_size=32):
@@ -1307,6 +1311,15 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
         # Get tensor shape
         n_rows, n_cols = x.shape
+
+        # Masking of loads and stores is not well tested yet, so for now enforce
+        # shapes which do not need masking. Note that this condition depends on max values of
+        # ROW_TILE_SIZE and COL_TILE_SIZE, which are autotuned above.
+        # TODO(future): implement and test masking and remove this restriction
+        max_row_tile_size = 128
+        max_col_tile_size = 128
+        assert n_rows % max_row_tile_size == 0, "unsupported"
+        assert n_cols % max_col_tile_size == 0, "unsupported"
 
         # Create output tensors
         output_col_major = torch.empty(
