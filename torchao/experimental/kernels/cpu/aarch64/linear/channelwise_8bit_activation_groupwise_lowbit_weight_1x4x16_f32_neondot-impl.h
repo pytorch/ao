@@ -10,8 +10,7 @@
 
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_prepare_activation_data_1xk_f32-impl.h>
-#include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
-#include <torchao/experimental/kernels/cpu/aarch64/valpacking/valpack.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/pack_weights.h>
 #include <cassert>
 #include <cstring>
 
@@ -257,33 +256,14 @@ size_t inline weight_data_size_impl(
     int weight_nbit,
     bool has_weight_zeros,
     bool has_bias) {
-  assert(k % group_size == 0);
-  int groups_per_col = k / group_size;
-  int col_size = 0;
-
-  // qvals
-  col_size += (k / 8) * weight_nbit;
-
-  // scales
-  col_size += sizeof(float) * groups_per_col;
-
-  // qvals_sum
-  col_size += sizeof(int32_t) * groups_per_col;
-
-  // zeros
-  if (has_weight_zeros) {
-    col_size += sizeof(int32_t) * groups_per_col;
-  }
-
-  // bias
-  if (has_bias) {
-    col_size += sizeof(float);
-  }
-
-  // Replace n with next multiple of 4 >= n
-  n = ((n + 3) / 4) * 4;
-
-  return col_size * n;
+  return torchao::kernels::cpu::aarch64::linear::packing::packed_weights_size(
+      n,
+      k,
+      group_size,
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      /*nr*/ 4);
 }
 
 template <int weight_nbit>
@@ -299,125 +279,16 @@ void prepare_weight_data_impl(
     // Ignored if has_weight_zeros = false
     const int8_t* weight_zeros,
     const float* bias) {
-  assert(k % group_size == 0);
-  assert(group_size % 16 == 0);
-
-  bool has_weight_zeros = (weight_zeros != nullptr);
-  bool has_bias = (bias != nullptr);
-
-  int groups_per_k = k / group_size;
-  constexpr int bytes_per_64_weight_values = 8 * weight_nbit;
-
-  auto weight_data_byte_ptr = (char*)weight_data;
-  const int8_t* qvals_ptr = weight_qvals;
-  const float* scales_ptr = weight_scales;
-  const int8_t* zeros_ptr = weight_zeros;
-  const float* bias_ptr = bias;
-
-  int8_t interleaved_buffer[64];
-  int8_t buffer[64];
-
-  for (int n_idx = 0; n_idx < n; n_idx += 4) {
-    for (int k_idx = 0; k_idx < k; k_idx += group_size) {
-      // Loop over group in chunks of 16, processing 4 columns at at time
-      int qvals_sum[4] = {0, 0, 0, 0};
-      for (int i = 0; i < group_size; i += 16) {
-        std::memset(buffer, 0, 64);
-        // Loop over 4 cols
-#pragma unroll(4)
-        for (int j = 0; j < 4; j++) {
-          if (n_idx + j < n) {
-            // If qvals_ptr are pre-packed in a naive way, this is where
-            // unpacking can occur
-            std::memcpy(buffer + 16 * j, qvals_ptr + k * j, 16);
-            qvals_sum[j] +=
-                torchao::kernels::cpu::aarch64::reduction::compute_sum(
-                    buffer + 16 * j, 16);
-          }
-        }
-        torchao::kernels::cpu::valpacking::interleave_data(
-            /*data_interleaved=*/interleaved_buffer,
-            /*data=*/buffer,
-            /*bytes_per_val=*/1,
-            /*vals_per_channel=*/16,
-            /*vals_per_group=*/16,
-            /*vals_per_chunk=*/8,
-            /*channels=*/4,
-            /*channel_stride_in_vals=*/16);
-        torchao::bitpacking::vec_pack_64_lowbit_values<weight_nbit>(
-            (uint8_t*)weight_data_byte_ptr,
-            vld1q_s8(interleaved_buffer),
-            vld1q_s8(interleaved_buffer + 16),
-            vld1q_s8(interleaved_buffer + 32),
-            vld1q_s8(interleaved_buffer + 48));
-        qvals_ptr += 16;
-        weight_data_byte_ptr += bytes_per_64_weight_values;
-      } // loop over group
-
-      // Store weight scales
-#pragma unroll(4)
-      for (int j = 0; j < 4; j++) {
-        float32_t scale = 0.0;
-        if (n_idx + j < n) {
-          scale = *(scales_ptr + j * groups_per_k);
-        }
-        *((float*)weight_data_byte_ptr) = scale;
-        weight_data_byte_ptr += sizeof(float);
-      }
-      scales_ptr += 1;
-
-      // Store weight qvals_sum
-#pragma unroll(4)
-      for (int j = 0; j < 4; j++) {
-        *((int*)weight_data_byte_ptr) = qvals_sum[j];
-        weight_data_byte_ptr += sizeof(int);
-      }
-
-      // Store weight zeros
-      // I went back and forth on how to store weight_zero.
-      // Kernel computation is done in int32, so I'm converting these to
-      // int32 before storing (load 4 int32s in kernel).
-      // In the 1x8 kernel, we may want to store as int16_t, which reduces
-      // a load in the kernel (load 8 int16_ts in kernel, instead of 2
-      // load 4 int32_ts), but adds 2 moves (int16 to int32).
-      if (has_weight_zeros) {
-#pragma unroll(4)
-        for (int j = 0; j < 4; j++) {
-          int32_t zero = 0;
-          if (n_idx + j < n) {
-            zero = (int)(*(zeros_ptr + j * groups_per_k));
-          }
-          *((int32_t*)weight_data_byte_ptr) = zero;
-          weight_data_byte_ptr += sizeof(int32_t);
-        }
-        zeros_ptr += 1;
-      }
-    } // k_idx
-    if (has_bias) {
-#pragma unroll(4)
-      for (int j = 0; j < 4; j++) {
-        float bias_ = 0.0;
-        if (n_idx + j < n) {
-          bias_ = *(bias_ptr + j);
-        }
-        *((float*)weight_data_byte_ptr) = bias_;
-        weight_data_byte_ptr += sizeof(float);
-      }
-      bias_ptr += 1;
-    }
-
-    // In the previous loop over k, we processed 4 columns at a time,
-    // but only advanced our pointers over the first column.
-    // So we advance over the other 3 columns here.
-    qvals_ptr += 3 * k;
-    scales_ptr += 3 * groups_per_k;
-    if (has_weight_zeros) {
-      zeros_ptr += 3 * groups_per_k;
-    }
-    if (has_bias) {
-      bias_ptr += 3;
-    }
-  } // n_idx
+  torchao::kernels::cpu::aarch64::linear::packing::
+      pack_weights<weight_nbit, /*nr*/ 4, /*kr*/ 16, /*sr*/ 2>(
+          weight_data,
+          n,
+          k,
+          group_size,
+          weight_qvals,
+          weight_scales,
+          weight_zeros,
+          bias);
 }
 
 } // namespace
