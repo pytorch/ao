@@ -14,7 +14,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_8
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -1084,7 +1084,7 @@ else:
         raise AssertionError("fp6 packing unsupported without torch >= 2.4")
 
 
-if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
+if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
     import triton
     import triton.language as tl
 
@@ -1101,11 +1101,8 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
-        # return max_abs, max_abs.to(tl.uint8)
 
-        # TODO 1: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1908/files
-        # before: 1.7 TB/s
-        # after: ?
+        # TODO(future): rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1908/files
         scale_e8m0_unbiased = tl.floor(tl.log2(max_abs + epsilon)) - target_max_pow2
         # max_abs = max_abs + epsilon
         # max_abs = max_abs.to(tl.bfloat16)
@@ -1126,8 +1123,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # TODO(future PR): add NaN handling here
 
         # For now, calculate the scale in floating point.
-        # TODO(future) audit if there is a need to bit shift exponents instead.
-        # TODO 2: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1910/files
+        # TODO(future): rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1910/files
         scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
 
         return scale_fp, scale_e8m0_biased
@@ -1162,6 +1158,10 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         COL_TILE_SIZE: tl.constexpr,  # can be autotuned
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
     ):
+        # TODO(future): better name
+        BLOCKS_PER_ROW_TILE: tl.constexpr = ROW_TILE_SIZE // INNER_BLOCK_SIZE
+
+        # TODO(future): better name
         RENAME_ME_TILE_SIZE: tl.constexpr = (
             ROW_TILE_SIZE * COL_TILE_SIZE // INNER_BLOCK_SIZE
         )
@@ -1240,11 +1240,10 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
             COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
         )
 
-        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
         col_scale_start_offsets = (
             (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
-            * factor  # number of blocks seen so far
-            + pid_row * factor  # increment ROW_TILE_SIZE
+            * BLOCKS_PER_ROW_TILE  # number of blocks seen so far
+            + pid_row * BLOCKS_PER_ROW_TILE  # increment ROW_TILE_SIZE
         )
 
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
@@ -1255,15 +1254,14 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         col_scale_indices = tl.arange(
             0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
         )
-        # add offset for inner blocks
-        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
         # needs better name
         jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
 
+        # example transformation (specifics depend on tile sizes):
         # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
         col_scale_indices = col_scale_indices + (
-            tl.floor(col_scale_indices / factor) * jump_vals_per_col
+            tl.floor(col_scale_indices / BLOCKS_PER_ROW_TILE) * jump_vals_per_col
         ).to(tl.int32)
 
         # TODO(future): mask
@@ -1339,9 +1337,9 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 else:
 
     def to_mxfp8_across_dim0_and_dim1(x, tile_size=32):
-        raise AssertionError("needs torch version 2.4+ and triton")
+        raise AssertionError("needs torch version 2.8+ and triton")
 
     def scale_dim0_dim1_reference(
         x_hp: torch.Tensor, block_size
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        raise AssertionError("needs torch version 2.4+ and triton")
+        raise AssertionError("needs torch version 2.8+ and triton")
