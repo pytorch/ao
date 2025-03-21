@@ -15,7 +15,12 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import CutlassInt4PackedLayout, Int4XPULayout, Int4CPULayout, SemiSparseLayout
+from torchao.dtypes import (
+    CutlassInt4PackedLayout,
+    Int4CPULayout,
+    Int4XPULayout,
+    SemiSparseLayout,
+)
 from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
