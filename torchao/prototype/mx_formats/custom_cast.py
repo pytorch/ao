@@ -1190,9 +1190,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
         Output (scales), s(0, 8) means the scale used to cast elements 0 and 8
 
-        rows           0          1         2  ...       31
-        ----------------------------------------------------
-                  s(0, 8)  s(16, 24)   s(1, 9) ... s(19, 27)
+        rows           0          1  ...      4  ...       31
+        ------------------------------------------------------
+                  s(0, 8)  s(16, 24) ... s(1, 9) ... s(19, 27)
         """
 
         BLOCKS_PER_ROW_TILE: tl.constexpr = ROW_TILE_SIZE // INNER_BLOCK_SIZE
