@@ -1189,17 +1189,11 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         x_block_abs_t_r = tl.abs(x_block_t_r)
 
         # Find the maximum absolute value for each column
-        # col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
         # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
         col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
-        # tl.device_print("col_scale.shape", col_scale.shape[0])
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
-        # x_block shape (n_rows, n_cols)
-        # col_scale shape (n_cols,) -> (1, n_cols)
-        # col_normalized = x_block / col_scale[None, :]
-
         # x_block_t shape (COL_TILE_SIZE, ROW_TILE_SIZE)
         # x_block_t_r shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
         # col_scale shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, 1)
@@ -1217,40 +1211,21 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # Store the column-normalized result in column-major format
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
 
-        # Create 1D ranges for storing row and column max values
-        # col_indices = start_col + tl.arange(0, COL_TILE_SIZE)
-
-        # Create masks for valid rows and columns
-        # col_mask = col_indices < n_cols
-
         # reshape col_scale_e8m0_r to col_scale_e8m0
         # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
         # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
         col_scale_e8m0 = col_scale_e8m0_r.reshape(
             COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
         )
-        # col_scale_e8m0 = col_scale_e8m0_r.ravel()
-
-        # col_scale_start_offsets = (
-        #     (
-        #         pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
-        #     )  # number of blocks seen so far
-        #     + pid_row  # increment ROW_TILE_SIZE
-        # )
 
         factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
-
         col_scale_start_offsets = (
             (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
             * factor  # number of blocks seen so far
             + pid_row * factor  # increment ROW_TILE_SIZE
         )
 
-        # tl.device_print("offset", col_scale_start_offsets)
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
-        # col_scale_start_ptr = col_scale_ptr
-
-        # col_scale_indices = tl.arange(0, COL_TILE_SIZE) * (n_rows // ROW_TILE_SIZE)
 
         # calculate col_scale_indices, this is a bit convoluted
         # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
@@ -1263,14 +1238,11 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         # needs better name
         jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
-        # tl.device_print("jump_vals_per_col", jump_vals_per_col)
 
         # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
         col_scale_indices = col_scale_indices + (
             tl.floor(col_scale_indices / factor) * jump_vals_per_col
         ).to(tl.int32)
-        # tl.static_print(col_scale_indices)
-        # tl.device_print("indices", col_scale_indices)
 
         # TODO(future): mask
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
@@ -1287,6 +1259,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         """
         assert x.is_contiguous(), "`x` must be contiguous"
         assert x.dtype == torch.bfloat16
+
         # Get tensor shape
         n_rows, n_cols = x.shape
 
@@ -1299,11 +1272,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         # TODO autotune col_tile_size
         # input 16k by 16k
-        # triton scaling mostly commented out
-        # row_tile_size=256, col_tile_size=64: 3.47 TB/s
-        # TODO(next): make calculations work with ^
         col_tile_size = 128
-        # col_tile_size = 4
 
         # Create output tensors
         output_col_major = torch.empty(
@@ -1311,7 +1280,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         )
 
         # Create scale tensors
-        # TODO(before land): switch back to empty
         col_scale = torch.empty(
             n_cols, n_rows // inner_block_size, dtype=torch.uint8, device=x.device
         )
@@ -1320,7 +1288,6 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         grid_rows = triton.cdiv(n_rows, row_tile_size)
         grid_cols = triton.cdiv(n_cols, col_tile_size)
 
-        # inner_block_size = 32
         rename_me_tile_size = row_tile_size * col_tile_size // inner_block_size
 
         # Launch the kernel
