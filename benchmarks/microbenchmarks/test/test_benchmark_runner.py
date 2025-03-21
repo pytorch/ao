@@ -13,6 +13,7 @@ import yaml
 
 from benchmarks.microbenchmarks.benchmark_runner import (
     get_param_combinations,
+    get_quantization_sparsity_recipes,
     get_shapes_for_config,
     load_benchmark_configs,
     run_inference_benchmarks_from_config,
@@ -87,6 +88,68 @@ class TestBenchmarkRunner(unittest.TestCase):
         run_inference_benchmarks_from_config(configs)
         results_file = Path(self.temp_dir) / "results.csv"
         self.assertTrue(results_file.exists())
+
+    def test_get_quantization_sparsity_recipes(self):
+        """Test generation of valid quantization and sparsity recipe combinations"""
+        # Test basic combinations
+        quant_recipes = ["baseline", "int8wo"]
+        sparse_recipes = ["None", "semi-sparse"]
+        recipes = get_quantization_sparsity_recipes(quant_recipes, sparse_recipes)
+        self.assertEqual(
+            len(recipes), 3
+        )  # Should only get baseline+None and int8wo+None
+        self.assertIn(("baseline", "None"), recipes)
+        self.assertIn(("int8wo", "None"), recipes)
+        self.assertIn(("baseline", "semi-sparse"), recipes)
+
+        # Test marlin with semi-sparse
+        quant_recipes = ["marlin", "baseline"]
+        sparse_recipes = ["None", "semi-sparse"]
+        recipes = get_quantization_sparsity_recipes(quant_recipes, sparse_recipes)
+        self.assertIn(("marlin", "semi-sparse"), recipes)
+        self.assertIn(("baseline", "None"), recipes)
+
+        # Test block sparsity
+        quant_recipes = ["baseline"]
+        sparse_recipes = ["None", "block"]
+        recipes = get_quantization_sparsity_recipes(quant_recipes, sparse_recipes)
+        self.assertIn(("baseline", "block"), recipes)
+
+    def test_load_benchmark_configs_with_sparsity(self):
+        """Test loading benchmark configs with sparsity options"""
+        test_config = {
+            "benchmark_mode": "inference",
+            "quantization_config_recipe_names": ["baseline", "marlin"],
+            "sparsity_config_recipe_names": ["None", "semi-sparse"],
+            "output_dir": self.temp_dir,
+            "model_params": [
+                {
+                    "matrix_shapes": [
+                        {"name": "custom", "shapes": [[1024, 1024, 1024]]}
+                    ],
+                    "high_precision_dtype": "torch.bfloat16",
+                    "device": "cpu",
+                    "model_type": "linear",
+                }
+            ],
+        }
+
+        config_path = Path(self.temp_dir) / "test_sparsity_config.yml"
+        with open(config_path, "w") as f:
+            yaml.dump(test_config, f)
+
+        configs = load_benchmark_configs(argparse.Namespace(config=str(config_path)))
+
+        # Check that we get configs for baseline and marlin with appropriate sparsity
+        self.assertTrue(
+            any(c.quantization == "baseline" and c.sparsity == "None" for c in configs)
+        )
+        self.assertTrue(
+            any(
+                c.quantization == "marlin" and c.sparsity == "semi-sparse"
+                for c in configs
+            )
+        )
 
 
 if __name__ == "__main__":

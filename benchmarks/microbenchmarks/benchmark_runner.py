@@ -68,6 +68,32 @@ def get_param_combinations(model_param):
     return shapes, base_params
 
 
+def get_quantization_sparsity_recipes(
+    quantization_recipes: str, sparsity_recipes: str
+) -> List[Tuple[str, str]]:
+    """Generate valid quantization and sparsity recipes."""
+
+    config_recipes = []
+    for quant_config, sparse_config in product(quantization_recipes, sparsity_recipes):
+        if sparse_config != "None":
+            if "semi" in sparse_config or "2:4" in sparse_config:
+                if (
+                    "marlin" in quant_config
+                    or "int8dq" in quant_config
+                    or "float8dq" in quant_config
+                    or quant_config == "baseline"
+                ):
+                    pass
+                else:
+                    continue
+            elif sparse_config == "block":
+                config_recipes.append(("baseline", sparse_config))
+            else:
+                raise ValueError(f"Invalid sparsity recipe: {sparse_config}")
+        config_recipes.append((quant_config, sparse_config))
+    return config_recipes
+
+
 def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig]:
     """Load benchmark configurations from CLI arguments and YAML file."""
     with open(cli_args.config, "r") as f:
@@ -82,12 +108,17 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
         shapes, params = get_param_combinations(model_param)
 
         # Create configs for all combinations
-        for quant_config, (shape_name, shape) in product(
-            config.get("quantization_config_recipe_names", ["baseline"]), shapes
+        for (quant_config, sparse_config), (shape_name, shape) in product(
+            get_quantization_sparsity_recipes(
+                config.get("quantization_config_recipe_names", ["baseline"]),
+                config.get("sparsity_config_recipe_names", ["None"]),
+            ),
+            shapes,
         ):
             configs.append(
                 BenchmarkConfig(
                     quantization=quant_config,
+                    sparsity=sparse_config,
                     params=params,
                     shape_name=shape_name,
                     shape=shape,
