@@ -122,50 +122,50 @@ class TestAffineQuantized(TestCase):
             aqt_shape = aqt.shape
             self.assertEqual(aqt_shape, shape)
 
-    @common_utils.parametrize("device", GPU_DEVICES)
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    def test_weights_only(self, device):
-        apply_quant_list = get_quantization_functions(is_cusparselt_available, True, device, True)
-        for apply_quant in apply_quant_list:
-            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
-            if isinstance(apply_quant, AOBaseConfig):
-                quantize_(linear, apply_quant)
-                ql = linear
-            else:
-                # TODO(#1690): delete this once config migration is done
-                ql = apply_quant(linear)
-            with tempfile.NamedTemporaryFile() as f:
-                torch.save(ql.state_dict(), f)
-                f.seek(0)
-                # `weights_only=True` is enabled for torch 2.5+
-                if TORCH_VERSION_AT_LEAST_2_5:
-                    _ = torch.load(f, weights_only=True)
+    def test_weights_only(self):
+        for device in self.GPU_DEVICES:
+            apply_quant_list = get_quantization_functions(is_cusparselt_available, True, device, True)
+            for apply_quant in apply_quant_list:
+                linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
+                if isinstance(apply_quant, AOBaseConfig):
+                    quantize_(linear, apply_quant)
+                    ql = linear
                 else:
-                    _ = torch.load(f, weights_only=False)
+                    # TODO(#1690): delete this once config migration is done
+                    ql = apply_quant(linear)
+                with tempfile.NamedTemporaryFile() as f:
+                    torch.save(ql.state_dict(), f)
+                    f.seek(0)
+                    # `weights_only=True` is enabled for torch 2.5+
+                    if TORCH_VERSION_AT_LEAST_2_5:
+                        _ = torch.load(f, weights_only=True)
+                    else:
+                        _ = torch.load(f, weights_only=False)
 
-    @common_utils.parametrize("device", GPU_DEVICES)
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
-    def test_to_device(self, apply_quant, device):
-        def _apply(module, config_or_subclass_inserter):
-            if isinstance(config_or_subclass_inserter, AOBaseConfig):
-                quantize_(module, config_or_subclass_inserter)
-            else:
-                # TODO(#1690): delete this once config migration is done
-                module = config_or_subclass_inserter(module)
-            return module
+    def test_to_device(self, apply_quant):
+        for device in self.GPU_DEVICES:
+            def _apply(module, config_or_subclass_inserter):
+                if isinstance(config_or_subclass_inserter, AOBaseConfig):
+                    quantize_(module, config_or_subclass_inserter)
+                else:
+                    # TODO(#1690): delete this once config migration is done
+                    module = config_or_subclass_inserter(module)
+                return module
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.to(device)
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device)
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.to(device=device)
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device=device)
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.to(device)
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
@@ -215,19 +215,19 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @common_utils.parametrize("device", GPU_DEVICES)
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    def test_print_quantized_module(self, device):
-        apply_quant_list = get_quantization_functions(True, True, device, True)
-        for apply_quant in apply_quant_list:
-            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
-            if isinstance(apply_quant, AOBaseConfig):
-                quantize_(linear, apply_quant)
-                ql = linear
-            else:
-                # TODO(#1690): delete this once config migration is done
-                ql = apply_quant(linear)
-            assert "AffineQuantizedTensor" in str(ql)
+    def test_print_quantized_module(self):
+        for device in self.GPU_DEVICES:
+            apply_quant_list = get_quantization_functions(True, True, device, True)
+            for apply_quant in apply_quant_list:
+                linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
+                if isinstance(apply_quant, AOBaseConfig):
+                    quantize_(linear, apply_quant)
+                    ql = linear
+                else:
+                    # TODO(#1690): delete this once config migration is done
+                    ql = apply_quant(linear)
+                assert "AffineQuantizedTensor" in str(ql)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(

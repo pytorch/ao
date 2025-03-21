@@ -651,28 +651,29 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
-    @common_utils.parametrize("device", GPU_DEVICES)
-    def test_quantized_tensor_subclass_int4(self, device):
-        # use 1024 so that we don't need padding
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
-        m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    def test_quantized_tensor_subclass_int4(self):
+        for device in self.GPU_DEVICES:
+            # use 1024 so that we don't need padding
+            m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
+            m_copy = copy.deepcopy(m)
+            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
-        group_size = 32
-        if device == "xpu":
-            quantize_(m, int4_weight_only(group_size=group_size, layout=Int4XPULayout()))
-        else:
-            quantize_(m, int4_weight_only(group_size=group_size))
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
+            group_size = 32
+            if device == "xpu":
+                quantize_(m, int4_weight_only(group_size=group_size, layout=Int4XPULayout()))
+            else:
+                quantize_(m, int4_weight_only(group_size=group_size))
+            assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+            assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
-        # reference
-        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
+            # reference
+            _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
 
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
+            res = m(*example_inputs)
+            ref = m_copy(*example_inputs)
 
-        self.assertTrue(torch.equal(res, ref))
+            self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
