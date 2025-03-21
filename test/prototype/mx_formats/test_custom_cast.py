@@ -26,6 +26,9 @@ from torchao.prototype.mx_formats.custom_cast import (
     get_bits,
     pack_uint4,
     pack_uint6,
+    # TODO(before land): better name?
+    to_mxfp8_dim1,
+    to_mxfp8_dim1_reference,
     triton_f4_to_bf16,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
@@ -42,7 +45,11 @@ from torchao.prototype.mx_formats.fp_format_spec import (
     sem_vals_to_f32,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8, is_sm_at_least_100
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_8,
+    is_sm_at_least_89,
+    is_sm_at_least_100,
+)
 
 torch.manual_seed(0)
 
@@ -444,3 +451,18 @@ def test_fp6_e3m2_pack_unpack():
         torch.float32
     )
     assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+@pytest.mark.parametrize("M", (256, 2048))
+@pytest.mark.parametrize("K", (256, 2048))
+def test_triton_mxfp8_dim1(M, K):
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = to_mxfp8_dim1_reference(x, block_size=32)
+    x_mx_t, x_s_t = to_mxfp8_dim1(x, inner_block_size=32)
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
