@@ -206,7 +206,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, zero_point_domain_is_int = False, filter_fn=None
+    model, groupsize=128, inner_k_tiles=8, filter_fn=None, zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False
 ):
     """
     Converts all linear weight tensors to the
@@ -217,6 +217,11 @@ def change_linear_weights_to_int4_woqtensors(
         `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+        `filter_fn`: function that takes a nn.Module instance and fully qualified name of the module, \
+            returns True if we want to run `config` on
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, \
+            ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        `preserve_zero`: whether to preserve zero, default is False
     """
     if TORCH_VERSION_AT_LEAST_2_4:
         raise ImportError(
@@ -233,7 +238,8 @@ def change_linear_weights_to_int4_woqtensors(
             enable_parametrization=False,
             groupsize=groupsize,
             inner_k_tiles=inner_k_tiles,
-            zero_point_domain_is_int=zero_point_domain_is_int
+            zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
         ),
         filter_fn,
     )
