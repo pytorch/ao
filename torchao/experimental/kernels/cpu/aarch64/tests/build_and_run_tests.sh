@@ -60,3 +60,4 @@ ${CMAKE_OUT}/test_bitpacking
 ${CMAKE_OUT}/test_linear
 ${CMAKE_OUT}/test_valpacking
 ${CMAKE_OUT}/test_embedding
+${CMAKE_OUT}/test_weight_packing

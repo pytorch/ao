@@ -10,6 +10,7 @@
 
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_prepare_activation_data_1xk_f32-impl.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/pack_weights.h>
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
@@ -149,8 +150,8 @@ void kernel_impl(
           int32_t activation_qvals_sum = *((int32_t*)activation_ptr);
           activation_ptr += sizeof(int32_t);
 
-          int8_t weight_zero = *((int8_t*)weight_data_byte_ptr);
-          weight_data_byte_ptr += sizeof(int8_t);
+          int32_t weight_zero = *((int32_t*)weight_data_byte_ptr);
+          weight_data_byte_ptr += sizeof(int32_t);
 
           res += (weight_scale * activation_scale) *
               (qval_dot - (activation_zero * weight_qvals_sum) -
@@ -190,31 +191,14 @@ size_t inline weight_data_size_impl(
     int weight_nbit,
     bool has_weight_zeros,
     bool has_bias) {
-  assert(k % group_size == 0);
-  assert(k % 32 == 0);
-  int groups_per_col = k / group_size;
-  int col_size = 0;
-
-  // qvals
-  // (k * weight_bit) bits -> ((k / 8) * weight_bit) bytes
-  col_size += (k / 8) * weight_nbit;
-
-  // scales
-  col_size += sizeof(float) * groups_per_col;
-
-  // qvals_sum
-  col_size += sizeof(int32_t) * groups_per_col;
-
-  // zeros
-  if (has_weight_zeros) {
-    col_size += sizeof(int8_t) * groups_per_col;
-  }
-
-  if (has_bias) {
-    col_size += sizeof(float);
-  }
-
-  return col_size * n;
+  return torchao::kernels::cpu::aarch64::linear::packing::packed_weights_size(
+      n,
+      k,
+      group_size,
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      /*nr*/ 1);
 }
 
 template <int weight_nbit>
@@ -227,56 +211,19 @@ void prepare_weight_data_impl(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
+    // Ignored if has_weight_zeros = false
     const int8_t* weight_zeros,
     const float* bias) {
-  assert(k % group_size == 0);
-  assert(group_size % 32 == 0);
-
-  bool has_weight_zeros = (weight_zeros != nullptr);
-  bool has_bias = (bias != nullptr);
-
-  auto weight_data_byte_ptr = (char*)weight_data;
-  constexpr int bytes_per_32_weight_values = 4 * weight_nbit;
-
-  int8x16_t wq0, wq1;
-
-  const int8_t* qvals_ptr = weight_qvals;
-  const float* scales_ptr = weight_scales;
-  const int8_t* zeros_ptr = weight_zeros;
-  const float* bias_ptr = bias;
-
-  for (int n_idx = 0; n_idx < n; n_idx++) {
-    for (int k_idx = 0; k_idx < k; k_idx += group_size) {
-      int32_t group_qvals_sum = 0;
-      for (int i = 0; i < group_size; i += 32) {
-        wq0 = vld1q_s8(qvals_ptr);
-        wq1 = vld1q_s8(qvals_ptr + 16);
-        qvals_ptr += 32;
-
-        group_qvals_sum += vaddlvq_s8(wq0) + vaddlvq_s8(wq1);
-
-        torchao::bitpacking::vec_pack_32_lowbit_values<weight_nbit>(
-            /*packed=*/(uint8_t*)weight_data_byte_ptr,
-            /*unpacked0=*/wq0,
-            /*unpacked1=*/wq1);
-        weight_data_byte_ptr += bytes_per_32_weight_values;
-      }
-      *((float*)weight_data_byte_ptr) = *scales_ptr++;
-      weight_data_byte_ptr += sizeof(float);
-
-      *((int32_t*)weight_data_byte_ptr) = group_qvals_sum;
-      weight_data_byte_ptr += sizeof(int32_t);
-
-      if (has_weight_zeros) {
-        *((int8_t*)weight_data_byte_ptr) = *zeros_ptr++;
-        weight_data_byte_ptr += sizeof(int8_t);
-      }
-    }
-    if (has_bias) {
-      *((float*)weight_data_byte_ptr) = *bias_ptr++;
-      weight_data_byte_ptr += sizeof(float);
-    }
-  }
+  torchao::kernels::cpu::aarch64::linear::packing::
+      pack_weights<weight_nbit, /*nr*/ 1, /*kr*/ 32, /*sr*/ 2>(
+          weight_data,
+          n,
+          k,
+          group_size,
+          weight_qvals,
+          weight_scales,
+          weight_zeros,
+          bias);
 }
 
 } // namespace
