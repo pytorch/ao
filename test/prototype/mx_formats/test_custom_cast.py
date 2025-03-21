@@ -26,6 +26,9 @@ from torchao.prototype.mx_formats.custom_cast import (
     get_bits,
     pack_uint4,
     pack_uint6,
+    # TODO(before land): better name?
+    to_mxfp8_dim1,
+    to_mxfp8_dim1_reference,
     triton_f4_to_bf16,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
@@ -444,3 +447,16 @@ def test_fp6_e3m2_pack_unpack():
         torch.float32
     )
     assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
+
+
+# TODO(before land): skip before sm89
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+def test_triton_mxfp8_dim1():
+    M, K = 1024, 2048
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = to_mxfp8_dim1_reference(x, block_size=32)
+    x_mx_t, x_s_t = to_mxfp8_dim1(x, inner_block_size=32)
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+    print("done")

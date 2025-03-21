@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Tuple
+
 import numpy as np
 import torch
 from torch.utils._triton import has_triton
@@ -1080,3 +1082,498 @@ else:
     def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
         # Dummy placeholder op for torch < 2.4
         raise AssertionError("fp6 packing unsupported without torch >= 2.4")
+
+
+if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
+    import triton
+    import triton.language as tl
+
+    @triton.jit
+    def _triton_calculate_scale(x, axis):
+        # We use a small epsilon to avoid division by zero
+        epsilon = 1e-10
+
+        # TODO(before land): reuse the constants below instead of hardcoding
+        target_max_pow2 = 8
+        e8m0_exponent_bias = 127
+        # bf16_mbits = 7
+        # bf16_exp_bias = 127
+
+        # Find the maximum absolute value for each row
+        max_abs = tl.max(x, axis=axis)
+        # return max_abs, max_abs.to(tl.uint8)
+
+        # TODO 1: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1908/files
+        # before: 1.7 TB/s
+        # after: ?
+        scale_e8m0_unbiased = tl.floor(tl.log2(max_abs + epsilon)) - target_max_pow2
+        # max_abs = max_abs + epsilon
+        # max_abs = max_abs.to(tl.bfloat16)
+        # max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+        # extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
+        # extracted_pow2 = extracted_pow2 - target_max_pow2
+        # scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+
+        # Clamp to exponents that can be represented in e8m0
+        scale_e8m0_unbiased = tl.clamp(
+            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias
+        )
+
+        # Create the biased e8m0 representation and cast it to 8 bits
+        scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+        scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+
+        # TODO(future PR): add NaN handling here
+
+        # For now, calculate the scale in floating point.
+        # TODO(future) audit if there is a need to bit shift exponents instead.
+        # TODO 2: rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1910/files
+        scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
+
+        return scale_fp, scale_e8m0_biased
+
+    @triton.jit
+    def to_mxfp8_across_dim0_and_dim1_kernel(
+        x_ptr,  # pointer to input tensor
+        output_row_major_ptr,  # pointer to row-major output tensor (row-normalized)
+        output_col_major_ptr,  # pointer to column-major output tensor (column-normalized)
+        row_scale_ptr,  # pointer to store row-wise maximum absolute values
+        col_scale_ptr,  # pointer to store column-wise maximum absolute values
+        n_rows,  # number of rows in the tensor
+        n_cols,  # number of columns in the tensor
+        TILE_SIZE: tl.constexpr,  # tile size as a compile-time constant
+    ):
+        """
+        credit: mostly Claude, some Vasiliy
+        """
+
+        # Get program ID
+        pid_row = tl.program_id(0)
+        pid_col = tl.program_id(1)
+
+        # Calculate starting row and column for this tile
+        start_row = pid_row * TILE_SIZE
+        start_col = pid_col * TILE_SIZE
+
+        # Create offsets for the block
+        row_offsets = tl.arange(0, TILE_SIZE)
+        col_offsets = tl.arange(0, TILE_SIZE)
+
+        # Compute global row/col positions
+        rows = start_row + row_offsets[:, None]  # Convert to 2D for proper broadcasting
+        cols = start_col + col_offsets[None, :]
+
+        # Create masks for out-of-bounds accesses
+        row_mask = rows < n_rows
+        col_mask = cols < n_cols
+        mask = row_mask & col_mask
+
+        # Compute memory offsets for row-major layout (rows, cols)
+        row_major_offsets = (rows * n_cols + cols).to(tl.int32)
+
+        # Compute memory offsets for column-major layout (cols, rows)
+        col_major_offsets = (cols * n_rows + rows).to(tl.int32)
+
+        # Load the entire block in a single operation
+        x_block = tl.load(x_ptr + row_major_offsets, mask=mask)
+
+        # ----------------------------------------------------
+        # Row-wise normalization
+        # ----------------------------------------------------
+        # Calculate the absolute values of elements in the block
+        x_block_abs = tl.abs(x_block)
+
+        # Find the maximum absolute value for each row
+        row_scale, row_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=1)
+
+        # Normalize each row by its maximum absolute value
+        # Broadcasting row_scale to match x_block's shape
+        row_normalized = x_block / row_scale[:, None]
+
+        # quant to float8
+        row_normalized = row_normalized.to(tl.float8e4nv)
+
+        # ----------------------------------------------------
+        # Column-wise normalization
+        # ----------------------------------------------------
+        # Find the maximum absolute value for each column
+        col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
+
+        # Normalize each column by its maximum absolute value
+        # Broadcasting col_scale to match x_block's shape
+        col_normalized = x_block / col_scale[None, :]
+
+        # quant to float8
+        col_normalized = col_normalized.to(tl.float8e4nv)
+
+        # Store the row-normalized result in row-major format
+        tl.store(output_row_major_ptr + row_major_offsets, row_normalized, mask=mask)
+
+        # Store the column-normalized result in column-major format
+        tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
+
+        # Create 1D ranges for storing row and column max values
+        row_indices = start_row + tl.arange(0, TILE_SIZE)
+        col_indices = start_col + tl.arange(0, TILE_SIZE)
+
+        # Create masks for valid rows and columns
+        row_mask = row_indices < n_rows
+        col_mask = col_indices < n_cols
+
+        # Vasiliy - deviating from Claude here for much simpler code
+        row_scale_start_ptr = row_scale_ptr + (pid_row * n_cols) + pid_col
+        row_scale_indices = tl.arange(0, TILE_SIZE) * (n_cols // TILE_SIZE)
+        # TODO(future): mask
+        tl.store(row_scale_start_ptr + row_scale_indices, row_scale_e8m0)
+
+        # Vasiliy - deviating from Claude here for much simpler code
+        col_scale_start_ptr = col_scale_ptr + (pid_col * n_rows) + pid_row
+        col_scale_indices = tl.arange(0, TILE_SIZE) * (n_rows // TILE_SIZE)
+        # TODO(future): mask
+        tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
+
+    def to_mxfp8_across_dim0_and_dim1(x, tile_size=32):
+        """
+        This is a single fused triton kernel to cast `x` to MX across dim0 and dim1.
+        This is useful for MX training with the mxfp8 recipe family.
+
+        The kernel loads data in 2d tiles, and performs the necessary casting across both
+        dim0 and dim1 for each tile.
+
+        Note that for now, there is only one level of tiling (32 for MX). In the future,
+        we expect that adding an outer tile (of size up to 128 on B200s) can provide a
+        further speedup.
+
+        Input:
+        * `x` - input tensor, in row major memory layout
+        * `tile_size` - size of tiles to normalize across, default is 32 for MX recipes
+
+        Output:
+        * `output_row_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0
+        * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
+        * `row_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
+        * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
+        """
+        assert x.is_contiguous(), "`x` must be contiguous"
+        assert x.dtype == torch.bfloat16
+        # Get tensor shape
+        n_rows, n_cols = x.shape
+
+        # Create output tensors (both row-major and column-major)
+        output_row_major = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+        output_col_major = torch.empty(
+            (n_cols, n_rows), dtype=torch.float8_e4m3fn, device=x.device
+        )
+
+        # Create tensors for row-wise and column-wise maximum absolute values
+        row_scale = torch.empty(
+            n_rows, n_cols // tile_size, dtype=torch.uint8, device=x.device
+        )
+        col_scale = torch.empty(
+            n_cols, n_rows // tile_size, dtype=torch.uint8, device=x.device
+        )
+
+        # Calculate grid dimensions based on tile size
+        grid_rows = triton.cdiv(n_rows, tile_size)
+        grid_cols = triton.cdiv(n_cols, tile_size)
+
+        # Launch the kernel
+        to_mxfp8_across_dim0_and_dim1_kernel[(grid_rows, grid_cols)](
+            x_ptr=x,
+            output_row_major_ptr=output_row_major,
+            output_col_major_ptr=output_col_major,
+            row_scale_ptr=row_scale,
+            col_scale_ptr=col_scale,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            TILE_SIZE=tile_size,
+        )
+
+        return (
+            output_row_major,
+            output_col_major.t(),
+            row_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
+            col_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
+        )
+
+    def to_mxfp8_across_dim0_and_dim1_reference(
+        x_hp: torch.Tensor, block_size
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        A reference version of `to_mxfp8_across_dim0_and_dim1`.
+        """
+        from torchao.prototype.mx_formats.mx_tensor import to_mx
+
+        # cast across dim0
+        scale_e8m0_dim0, x_hp_d0_normalized = to_mx(
+            x_hp, torch.float8_e4m3fn, block_size
+        )
+        scale_e8m0_dim0 = scale_e8m0_dim0.unsqueeze(1).view(torch.float8_e8m0fnu)
+        # cast across dim1
+        x_hp_d1 = x_hp.t().contiguous()
+        scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
+            x_hp_d1, torch.float8_e4m3fn, block_size
+        )
+        scale_e8m0_dim1 = scale_e8m0_dim1.unsqueeze(1).view(torch.float8_e8m0fnu)
+        return (
+            x_hp_d0_normalized,
+            x_hp_d1_normalized.t(),
+            scale_e8m0_dim0,
+            scale_e8m0_dim1,
+        )
+
+    @triton.jit
+    def to_mxfp8_dim1_kernel(
+        x_ptr,  # pointer to input tensor
+        output_col_major_ptr,  # pointer to column-major output tensor (column-normalized)
+        col_scale_ptr,  # pointer to store column-wise maximum absolute values
+        n_rows,  # number of rows in the tensor
+        n_cols,  # number of columns in the tensor
+        ROW_TILE_SIZE: tl.constexpr,  # can be autotuned
+        COL_TILE_SIZE: tl.constexpr,  # can be autotuned
+        RENAME_ME_TILE_SIZE: tl.constexpr,
+        INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+    ):
+        # Get program ID
+        pid_row = tl.program_id(0)
+        pid_col = tl.program_id(1)
+
+        # Calculate starting row and column for this tile
+        start_row = pid_row * ROW_TILE_SIZE
+        start_col = pid_col * COL_TILE_SIZE
+
+        # Create offsets for the block
+        row_offsets = tl.arange(0, ROW_TILE_SIZE)
+        col_offsets = tl.arange(0, COL_TILE_SIZE)
+
+        # Compute global row/col positions
+        rows = start_row + row_offsets[:, None]  # Convert to 2D for proper broadcasting
+        cols = start_col + col_offsets[None, :]
+
+        # Create masks for out-of-bounds accesses
+        row_mask = rows < n_rows
+        col_mask = cols < n_cols
+        mask = row_mask & col_mask
+
+        # Compute memory offsets for row-major layout (rows, cols)
+        row_major_offsets = (rows * n_cols + cols).to(tl.int32)
+
+        # Compute memory offsets for column-major layout (cols, rows)
+        col_major_offsets = (cols * n_rows + rows).to(tl.int32)
+
+        # Load the entire block in a single operation
+        # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
+        x_block = tl.load(x_ptr + row_major_offsets, mask=mask)
+
+        # Transpose dim0 and dim1
+        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE)
+        x_block_t = tl.trans(x_block)
+
+        # Reshape to inner tile size
+        # TODO: make this generic and nice
+        # inner_block_size = 32
+        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
+        x_block_t_r = x_block_t.reshape(RENAME_ME_TILE_SIZE, INNER_BLOCK_SIZE)
+
+        # Calculate the absolute values of elements in the block
+        x_block_abs_t_r = tl.abs(x_block_t_r)
+
+        # Find the maximum absolute value for each column
+        # col_scale, col_scale_e8m0 = _triton_calculate_scale(x_block_abs, axis=0)
+        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
+        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
+        # tl.device_print("col_scale.shape", col_scale.shape[0])
+
+        # Divide each column by scale
+        # Broadcasting col_scale to match x_block's shape
+        # x_block shape (n_rows, n_cols)
+        # col_scale shape (n_cols,) -> (1, n_cols)
+        # col_normalized = x_block / col_scale[None, :]
+
+        # x_block_t shape (COL_TILE_SIZE, ROW_TILE_SIZE)
+        # x_block_t_r shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
+        # col_scale shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, 1)
+        col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
+
+        # Reshape back to original tile size
+        col_normalized_t = tl.reshape(col_normalized_t_r, COL_TILE_SIZE, ROW_TILE_SIZE)
+
+        # Undo the transpose
+        col_normalized = tl.trans(col_normalized_t)
+
+        # Quantize to float8
+        col_normalized = col_normalized.to(tl.float8e4nv)
+
+        # Store the column-normalized result in column-major format
+        tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
+
+        # Create 1D ranges for storing row and column max values
+        # col_indices = start_col + tl.arange(0, COL_TILE_SIZE)
+
+        # Create masks for valid rows and columns
+        # col_mask = col_indices < n_cols
+
+        # reshape col_scale_e8m0_r to col_scale_e8m0
+        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
+        # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        col_scale_e8m0 = col_scale_e8m0_r.reshape(
+            COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
+        )
+        # col_scale_e8m0 = col_scale_e8m0_r.ravel()
+
+        # col_scale_start_offsets = (
+        #     (
+        #         pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
+        #     )  # number of blocks seen so far
+        #     + pid_row  # increment ROW_TILE_SIZE
+        # )
+
+        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
+
+        col_scale_start_offsets = (
+            (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
+            * factor  # number of blocks seen so far
+            + pid_row * factor  # increment ROW_TILE_SIZE
+        )
+
+        # tl.device_print("offset", col_scale_start_offsets)
+        col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
+        # col_scale_start_ptr = col_scale_ptr
+
+        # col_scale_indices = tl.arange(0, COL_TILE_SIZE) * (n_rows // ROW_TILE_SIZE)
+
+        # calculate col_scale_indices, this is a bit convoluted
+        # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
+        # from example: [0, 1, 2, 3, 4, 5, 6, 7]
+        col_scale_indices = tl.arange(
+            0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
+        )
+        # add offset for inner blocks
+        factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
+
+        # needs better name
+        jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
+        # tl.device_print("jump_vals_per_col", jump_vals_per_col)
+
+        # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
+        col_scale_indices = col_scale_indices + (
+            tl.floor(col_scale_indices / factor) * jump_vals_per_col
+        ).to(tl.int32)
+        # tl.static_print(col_scale_indices)
+        # tl.device_print("indices", col_scale_indices)
+
+        # TODO(future): mask
+        tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
+
+    def to_mxfp8_dim1(x, inner_block_size=32):
+        """
+        Input:
+        * `x` - input tensor, in row major memory layout
+        * `inner_block_size` - size of tiles to scale across, default is 32 for MX recipes
+
+        Output:
+        * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
+        * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
+        """
+        assert x.is_contiguous(), "`x` must be contiguous"
+        assert x.dtype == torch.bfloat16
+        # Get tensor shape
+        n_rows, n_cols = x.shape
+
+        # can be autotuned
+        # row_tile_size = 32
+        row_tile_size = 128
+        # row_tile_size = 4
+
+        assert row_tile_size >= inner_block_size
+
+        # TODO autotune col_tile_size
+        # input 16k by 16k
+        # triton scaling mostly commented out
+        # row_tile_size=256, col_tile_size=64: 3.47 TB/s
+        # TODO(next): make calculations work with ^
+        col_tile_size = 128
+        # col_tile_size = 4
+
+        # Create output tensors
+        output_col_major = torch.empty(
+            (n_cols, n_rows), dtype=torch.float8_e4m3fn, device=x.device
+        )
+
+        # Create scale tensors
+        # TODO(before land): switch back to empty
+        col_scale = torch.empty(
+            n_cols, n_rows // inner_block_size, dtype=torch.uint8, device=x.device
+        )
+
+        # Calculate grid dimensions based on tile size
+        grid_rows = triton.cdiv(n_rows, row_tile_size)
+        grid_cols = triton.cdiv(n_cols, col_tile_size)
+
+        # inner_block_size = 32
+        rename_me_tile_size = row_tile_size * col_tile_size // inner_block_size
+
+        # Launch the kernel
+        to_mxfp8_dim1_kernel[(grid_rows, grid_cols)](
+            x_ptr=x,
+            output_col_major_ptr=output_col_major,
+            col_scale_ptr=col_scale,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            COL_TILE_SIZE=col_tile_size,
+            ROW_TILE_SIZE=row_tile_size,
+            RENAME_ME_TILE_SIZE=rename_me_tile_size,
+            INNER_BLOCK_SIZE=inner_block_size,
+        )
+
+        return (
+            output_col_major.t(),
+            col_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
+        )
+
+    def to_mxfp8_dim0_reference(
+        x_hp: torch.Tensor, block_size
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        A reference version of `to_mxfp8_dim0`.
+        """
+        from torchao.prototype.mx_formats.mx_tensor import to_mx
+
+        # cast across dim0
+        scale_e8m0_dim0, x_hp_d0_normalized = to_mx(
+            x_hp, torch.float8_e4m3fn, block_size
+        )
+        scale_e8m0_dim0 = scale_e8m0_dim0.unsqueeze(1).view(torch.float8_e8m0fnu)
+        return (
+            x_hp_d0_normalized,
+            scale_e8m0_dim0,
+        )
+
+    def to_mxfp8_dim1_reference(
+        x_hp: torch.Tensor, block_size
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        A reference version of `to_mxfp8_dim1`.
+        """
+        from torchao.prototype.mx_formats.mx_tensor import to_mx
+
+        # cast across dim1
+        x_hp_d1 = x_hp.t().contiguous()
+        scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
+            x_hp_d1, torch.float8_e4m3fn, block_size
+        )
+        scale_e8m0_dim1 = scale_e8m0_dim1.unsqueeze(1).view(torch.float8_e8m0fnu)
+        return (
+            x_hp_d1_normalized.t(),
+            scale_e8m0_dim1,
+        )
+
+else:
+
+    def to_mxfp8_across_dim0_and_dim1(x, tile_size=32):
+        raise AssertionError("needs torch version 2.4+ and triton")
+
+    def scale_dim0_dim1_reference(
+        x_hp: torch.Tensor, block_size
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.4+ and triton")
