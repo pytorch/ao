@@ -316,7 +316,8 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     return dequantized
 
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, zero_point_domain_is_int=False):
+def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, \
+                                 zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -331,7 +332,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     quant_max = 2**n_bit - 1
     eps = 1e-6
     scale_dtype = dtype
-    zero_point_dtype = dtype if not zero_point_domain_is_int else torch.int32
+    zero_point_dtype = dtype if zero_point_domain!=ZeroPointDomain.INT else torch.int32
 
     scale, zero_point = choose_qparams_affine(
         w,
@@ -343,8 +344,8 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=zero_point_domain_is_int,
-        zero_point_domain=ZeroPointDomain.FLOAT if not zero_point_domain_is_int else ZeroPointDomain.INT
+        preserve_zero=preserve_zero,
+        zero_point_domain=zero_point_domain
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
@@ -472,10 +473,11 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     )
 
 
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, zero_point_domain_is_int=False):
+def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, \
+                                     zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype,\
-                                                  zero_point_domain_is_int=zero_point_domain_is_int)
-    zero_point_domain = ZeroPointDomain.FLOAT if not zero_point_domain_is_int else ZeroPointDomain.INT
+                                                  zero_point_domain=zero_point_domain, \
+                                                  preserve_zero=preserve_zero)
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize, zero_point_domain=zero_point_domain
     )
