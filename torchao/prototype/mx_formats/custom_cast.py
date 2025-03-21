@@ -1161,11 +1161,6 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # TODO(future): better name
         BLOCKS_PER_ROW_TILE: tl.constexpr = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
-        # TODO(future): better name
-        RENAME_ME_TILE_SIZE: tl.constexpr = (
-            ROW_TILE_SIZE * COL_TILE_SIZE // INNER_BLOCK_SIZE
-        )
-
         # Get program ID
         pid_row = tl.program_id(0)
         pid_col = tl.program_id(1)
@@ -1205,7 +1200,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # TODO: make this generic and nice
         # inner_block_size = 32
         # shape: (COL_TILE_SIZE, ROW_TILE_SIZE) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
-        x_block_t_r = x_block_t.reshape(RENAME_ME_TILE_SIZE, INNER_BLOCK_SIZE)
+        x_block_t_r = x_block_t.reshape(
+            COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE
+        )
 
         # Calculate the absolute values of elements in the block
         x_block_abs_t_r = tl.abs(x_block_t_r)
