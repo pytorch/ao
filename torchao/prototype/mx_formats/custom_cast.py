@@ -1395,7 +1395,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # col_scale shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, 1)
         col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
 
-        # Reshape back to original tile size 
+        # Reshape back to original tile size
         col_normalized_t = tl.reshape(col_normalized_t_r, COL_TILE_SIZE, ROW_TILE_SIZE)
 
         # Undo the transpose
@@ -1416,7 +1416,9 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # reshape col_scale_e8m0_r to col_scale_e8m0
         # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
         # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
-        col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        col_scale_e8m0 = col_scale_e8m0_r.reshape(
+            COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
+        )
         # col_scale_e8m0 = col_scale_e8m0_r.ravel()
 
         # col_scale_start_offsets = (
@@ -1429,10 +1431,9 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
         col_scale_start_offsets = (
-            (
-                pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE)
-            )  * factor # number of blocks seen so far
-            + pid_row * factor # increment ROW_TILE_SIZE
+            (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
+            * factor  # number of blocks seen so far
+            + pid_row * factor  # increment ROW_TILE_SIZE
         )
 
         # tl.device_print("offset", col_scale_start_offsets)
@@ -1444,7 +1445,9 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # calculate col_scale_indices, this is a bit convoluted
         # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
         # from example: [0, 1, 2, 3, 4, 5, 6, 7]
-        col_scale_indices = tl.arange(0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        col_scale_indices = tl.arange(
+            0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE
+        )
         # add offset for inner blocks
         factor = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
@@ -1453,7 +1456,9 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # tl.device_print("jump_vals_per_col", jump_vals_per_col)
 
         # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
-        col_scale_indices = col_scale_indices + (tl.floor(col_scale_indices / factor) * jump_vals_per_col).to(tl.int32)
+        col_scale_indices = col_scale_indices + (
+            tl.floor(col_scale_indices / factor) * jump_vals_per_col
+        ).to(tl.int32)
         # tl.static_print(col_scale_indices)
         # tl.device_print("indices", col_scale_indices)
 
@@ -1477,7 +1482,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         # can be autotuned
         # row_tile_size = 32
-        row_tile_size = 256
+        row_tile_size = 128
         # row_tile_size = 4
 
         assert row_tile_size >= inner_block_size
@@ -1487,7 +1492,7 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         # triton scaling mostly commented out
         # row_tile_size=256, col_tile_size=64: 3.47 TB/s
         # TODO(next): make calculations work with ^
-        col_tile_size = 64
+        col_tile_size = 128
         # col_tile_size = 4
 
         # Create output tensors
