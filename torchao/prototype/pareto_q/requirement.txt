@@ -1,0 +1,5 @@
+transformers==4.48.3
+accelerate>=0.26.0
+datasets==2.20.0
+sentencepiece
+tensorboardX
