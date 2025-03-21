@@ -73,18 +73,19 @@ class ScaleCalculationMode(Enum):
            It uses X = 2^ceil(log2(max_abs(v))-max_exp).
     EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
            It provides better accuracy for MX4 training compared to FLOOR and CEIL.
-    CUBLAS_CEIL: This method is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
+    CEIL_RATIO: This method is described in https://docs.nvidia.com/cuda/cublas/index.html#d-block-quantization
            Section "Computing scaling and conversion factors for FP8 with UE8M0 scales"
+           The method is to apply ceil to the ratio of max_abs(v) and max_pos.
     By default, we use the EVEN method for better accuracy.
     """
 
     FLOOR = auto()
     CEIL = auto()
     EVEN = auto()
-    CUBLAS_CEIL = auto()
+    CEIL_RATIO = auto()
 
 
-def _to_mx_nvidia(
+def _to_mx_ceil_ratio(
     data_hp: torch.Tensor,
     max_abs: torch.Tensor,
     max_pos: float,
@@ -187,8 +188,8 @@ def to_mx(
     else:
         raise AssertionError("unsupported element dtype")
 
-    if scaling_mode == ScaleCalculationMode.CUBLAS_CEIL:
-        scale_e8m0_biased, data_lp = _to_mx_nvidia(data_hp, max_abs, max_pos)
+    if scaling_mode == ScaleCalculationMode.CEIL_RATIO:
+        scale_e8m0_biased, data_lp = _to_mx_ceil_ratio(data_hp, max_abs, max_pos)
     else:
         # rounding before calculating the largest power of 2
         # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))

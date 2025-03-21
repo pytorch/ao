@@ -107,7 +107,7 @@ def test_some_zeros(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_to_mx_nvidia():
+def test_to_mx_ceil_ratio():
     # nan
     data_hp = torch.tensor(
         [
@@ -133,7 +133,7 @@ def test_to_mx_nvidia():
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     assert torch.isnan(data_mx._data[0])
@@ -155,7 +155,7 @@ def test_to_mx_nvidia():
         torch.float8_e4m3fn
     )
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -176,7 +176,7 @@ def test_to_mx_nvidia():
         torch.float8_e4m3fn
     )
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -205,7 +205,7 @@ def test_to_mx_nvidia():
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -234,7 +234,7 @@ def test_to_mx_nvidia():
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -245,7 +245,7 @@ def test_to_mx_nvidia():
         torch.float8_e4m3fn
     )
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -274,7 +274,7 @@ def test_to_mx_nvidia():
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
@@ -303,7 +303,7 @@ def test_to_mx_nvidia():
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
     data_mx = MXTensor.to_mx(
-        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CUBLAS_CEIL
+        data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.CEIL_RATIO
     )
     torch.testing.assert_close(data_mx._scale_e8m0, ground_truth_scale)
     torch.testing.assert_close(data_mx._data, ground_truth_fp8)
