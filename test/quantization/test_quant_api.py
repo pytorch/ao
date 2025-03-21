@@ -13,7 +13,6 @@ import unittest
 from pathlib import Path
 
 import torch
-from torchao.dtypes import CutlassInt4PackedLayout, Int4XPULayout, Int4CPULayout, SemiSparseLayout
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -25,7 +24,11 @@ from torch.testing._internal.common_utils import TestCase
 from torchao import quantize_
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.dtypes import AffineQuantizedTensor
+from torchao.dtypes import (
+    AffineQuantizedTensor,
+    Int4CPULayout,
+    Int4XPULayout,
+)
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
     Quantizer,
@@ -43,7 +46,7 @@ from torchao.quantization.quant_api import (
     int8_weight_only,
     uintx_weight_only,
 )
-from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
+from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -835,7 +838,6 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("use_hqq", [True, False])
     def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
-        from torchao.dtypes import Int4CPULayout
 
         device = "cpu"
         m = ToyLinearModel().eval().to(dtype).to(device)
