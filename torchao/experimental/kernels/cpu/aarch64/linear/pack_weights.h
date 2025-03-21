@@ -339,7 +339,7 @@ void unpack_weights_at_n_idx(
     int group_size,
     bool has_weight_zeros,
     bool has_bias,
-    void* packed_weights) {
+    const void* packed_weights) {
   assert(k % group_size == 0);
   assert(group_size % kr == 0);
   assert(n_idx % nr == 0);
@@ -441,7 +441,7 @@ void unpack_weights(
     int group_size,
     bool has_weight_zeros,
     bool has_bias,
-    void* packed_weights) {
+    const void* packed_weights) {
   assert(k % group_size == 0);
   assert(group_size % kr == 0);
   int groups_per_k = k / group_size;
