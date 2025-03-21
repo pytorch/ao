@@ -16,11 +16,15 @@ from torchao.quantization.utils import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
+    find_multiple,
+)
+
 from .quant_primitives import (
     ZeroPointDomain,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, find_multiple,\
-    TORCH_VERSION_AT_LEAST_2_7
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",

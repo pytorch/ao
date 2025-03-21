@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union, List
+from typing import Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import (
