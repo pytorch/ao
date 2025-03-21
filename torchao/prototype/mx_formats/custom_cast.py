@@ -1132,6 +1132,25 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
 
         return scale_fp, scale_e8m0_biased
 
+    def _get_mxfp8_dim1_kernel_autotune_configs():
+        results = []
+        for ROW_TILE_SIZE in (64, 128):
+            for COL_TILE_SIZE in (64, 128):
+                for num_warps in (1, 2, 4):
+                    config = triton.Config(
+                        {
+                            "ROW_TILE_SIZE": ROW_TILE_SIZE,
+                            "COL_TILE_SIZE": COL_TILE_SIZE,
+                        },
+                        num_warps=num_warps,
+                    )
+                    results.append(config)
+        return results
+
+    @triton.autotune(
+        configs=_get_mxfp8_dim1_kernel_autotune_configs(),
+        key=["n_rows", "n_cols", "INNER_BLOCK_SIZE"],
+    )
     @triton.jit
     def to_mxfp8_dim1_kernel(
         x_ptr,  # pointer to input tensor
@@ -1141,9 +1160,12 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         n_cols,  # number of columns in the tensor
         ROW_TILE_SIZE: tl.constexpr,  # can be autotuned
         COL_TILE_SIZE: tl.constexpr,  # can be autotuned
-        RENAME_ME_TILE_SIZE: tl.constexpr,
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
     ):
+        RENAME_ME_TILE_SIZE: tl.constexpr = (
+            ROW_TILE_SIZE * COL_TILE_SIZE // INNER_BLOCK_SIZE
+        )
+
         # Get program ID
         pid_row = tl.program_id(0)
         pid_col = tl.program_id(1)
@@ -1259,20 +1281,10 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         """
         assert x.is_contiguous(), "`x` must be contiguous"
         assert x.dtype == torch.bfloat16
+        assert inner_block_size <= 32
 
         # Get tensor shape
         n_rows, n_cols = x.shape
-
-        # can be autotuned
-        # row_tile_size = 32
-        row_tile_size = 128
-        # row_tile_size = 4
-
-        assert row_tile_size >= inner_block_size
-
-        # TODO autotune col_tile_size
-        # input 16k by 16k
-        col_tile_size = 128
 
         # Create output tensors
         output_col_major = torch.empty(
@@ -1285,21 +1297,18 @@ if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
         )
 
         # Calculate grid dimensions based on tile size
-        grid_rows = triton.cdiv(n_rows, row_tile_size)
-        grid_cols = triton.cdiv(n_cols, col_tile_size)
-
-        rename_me_tile_size = row_tile_size * col_tile_size // inner_block_size
+        grid = lambda META: (
+            triton.cdiv(n_rows, META["ROW_TILE_SIZE"]),
+            triton.cdiv(n_cols, META["COL_TILE_SIZE"]),
+        )
 
         # Launch the kernel
-        to_mxfp8_dim1_kernel[(grid_rows, grid_cols)](
+        to_mxfp8_dim1_kernel[grid](
             x_ptr=x,
             output_col_major_ptr=output_col_major,
             col_scale_ptr=col_scale,
             n_rows=n_rows,
             n_cols=n_cols,
-            COL_TILE_SIZE=col_tile_size,
-            ROW_TILE_SIZE=row_tile_size,
-            RENAME_ME_TILE_SIZE=rename_me_tile_size,
             INNER_BLOCK_SIZE=inner_block_size,
         )
 

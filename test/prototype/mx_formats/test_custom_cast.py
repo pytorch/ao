@@ -458,8 +458,9 @@ def test_fp6_e3m2_pack_unpack():
     not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
-def test_triton_mxfp8_dim1():
-    M, K = 1024, 2048
+@pytest.mark.parametrize("M", (256, 2048))
+@pytest.mark.parametrize("K", (256, 2048))
+def test_triton_mxfp8_dim1(M, K):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     x_mx_ref, x_s_ref = to_mxfp8_dim1_reference(x, block_size=32)
     x_mx_t, x_s_t = to_mxfp8_dim1(x, inner_block_size=32)
