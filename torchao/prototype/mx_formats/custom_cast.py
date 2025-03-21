@@ -1295,7 +1295,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # TODO(future): mask this store
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
-    def to_mxfp8_dim1(x, inner_block_size=32):
+    def to_mxfp8_dim1(x, inner_block_size=32) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
         * `x` - input tensor, in row major memory layout
@@ -1373,10 +1373,10 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
 else:
 
-    def to_mxfp8_across_dim0_and_dim1(x, tile_size=32):
+    def to_mxfp8_dim1(x, inner_block_size=32) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
-    def scale_dim0_dim1_reference(
+    def to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
