@@ -155,6 +155,39 @@ void unpack_values(
   }
 }
 
+// Size in bytes of 1 packed weights column
+size_t inline packed_weights_size_per_n(
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias) {
+  assert(k % group_size == 0);
+  int groups_per_col = k / group_size;
+  int col_size = 0;
+
+  // qvals
+  col_size += (k / 8) * weight_nbit;
+
+  // scales
+  col_size += sizeof(float) * groups_per_col;
+
+  // qvals_sum
+  col_size += sizeof(int32_t) * groups_per_col;
+
+  // zeros
+  if (has_weight_zeros) {
+    col_size += sizeof(int32_t) * groups_per_col;
+  }
+
+  // bias
+  if (has_bias) {
+    col_size += sizeof(float);
+  }
+
+  return col_size;
+}
+
 } // namespace internal
 
 template <int weight_nbit, int nr, int kr, int sr>
@@ -281,36 +314,118 @@ size_t inline packed_weights_size(
     bool has_weight_zeros,
     bool has_bias,
     int nr) {
-  assert(k % group_size == 0);
-  int groups_per_col = k / group_size;
-  int col_size = 0;
-
-  // qvals
-  col_size += (k / 8) * weight_nbit;
-
-  // scales
-  col_size += sizeof(float) * groups_per_col;
-
-  // qvals_sum
-  col_size += sizeof(int32_t) * groups_per_col;
-
-  // zeros
-  if (has_weight_zeros) {
-    col_size += sizeof(int32_t) * groups_per_col;
-  }
-
-  // bias
-  if (has_bias) {
-    col_size += sizeof(float);
-  }
+  auto packed_weights_size_per_n = internal::packed_weights_size_per_n(
+      k, group_size, weight_nbit, has_weight_zeros, has_bias);
 
   // Replace n with next multiple of nr >= n
   n = ((n + nr - 1) / nr) * nr;
-
-  return col_size * n;
+  return packed_weights_size_per_n * n;
 }
 
-// Unpack weights
+// Unpack weights at n_idx to support shared embedding/unembedding
+template <int weight_nbit, int nr, int kr, int sr>
+void unpack_weights_at_n_idx(
+    // Output
+    int8_t* weight_qvals, // k * nr values at n_idx
+    float* weight_scales, // groups_per_k * nr values at n_idx
+    // weight_zeros is not extracted if has_weight_zeros is false
+    int8_t* weight_zeros, // groups_per_k * nr values at n_idx
+    // bias is not extracted if has_bias is false
+    float* bias, // nr values at n_idx
+    // Inputs
+    int n_idx,
+    int n,
+    int k,
+    int group_size,
+    bool has_weight_zeros,
+    bool has_bias,
+    void* packed_weights) {
+  assert(k % group_size == 0);
+  assert(group_size % kr == 0);
+  assert(n_idx % nr == 0);
+
+  int groups_per_k = k / group_size;
+
+  // Buffer to hold (kr * nr) values
+  std::array<int8_t, nr * kr> buffer;
+
+  // Buffer to hold (kr * nr) values after theose values
+  // are packed by params (nr, kr, sr)
+  int8_t packed_values[buffer.size()];
+
+  // Bytes of packed buffer of (nr * kr) values
+  assert(nr * kr % 8 == 0);
+  constexpr int packed_buffer_bytes = weight_nbit * nr * kr / 8;
+
+  // Data pointer for packed weights
+  auto packed_weights_byte_ptr =
+      ((char*)packed_weights +
+       n_idx *
+           internal::packed_weights_size_per_n(
+               k, group_size, weight_nbit, has_weight_zeros, has_bias));
+
+  // Look over groups along k
+  for (int group_idx = 0; group_idx < groups_per_k; group_idx++) {
+    // Loop over group by kr and pack the weights for the next nr columns
+    int k_idx = group_idx * group_size;
+    for (int idx_in_group = 0; idx_in_group < group_size; idx_in_group += kr) {
+      // Unpack qvals
+      internal::unpack_buffer<weight_nbit, kr, nr>(
+          packed_values, packed_weights_byte_ptr);
+      packed_weights_byte_ptr += packed_buffer_bytes;
+      internal::unpack_values(buffer.data(), packed_values, nr, kr, sr);
+
+      // Write weight_qvals
+      for (int j = 0; j < nr; j++) {
+        if (n_idx + j < n) {
+          std::memcpy(
+              weight_qvals + j * k + (k_idx + idx_in_group),
+              buffer.data() + kr * j,
+              kr);
+        }
+      }
+
+    } // loop over group (idx_in_group)
+
+    // Write group scales and zeros for next nr columns
+
+    // Write weight scales
+    for (int j = 0; j < nr; j++) {
+      float scale = *((float*)packed_weights_byte_ptr);
+      packed_weights_byte_ptr += sizeof(float);
+      if (n_idx + j < n) {
+        weight_scales[j * groups_per_k + group_idx] = scale;
+      }
+    }
+
+    // Skip over weight qval sums
+    packed_weights_byte_ptr += nr * sizeof(int);
+
+    // Write weight zeros
+    if (has_weight_zeros) {
+      for (int j = 0; j < nr; j++) {
+        int32_t zero = *((int32_t*)packed_weights_byte_ptr);
+        packed_weights_byte_ptr += sizeof(int32_t);
+        if (n_idx + j < n) {
+          weight_zeros[j * groups_per_k + group_idx] = (int8_t)zero;
+        }
+      }
+    }
+
+  } // loop over k (group_idx)
+
+  // Write bias
+  if (has_bias) {
+    for (int j = 0; j < nr; j++) {
+      float bias_ = *((float*)packed_weights_byte_ptr);
+      packed_weights_byte_ptr += sizeof(float);
+      if (n_idx + j < n) {
+        bias[j] = bias_;
+      }
+    }
+  }
+}
+
 template <int weight_nbit, int nr, int kr, int sr>
 void unpack_weights(
     // Output
@@ -329,87 +444,22 @@ void unpack_weights(
     void* packed_weights) {
   assert(k % group_size == 0);
   assert(group_size % kr == 0);
-
   int groups_per_k = k / group_size;
 
-  // Buffer to hold (kr * nr) values
-  std::array<int8_t, nr * kr> buffer;
-
-  // Buffer to hold (kr * nr) values after theose values
-  // are packed by params (nr, kr, sr)
-  int8_t packed_values[buffer.size()];
-
-  // Bytes of packed buffer of (nr * kr) values
-  assert(nr * kr % 8 == 0);
-  constexpr int packed_buffer_bytes = weight_nbit * nr * kr / 8;
-
-  // Data pointer for packed weights
-  auto packed_weights_byte_ptr = (char*)packed_weights;
-
-  // Loop over n by nr
   for (int n_idx = 0; n_idx < n; n_idx += nr) {
-    // Look over groups along k
-    for (int group_idx = 0; group_idx < groups_per_k; group_idx++) {
-      // Loop over group by kr and pack the weights for the next nr columns
-      int k_idx = group_idx * group_size;
-      for (int idx_in_group = 0; idx_in_group < group_size;
-           idx_in_group += kr) {
-        // Unpack qvals
-        internal::unpack_buffer<weight_nbit, kr, nr>(
-            packed_values, packed_weights_byte_ptr);
-        packed_weights_byte_ptr += packed_buffer_bytes;
-        internal::unpack_values(buffer.data(), packed_values, nr, kr, sr);
-
-        // Write weight_qvals
-        for (int j = 0; j < nr; j++) {
-          if (n_idx + j < n) {
-            std::memcpy(
-                weight_qvals + (n_idx + j) * k + (k_idx + idx_in_group),
-                buffer.data() + kr * j,
-                kr);
-          }
-        }
-
-      } // loop over group (idx_in_group)
-
-      // Write group scales and zeros for next nr columns
-
-      // Write weight scales
-      for (int j = 0; j < nr; j++) {
-        float scale = *((float*)packed_weights_byte_ptr);
-        packed_weights_byte_ptr += sizeof(float);
-        if (n_idx + j < n) {
-          weight_scales[(n_idx + j) * groups_per_k + group_idx] = scale;
-        }
-      }
-
-      // Skip over weight qval sums
-      packed_weights_byte_ptr += nr * sizeof(int);
-
-      // Write weight zeros
-      if (has_weight_zeros) {
-        for (int j = 0; j < nr; j++) {
-          int32_t zero = *((int32_t*)packed_weights_byte_ptr);
-          packed_weights_byte_ptr += sizeof(int32_t);
-          if (n_idx + j < n) {
-            weight_zeros[(n_idx + j) * groups_per_k + group_idx] = (int8_t)zero;
-          }
-        }
-      }
-
-    } // loop over k (group_idx)
-
-    // Write bias
-    if (has_bias) {
-      for (int j = 0; j < nr; j++) {
-        float bias_ = *((float*)packed_weights_byte_ptr);
-        packed_weights_byte_ptr += sizeof(float);
-        if (n_idx + j < n) {
-          bias[n_idx + j] = bias_;
-        }
-      }
-    }
-  } // n_idx
+    unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
+        weight_qvals + n_idx * k,
+        weight_scales + n_idx * groups_per_k,
+        weight_zeros + n_idx * groups_per_k,
+        bias + n_idx,
+        n_idx,
+        n,
+        k,
+        group_size,
+        has_weight_zeros,
+        has_bias,
+        packed_weights);
+  }
 }
 
 } // namespace torchao::kernels::cpu::aarch64::linear::packing
