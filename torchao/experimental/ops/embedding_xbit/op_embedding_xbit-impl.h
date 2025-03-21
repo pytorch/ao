@@ -12,6 +12,7 @@
 
 #include <torchao/experimental/ops/embedding_xbit/packed_weights_header.h>
 #include <torchao/experimental/ops/library.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_format.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 #include <torchao/experimental/ops/parallel.h>
 
@@ -266,3 +267,121 @@ Tensor pack_embedding_meta(const Tensor& weight_qvals) {
       .to("meta");
 }
 #endif // USE_ATEN
+
+#if defined(USE_ATEN) || defined(USE_EXECUTORCH)
+template <int weight_nbit>
+Tensor shared_embedding_out_cpu(
+    const Tensor& packed_weights,
+    const int64_t& group_size,
+    const int64_t& n, // same as num_embeddings
+    const int64_t& k, // same as embedding_dim
+    const Tensor& indices,
+    Tensor& out) {
+  // Check packed_weights are from linear op
+  TORCHAO_CHECK(packed_weights.dim() == 1, "packed_weights must be 1D");
+#ifdef USE_ATEN
+  TORCHAO_CHECK(
+      packed_weights.dtype() == torch::kInt8, "packed_weights must be int8");
+#endif // USE_ATEN
+  TORCHAO_CHECK(
+      packed_weights.size(0) >= torchao::ops::PackedWeightsHeader::size(),
+      "packed_weights is not big enough to read the header.");
+  auto header =
+      torchao::ops::PackedWeightsHeader::read(packed_weights.const_data_ptr());
+  auto format = torchao::ops::linear_8bit_act_xbit_weight::PackedWeightsFormat::
+      from_packed_weights_header(header);
+  torchao::ops::linear_8bit_act_xbit_weight::check_format<weight_nbit>(
+      format,
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
+  constexpr int nr = 8;
+  constexpr int kr = 16;
+  constexpr int sr = 2;
+  TORCHAO_CHECK(format.nr == nr, "shared_embedding only supports nr=8");
+  TORCHAO_CHECK(format.kr == kr, "shared_embedding only supports kr=16");
+  TORCHAO_CHECK(format.sr == sr, "shared_embedding only supports sr=2");
+
+  int num_out = indices.size(0);
+
+#ifdef USE_ATEN
+  TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
+  out.resize_({num_out, k});
+#endif // USE_ATEN
+
+#ifdef USE_EXECUTORCH
+  TORCHAO_CHECK(out.dim() == 2, "out must be 2D");
+  TORCHAO_CHECK(out.size(0) == num_out, "out shape is incorrect");
+  TORCHAO_CHECK(out.size(1) == k, "out shape is incorrect");
+#endif // USE_EXECUTORCH
+
+  const int32_t* index32_ptr = nullptr;
+  const int64_t* index64_ptr = nullptr;
+  if (indices.dtype() == Tensor_dtype_kInt32) {
+    index32_ptr = indices.const_data_ptr<int32_t>();
+  } else {
+    TORCHAO_CHECK(
+        indices.dtype() == Tensor_dtype_kInt64,
+        "indices must be int32 or int64");
+    index64_ptr = indices.const_data_ptr<int64_t>();
+  }
+  torchao::parallel_1d(0, num_out, [&](int64_t idx) {
+    int index = -1;
+    if (index32_ptr != nullptr) {
+      index = index32_ptr[idx];
+    } else {
+      index = index64_ptr[idx];
+    }
+    TORCHAO_CHECK(index >= 0 && index < k, "index out of bounds");
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
+    torchao::kernels::cpu::aarch64::embedding::
+        shared_embedding<weight_nbit, nr, kr, sr>(
+            out.mutable_data_ptr<float>() + idx * k,
+            packed_weights.const_data_ptr<int8_t>() +
+                torchao::ops::PackedWeightsHeader::size(),
+            n,
+            k,
+            group_size,
+            format.has_weight_zeros,
+            format.has_bias,
+            index);
+#else
+    TORCHAO_CHECK(false, "Unsupported platform");
+#endif // TORCHAO_BUILD_CPU_AARCH64
+  });
+
+  return out;
+}
+
+#ifdef USE_ATEN
+template <int weight_nbit>
+Tensor shared_embedding_cpu(
+    const Tensor& packed_weights,
+    const int64_t& group_size,
+    const int64_t& n, // same as num_embeddings
+    const int64_t& k, // same as embedding_dim
+    const Tensor& indices) {
+  Tensor output_tensor = torch::empty({}, torch::kFloat32);
+  shared_embedding_out_cpu<weight_nbit>(
+      packed_weights,
+      group_size,
+      n,
+      k,
+      indices,
+      output_tensor);
+  return output_tensor;
+}
+#endif // USE_ATEN
+
+#ifdef USE_ATEN
+template <int weight_nbit>
+Tensor shared_embedding_meta(
+     const Tensor& packed_weights,
+    const int64_t& group_size,
+    const int64_t& n, // same as num_embeddings
+    const int64_t& k, // same as embedding_dim
+    const Tensor& indices) {
+  int num_out = indices.size(0);
+  return torch::empty({num_out, k}).to("meta");
+}
+#endif // USE_ATEN
+
+#endif // defined(USE_ATEN) || defined(USE_EXECUTORCH)
