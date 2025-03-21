@@ -1154,11 +1154,47 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         col_scale_ptr,  # pointer to store column-wise maximum absolute values
         n_rows,  # number of rows in the tensor
         n_cols,  # number of columns in the tensor
-        ROW_TILE_SIZE: tl.constexpr,  # can be autotuned
-        COL_TILE_SIZE: tl.constexpr,  # can be autotuned
+        ROW_TILE_SIZE: tl.constexpr,
+        COL_TILE_SIZE: tl.constexpr,
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
     ):
-        # TODO(future): better name
+        """
+        Example tiling for n_rows==8, n_cols=8, ROW_TILE_SIZE=4, COL_TILE_SIZE=4, INNER_BLOCK_SIZE=2,
+        pid_row=0, pid_col=0:
+
+        Input (row-major)
+
+        cols      0  1  2  3  4  5  6  7
+        --------------------------------
+        rows 0 |  0  1  2  3
+             1 |  8  9 10 11
+             2 | 16 17 18 19
+             3 | 24 25 26 27
+             4 |
+             5 |
+             6 |
+             7 |
+
+        Output (row-major of transpose), ids are from input
+
+        cols      0  1  2  3  4  5  6  7
+        --------------------------------
+        rows 0 |  0  8 16 24
+             1 |  1  9 17 25
+             2 |  2 10 18 26
+             3 |  3 11 19 27
+             4 |
+             5 |
+             6 |
+             7 |
+
+        Output (scales), s(0, 8) means the scale used to cast elements 0 and 8
+
+        rows           0          1         2  ...       31
+        ----------------------------------------------------
+                  s(0, 8)  s(16, 24)   s(1, 9) ... s(19, 27)
+        """
+
         BLOCKS_PER_ROW_TILE: tl.constexpr = ROW_TILE_SIZE // INNER_BLOCK_SIZE
 
         # Get program ID
@@ -1197,9 +1233,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         x_block_t = tl.trans(x_block)
 
         # Reshape to inner tile size
-        # TODO: make this generic and nice
-        # inner_block_size = 32
-        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
+        # shape: (COL_TILE_SIZE, ROW_TILE_SIZE) -> (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE)
         x_block_t_r = x_block_t.reshape(
             COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE
         )
@@ -1208,14 +1242,13 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         x_block_abs_t_r = tl.abs(x_block_t_r)
 
         # Find the maximum absolute value for each column
-        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
+        # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
         col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
-        # x_block_t shape (COL_TILE_SIZE, ROW_TILE_SIZE)
-        # x_block_t_r shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, INNER_BLOCK_SIZE)
-        # col_scale shape (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE, 1)
+        # x_block_t_r shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE)
+        # col_scale shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, 1)
         col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
 
         # Reshape back to original tile size
@@ -1231,24 +1264,22 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
 
         # reshape col_scale_e8m0_r to col_scale_e8m0
-        # shape: (COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE,) -> (COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE,)
-        # col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, ROW_TILE_SIZE // INNER_BLOCK_SIZE)
+        # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE, BLOCKS_PER_ROW_TILE,)
         col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
         col_scale_start_offsets = (
             (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
             * BLOCKS_PER_ROW_TILE  # number of blocks seen so far
-            + pid_row * BLOCKS_PER_ROW_TILE  # increment ROW_TILE_SIZE
+            + pid_row * BLOCKS_PER_ROW_TILE  # increment BLOCKS_PER_ROW_TILE
         )
 
         col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
 
-        # calculate col_scale_indices, this is a bit convoluted
-        # start with a sequential index [0, COL_TILE_SIZE * ROW_TILE_SIZE // INNER_BLOCK_SIZE]
-        # from example: [0, 1, 2, 3, 4, 5, 6, 7]
+        # calculate col_scale_indices
         col_scale_indices = tl.arange(0, COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
-        # needs better name
+        # How many values are in all the other columns for this row_pid, need to jump
+        # over them for every BLOCKS_PER_ROW_TILE values
         jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
 
         # example transformation (specifics depend on tile sizes):
