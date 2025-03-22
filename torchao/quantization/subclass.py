@@ -16,7 +16,15 @@ from torchao.quantization.utils import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6, find_multiple
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
+    find_multiple,
+)
+
+from .quant_primitives import (
+    ZeroPointDomain,
+)
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
@@ -419,6 +427,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize=128,
         inner_k_tiles=8,
+        zero_point_domain=ZeroPointDomain.FLOAT,
+        preserve_zero=False,
         dtype=None,
         **kwargs,
     ):
@@ -435,6 +445,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize,
         inner_k_tiles,
+        zero_point_domain,
+        preserve_zero,
         dtype,
         **kwargs,
     ):
@@ -446,6 +458,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         self.scales_and_zeros = scales_and_zeros
         self.groupsize = groupsize
         self.inner_k_tiles = inner_k_tiles
+        self.zero_point_domain = zero_point_domain
+        self.preserve_zero = preserve_zero
         super().__init__(int_data, transposed)
 
     @staticmethod
@@ -466,6 +480,20 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 w_qtensor.groupsize,
                 w_qtensor.scales_and_zeros,
             )
+        elif is_device(act_mat.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+            if not w_qtensor.zero_point_domain==ZeroPointDomain.INT:
+                y = aten._weight_int4pack_mm(
+                    act_mat.contiguous(),
+                    w_qtensor.int_data,
+                    w_qtensor.groupsize,
+                    w_qtensor.scales_and_zeros)
+            else:
+                y = aten._weight_int4pack_mm_with_scales_and_zeros(
+                    act_mat.contiguous(),
+                    w_qtensor.int_data,
+                    w_qtensor.groupsize,
+                    w_qtensor.scales_and_zeros[0],
+                    w_qtensor.scales_and_zeros[1])
         else:
             y = aten._weight_int4pack_mm(
                 act_mat.contiguous(),
@@ -513,6 +541,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             self.shape,
             self.groupsize,
             self.inner_k_tiles,
+            self.zero_point_domain,
+            self.preserve_zero
             **kwargs,
         )
 
@@ -524,6 +554,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             self.shape,
             self.groupsize,
             self.inner_k_tiles,
+            self.zero_point_domain,
+            self.preserve_zero,
             dtype=self.dtype,
         )
 
@@ -537,6 +569,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             shape,
             self.groupsize,
             self.inner_k_tiles,
+            self.zero_point_domain,
+            self.preserve_zero,
             dtype=self.dtype,
         )
 
@@ -546,6 +580,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             self.shape,
             self.groupsize,
             self.inner_k_tiles,
+            self.zero_point_domain,
+            self.preserve_zero,
             self.dtype,
         )
 
@@ -560,7 +596,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
         )
-        transposed, shape, groupsize, inner_k_tiles, dtype = attributes
+        transposed, shape, groupsize, inner_k_tiles, zero_point_domain, preserve_zero, dtype = attributes
         return cls(
             int_data,
             scales_and_zeros,
@@ -568,12 +604,15 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             shape if outer_size is None else outer_size,
             groupsize,
             inner_k_tiles,
+            zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
             dtype=dtype,
             strides=outer_stride,
         )
 
     @classmethod
-    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8, dtype=None):
+    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8, \
+                   zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False, dtype=None):
         """
         Method used to convert a linear weight tensor to an instance of the
         Int4WeightOnlyQuantizedLinearWeight subclass.
@@ -588,7 +627,9 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             dtype = input_float.dtype
 
         int_data, scales_and_zeros, transposed, groupsize, inner_k_tils = (
-            cls.to_qtensor_components(input_float, groupsize, inner_k_tiles)
+            cls.to_qtensor_components(input_float, groupsize, inner_k_tiles, \
+                                      zero_point_domain=zero_point_domain, \
+                                      preserve_zero=preserve_zero)
         )
         return cls(
             int_data,
@@ -597,11 +638,14 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             input_float.shape,
             groupsize,
             inner_k_tiles,
+            zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
             dtype=dtype,
         )
 
     @classmethod
-    def to_qtensor_components(cls, input_float, groupsize=128, inner_k_tiles=8):
+    def to_qtensor_components(cls, input_float, groupsize=128, inner_k_tiles=8, \
+                              zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False):
         assert groupsize in [256, 128, 64, 32]
         assert inner_k_tiles in [8, 4, 2]
         orig_out_features, orig_in_features = input_float.shape
@@ -616,11 +660,17 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
-            input_float, 4, groupsize, dtype=input_float.dtype
+            input_float, 4, groupsize, dtype=input_float.dtype, \
+                zero_point_domain=zero_point_domain, preserve_zero=preserve_zero
         )
         if is_device(input_float.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
             int_data = aten._convert_weight_to_int4pack_for_cpu(
                 input_int4x8, inner_k_tiles
+            )
+        if is_device(input_float.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+            from torchao.quantization.utils import convert_weight_to_int4pack_xpu
+            int_data = convert_weight_to_int4pack_xpu(
+                input_int4x8, zero_point_domain_is_int=zero_point_domain==ZeroPointDomain.INT
             )
         else:
             int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
