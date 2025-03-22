@@ -35,21 +35,32 @@ class Target(Enum):
 
     # AUTO target will automatically select a packing format
     # based on the available hardware.
-    # TODO: in future, add the ability to specify specific
-    # hardware targets
     AUTO = auto()
+    UNIVERSAL = auto()
+    KLEIDIAI = auto()
 
     # ATEN target will use the ATen operator
     ATEN = auto()
 
 
+_TARGET_AND_STR = [
+    (Target.AUTO, "auto"),
+    (Target.ATEN, "aten"),
+    (Target.UNIVERSAL, "universal"),
+    (Target.KLEIDIAI, "kleidiai"),
+]
+
+
+def target_to_str(target: Target) -> str:
+    target_to_str = {t: s for t, s in _TARGET_AND_STR}
+    return target_to_str[target]
+
+
 def target_from_str(target: str) -> Target:
-    if target.lower() == "auto":
-        return Target.AUTO
-    elif target.lower() == "aten":
-        return Target.ATEN
-    else:
-        raise ValueError(f"Invalid target: {target}")
+    str_to_target = {s: t for t, s in _TARGET_AND_STR}
+    if target.lower() in str_to_target:
+        return str_to_target[target.lower()]
+    raise ValueError(f"Invalid target: {target}")
 
 
 class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
@@ -146,10 +157,9 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
-        assert layout.target in {
-            Target.AUTO,
-            Target.ATEN,
-        }, f"Unexpected target: {layout.target}"
+        assert layout.target in [
+            t for t, _ in _TARGET_AND_STR
+        ], f"Unexpected target: {layout.target}"
 
         n, k = int_data.shape
         if layout.target == Target.ATEN:
@@ -174,7 +184,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             zero_point.reshape(-1).to(torch.int8) if layout.has_weight_zeros else None,
             layout.group_size,
             bias if layout.has_bias else None,
-            None,  # target, if not passed a packing format will be chosen on C++ side
+            target_to_str(layout.target) if layout.target != Target.AUTO else None,
         ]
 
         packed_weight = getattr(
@@ -223,7 +233,7 @@ def _linear_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_impl(input_tensor, weight_tensor, bias):
-    def _impl_2d_auto(input_tensor, weight_tensor):
+    def _impl_2d_non_aten(input_tensor, weight_tensor):
         assert input_tensor.dim() == 2
         assert weight_tensor.dim() == 2
 
@@ -272,8 +282,8 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     if target == Target.ATEN:
         assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
-    elif target == Target.AUTO:
-        _impl_2d = _impl_2d_auto
+    else:
+        _impl_2d = _impl_2d_non_aten
 
     if input_tensor.dim() == 2:
         res = _impl_2d(input_tensor, weight_tensor)
