@@ -1096,20 +1096,21 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # TODO(before land): reuse the constants below instead of hardcoding
         target_max_pow2 = 8
         e8m0_exponent_bias = 127
-        # bf16_mbits = 7
-        # bf16_exp_bias = 127
+        bf16_mbits = 7
+        bf16_exp_bias = 127
+        fp32_mbits = 23
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
-        # TODO(future): rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1908/files
-        scale_e8m0_unbiased = tl.floor(tl.log2(max_abs + epsilon)) - target_max_pow2
-        # max_abs = max_abs + epsilon
-        # max_abs = max_abs.to(tl.bfloat16)
-        # max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
-        # extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
-        # extracted_pow2 = extracted_pow2 - target_max_pow2
-        # scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+        # Calculate the e8m0 scale by extracting the exponent (floor)
+        # TODO(future PR): support other exponent extraction types (ceil, RNE)
+        max_abs = max_abs + epsilon
+        max_abs = max_abs.to(tl.bfloat16)
+        max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+        extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
+        extracted_pow2 = extracted_pow2 - target_max_pow2
+        scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
 
         # Clamp to exponents that can be represented in e8m0
         scale_e8m0_unbiased = tl.clamp(
@@ -1122,9 +1123,10 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
         # TODO(future PR): add NaN handling here
 
-        # For now, calculate the scale in floating point.
-        # TODO(future): rewrite as bit shifts, see https://github.com/pytorch/ao/pull/1910/files
-        scale_fp = tl.exp2(scale_e8m0_unbiased.to(tl.float32))
+        # Calculate the scale in floating point.
+        scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
+            tl.float32, bitcast=True
+        )
 
         return scale_fp, scale_e8m0_biased
 
@@ -1289,13 +1291,15 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # example transformation (specifics depend on tile sizes):
         # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
         col_scale_indices = col_scale_indices + (
-            tl.floor(col_scale_indices / BLOCKS_PER_ROW_TILE) * jump_vals_per_col
-        ).to(tl.int32)
+            (col_scale_indices // BLOCKS_PER_ROW_TILE) * jump_vals_per_col
+        )
 
         # TODO(future): mask this store
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
-    def to_mxfp8_dim1(x, inner_block_size=32) -> Tuple[torch.Tensor, torch.Tensor]:
+    def triton_to_mxfp8_dim1(
+        x, inner_block_size=32
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
         * `x` - input tensor, in row major memory layout
@@ -1328,7 +1332,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
         # Create scale tensors
         col_scale = torch.empty(
-            n_cols, n_rows // inner_block_size, dtype=torch.uint8, device=x.device
+            (n_cols * n_rows // inner_block_size, 1), dtype=torch.uint8, device=x.device
         )
 
         # Calculate grid dimensions based on tile size
@@ -1349,10 +1353,10 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
         return (
             output_col_major.t(),
-            col_scale.reshape(-1, 1).view(torch.float8_e8m0fnu),
+            col_scale.view(torch.float8_e8m0fnu),
         )
 
-    def to_mxfp8_dim1_reference(
+    def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -1373,10 +1377,12 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
 else:
 
-    def to_mxfp8_dim1(x, inner_block_size=32) -> Tuple[torch.Tensor, torch.Tensor]:
+    def triton_to_mxfp8_dim1(
+        x, inner_block_size=32
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
-    def to_mxfp8_dim1_reference(
+    def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")

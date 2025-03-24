@@ -26,12 +26,11 @@ from torchao.prototype.mx_formats.custom_cast import (
     get_bits,
     pack_uint4,
     pack_uint6,
-    # TODO(before land): better name?
-    to_mxfp8_dim1,
-    to_mxfp8_dim1_reference,
     triton_f4_to_bf16,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
+    triton_to_mxfp8_dim1,
+    triton_to_mxfp8_dim1_reference,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.fp_format_spec import (
@@ -460,9 +459,11 @@ def test_fp6_e3m2_pack_unpack():
 )
 @pytest.mark.parametrize("M", (256, 2048))
 @pytest.mark.parametrize("K", (256, 2048))
+# @pytest.mark.parametrize("M", (256,))
+# @pytest.mark.parametrize("K", (256,))
 def test_triton_mxfp8_dim1(M, K):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    x_mx_ref, x_s_ref = to_mxfp8_dim1_reference(x, block_size=32)
-    x_mx_t, x_s_t = to_mxfp8_dim1(x, inner_block_size=32)
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
+    x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)

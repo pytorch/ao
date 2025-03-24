@@ -6,7 +6,7 @@ import triton
 from torch._inductor.utils import do_bench_using_profiling
 
 from torchao.prototype.mx_formats.custom_cast import (
-    to_mxfp8_dim1,
+    triton_to_mxfp8_dim1,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
@@ -172,12 +172,12 @@ def run(
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
     elif mode == "dim1_mx_triton":
-        y_d1, s_d1 = to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
+        y_d1, s_d1 = triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
 
         for _ in range(2):
-            __ = to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
+            __ = triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x, b: to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE),
+            lambda x, b: triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE),
             x,
             BLOCK_SIZE,
         )
