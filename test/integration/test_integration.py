@@ -157,7 +157,10 @@ def _int4wo_api(mod, use_hqq=False):
             ),
         )
         unwrap_tensor_subclass(mod)
-    elif is_device(next(mod.parameters()).device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7:
+    elif (
+        is_device(next(mod.parameters()).device.type, "xpu")
+        and TORCH_VERSION_AT_LEAST_2_7
+    ):
         quantize_(
             mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
         )

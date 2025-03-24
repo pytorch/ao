@@ -141,14 +141,14 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
-    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
+    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
     Int4CPULayout: False,
-    Int4XPULayout: False
+    Int4XPULayout: False,
 }
 
 
@@ -206,7 +206,12 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, filter_fn=None, zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False
+    model,
+    groupsize=128,
+    inner_k_tiles=8,
+    filter_fn=None,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+    preserve_zero=False,
 ):
     """
     Converts all linear weight tensors to the
@@ -983,6 +988,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
 
+
 # for BC
 # TODO maybe change other callsites
 int4_weight_only = Int4WeightOnlyConfig
@@ -1033,8 +1039,11 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
-    preserve_zero = config.preserve_zero if config.preserve_zero is not None \
-          else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
+    preserve_zero = (
+        config.preserve_zero
+        if config.preserve_zero is not None
+        else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
+    )
     # Sparse Marlin only supports symmetric quantization.
     # NOTE: If we start having lots of layouts that require different configurations,
     # we should consider moving this logic somewhere else.

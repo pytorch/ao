@@ -62,7 +62,7 @@ def get_quantization_functions(
             base_functions.append(
                 int4_weight_only(group_size=32, layout=Int4CPULayout())
             )
-        elif device == "xpu" and  TORCH_VERSION_AT_LEAST_2_7:
+        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_7:
             base_functions.append(
                 int4_weight_only(group_size=32, layout=Int4XPULayout())
             )
@@ -99,8 +99,9 @@ def get_quantization_functions(
 
 
 class TestAffineQuantized(TestCase):
-    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + \
-        (["xpu"] if torch.xpu.is_available() else [])
+    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
+        ["xpu"] if torch.xpu.is_available() else []
+    )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_tensor_core_layout_transpose(self):
@@ -125,7 +126,9 @@ class TestAffineQuantized(TestCase):
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_weights_only(self):
         for device in self.GPU_DEVICES:
-            apply_quant_list = get_quantization_functions(is_cusparselt_available, True, device, True)
+            apply_quant_list = get_quantization_functions(
+                is_cusparselt_available, True, device, True
+            )
             for apply_quant in apply_quant_list:
                 linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
                 if isinstance(apply_quant, AOBaseConfig):
@@ -147,6 +150,7 @@ class TestAffineQuantized(TestCase):
     @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
     def test_to_device(self, apply_quant):
         for device in self.GPU_DEVICES:
+
             def _apply(module, config_or_subclass_inserter):
                 if isinstance(config_or_subclass_inserter, AOBaseConfig):
                     quantize_(module, config_or_subclass_inserter)
@@ -278,8 +282,11 @@ class TestAffineQuantized(TestCase):
 
 
 class TestAffineQuantizedBasic(TestCase):
-    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + \
-        (["xpu"] if torch.xpu.is_available() else [])
+    COMMON_DEVICES = (
+        ["cpu"]
+        + (["cuda"] if torch.cuda.is_available() else [])
+        + (["xpu"] if torch.xpu.is_available() else [])
+    )
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("device", COMMON_DEVICES)

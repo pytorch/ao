@@ -20,6 +20,7 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
+
 def _aqt_is_xpu_layout_uint4(aqt):
     """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
     # TODO: use torch.uint4
@@ -28,6 +29,8 @@ def _aqt_is_xpu_layout_uint4(aqt):
         and aqt.quant_min == 0
         and aqt.quant_max == 15
     )
+
+
 def _linear_bf16_act_uint4_weight_float_zero_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
@@ -58,7 +61,7 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
     act_mat = input_tensor
-    if (act_mat.is_contiguous() == False):
+    if act_mat.is_contiguous() == False:
         act_mat = act_mat.contiguous()
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
@@ -84,6 +87,7 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
     if bias is not None:
         y += bias
     return y.to(orig_dtype)
+
 
 def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
     return (
@@ -142,6 +146,7 @@ def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bi
     if bias is not None:
         y += bias
     return y.to(orig_dtype)
+
 
 @dataclass(frozen=True)
 class Int4XPULayout(Layout):
@@ -218,7 +223,11 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         packed_weight = tensor_data_dict["packed_weight"]
-        scale_and_zero = tensor_data_dict.get("scale_and_zero") if "scale_and_zero" in tensor_data_dict else None
+        scale_and_zero = (
+            tensor_data_dict.get("scale_and_zero")
+            if "scale_and_zero" in tensor_data_dict
+            else None
+        )
         scale = tensor_data_dict.get("scale") if "scale" in tensor_data_dict else None
         zero = tensor_data_dict.get("zero") if "zero" in tensor_data_dict else None
         (
@@ -244,13 +253,10 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 int_data.dtype == torch.int32
             ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             packed_weight = convert_weight_to_int4pack_xpu(
-                int_data,
-                zero_point.dtype != scale.dtype
+                int_data, zero_point.dtype != scale.dtype
             )
         else:
-            assert (
-                False
-            ), "INT4 not supported on XPU until 2.7"
+            assert False, "INT4 not supported on XPU until 2.7"
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
@@ -260,8 +266,14 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
             return cls(packed_weight, scale_and_zero, False, _layout, None, None)
         else:
-            return cls(packed_weight, None, False, _layout, scale.transpose(0, 1).contiguous(), \
-                       zero_point.transpose(0, 1).contiguous().to(torch.int8))
+            return cls(
+                packed_weight,
+                None,
+                False,
+                _layout,
+                scale.transpose(0, 1).contiguous(),
+                zero_point.transpose(0, 1).contiguous().to(torch.int8),
+            )
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -276,7 +288,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             self.transposed,
             self._layout,
             self.scale.to(device) if self.scale is not None else None,
-            self.zero.to(device) if self.zero is not None else None
+            self.zero.to(device) if self.zero is not None else None,
         )
 
     def _apply_fn_to_data(self, fn):
@@ -286,7 +298,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
             self.transposed,
             self._layout,
             fn(self.scale) if self.scale is not None else None,
-            fn(self.zero) if self.zero is not None else None
+            fn(self.zero) if self.zero is not None else None,
         )
 
     @classmethod
@@ -313,7 +325,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 not args[0].transposed,
                 args[0]._layout,
                 args[0].scale,
-                args[0].zero
+                args[0].zero,
             )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
 

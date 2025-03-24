@@ -319,8 +319,14 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     return dequantized
 
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, \
-                                 zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False):
+def get_groupwise_affine_qparams(
+    w,
+    n_bit=4,
+    groupsize=128,
+    dtype=torch.bfloat16,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+    preserve_zero=False,
+):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -335,7 +341,9 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     quant_max = 2**n_bit - 1
     eps = 1e-6
     scale_dtype = dtype
-    zero_point_dtype = dtype if zero_point_domain!=ZeroPointDomain.INT else torch.int32
+    zero_point_dtype = (
+        dtype if zero_point_domain != ZeroPointDomain.INT else torch.int32
+    )
 
     scale, zero_point = choose_qparams_affine(
         w,
@@ -348,12 +356,13 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
         preserve_zero=preserve_zero,
-        zero_point_domain=zero_point_domain
+        zero_point_domain=zero_point_domain,
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
         dtype=zero_point_dtype
     ).reshape(w.shape[0], -1)
+
 
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
@@ -370,9 +379,11 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
         .contiguous()
     )
 
+
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
+
 
 def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):
     assert weight.device.type == "xpu"
@@ -381,9 +392,9 @@ def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):
         # int_data = weight.to(dtype=torch.uint8)
         int_data = (weight[::, 1::2] << 4 | weight[::, ::2]).to(torch.uint8)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(
-                int_data,
-                8,  # TODO:remove
-            )
+            int_data,
+            8,  # TODO:remove
+        )
     else:
         out = weight.to(dtype=torch.uint8)
         out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
@@ -391,6 +402,7 @@ def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):
 
     # Second, N * K/2 uint8 -> N * K/8 int32
     return packed_weight
+
 
 def groupwise_affine_quantize_tensor_from_qparams(
     w, scales, zeros, n_bit=4, groupsize=128, zero_point_domain=ZeroPointDomain.FLOAT
@@ -419,8 +431,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
         zero_point_domain=zero_point_domain,
     )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
-        if (not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)) \
-           and (not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)):
+        if (
+            not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
+        ) and (
+            not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)
+        ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
 
@@ -476,11 +491,22 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     )
 
 
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16, \
-                                     zero_point_domain=ZeroPointDomain.FLOAT, preserve_zero=False):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype,\
-                                                  zero_point_domain=zero_point_domain, \
-                                                  preserve_zero=preserve_zero)
+def groupwise_affine_quantize_tensor(
+    w,
+    n_bit=4,
+    groupsize=128,
+    dtype=torch.bfloat16,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+    preserve_zero=False,
+):
+    scales, zeros = get_groupwise_affine_qparams(
+        w,
+        n_bit,
+        groupsize,
+        dtype,
+        zero_point_domain=zero_point_domain,
+        preserve_zero=preserve_zero,
+    )
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize, zero_point_domain=zero_point_domain
     )
