@@ -265,16 +265,8 @@ Tensor shared_embedding_out_cpu(
 
   int num_out = indices.size(0);
 
-#ifdef USE_ATEN
-  TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
-  out.resize_({num_out, k});
-#endif // USE_ATEN
-
-#ifdef USE_EXECUTORCH
-  TORCHAO_CHECK(out.dim() == 2, "out must be 2D");
-  TORCHAO_CHECK(out.size(0) == num_out, "out shape is incorrect");
-  TORCHAO_CHECK(out.size(1) == k, "out shape is incorrect");
-#endif // USE_EXECUTORCH
+  // Explicit cast from int64_t to int is required for Executorch
+  TORCHAO_RESIZE_TENSOR(out, {(int)num_out, (int)k});
 
   const int32_t* index32_ptr = nullptr;
   const int64_t* index64_ptr = nullptr;
