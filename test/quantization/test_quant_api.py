@@ -194,8 +194,9 @@ _ref_change_linear_weights_to_int4_woqtensors = (
 
 
 class TestQuantFlow(TestCase):
-    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + \
-        (["xpu"] if torch.xpu.is_available() else [])
+    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
+        ["xpu"] if torch.xpu.is_available() else []
+    )
 
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
@@ -661,7 +662,9 @@ class TestQuantFlow(TestCase):
 
             group_size = 32
             if device == "xpu":
-                quantize_(m, int4_weight_only(group_size=group_size, layout=Int4XPULayout()))
+                quantize_(
+                    m, int4_weight_only(group_size=group_size, layout=Int4XPULayout())
+                )
             else:
                 quantize_(m, int4_weight_only(group_size=group_size))
             assert isinstance(m.linear1.weight, AffineQuantizedTensor)
@@ -839,7 +842,6 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("use_hqq", [True, False])
     def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
-
         device = "cpu"
         m = ToyLinearModel().eval().to(dtype).to(device)
         example_inputs = m.example_inputs(dtype=dtype, device=device)
