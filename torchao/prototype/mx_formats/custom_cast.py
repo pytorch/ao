@@ -1090,15 +1090,16 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
 
     @triton.jit
     def _triton_calculate_scale(x, axis):
-        # We use a small epsilon to avoid division by zero
-        epsilon = 1e-10
-
-        # TODO(before land): reuse the constants below instead of hardcoding
+        # There is no good support for accessing globals from a jit'ed triton
+        # function, so we redefine them here. Since this is prototype code which
+        # we plan to remove after torch.compile catches up, this is fine.
         target_max_pow2 = 8
         e8m0_exponent_bias = 127
         bf16_mbits = 7
         bf16_exp_bias = 127
         fp32_mbits = 23
+        # We use a small epsilon to avoid division by zero
+        epsilon = 1e-10
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
