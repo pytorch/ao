@@ -216,6 +216,53 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             aoti_results = fn(activations)
             self.assertTrue(torch.allclose(eager_results, aoti_results))
 
+    def test_export_dynamic_shape_PackedLinearInt8DynamicActivationIntxWeightLayout(
+        self,
+    ):
+        granularity = PerRow()
+        m = 3
+        k0 = 512
+        k1 = 256
+        k2 = 128
+        k3 = 1024
+        weight_dtype = torch.int4
+        has_weight_zeros = True
+        layers = [
+            torch.nn.Linear(k0, k1, bias=False),
+            torch.nn.Linear(k1, k2, bias=True),
+            torch.nn.Linear(k2, k3, bias=False),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
+        dynamic_shapes = {
+            "input": {
+                0: torch.export.Dim("dim0"),
+                1: None,
+                2: torch.export.Dim("dim2"),
+                3: None,
+            }
+        }
+
+        quantize_(
+            model,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            ),
+        )
+        eager_results = model(activations)
+
+        unwrap_tensor_subclass(model)
+
+        # Export
+        exported = torch.export.export(
+            model, (activations,), strict=True, dynamic_shapes=dynamic_shapes
+        )
+        exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(eager_results, exported_results))
+
     def test_export_QDQLayout(self):
         """
         Checks that models quantized with TestQDQLayout() export as expected
