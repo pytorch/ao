@@ -349,6 +349,7 @@ def do_autoquant_bench(op, *args, **kwargs):
                 op(*args, **kwargs)
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._inductor.runtime.benchmarking import benchmarker
+
             if args[0].device.type == "cpu":
                 res = benchmarker.benchmark_cpu(
                     lambda: op(*args, **kwargs), warmup=warmup, rep=rep
