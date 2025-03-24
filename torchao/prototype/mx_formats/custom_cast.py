@@ -1087,6 +1087,7 @@ else:
 if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
     import triton
     import triton.language as tl
+    from torch.library import triton_op, wrap_triton
 
     @triton.jit
     def _triton_calculate_scale(x, axis):
@@ -1298,8 +1299,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         # TODO(future): mask this store
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
+    @triton_op("torchao::triton_to_mxfp8_dim1", mutates_args={})
     def triton_to_mxfp8_dim1(
-        x, inner_block_size=32
+        x: torch.Tensor, inner_block_size: int = 32
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
@@ -1343,7 +1345,7 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         )
 
         # Launch the kernel
-        to_mxfp8_dim1_kernel[grid](
+        wrap_triton(to_mxfp8_dim1_kernel)[grid](
             x_ptr=x,
             output_col_major_ptr=output_col_major,
             col_scale_ptr=col_scale,

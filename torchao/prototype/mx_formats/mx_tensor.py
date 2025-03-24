@@ -247,6 +247,7 @@ def to_mx(
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E2M3:
+        # assert data_hp.dtype == torch.float32, f"dtype {data_hp.dtype} is not supported in this codepath yet"
         data_lp = f32_to_f6_e2m3_unpacked(data_lp)
         if pack_fp6:
             orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
@@ -254,6 +255,7 @@ def to_mx(
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
+        # assert data_hp.dtype == torch.float32, f"dtype {data_hp.dtype} is not supported in this codepath yet"
         data_lp = f32_to_f6_e3m2_unpacked(data_lp)
         if pack_fp6:
             orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
@@ -261,6 +263,8 @@ def to_mx(
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP4:
+        # TODO(future PR): add bfloat16 support here
+        # assert data_hp.dtype == torch.float32, f"dtype {data_hp.dtype} is not supported in this codepath yet"
         # can't reshape at the end without handling it in the packing code,
         # punt until later since we'll need to rethink the torch.compile
         # approach for fp4x2 in any case

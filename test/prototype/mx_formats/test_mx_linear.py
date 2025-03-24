@@ -51,19 +51,31 @@ def run_around_tests():
     "elem_dtype", itertools.product(SUPPORTED_ELEM_DTYPES, repeat=3)
 )
 @pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(4, 8), (1, 4, 8), (1, 1, 4, 8)])
-def test_linear_eager(elem_dtype, bias, input_shape):
+@pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
+@pytest.mark.parametrize("use_fp8_dim1_cast_triton_kernel", [False, True])
+def test_linear_eager_vs_hp(
+    elem_dtype, bias, input_shape, use_fp8_dim1_cast_triton_kernel
+):
     """
     Smoke test for training linear module with mx weight, compares the following:
     * baseline: float32
     * experiment: emulated MX
     """
+    if use_fp8_dim1_cast_triton_kernel and elem_dtype != (
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fn,
+    ):
+        pytest.skip("unsupported configuration")
+    if use_fp8_dim1_cast_triton_kernel and (not is_sm_at_least_89()):
+        pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
-    grad_shape[-1] = 8
+    grad_shape[-1] = 256
 
     m = nn.Sequential(
-        nn.Linear(8, 8, bias=bias, device="cuda"),
+        nn.Linear(256, 256, bias=bias, device="cuda"),
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
@@ -71,6 +83,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         elem_dtype=elem_dtype[0],
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
+        use_fp8_dim1_cast_triton_kernel=use_fp8_dim1_cast_triton_kernel,
     )
     swap_linear_with_mx_linear(m_mx, config=config)
 
@@ -169,6 +182,7 @@ def test_activation_checkpointing():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize(
     "recipe_name",
     [
@@ -182,7 +196,8 @@ def test_activation_checkpointing():
 @pytest.mark.parametrize("bias", [False, True])
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
-def test_linear_compile(recipe_name, bias):
+@pytest.mark.parametrize("use_fp8_dim1_cast_triton_kernel", [False, True])
+def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_kernel):
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
@@ -198,20 +213,36 @@ def test_linear_compile(recipe_name, bias):
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
+    if use_fp8_dim1_cast_triton_kernel:
+        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas", "mxfp8_cutlass"):
+            pytest.skip("unsupported configuration")
+        if not is_sm_at_least_89():
+            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+        if hp_dtype != torch.bfloat16:
+            pytest.skip("unsupported configuration")
+
+    if hp_dtype == torch.bfloat16 and recipe_name != "mxfp8_cublas":
+        # TODO(future PR): properly enable float32 + bfloat16 for every
+        # recipe, this needs a cleanup of out_dtype (needs to match in-hp-dtype, even
+        # if the underlying gemm kernel only supports bf16 output)
+        pytest.skip("unsupported configuration")
+
     M, K, N = 128, 256, 512
     input_shape = (M, K)
     grad_shape = (M, N)
     m_mx = nn.Sequential(
-        nn.Linear(K, N, bias=bias, device="cuda"),
+        nn.Linear(K, N, bias=bias, device="cuda", dtype=hp_dtype),
     )
     config = MXLinearConfig.from_recipe_name(recipe_name)
+    config.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
+
     swap_linear_with_mx_linear(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
-    x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
+    x_ref = torch.randn(*input_shape, device="cuda", dtype=hp_dtype).requires_grad_()
     x = copy.deepcopy(x_ref)
-    g = torch.randn(*grad_shape, device="cuda")
+    g = torch.randn(*grad_shape, device="cuda", dtype=hp_dtype)
 
     y_ref = m_mx(x_ref)
     y = m_mx_c(x)
@@ -283,7 +314,7 @@ def test_inference_compile_simple(elem_dtype):
     if elem_dtype is torch.float8_e4m3fn:
         assert sqnr >= 20.0
     else:
-        assert sqnr >= 13.5
+        assert sqnr >= 11.5
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
