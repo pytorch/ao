@@ -47,6 +47,5 @@ __all__ = [
     "CutlassInt4PackedLayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
-    "Int4XPULayout"
-
+    "Int4XPULayout",
 ]

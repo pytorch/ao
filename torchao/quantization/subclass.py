@@ -544,7 +544,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             self.groupsize,
             self.inner_k_tiles,
             self.zero_point_domain,
-            self.preserve_zero**kwargs,
+            self.preserve_zero,
+            **kwargs,
         )
 
     def _apply_fn_to_data(self, fn):
