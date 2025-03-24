@@ -56,7 +56,7 @@ DEFINE_OP(8);
   EXECUTORCH_LIBRARY(                                    \
       torchao,                                           \
       "_shared_embedding_" #weight_nbit "bit.out",       \
-      _op_out_##weight_nbit)
+      _shared_op_out_##weight_nbit)
 
 DEFINE_SHARED_OP(1);
 DEFINE_SHARED_OP(2);

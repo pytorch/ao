@@ -330,7 +330,7 @@ Tensor shared_embedding_out_cpu(
     } else {
       index = index64_ptr[idx];
     }
-    TORCHAO_CHECK(index >= 0 && index < k, "index out of bounds");
+    TORCHAO_CHECK(index >= 0 && index < n, "index out of bounds");
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
     torchao::kernels::cpu::aarch64::embedding::
         shared_embedding<weight_nbit, nr, kr, sr>(
