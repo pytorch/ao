@@ -401,3 +401,21 @@ def test_filter_fn():
     swap_linear_with_mx_inference_linear(m2, config=config, filter_fn=filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
+
+
+def test_training_print_str():
+    m = nn.Sequential(nn.Linear(32, 32))
+    config = MXLinearConfig()
+    swap_linear_with_mx_linear(m, config=config)
+    s = str(m)
+    assert "bl_sz=32" in s
+    assert "kernel=emulated" in s
+
+
+def test_inference_print_str():
+    m = nn.Sequential(nn.Linear(32, 32))
+    config = MXLinearConfig()
+    swap_linear_with_mx_inference_linear(m, config=config)
+    s = str(m)
+    assert "bl_sz=32" in s
+    assert "kernel=emulated" in s
