@@ -34,7 +34,7 @@ try:
     # They can also be built outside of the torchao install process by
     # running the script `torchao/experimental/build_torchao_ops.sh <aten|executorch>`
     # For more information, see https://github.com/pytorch/ao/blob/main/torchao/experimental/docs/readme.md
-    from torchao.experimental.op_lib import *
+    from torchao.experimental.op_lib import *  # noqa: F403
 except Exception as e:
     logging.debug(f"Skipping import of cpp extensions: {e}")
 
