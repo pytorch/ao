@@ -333,23 +333,30 @@ def do_autoquant_bench(op, *args, **kwargs):
     rep = kwargs.pop("rep", 100)
     warmup = kwargs.pop("warmup", 25)
     with torch.no_grad():
-        torch.cuda.synchronize()
-        stream = torch.cuda.Stream()
-        stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(stream):
+        if args[0].device.type == "cpu":
             op(*args, **kwargs)
-        stream.synchronize()
-        torch.cuda.current_stream().wait_stream(stream)
-        torch.cuda.synchronize()
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph, stream=stream):
-            op(*args, **kwargs)
+        else:
+            torch.cuda.synchronize()
+            stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(stream):
+                op(*args, **kwargs)
+            stream.synchronize()
+            torch.cuda.current_stream().wait_stream(stream)
+            torch.cuda.synchronize()
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph, stream=stream):
+                op(*args, **kwargs)
         if TORCH_VERSION_AT_LEAST_2_5:
             from torch._inductor.runtime.benchmarking import benchmarker
-
-            res = benchmarker.benchmark_gpu(
-                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
-            )
+            if args[0].device.type == "cpu":
+                res = benchmarker.benchmark_cpu(
+                    lambda: op(*args, **kwargs), warmup=warmup, rep=rep
+                )
+            else:
+                res = benchmarker.benchmark_gpu(
+                    lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+                )
         elif TORCH_VERSION_AT_LEAST_2_3:
             from torch._inductor.runtime.runtime_utils import do_bench_gpu
 
