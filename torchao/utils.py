@@ -4,8 +4,10 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import functools
+import importlib.util
 import itertools
 import re
+import sys
 import time
 from functools import reduce
 from importlib.metadata import version
@@ -674,6 +676,38 @@ def is_sm_at_least_100():
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (10, 0)
     )
+
+
+def lazy_import(module_path: str, function_name: str) -> Callable:
+    """
+    Create a placeholder function that will import the real function on first call.
+    """
+
+    @functools.wraps(lambda *args, **kwargs: None)  # Placeholder for wraps
+    def _lazy_function(*args: Any, **kwargs: Any) -> Any:
+        # Import the module only when the function is first called
+        if module_path not in sys.modules:
+            importlib.import_module(module_path)
+
+        # Get the module and function
+        module = sys.modules[module_path]
+        real_function = getattr(module, function_name)
+
+        # Update the function's attributes
+        functools.update_wrapper(_lazy_function, real_function)
+
+        # Replace this function in the global namespace with the real one
+        globals()[function_name] = real_function
+
+        # Call the real function
+        return real_function(*args, **kwargs)
+
+    # Set basic attributes for introspection
+    _lazy_function.__name__ = function_name
+    _lazy_function.__qualname__ = function_name
+    _lazy_function.__module__ = module_path
+
+    return _lazy_function
 
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
