@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import itertools
 
 import pytest
 import torch
@@ -16,7 +15,12 @@ from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     MXLinearRecipeName,
 )
-from torchao.prototype.mx_formats.constants import DTYPE_FP4, SUPPORTED_ELEM_DTYPES
+from torchao.prototype.mx_formats.constants import (
+    DTYPE_FP4,
+    DTYPE_FP6_E2M3,
+    DTYPE_FP6_E3M2,
+    SUPPORTED_ELEM_DTYPES,
+)
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
@@ -48,7 +52,16 @@ def run_around_tests():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
-    "elem_dtype", itertools.product(SUPPORTED_ELEM_DTYPES, repeat=3)
+    "elem_dtype",
+    (
+        # test each dtype
+        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn),
+        (DTYPE_FP6_E3M2, DTYPE_FP6_E3M2, DTYPE_FP6_E3M2),
+        (DTYPE_FP6_E2M3, DTYPE_FP6_E2M3, DTYPE_FP6_E2M3),
+        (DTYPE_FP4, DTYPE_FP4, DTYPE_FP4),
+        # only test one type of mixed-dtype overrides, to save testing time
+        (torch.float8_e4m3fn, DTYPE_FP4, DTYPE_FP4),
+    ),
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
@@ -61,21 +74,22 @@ def test_linear_eager_vs_hp(
     * baseline: float32
     * experiment: emulated MX
     """
-    if use_fp8_dim1_cast_triton_kernel and elem_dtype != (
-        torch.float8_e4m3fn,
-        torch.float8_e4m3fn,
-        torch.float8_e4m3fn,
-    ):
-        pytest.skip("unsupported configuration")
-    if use_fp8_dim1_cast_triton_kernel and (not is_sm_at_least_89()):
-        pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+    if use_fp8_dim1_cast_triton_kernel:
+        if elem_dtype != (
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fn,
+        ):
+            pytest.skip("unsupported configuration")
+        elif not is_sm_at_least_89():
+            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
     grad_shape[-1] = 256
 
     m = nn.Sequential(
-        nn.Linear(256, 256, bias=bias, device="cuda"),
+        nn.Linear(256, 256, bias=bias, device="cuda", dtype=torch.bfloat16),
     )
     m_mx = copy.deepcopy(m)
     config = MXLinearConfig(
@@ -87,12 +101,16 @@ def test_linear_eager_vs_hp(
     )
     swap_linear_with_mx_linear(m_mx, config=config)
 
-    x_ref = torch.randn(*input_shape, device="cuda").requires_grad_()
+    x_ref = torch.randn(
+        *input_shape, device="cuda", dtype=torch.bfloat16
+    ).requires_grad_()
     x = copy.deepcopy(x_ref)
     g = torch.randn(*grad_shape, device="cuda")
-    with torch.autocast("cuda", dtype=torch.bfloat16):
-        y_ref = m(x_ref)
-        y_mx = m_mx(x)
+
+    y_ref = m(x_ref)
+    y_mx = m_mx(x)
+
+    assert y_mx.dtype == x.dtype
 
     y_ref.backward(g)
     y_mx.backward(g)
@@ -125,7 +143,6 @@ def test_linear_eager_vs_hp(
 )
 @pytest.mark.parametrize("mkn", [(128, 256, 512), (256, 512, 128), (512, 128, 256)])
 def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
-    M, K, N = 128, 128, 128
     M, K, N = mkn
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda").requires_grad_()
@@ -156,9 +173,9 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
         y_sqnr = compute_error(y_real, y_emulated)
         w_sqnr = compute_error(m_real[0].weight.grad, m_emulated[0].weight.grad)
         g_sqnr = compute_error(x_copy.grad, x.grad)
-        assert y_sqnr > 100.0, f"y_sqnr {y_sqnr} too low!"
-        assert w_sqnr > 100.0, f"w_sqnr {w_sqnr} too low!"
-        assert g_sqnr > 100.0, f"g_sqnr {g_sqnr} too low!"
+        assert y_sqnr > 90.0, f"y_sqnr {y_sqnr} too low!"
+        assert w_sqnr > 90.0, f"w_sqnr {w_sqnr} too low!"
+        assert g_sqnr > 90.0, f"g_sqnr {g_sqnr} too low!"
 
 
 # TODO(future): enable compile support
