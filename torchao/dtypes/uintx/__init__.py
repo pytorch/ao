@@ -49,6 +49,5 @@ __all__ = [
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
-    "Int4XPULayout"
-
+    "Int4XPULayout",
 ]
