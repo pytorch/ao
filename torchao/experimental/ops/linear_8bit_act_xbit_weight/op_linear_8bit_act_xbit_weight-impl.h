@@ -133,8 +133,8 @@ Tensor pack_weights_meta(
       torchao::ops::PackedWeightsHeader::size() +
       get_packed_weight_data_size(
           ukernel_config, n, k, group_size, has_weight_zeros, has_bias);
-  return torch::empty({static_cast<int64_t>(packed_weight_data_size)})
-      .to("meta");
+  auto options = torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
+  return torch::empty({static_cast<int64_t>(packed_weight_data_size)}, options);
 }
 #endif // USE_ATEN
 
@@ -166,15 +166,8 @@ Tensor linear_out_cpu(
   TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
 #endif // USE_ATEN
 
-#ifdef USE_ATEN
-  out.resize_({m, n});
-#endif // USE_ATEN
-
-#ifdef USE_EXECUTORCH
-  TORCHAO_CHECK(out.dim() == 2, "out must be 2D");
-  TORCHAO_CHECK(out.size(0) == m, "out shape is incorrect");
-  TORCHAO_CHECK(out.size(1) == n, "out shape is incorrect");
-#endif // USE_EXECUTORCH
+  // Explicit cast from int64_t to int is required for Executorch
+  TORCHAO_RESIZE_TENSOR(out, {(int)m, (int)n});
 
   using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
@@ -251,26 +244,6 @@ Tensor linear_cpu(
   linear_out_cpu<weight_nbit>(
       activations, packed_weights, group_size, n, k, output_tensor);
   return output_tensor;
-}
-#endif // USE_ATEN
-
-#ifdef USE_ATEN
-template <int weight_nbit>
-Tensor linear_meta(
-    const Tensor& activations,
-    const Tensor& packed_weights,
-    const int64_t& group_size,
-    const int64_t& n,
-    const int64_t& k) {
-  TORCHAO_CHECK(n >= 1, "n must be >= 1");
-  TORCHAO_CHECK(k >= 1, "k must be >= 1");
-
-  TORCHAO_CHECK(activations.dim() == 2, "activations must be 2D");
-  int m = activations.size(0);
-  int k_ = activations.size(1);
-  TORCHAO_CHECK(
-      k == k_, "activation shape is incompatible with packed weights.");
-  return torch::empty({m, n}).to("meta");
 }
 #endif // USE_ATEN
 

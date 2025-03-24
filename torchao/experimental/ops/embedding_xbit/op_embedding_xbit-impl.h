@@ -92,18 +92,12 @@ void check_embedding_inputs(
 template <int weight_nbit>
 Tensor embedding_out_cpu(
     const Tensor& packed_weight_qvals,
-    // TODO(T200095131): convert to
-    // int64_t when supported by AOTI
-    // Currently they are tensors with size
-    // equal to (0, the int they wrap)
-    const Tensor& num_embeddings_tensor,
-    const Tensor& embedding_dim_tensor,
+    const int64_t& num_embeddings,
+    const int64_t& embedding_dim,
     const Tensor& weight_scales,
     const Tensor& weight_zeros,
     const Tensor& indices,
     Tensor& out) {
-  int num_embeddings = num_embeddings_tensor.size(1);
-  int embedding_dim = embedding_dim_tensor.size(1);
   int group_size;
   check_embedding_inputs<weight_nbit>(
       packed_weight_qvals,
@@ -117,16 +111,8 @@ Tensor embedding_out_cpu(
   int num_out = indices.size(0);
   const int8_t* weight_zeros_ptr = weight_zeros.const_data_ptr<int8_t>();
 
-#ifdef USE_ATEN
-  TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
-  out.resize_({num_out, embedding_dim});
-#endif // USE_ATEN
-
-#ifdef USE_EXECUTORCH
-  TORCHAO_CHECK(out.dim() == 2, "out must be 2D");
-  TORCHAO_CHECK(out.size(0) == num_out, "out shape is incorrect");
-  TORCHAO_CHECK(out.size(1) == embedding_dim, "out shape is incorrect");
-#endif // USE_EXECUTORCH
+  // Explicit cast from int64_t to int is required for Executorch
+  TORCHAO_RESIZE_TENSOR(out, {(int)num_out, (int)embedding_dim});
 
   const int32_t* index32_ptr = nullptr;
   const int64_t* index64_ptr = nullptr;
@@ -169,44 +155,21 @@ Tensor embedding_out_cpu(
 template <int weight_nbit>
 Tensor embedding_cpu(
     const Tensor& packed_weight_qvals,
-    // TODO(T200095131): convert to
-    // int64_t when supported by AOTI
-    // Currently they are tensors with size
-    // equal to (0, the int they wrap)
-    const Tensor& num_embeddings_tensor,
-    const Tensor& embedding_dim_tensor,
+    const int64_t& num_embeddings,
+    const int64_t& embedding_dim,
     const Tensor& weight_scales,
     const Tensor& weight_zeros,
     const Tensor& indices) {
   Tensor output_tensor = torch::empty({}, torch::kFloat32);
   embedding_out_cpu<weight_nbit>(
       packed_weight_qvals,
-      num_embeddings_tensor,
-      embedding_dim_tensor,
+      num_embeddings,
+      embedding_dim,
       weight_scales,
       weight_zeros,
       indices,
       output_tensor);
   return output_tensor;
-}
-#endif // USE_ATEN
-
-#ifdef USE_ATEN
-template <int weight_nbit>
-Tensor embedding_meta(
-    const Tensor& packed_weight_qvals,
-    // TODO(T200095131): convert to
-    // int64_t when supported by AOTI
-    // Currently they are tensors with size
-    // equal to (0, the int they wrap)
-    const Tensor& num_embeddings_tensor,
-    const Tensor& embedding_dim_tensor,
-    const Tensor& weight_scales,
-    const Tensor& weight_zeros,
-    const Tensor& indices) {
-  int embedding_dim = embedding_dim_tensor.size(1);
-  int num_out = indices.size(0);
-  return torch::empty({num_out, embedding_dim}).to("meta");
 }
 #endif // USE_ATEN
 
@@ -261,10 +224,10 @@ Tensor pack_embedding_meta(const Tensor& weight_qvals) {
   TORCHAO_CHECK(
       embedding_dim % 8 == 0, "embedding_dim must be a multiple of 8 to pack");
   int packed_embedding_dim = embedding_dim * weight_nbit / 8;
+  auto options = torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
   return torch::empty(
              torchao::ops::PackedWeightsHeader::size() +
-             (num_embeddings * packed_embedding_dim))
-      .to("meta");
+             (num_embeddings * packed_embedding_dim), options);
 }
 #endif // USE_ATEN
 
@@ -368,19 +331,6 @@ Tensor shared_embedding_cpu(
       indices,
       output_tensor);
   return output_tensor;
-}
-#endif // USE_ATEN
-
-#ifdef USE_ATEN
-template <int weight_nbit>
-Tensor shared_embedding_meta(
-     const Tensor& packed_weights,
-    const int64_t& group_size,
-    const int64_t& n, // same as num_embeddings
-    const int64_t& k, // same as embedding_dim
-    const Tensor& indices) {
-  int num_out = indices.size(0);
-  return torch::empty({num_out, k}).to("meta");
 }
 #endif // USE_ATEN
 

@@ -10,8 +10,8 @@
   Tensor _op_out_##weight_nbit(            \
       RuntimeContext& ctx,                 \
       const Tensor& packed_weight_qvals,   \
-      const Tensor& num_embeddings_tensor, \
-      const Tensor& embedding_dim_tensor,  \
+      const int64_t& num_embeddings,       \
+      const int64_t& embedding_dim,        \
       const Tensor& weight_scales,         \
       const Tensor& weight_zeros,          \
       const Tensor& indices,               \
@@ -19,8 +19,8 @@
     (void)ctx;                             \
     embedding_out_cpu<weight_nbit>(        \
         packed_weight_qvals,               \
-        num_embeddings_tensor,             \
-        embedding_dim_tensor,              \
+        num_embeddings,                    \
+        embedding_dim,                     \
         weight_scales,                     \
         weight_zeros,                      \
         indices,                           \

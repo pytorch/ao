@@ -384,12 +384,8 @@ class QuantizedEmbedding(nn.Module):
         self.register_buffer(
             "packed_weight_qvals", self.pack_weights_op(weight_qvals.to(torch.int8))
         )
-        self.register_buffer(
-            "num_embeddings", torch.empty(0, num_embeddings, dtype=torch.int8)
-        )
-        self.register_buffer(
-            "embedding_dim", torch.empty(0, embedding_dim, dtype=torch.int8)
-        )
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
         self.register_buffer("weight_scales", weight_scales)
         self.register_buffer("weight_zeros", weight_zeros.to(torch.int8))
 

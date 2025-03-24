@@ -34,10 +34,7 @@
       &pack_weights_meta<weight_nbit>);               \
   m.impl(                                             \
       "_pack_8bit_act_" #weight_nbit "bit_weight",    \
-      &pack_weights_meta<weight_nbit>);               \
-  m.impl(                                             \
-      "_linear_8bit_act_" #weight_nbit "bit_weight",  \
-      &linear_meta<weight_nbit>);
+      &pack_weights_meta<weight_nbit>)
 
 TORCH_LIBRARY_FRAGMENT(torchao, m) {
   DEFINE_OP(1);
