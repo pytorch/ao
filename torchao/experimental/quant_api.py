@@ -652,12 +652,12 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         has_weight_zeros: Whether or not to include zeros in the weight quantization.
         weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        round_weight_scale_to_bf16: Whether or not to round the weight scale to bfloat16.  This is different than weight_scales being bfloat16,
+            because computation and dequantization still happens in float32.
         layout: The layout to use for the packed weight tensor.  The layout does not affect the quantization numerically and different
             layouts will give similar results.  The following are available layouts:
             - PackedLinearInt8DynamicActivationIntxWeightLayout: This layout is optimized for CPU performance.
             - QDQLayout: This layout is designed for export to ExecuTorch
-            - PlainLayout: This layout is a simple python-based layout.  It has low performance, but can be used
-                when PackedLinearInt8DynamicActivationIntxWeightLayout is unavailable.
     """
 
     weight_dtype: torch.dtype = torch.int4
