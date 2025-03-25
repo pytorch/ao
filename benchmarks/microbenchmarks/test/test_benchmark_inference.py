@@ -49,16 +49,16 @@ class TestBenchmarkInference(unittest.TestCase):
         self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
-    def test_run_inference_with_sparsity(self, mock_string_to_config):
+    def test_run_inference_with_semi_sparse_marlin(self, mock_string_to_config):
         """Test running inference with sparsity configurations"""
         # Mock string_to_config to return valid configs
+        from torchao.dtypes import MarlinSparseLayout
         from torchao.quantization import Int4WeightOnlyConfig
-        from torchao.sparsity.sparse_api import (
-            BlockSparseWeightConfig,
-        )
 
         # Test with semi-sparse config
-        mock_string_to_config.return_value = Int4WeightOnlyConfig()
+        mock_string_to_config.return_value = Int4WeightOnlyConfig(
+            layout=MarlinSparseLayout()
+        )
         config = BenchmarkConfig(
             quantization="marlin",
             sparsity="semi-sparse",
@@ -76,6 +76,14 @@ class TestBenchmarkInference(unittest.TestCase):
         result = run(config)
         self.assertIsInstance(result, BenchmarkResult)
         self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
+
+    @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
+    def test_run_inference_with_block_sparsity(self, mock_string_to_config):
+        """Test running inference with sparsity configurations"""
+        # Mock string_to_config to return valid configs
+        from torchao.sparsity.sparse_api import (
+            BlockSparseWeightConfig,
+        )
 
         # Test with block sparsity
         mock_string_to_config.return_value = BlockSparseWeightConfig()

@@ -84,14 +84,6 @@ def get_quantization_sparsity_recipes(
     """
     config_recipes = set()
 
-    # Handle edge cases
-    if sparsity_recipes is None and quantization_recipes is None:
-        return {("baseline", None)}
-    if sparsity_recipes is None:
-        return {(quant, None) for quant in quantization_recipes}
-    if quantization_recipes is None:
-        return {("baseline", sparse) for sparse in sparsity_recipes}
-
     # Always include baseline without sparsity
     config_recipes.add(("baseline", None))
 
@@ -134,8 +126,8 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
     # Create all possible combinations
     configs = []
     quantization_sparsity_recipes = get_quantization_sparsity_recipes(
-        config.get("quantization_config_recipe_names", None),
-        config.get("sparsity_config_recipe_names", None),
+        config.get("quantization_config_recipe_names", []),
+        config.get("sparsity_config_recipe_names", []),
     )
     for model_param in config["model_params"]:
         shapes, params = get_param_combinations(model_param)
