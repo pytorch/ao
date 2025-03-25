@@ -5,6 +5,9 @@ import torch
 import triton
 from torch._inductor.utils import do_bench_using_profiling
 
+from torchao.prototype.mx_formats.custom_cast import (
+    triton_to_mxfp8_dim1,
+)
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 torch.manual_seed(0)
@@ -49,6 +52,12 @@ def to_mx_dim0_reference(x_hp, block_size):
     return data_d0, scale_d0
 
 
+def to_mx_dim1_reference(x_hp, block_size):
+    x_hp = x_hp.t().contiguous()
+    scale_d1, data_d1 = to_mx(x_hp, torch.float8_e4m3fn, block_size)
+    return data_d1.t(), scale_d1
+
+
 def benchmark_cuda_function_in_microseconds(func: Callable, *args, **kwargs) -> float:
     """Thin wrapper around do_bench_using_profiling"""
     no_args = lambda: func(*args, **kwargs)
@@ -67,7 +76,7 @@ def run(
     print(f"torch version: {torch.__version__}")
     print(f"triton version: {triton.__version__}")
     print(f"mode: {mode}")
-    assert mode in ("dim0", "dim1", "dim0_dim1", "dim0_mx")
+    assert mode in ("dim0", "dim1", "dim0_dim1", "dim0_mx", "dim1_mx", "dim1_mx_triton")
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
@@ -142,6 +151,41 @@ def run(
         assert s_d0.dtype == torch.uint8
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mx":
+        to_mx_dim1_reference_c = torch.compile(to_mx_dim1_reference)
+        y_d1, s_d1 = to_mx_dim1_reference_c(x, BLOCK_SIZE)
+
+        for _ in range(2):
+            __ = to_mx_dim1_reference_c(x, BLOCK_SIZE)
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: to_mx_dim1_reference_c(x, BLOCK_SIZE),
+            x,
+            BLOCK_SIZE,
+        )
+
+        assert y_d1.dtype == torch.float8_e4m3fn
+        assert s_d1.dtype == torch.uint8
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mx_triton":
+        y_d1, s_d1 = triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
+
+        for _ in range(2):
+            __ = triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE)
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: triton_to_mxfp8_dim1(x, inner_block_size=BLOCK_SIZE),
+            x,
+            BLOCK_SIZE,
+        )
+
+        assert y_d1.dtype == torch.float8_e4m3fn
+        assert s_d1.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
     else:
