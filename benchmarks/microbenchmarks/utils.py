@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
-from pickle import NONE
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -14,6 +13,7 @@ from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -25,7 +25,6 @@ from torchao.quantization import (
     PerRow,
     PerTensor,
     UIntXWeightOnlyConfig,
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 
@@ -54,7 +53,9 @@ def get_default_device(device: str = "cuda") -> str:
 class BenchmarkConfig:
     def __init__(
         self,
-        quantization: Optional[str],  # Quantization string format is similar to the format being used for llama/generate.py
+        quantization: Optional[
+            str
+        ],  # Quantization string format is similar to the format being used for llama/generate.py
         sparsity: Optional[str],  # Specify the type of sparsity to be used
         params: Dict[str, Any],
         shape_name: str,
@@ -147,7 +148,9 @@ class LNLinearSigmoid(torch.nn.Module):
         return x
 
 
-def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwargs) -> AOBaseConfig:
+def string_to_config(
+    quantization: Optional[str], sparsity: Optional[str], **kwargs
+) -> AOBaseConfig:
     """Get quantization config based on quantization string.
 
     Args:
@@ -166,6 +169,7 @@ def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwa
     if quantization is None and sparsity is None:
         return None
     high_precision_dtype = kwargs.get("high_precision_dtype", torch.bfloat16)
+
     if "int4wo" in quantization and not HAS_TRITON:
         print("Warning: Triton not available, falling back to baseline")
         return None
@@ -177,6 +181,8 @@ def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwa
         return Int8WeightOnlyConfig()
     if "int8dq" in quantization:
         if sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
+            from torchao.dtypes import SemiSparseLayout
+
             return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
         elif "int8dq_prefill_wo_decode" in quantization:
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
@@ -215,6 +221,7 @@ def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwa
             )
         elif sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
             from torchao.dtypes import MarlinSparseLayout
+
             return Int4WeightOnlyConfig(layout=MarlinSparseLayout())
     if "fp6" in quantization:
         return FPXWeightOnlyConfig(3, 2)
@@ -265,7 +272,7 @@ def string_to_config(quantization: Optional[str], sparsity: Optional[str], **kwa
         return Float8WeightOnlyConfig()
     elif "float8dq" in quantization:
         if sparsity and "semi" in sparsity:
-                return Float8DynamicActivationFloat8SemiSparseWeightConfig()
+            return Float8DynamicActivationFloat8SemiSparseWeightConfig()
         granularity = str(quantization.split("-")[-1])
         if granularity == "tensor":
             granularity = PerTensor()
