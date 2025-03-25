@@ -27,12 +27,6 @@ from torchao.quantization import (
     UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
-from torch.profiler import profile, record_function, ProfilerActivity
-import os
-import subprocess
-import sys
-import uuid
-
 
 try:
     import triton  # noqa: F401
@@ -90,8 +84,6 @@ class BenchmarkConfig:
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
-        self.profile = params.get("profile", False)
-        self.profile_file_name = os.path.join(self.output_dir, f"/profile/{self.name}_{self.m}_{self.k}_{self.n}_profile.json")
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -113,7 +105,6 @@ class BenchmarkConfig:
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
-            "profile": self.profile,
         }
 
 
@@ -326,61 +317,6 @@ def model_inference_time_in_ms(model, input_data):
 
     # Convert to microseconds
     return res * 1e6
-
-
-def upload_trace_file(local_path: str, overwrite: bool = False) -> Optional[str]:
-    file_name = os.path.basename(local_path)
-    manifold_path = os.path.join(
-        "perfetto_internal_traces/tree/shared_trace", f"{os.getlogin()}_{str(uuid.uuid4())}_{file_name}"
-    )
-    cmd = [
-        "manifold",
-        "put",
-        local_path,
-        manifold_path,
-        "--ttl",
-        str(28 * 24 * 60 * 60),
-        "--userData",
-        "false",
-    ]
-    ret = subprocess.run(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
-    )
-    if ret.returncode == 0:
-        print("Upload trace successfully.")
-        return manifold_path
-    else:
-        print("[ERROR] Upload failed, maybe the trace file exists.")
-        return None
-
-
-def print_perfetto_ui_url(manifold_path: str) -> None:
-    url = (
-        "https://interncache-all.fbcdn.net/manifold/perfetto-artifacts/tree/ui/index.html"
-        + "#!/?url=https://interncache-all.fbcdn.net/manifold/"
-        + manifold_path
-    )
-    print(f"The trace is accessible at:\n{url}")
-
-
-def generate_model_profile(model, input_data, profile_file):
-    # Function to benchmark model evaluation with profiling
-    torch.profiler._utils._init_for_cuda_graphs()
-    prof = torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True)
-    with prof:
-        # with record_function("model_inference"):
-        for _ in range(1):  # Run the model multiple times to warm up the cache
-            with torch.no_grad():
-                _ = model(*input_data)
-                torch.cuda.synchronize()
-    prof.export_chrome_trace(profile_file)  # Save profiling details
-    
-    manifold_path = upload_trace_file(profile_file)
-    if manifold_path:
-        print_perfetto_ui_url(manifold_path)
-
-    # Return the profiler output
-    return prof
 
 
 def create_model_and_input(
