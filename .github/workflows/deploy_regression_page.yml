@@ -1,0 +1,130 @@
+name: Deploy Regression Analysis Page
+
+on:
+  workflow_run:
+    workflows: ["Run Benchmark and Save Results"]
+    types:
+      - completed
+  workflow_dispatch:  # Allow manual triggers too
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  analyze-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas plotly numpy
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: benchmark-results-*
+        merge-multiple: true
+        path: artifacts
+
+    - name: Generate regression analysis
+      run: |
+        mkdir -p _site/dashboard
+        cp docs/dashboard/template.html _site/dashboard/index.html
+
+        cat << EOF > generate_report.py
+        import os
+        import pandas as pd
+        import plotly.graph_objects as go
+        from datetime import datetime
+
+        # Read all CSV files from artifacts directory
+        dfs = []
+        dates = []
+        for file in os.listdir('artifacts'):
+            if file.endswith('.csv'):
+                df = pd.read_csv(f'artifacts/{file}')
+                date_str = file.split('benchmark-results-')[1].split('.csv')[0]
+                df['date'] = date_str
+                dfs.append(df)
+                dates.append(date_str)
+
+        # Combine all data
+        combined_df = pd.concat(dfs, ignore_index=True)
+
+        # Read the template
+        with open('_site/dashboard/index.html', 'r') as f:
+            template = f.read()
+
+        # Generate charts HTML
+        charts_html = []
+        numeric_columns = combined_df.select_dtypes(include=['float64', 'int64']).columns
+        for column in numeric_columns:
+            if column != 'date':
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=combined_df['date'],
+                    y=combined_df[column],
+                    mode='lines+markers',
+                    name=column,
+                    line=dict(color='#ee4c2c')
+                ))
+                fig.update_layout(
+                    title=f'{column} Over Time',
+                    xaxis_title='Date',
+                    yaxis_title=column,
+                    template='plotly_white',
+                    showlegend=True,
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left",
+                        x=0.01
+                    )
+                )
+                charts_html.append(f'<div class="chart" id="{column}-chart">')
+                charts_html.append(f'<h2 class="chart-title">{column}</h2>')
+                charts_html.append('<div class="chart-container">')
+                charts_html.append(fig.to_html(full_html=False, config={'displayModeBar': True}))
+                charts_html.append('</div></div>')
+
+        # Replace placeholders in template
+        html_content = template.replace(
+            '{last_updated}',
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+        ).replace(
+            '<!-- Charts will be inserted here -->',
+            '\n'.join(charts_html)
+        )
+
+        # Write the HTML file
+        with open('_site/dashboard/index.html', 'w') as f:
+            f.write(html_content)
+        EOF
+
+        python generate_report.py
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: '_site'
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
