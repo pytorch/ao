@@ -953,6 +953,7 @@ class SharedEmbeddingQuantizer:
                 weight_dtype=self.weight_dtype,
                 granularity=self.granularity,
                 has_weight_zeros=self.has_weight_zeros,
+                round_weight_scale_to_bf16=False,
                 # Only universal layout is supported for shared embedding
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"

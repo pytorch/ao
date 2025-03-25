@@ -187,7 +187,7 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
 
         if not scale_rounded_to_bf16:
             assert (
-                layout.Target == Target.UNIVERSAL
+                layout.target == Target.UNIVERSAL
             ), "Must use Target.UNIVERSAL if scales are not rounded to BF16"
 
         args = [
