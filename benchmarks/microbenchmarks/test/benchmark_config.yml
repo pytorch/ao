@@ -1,11 +1,11 @@
 # Sample configuration for inference benchmarks
 benchmark_mode: "inference"
 quantization_config_recipe_names:
-  - "baseline"
+  # - "baseline" Will always run a baseline instatance
   - "int4wo-32"
   - "marlin"
 sparsity_config_recipe_names:
-  - "None"
+  # - "none" Will always run a without sparsity instance
   - "semi-sparse"
   - "block"
 output_dir: "benchmarks/microbenchmarks/results"

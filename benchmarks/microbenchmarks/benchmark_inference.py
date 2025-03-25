@@ -50,13 +50,26 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         config.sparsity,
         high_precision_dtype=config.high_precision_dtype,
     )
-    if config.sparsity != "None" and config.quantization == "baseline":
-        print(f"Sparsifying model for sparsity: {config.sparsity}")
-        sparsify_(m_copy, aoBaseConfig)
-    elif config.sparsity == "None" and config.quantization == "baseline":
+
+    # Check if sparsity is requested and if the device is CUDA (sparsity operations require CUDA)
+    is_cuda = config.device == "cuda" and torch.cuda.is_available()
+
+    if config.sparsity is not None and (
+        config.quantization is None or "baseline" in config.quantization
+    ):
+        if is_cuda:
+            print(f"Applying {config.sparsity} sparsity to model")
+            sparsify_(m_copy, aoBaseConfig)
+        else:
+            print(
+                f"Warning: Skipping {config.sparsity} sparsity as it requires CUDA, but device is {config.device}"
+            )
+    elif config.sparsity is None and (
+        config.quantization is None or "baseline" in config.quantization
+    ):
         pass  # No quantization or sparsity specified, do nothing
     else:
-        print(f"Quantizing model with quantization: {config.quantization}, sparsity: {config.sparsity}")
+        print("Quantizing model....")
         quantize_(m_copy, aoBaseConfig)
 
     if config.use_torch_compile:

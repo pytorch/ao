@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from benchmarks.microbenchmarks.benchmark_inference import run
 from benchmarks.microbenchmarks.utils import BenchmarkConfig, BenchmarkResult
@@ -36,14 +37,28 @@ class TestBenchmarkInference(unittest.TestCase):
 
         shutil.rmtree(self.temp_dir)
 
-    def test_run_inference(self):
+    @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
+    def test_run_inference(self, mock_string_to_config):
+        # Mock string_to_config to return a valid config
+        from torchao.sparsity.sparse_api import SemiSparseWeightConfig
+
+        mock_string_to_config.return_value = SemiSparseWeightConfig()
+
         result = run(self.config)
         self.assertIsInstance(result, BenchmarkResult)
         self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
 
-    def test_run_inference_with_sparsity(self):
+    @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
+    def test_run_inference_with_sparsity(self, mock_string_to_config):
         """Test running inference with sparsity configurations"""
+        # Mock string_to_config to return valid configs
+        from torchao.quantization import Int4WeightOnlyConfig
+        from torchao.sparsity.sparse_api import (
+            BlockSparseWeightConfig,
+        )
+
         # Test with semi-sparse config
+        mock_string_to_config.return_value = Int4WeightOnlyConfig()
         config = BenchmarkConfig(
             quantization="marlin",
             sparsity="semi-sparse",
@@ -54,7 +69,7 @@ class TestBenchmarkInference(unittest.TestCase):
                 "model_type": "linear",
             },
             shape_name="custom",
-            shape=[16, 32, 8],
+            shape=[64, 64, 64],  # Use dimensions divisible by 64
             output_dir=self.temp_dir,
             benchmark_mode="inference",
         )
@@ -63,6 +78,7 @@ class TestBenchmarkInference(unittest.TestCase):
         self.assertTrue(hasattr(result, "model_inference_time_in_ms"))
 
         # Test with block sparsity
+        mock_string_to_config.return_value = BlockSparseWeightConfig()
         config = BenchmarkConfig(
             quantization="baseline",
             sparsity="block",
@@ -73,7 +89,7 @@ class TestBenchmarkInference(unittest.TestCase):
                 "model_type": "linear",
             },
             shape_name="custom",
-            shape=[16, 32, 8],
+            shape=[64, 64, 64],  # Use dimensions divisible by 64
             output_dir=self.temp_dir,
             benchmark_mode="inference",
         )

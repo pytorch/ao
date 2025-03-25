@@ -95,6 +95,7 @@ class BenchmarkConfig:
         return {
             "name": self.name,
             "quantization": self.quantization,
+            "sparsity": self.sparsity,
             "m": self.m,
             "k": self.k,
             "n": self.n,
@@ -161,11 +162,16 @@ def string_to_config(
     Returns:
         AOBaseConfig: Quantization configuration object
     """
+    # Handle block sparsity case - with block sparsity, quantization should always be "none" or "baseline"
+    if sparsity is not None and sparsity == "block":
+        return BlockSparseWeightConfig()
+
+    # Handle other sparsity cases
     if quantization is None and sparsity is not None:
         if "semi" in sparsity or "2:4" in sparsity:
             return SemiSparseWeightConfig()
-        if sparsity == "block":
-            return BlockSparseWeightConfig()
+        else:
+            raise ValueError(f"Unknown sparsity type: {sparsity}")
     if quantization is None and sparsity is None:
         return None
     high_precision_dtype = kwargs.get("high_precision_dtype", torch.bfloat16)
@@ -424,6 +430,8 @@ def print_results(results: List[BenchmarkResult]):
         row = []
         for col in display_columns:
             value = result_dict.get(col, "N/A")
+            if value is None:
+                value = "N/A"
             if col == "model_inference_time_in_ms":
                 value = f"{value:.2f}" if isinstance(value, (int, float)) else value
             elif col == "use_torch_compile":
