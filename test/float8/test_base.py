@@ -239,7 +239,7 @@ class TestFloat8Tensor:
         ],
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
+    @unittest.skipIf(not is_sm_at_least_89(), "Requires CUDA capability >= 9.0")
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
         b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")

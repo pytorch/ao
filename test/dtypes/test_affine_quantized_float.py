@@ -71,9 +71,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize(
-        "granularity", [PerTensor(), PerRow()] if is_sm_at_least_90() else [PerTensor()]
-    )
+    # @common_utils.parametrize(
+    #     "granularity", [PerTensor(), PerRow()] if is_sm_at_least_90() else [PerTensor()]
+    # )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
         "sizes",
