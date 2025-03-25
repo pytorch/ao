@@ -23,8 +23,6 @@ from benchmarks.microbenchmarks.utils import (
     model_inference_time_in_ms,
     string_to_config,
 )
-from torchao import quantization
-from torchao.core.config import AOBaseConfig
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
 
@@ -48,14 +46,16 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
     aoBaseConfig = string_to_config(
-        config.quantization, config.sparsity, high_precision_dtype=config.high_precision_dtype
+        config.quantization,
+        config.sparsity,
+        high_precision_dtype=config.high_precision_dtype,
     )
     if aoBaseConfig is not None and config.quantization is not None:
         quantize_(m_copy, aoBaseConfig)
     elif config.sparsity is not None and aoBaseConfig is not None:
         sparsify_(m_copy, aoBaseConfig)
     else:
-        pass # No quantization or sparsity specified, do nothing
+        pass  # No quantization or sparsity specified, do nothing
     if config.use_torch_compile:
         print("Compiling model....")
         m_copy = torch.compile(m_copy, mode=config.torch_compile_mode, fullgraph=True)

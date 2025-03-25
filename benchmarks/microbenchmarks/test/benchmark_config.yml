@@ -3,8 +3,11 @@ benchmark_mode: "inference"
 quantization_config_recipe_names:
   - "baseline"
   - "int4wo-32"
-  - "int4wo-128"
-sparsity_config_recipe_name: "semi-sparse"
+  - "marlin"
+sparsity_config_recipe_names:
+  - "None"
+  - "semi-sparse"
+  - "block"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
