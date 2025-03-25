@@ -21,7 +21,7 @@ The YAML file should contain all necessary configuration parameters for the benc
 
 import argparse
 from itertools import product
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
@@ -69,28 +69,57 @@ def get_param_combinations(model_param):
 
 
 def get_quantization_sparsity_recipes(
-    quantization_recipes: str, sparsity_recipes: str
-) -> List[Tuple[str, str]]:
-    """Generate valid quantization and sparsity recipes."""
+    quantization_recipes: List[str], sparsity_recipes: List[str]
+) -> Set[Tuple[str, Optional[str]]]:
+    """Generate valid quantization and sparsity recipes.
 
-    config_recipes = []
-    for quant_config, sparse_config in product(quantization_recipes, sparsity_recipes):
-        if sparse_config != "None":
-            if "semi" in sparse_config or "2:4" in sparse_config:
+    Args:
+        quantization_recipes: List of quantization recipes
+        sparsity_recipes: List of sparsity recipes
+
+    Returns:
+        Set of tuples containing (quantization_recipe, sparsity_recipe)
+        For block sparsity, quantization is always "baseline"
+        All quantization techniques are also run without sparsity
+    """
+    config_recipes = set()
+
+    # Handle edge cases
+    if sparsity_recipes is None and quantization_recipes is None:
+        return {("baseline", None)}
+    if sparsity_recipes is None:
+        return {(quant, None) for quant in quantization_recipes}
+    if quantization_recipes is None:
+        return {("baseline", sparse) for sparse in sparsity_recipes}
+
+    # Always include baseline without sparsity
+    config_recipes.add(("baseline", None))
+
+    # Add all quantization techniques without sparsity
+    for quant_config in quantization_recipes:
+        config_recipes.add((quant_config, None))
+
+    # Process combinations of quantization and sparsity
+    for sparse_config in sparsity_recipes:
+        if sparse_config is None:
+            # Skip None sparsity as we've already added all quantization techniques without sparsity
+            continue
+        elif "block" in sparse_config:
+            # For block sparsity, only pair with baseline quantization
+            config_recipes.add(("baseline", sparse_config))
+        elif "semi" in sparse_config or "2:4" in sparse_config:
+            # For semi-sparse, only pair with compatible quantization methods
+            for quant_config in quantization_recipes:
                 if (
                     "marlin" in quant_config
                     or "int8dq" in quant_config
                     or "float8dq" in quant_config
                     or quant_config == "baseline"
                 ):
-                    pass
-                else:
-                    continue
-            elif sparse_config == "block":
-                config_recipes.append(("baseline", sparse_config))
-            else:
-                raise ValueError(f"Invalid sparsity recipe: {sparse_config}")
-        config_recipes.append((quant_config, sparse_config))
+                    config_recipes.add((quant_config, sparse_config))
+        else:
+            raise ValueError(f"Invalid sparsity recipe: {sparse_config}")
+
     return config_recipes
 
 
@@ -104,15 +133,16 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
 
     # Create all possible combinations
     configs = []
+    quantization_sparsity_recipes = get_quantization_sparsity_recipes(
+        config.get("quantization_config_recipe_names", None),
+        config.get("sparsity_config_recipe_names", None),
+    )
     for model_param in config["model_params"]:
         shapes, params = get_param_combinations(model_param)
 
         # Create configs for all combinations
         for (quant_config, sparse_config), (shape_name, shape) in product(
-            get_quantization_sparsity_recipes(
-                config.get("quantization_config_recipe_names", ["baseline"]),
-                config.get("sparsity_config_recipe_names", ["None"]),
-            ),
+            quantization_sparsity_recipes,
             shapes,
         ):
             configs.append(
@@ -126,7 +156,6 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
                     benchmark_mode=benchmark_mode,
                 )
             )
-
     return configs
 
 
@@ -135,14 +164,17 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
     from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 
     results = []
-    print("Benchmarking Inference ......")
+    print("----------------- RUNNING BENCHMARKS FOR INFERENCE -----------------------")
     for config in configs:
+        print("----------------------------------------")
         try:
-            print(f"Running: {config.name}")
+            print(
+                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
+            )
             result = run_inference(config)  # Pass the config object directly
             results.append(result)
-        except Exception as e:
-            print(f"Error running benchmark {config.name}: {e}")
+        except Exception:
+            print(f"Error running benchmark {config.name}")
             continue
 
     # Add results to csv

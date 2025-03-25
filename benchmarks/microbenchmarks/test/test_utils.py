@@ -119,6 +119,23 @@ class TestUtils(unittest.TestCase):
             config, Float8DynamicActivationFloat8SemiSparseWeightConfig
         )
 
+    def test_block_sparsity_with_baseline_quantization(self):
+        """Test that block sparsity with baseline quantization returns BlockSparseWeightConfig"""
+        config = string_to_config("baseline", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+    def test_block_sparsity_with_non_baseline_quantization(self):
+        """Test that block sparsity with non-baseline quantization still returns BlockSparseWeightConfig"""
+        # Block sparsity should take precedence over any quantization method
+        config = string_to_config("int8wo", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+        config = string_to_config("int4wo", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+        config = string_to_config("marlin", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
     def test_invalid_sparsity(self):
         """Test invalid sparsity config generation"""
         from benchmarks.microbenchmarks.benchmark_runner import (
