@@ -1,0 +1,40 @@
+name: Run Benchmark and Save Results
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run at midnight UTC every day
+  workflow_dispatch:
+    inputs:
+      python_command:
+        description: 'Python command to run'
+        required: true
+      csv_path:
+        description: 'Path where the CSV will be generated'
+        required: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+    - name: Run Python command
+      run: ${{ github.event.inputs.python_command }}
+
+    - name: Upload CSV Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results-${{ steps.date.outputs.date }}
+        path: ${{ github.event.inputs.csv_path }}
+        retention-days: 90
