@@ -33,6 +33,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         for layout in [
             PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
             QDQLayout(),
         ]
         for weight_dtype in [
@@ -71,6 +72,10 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
         )
 
+        # We set round_weight_scale_to_bf16 to True for accuracy testing because
+        # some kernels do this internally (e.g., KleidiAI kernels)
+        round_weight_scale_to_bf16 = True
+
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
@@ -79,6 +84,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
                 layout=layout,
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -90,17 +96,14 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
                 layout=self._reference_layout(),
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
         with torch.no_grad():
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
-
-        # When weight_dtype is int4, we need low tolerance when comparing
-        # to the reference because KleidiAI kernels (based on bfloat16 scales)
-        # may be used
-        self._assert_close(result, expected_result, strict=(weight_dtype != torch.int4))
+        self._assert_close(result, expected_result)
 
     def test_accuracy_aten(self):
         m = 3
@@ -114,6 +117,10 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         granularity = PerGroup(128)
         has_weight_zeros = False
 
+        # We set round_weight_scale_to_bf16 to True for accuracy testing because
+        # some KleidiAI kernels do this internally
+        round_weight_scale_to_bf16 = True
+
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
@@ -122,6 +129,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -133,6 +141,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
                 layout=self._reference_layout(),
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -140,20 +149,11 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             result = quantized_model(activations)
             expected_result = quantized_model_reference(activations)
 
-        # KleidiAI aten kernels need low tolerance when comparing to reference
-        # because they use bfloat16 scales
-        self._assert_close(result, expected_result, strict=False)
+        self._assert_close(result, expected_result)
 
-    def _assert_close(self, result, expected_result, strict: bool = False):
-        if strict:
-            self.assertTrue(
-                torch.nn.functional.mse_loss(result, expected_result) <= 1e-6
-            )
-            self.assertTrue(torch.allclose(result, expected_result, atol=1e-2))
-        else:
-            self.assertTrue(
-                torch.nn.functional.mse_loss(result, expected_result) <= 1e-3
-            )
+    def _assert_close(self, result, expected_result):
+        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-6)
+        self.assertTrue(torch.allclose(result, expected_result, atol=1e-2))
 
     def _reference_layout(self):
         return PlainLayout()
