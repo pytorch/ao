@@ -8,7 +8,7 @@ sparsity_config_recipe_names:
   # Will run a baseline inference for model by default, without sparsity for comparison
   - "semi-sparse"
   - "block"
-output_dir: "benchmarks/microbenchmarks/results"
+output_dir: "benchmarks/microbenchmarks/results/"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
@@ -21,6 +21,7 @@ model_params:
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
+    profile: True
 
   - name: "large_bf16_ln_linear"
     matrix_shapes:

@@ -20,6 +20,7 @@ from benchmarks.microbenchmarks.utils import (
     BenchmarkResult,
     clean_caches,
     create_model_and_input,
+    generate_model_profile,
     model_inference_time_in_ms,
     string_to_config,
 )
@@ -84,10 +85,9 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         model=m_copy, input_data=input_data
     )
 
-    # TODO: Benchmark time using profiler
     # Profile dtype model evaluation
-    # prof_dtype = benchmark_model_op_with_profiler_in_microseconds(m_copy, input_data, quantized_dtype)
-    # prof_dtype.export_chrome_trace(f"{quantization}_model_{input_data[0].size()[0]}.json")  # Save profiling details
+    prof = generate_model_profile(m_copy, input_data)
+    prof.export_chrome_trace(f"{config.profile_path}.json")  # Save profiling details
 
     # TODO: Benchmark gemm time using cuda graph
     # gemm_time = benchmark_torch_function_in_microseconds(gemm_op, *args, **kwargs)
