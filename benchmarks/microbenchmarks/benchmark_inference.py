@@ -50,12 +50,15 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         config.sparsity,
         high_precision_dtype=config.high_precision_dtype,
     )
-    if aoBaseConfig is not None and config.quantization is not None:
-        quantize_(m_copy, aoBaseConfig)
-    elif config.sparsity is not None and aoBaseConfig is not None:
+    if config.sparsity != "None" and config.quantization == "baseline":
+        print(f"Sparsifying model for sparsity: {config.sparsity}")
         sparsify_(m_copy, aoBaseConfig)
-    else:
+    elif config.sparsity == "None" and config.quantization == "baseline":
         pass  # No quantization or sparsity specified, do nothing
+    else:
+        print(f"Quantizing model with quantization: {config.quantization}, sparsity: {config.sparsity}")
+        quantize_(m_copy, aoBaseConfig)
+
     if config.use_torch_compile:
         print("Compiling model....")
         m_copy = torch.compile(m_copy, mode=config.torch_compile_mode, fullgraph=True)
