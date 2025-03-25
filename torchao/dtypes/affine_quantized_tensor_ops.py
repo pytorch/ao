@@ -51,12 +51,24 @@ from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
     _linear_fp_act_int4_weight_sparse_marlin_impl,
 )
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_check as _linear_int8_act_intx_weight_packed_check,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_impl as _linear_int8_act_intx_weight_packed_impl,
+)
 from torchao.dtypes.uintx.plain_layout import (
     PlainAQTTensorImpl,
     _linear_fp_act_int8_weight_check,
     _linear_fp_act_int8_weight_impl,
     _linear_int8_act_int8_weight_check,
     _linear_int8_act_int8_weight_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_check as _linear_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_impl as _linear_q_dq_impl,
 )
 from torchao.dtypes.uintx.semi_sparse_layout import (
     _linear_int8_act_int8_weight_semi_structured_sparse_check,
@@ -198,6 +210,14 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_fp_act_uint4_weight_cpu_check,
             _linear_fp_act_uint4_weight_cpu_impl,
+        ),
+        (
+            _linear_int8_act_intx_weight_packed_check,
+            _linear_int8_act_intx_weight_packed_impl,
+        ),
+        (
+            _linear_q_dq_check,
+            _linear_q_dq_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
