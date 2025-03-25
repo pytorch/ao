@@ -665,7 +665,10 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     has_weight_zeros: bool = False
     weight_mapping_type: MappingType = MappingType.ASYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout()
+    round_weight_scale_to_bf16: bool = True
+    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
+        target=Target.AUTO
+    )
 
 
 # For BC
@@ -687,6 +690,9 @@ def _int8_dynamic_activation_intx_weight_transform(
 
     bit_width = _dtype_to_bit_width(weight_dtype)
 
+    scale_dtype = torch.float32
+    round_weight_scale_to_bf16 = config.round_weight_scale_to_bf16
+
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
     elif isinstance(granularity, PerRow):
@@ -694,7 +700,6 @@ def _int8_dynamic_activation_intx_weight_transform(
     else:
         raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
 
-    scale_dtype = torch.float32
     tensor_impl_ctr_kwargs = None
     if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
         # We need to create a new layout object for each module because when
@@ -719,9 +724,11 @@ def _int8_dynamic_activation_intx_weight_transform(
 
         tensor_impl_ctr_kwargs = {"bias": bias}
 
-        if layout.target == Target.AUTO:
+        if layout.target != Target.ATEN:
             _check_torchao_ops_loaded()
-        elif layout.target == Target.ATEN:
+            if layout.target != Target.UNIVERSAL:
+                assert round_weight_scale_to_bf16, "round_weight_scale_to_bf16 must be True unless using Target.UNIVERSAL"
+        else:
             # TODO: long term, we want to disfavor this route for using KleidiAI in torchao
             # KleidiAI kernels are accessible via Target.AUTO if torchao is built
             # with TORCHAO_BUILD_KLEIDIAI=1.  The Target.AUTO route has the advantage
@@ -741,7 +748,7 @@ def _int8_dynamic_activation_intx_weight_transform(
             # KleidiAI groupwise kernel requires bfloat16 scale
             # Otherwise it falls back to a reference implementation
             if isinstance(granularity, PerGroup):
-                scale_dtype = torch.bfloat16
+                assert round_weight_scale_to_bf16, "ATEN target requires round_weight_scale_to_bf16=True when granularity=PerGroup"
 
     quant_min = -(1 << (bit_width - 1))
     quant_max = (1 << (bit_width - 1)) - 1
@@ -763,6 +770,7 @@ def _int8_dynamic_activation_intx_weight_transform(
         _layout=layout,
         use_hqq=False,
         tensor_impl_ctr_kwargs=tensor_impl_ctr_kwargs,
+        round_weight_scale_to_bf16=round_weight_scale_to_bf16,
     )
 
     # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused

@@ -161,6 +161,11 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             t for t, _ in _TARGET_AND_STR
         ], f"Unexpected target: {layout.target}"
 
+        assert scale.dtype == torch.float32, "scale must be float32"
+        scale_rounded_to_bf16 = torch.allclose(
+            scale, scale.to(torch.bfloat16).to(torch.float32)
+        )
+
         n, k = int_data.shape
         if layout.target == Target.ATEN:
             assert (
@@ -173,10 +178,17 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             # It will be applied later in the linear function
             if not layout.has_bias:
                 bias = None
+            if scale_rounded_to_bf16:
+                scale = scale.to(torch.bfloat16)
             packed_weight = torch.ops.aten._dyn_quant_pack_4bit_weight(
                 int_data, scale, bias, layout.group_size, k, n
             )
             return cls(packed_weight, layout)
+
+        if not scale_rounded_to_bf16:
+            assert (
+                layout.Target == Target.UNIVERSAL
+            ), "Must use Target.UNIVERSAL if scales are not rounded to BF16"
 
         args = [
             int_data.to(torch.int8),
@@ -344,10 +356,17 @@ class _AffineQuantizedTensor(AffineQuantizedTensor):
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
         tensor_impl_ctr_kwargs: Optional[dict] = None,
+        round_weight_scale_to_bf16: bool = False,
     ):
         """Convert a high precision tensor to an integer affine quantized tensor."""
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
+
+        if round_weight_scale_to_bf16:
+            assert not use_hqq, "round_weight_scale_to_bf16 not supported for HQQ"
+            assert (
+                scale_dtype == torch.float32
+            ), "round_weight_scale_to_bf16 requires FP32 scales"
 
         if use_hqq:
             assert (
@@ -399,6 +418,10 @@ class _AffineQuantizedTensor(AffineQuantizedTensor):
                 preserve_zero,
                 zero_point_domain,
             )
+            if round_weight_scale_to_bf16:
+                scale = scale.to(torch.bfloat16)
+                scale = scale.to(torch.float32)  # convert back to FP32 for computation
+
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None
