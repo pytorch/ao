@@ -33,6 +33,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         for layout in [
             PackedLinearInt8DynamicActivationIntxWeightLayout(),
+            PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
             QDQLayout(),
         ]
         for weight_dtype in [

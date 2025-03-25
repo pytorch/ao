@@ -40,7 +40,7 @@ jobs:
           pip install numpy
           pip install pytest
           pip install parameterized
-          USE_CPP=1 pip install .
+          USE_CPP=1 TOCHAO_BUILD_KLEIDIAI=1 pip install .
       - name: Run python tests
         run: |
           conda activate venv
