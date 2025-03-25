@@ -1,0 +1,14 @@
+name,quantization,m,k,n,high_precision_dtype,use_torch_compile,torch_compile_mode,device,model_type,output_dir,model_inference_time_in_ms
+small_bf16_linear,baseline,1024,1024,1024,torch.bfloat16,True,max-autotune,cuda,linear,benchmarks/microbenchmarks/results,47.870889538899064
+small_bf16_linear,int4wo-32,1024,1024,1024,torch.bfloat16,True,max-autotune,cuda,linear,benchmarks/microbenchmarks/results,92.79820020310581
+small_bf16_linear,int4wo-32,1024,1024,1024,torch.bfloat16,True,max-autotune,cuda,linear,benchmarks/microbenchmarks/results,92.79379970394075
+small_bf16_linear,marlin,1024,1024,1024,torch.bfloat16,True,max-autotune,cuda,linear,benchmarks/microbenchmarks/results,2827.8696595225483
+large_bf16_ln_linear,baseline,2048,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,69.42827021703124
+large_bf16_ln_linear,baseline,4096,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,110.21242011338472
+large_bf16_ln_linear,int4wo-32,2048,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,640.171259874478
+large_bf16_ln_linear,int4wo-32,4096,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,1230.195889947936
+large_bf16_ln_linear,int4wo-32,2048,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,638.9500107616186
+large_bf16_ln_linear,int4wo-32,4096,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,1224.7836799360812
+large_bf16_ln_linear,marlin,2048,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,10065.855470020324
+large_bf16_ln_linear,marlin,4096,4096,1024,torch.bfloat16,True,max-autotune,cuda,ln_linear_sigmoid,benchmarks/microbenchmarks/results,11008.49203998223
+cpu_fp32_linear,baseline,4096,4096,1024,torch.float32,False,,cpu,linear,benchmarks/microbenchmarks/results,369783.37747976184
