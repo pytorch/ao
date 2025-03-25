@@ -45,7 +45,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    aoBaseConfig = string_to_config(
+    ao_base_config = string_to_config(
         config.quantization,
         config.sparsity,
         high_precision_dtype=config.high_precision_dtype,
@@ -59,7 +59,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
     ):
         if is_cuda:
             print(f"Applying {config.sparsity} sparsity to model")
-            sparsify_(m_copy, aoBaseConfig)
+            sparsify_(m_copy, ao_base_config)
         else:
             print(
                 f"Warning: Skipping {config.sparsity} sparsity as it requires CUDA, but device is {config.device}"
@@ -70,7 +70,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         pass  # No quantization or sparsity specified, do nothing
     else:
         print("Quantizing model....")
-        quantize_(m_copy, aoBaseConfig)
+        quantize_(m_copy, ao_base_config)
 
     if config.use_torch_compile:
         print("Compiling model....")
