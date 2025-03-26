@@ -79,14 +79,12 @@ void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
 
   using ProblemShape = cute::Shape<int, int, int, int>;
 
-  // If KernelTmaWarpSpecializedPingpong used for kernel schedule, the
-  // performance is really bad; on the other side, using
-  // KernelTmaWarpSpecializedPingpongFP8FastAccum doesn't seem to
-  // affect the precision much - thus, sticking with it.
+  // If FP8FastAccum not used for kernel schedule, the performance is
+  // really bad; on the other side, using it doesn't seem to affect
+  // the precision much - thus, sticking with it.
   using KernelSchedule =
     cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
-
   constexpr auto RoundStyle = cutlass::FloatRoundStyle::round_to_nearest;
   using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
   using AScale =
@@ -256,13 +254,29 @@ static void select_config(
                    std::is_same<DtypeWq, cutlass::float_e4m3_t>::value) ||
                   (std::is_same<DtypeXq, cutlass::float_e5m2_t>::value &&
                    std::is_same<DtypeWq, cutlass::float_e5m2_t>::value)) {
-      // TODO: add proper tuning here.
-      using TileShape = cute::Shape<cute::_128, cute::_128, cute::_128>;
-      using ClusterShape = cute::Shape<cute::_1, cute::_2, cute::_1>;
-      rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
-        DtypeXq, DtypeWq, Types..., TileShape, ClusterShape>(
-          Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
-      return;
+      const auto m = Y.size(0);
+      if (m <= 64) {
+        using TileShape = cute::Shape<cute::_64, cute::_32, cute::_256>;
+        using ClusterShape = cute::Shape<cute::_1, cute::_1, cute::_1>;
+        rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
+          DtypeXq, DtypeWq, Types..., TileShape, ClusterShape>(
+            Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
+        return;
+      } else if (m <= 128) {
+        using TileShape = cute::Shape<cute::_64, cute::_128, cute::_256>;
+        using ClusterShape = cute::Shape<cute::_1, cute::_1, cute::_1>;
+        rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
+          DtypeXq, DtypeWq, Types..., TileShape, ClusterShape>(
+            Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
+        return;
+      } else {
+        using TileShape = cute::Shape<cute::_128, cute::_128, cute::_256>;
+        using ClusterShape = cute::Shape<cute::_1, cute::_1, cute::_1>;
+        rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
+          DtypeXq, DtypeWq, Types..., TileShape, ClusterShape>(
+            Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
+        return;
+      }
     }
   }
 
