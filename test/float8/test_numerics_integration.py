@@ -185,7 +185,7 @@ class TestFloat8NumericsIntegrationTest:
         ],
     )
     @pytest.mark.skipif(
-        not is_sm_at_least_90(), reason="requires SM90 compatible machine"
+        not is_sm_at_least_89(), reason="requires SM90 compatible machine"
     )
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(

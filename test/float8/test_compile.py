@@ -198,9 +198,9 @@ def test_inductor_from_config_params(
         Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
     ],
 )
-@unittest.skipIf(
-    not is_sm_at_least_90(), "CUDA with capability 9.0 or greater not available"
-)
+# @unittest.skipIf(
+#     not is_sm_at_least_90(), "CUDA with capability 9.0 or greater not available"
+# )
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
     config = Float8LinearConfig.from_recipe_name(recipe_name)
@@ -233,10 +233,10 @@ class TestGraphBreaks(DynamoTestCase):
             return x_fp8
 
     # TODO(future): figure out why the test below fails on CUDA capability 8.9
-    @unittest.skipIf(
-        not torch.cuda.is_available() or not is_sm_at_least_90(),
-        "CUDA with capability 9.0 or greater not available",
-    )
+    # @unittest.skipIf(
+    #     not torch.cuda.is_available() or not is_sm_at_least_90(),
+    #     "CUDA with capability 9.0 or greater not available",
+    # )
     def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8Tensor object at the boundary of a subgraph"""
         cnts = CompileCounterWithBackend("inductor")
