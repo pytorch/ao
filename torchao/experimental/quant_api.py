@@ -826,12 +826,13 @@ def get_fqns_with_filter(
 
 
 class QuantizedLinear(nn.Module):
-    def __init__(self, weight, bias):
+    def __init__(self, packed_weight, n, k, group_size, bit_width, bias):
         super().__init__()
-        self.n, self.k = weight.shape
-        self.group_size = weight.tensor_impl.get_layout().group_size
-        self.bit_width = weight.tensor_impl.get_layout().bit_width
-        self.register_buffer("packed_weight", weight.tensor_impl.packed_weight)
+        self.register_buffer("packed_weight", packed_weight)
+        self.n = n
+        self.k = k
+        self.group_size = group_size
+        self.bit_width = bit_width
         self.bias = bias
 
     def _forward_2d(self, x):
@@ -858,6 +859,63 @@ class QuantizedLinear(nn.Module):
         return res
 
 
+def quantized_linear_from_plain(
+    int_data: torch.Tensor,
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    bias: Optional[torch.Tensor],
+    bit_width: int,
+    target: Optional[str] = None,
+):
+    assert bit_width >= 1
+    assert bit_width <= 8
+
+    qmin = -(1 << (bit_width - 1))
+    qmax = (1 << (bit_width - 1)) - 1
+
+    assert int_data.dtype in [torch.int8, torch.int32, torch.int64]
+    assert int_data.min().item() >= qmin
+    assert int_data.max().item() <= qmax
+
+    n, k = int_data.shape
+    n_, groups_per_k = scale.shape
+    assert n_ == n
+    assert k % groups_per_k == 0
+    group_size = k / groups_per_k
+    if zero_point is not None:
+        assert zero_point.shape == scale.shape
+        assert zero_point.dtype in [torch.int8, torch.int32, torch.int64]
+        assert zero_point.min().item() >= qmin
+        assert zero_point.max().item() <= qmax
+
+    packed_weight = getattr(
+        torch.ops.torchao,
+        f"_pack_8bit_act_{bit_width}bit_weight",
+    )(
+        int_data.to(torch.int8),
+        scale.reshape(-1),
+        zero_point.reshape(-1).to(torch.int8) if zero_point is not None else None,
+        group_size,
+        bias,
+        target,
+    )
+
+    # bias is packed with weight, so set to None
+    return QuantizedLinear(packed_weight, n, k, group_size, bit_width, bias=None)
+
+
+def quantized_linear_from_aqt(
+    weight: Optional[torch.Tensor], bias: Optional[torch.Tensor]
+):
+    n, k = weight.shape
+    group_size = weight.tensor_impl.get_layout().group_size
+    bit_width = weight.tensor_impl.get_layout().bit_width
+    packed_weight = weight.tensor_impl.packed_weight
+    if weight.tensor_impl.get_layout().has_bias:
+        assert bias is None
+    return QuantizedLinear(packed_weight, n, k, group_size, bit_width, bias)
+
+
 from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor
 
 
@@ -876,7 +934,7 @@ def replace_linear_tensor_subclass_with_module(module: nn.Module):
                 continue
             if child.weight.tensor_impl.get_layout().target == Target.ATEN:
                 continue
-            setattr(module, name, QuantizedLinear(child.weight, child.bias))
+            setattr(module, name, quantized_linear_from_aqt(child.weight, child.bias))
 
 
 class SharedEmbeddingQuantizer:
