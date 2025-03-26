@@ -574,14 +574,18 @@
             <span class="k">return</span> <span class="n">dq</span></div>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;tensor_impl&quot;</span><span class="p">],</span> <span class="p">[</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-        <span class="p">]</span>
+        <span class="c1"># This is used in rumtime to unwrap AffineQuantizedTensor activations.</span>
+        <span class="c1"># AffineQuantizedTensor has __torch_function__ override:</span>
+        <span class="c1"># Each getattr will go through it, which is up to 10x slower than default attribute access.</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">DisableTorchFunctionSubclass</span><span class="p">():</span>
+            <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;tensor_impl&quot;</span><span class="p">],</span> <span class="p">[</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="p">]</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span>
