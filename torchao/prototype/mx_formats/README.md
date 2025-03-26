@@ -40,17 +40,16 @@ x_hp = x_mx.to_dtype(torch.float)
 This is a module to do MX training, the MX matmul is currently emulated.
 
 ```python
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
+import torch
+from torchao.quantization import quantize_
+from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice
 
-# early prototype: on MX-enabled hardware, you can use the real MX gemm backed by
-# torchao's CUTLASS kernels. In the future, we will also add cuBLAS kernel support.
-gemm_kernel_choice = MXGemmKernelChoice.EMULATED
-
-# on NVIDIA Blackwell GPUs, you can also use cuBLAS or CUTLASS mxfp8 kernels
-# note: torch.compile support for both of these is WIP
+# on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
+gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
 # gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
-# gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
+
+# on older NVIDIA gpus, you can run training with emulated MX gemm
+# gemm_kernel_choice = MXGemmKernelChoice.EMULATED
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
@@ -58,7 +57,7 @@ config = MXLinearConfig(
     block_size=32, 
     gemm_kernel_choice=gemm_kernel_choice,
 )
-swap_linear_with_mx_linear(m, config=config)
+quantize_(m, config)
 
 # training loop (not shown)
 ```
@@ -68,6 +67,7 @@ swap_linear_with_mx_linear(m, config=config)
 This is a module to do MX inference, weights are in MX and matmul is in high precision.
 
 ```python
+import torch
 from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_inference_linear
 from torchao.prototype.mx_formats.config import MXLinearConfig
 
