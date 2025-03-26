@@ -143,6 +143,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
+                round_weight_scale_to_bf16=False,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"
                 ),
