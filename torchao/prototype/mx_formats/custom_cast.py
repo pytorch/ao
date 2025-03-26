@@ -745,6 +745,7 @@ def triton_f4_to_scaled_bf16(
       size is currently assumed to be 32.
     Output: a tensor of bfloat16 values, multiplied by the encoded scale
     """
+    s_e8m0 = s_e8m0.view(torch.uint8)
     assert TORCH_VERSION_AT_LEAST_2_4, "unsupported"
     new_shape = (*x.shape[:-1], x.shape[-1] * 2)
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
@@ -861,6 +862,7 @@ if TORCH_VERSION_AT_LEAST_2_4:
         size is currently assumed to be 32.
         Output: a tensor of bfloat16 values, multiplied by the encoded scale
         """
+        s_e8m0 = s_e8m0.view(torch.uint8)
 
         packed_mx_block_size = 3 * mx_block_size // 4
 
@@ -902,6 +904,7 @@ if TORCH_VERSION_AT_LEAST_2_4:
         size is currently assumed to be 32.
         Output: a tensor of bfloat16 values, multiplied by the encoded scale
         """
+        s_e8m0 = s_e8m0.view(torch.uint8)
 
         packed_mx_block_size = 3 * mx_block_size // 4
 
