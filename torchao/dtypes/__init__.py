@@ -20,9 +20,12 @@ from .uintx import (
     MarlinQQQLayout,
     MarlinQQQTensor,
     MarlinSparseLayout,
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
+    to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight,
     to_marlinqqq_quantized_intx,
 )
 from .utils import (
@@ -54,4 +57,7 @@ __all__ = [
     "Int4CPULayout",
     "CutlassInt4PackedLayout",
     "CutlassSemiSparseLayout",
+    "QDQLayout",
+    "PackedLinearInt8DynamicActivationIntxWeightLayout",
+    "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
 ]
