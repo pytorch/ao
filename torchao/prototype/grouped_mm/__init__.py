@@ -17,7 +17,14 @@ def grouped_mm(
 ) -> torch.Tensor:
     # perform dynamic float8 quantization using the given recipe, if specified
     if float8_recipe is not None:
-        return _Float8GroupedMM.apply(A, B, offs, float8_recipe, out_dtype, use_fast_accum)
+        return _Float8GroupedMM.apply(
+            A,
+            B, 
+            float8_recipe, 
+            offs, 
+            out_dtype, 
+            use_fast_accum,
+        )
 
     # TODO: route to bf16 kernel when it is available
     raise NotImplementedError("float8_recipe cannot be None - other dtypes are not yet supported.")
@@ -36,8 +43,8 @@ class _Float8GroupedMM(torch.autograd.Function):
     ) -> torch.Tensor:
         
         # perform dynamic float8 quantization using the given recipe, if specified
-        assert 2 <= A.ndim() <= 3, "A must be 2D or 3D"
-        assert 2 <= B.ndim() <= 3, "B must be 2D or 3D"
+        assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
+        assert 2 <= B.ndim <= 3, "B must be 2D or 3D"
 
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
@@ -77,7 +84,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         return torch._scaled_grouped_mm(
             A_fp8._data, 
             B_fp8._data, 
-            A_fp8._scale,
+            A_fp8._scale, 
             B_fp8._scale,
             offs, 
             out_dtype=out_dtype, 
