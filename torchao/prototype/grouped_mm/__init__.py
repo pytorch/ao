@@ -10,25 +10,20 @@ from torchao.float8.float8_tensor import GemmInputRole
 def grouped_mm(
     A: torch.Tensor,
     B: torch.Tensor,
+    float8_recipe: Float8LinearRecipeName,
     offs: Optional[torch.Tensor] = None,
-    float8_recipe: Optional[Float8LinearRecipeName] = None,
     out_dtype: Optional[torch.dtype] = None,
     use_fast_accum: bool = False,
 ) -> torch.Tensor:
     # perform dynamic float8 quantization using the given recipe, if specified
-    if float8_recipe is not None:
-        return _Float8GroupedMM.apply(
-            A,
-            B, 
-            float8_recipe, 
-            offs, 
-            out_dtype, 
-            use_fast_accum,
-        )
-
-    # TODO: route to bf16 kernel when it is available
-    raise NotImplementedError("float8_recipe cannot be None - other dtypes are not yet supported.")
-    
+    return _Float8GroupedMM.apply(
+        A,
+        B, 
+        float8_recipe, 
+        offs, 
+        out_dtype, 
+        use_fast_accum,
+    )
 
 class _Float8GroupedMM(torch.autograd.Function):
     @staticmethod

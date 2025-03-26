@@ -21,12 +21,3 @@ def test_grouped_gemm(float8_recipe, use_fast_accum):
         use_fast_accum=use_fast_accum
     )
     assert isinstance(result, torch.Tensor)
-
-def test_no_float8_recipe():
-    M, K, N = 16, 32, 64
-    num_groups = 4
-    A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda").t()
-    offs = torch.arange(M, M * num_groups + 1, M, dtype=torch.int32).cuda()
-    with pytest.raises(NotImplementedError):
-        grouped_mm(A, B, offs)
