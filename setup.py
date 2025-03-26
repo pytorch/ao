@@ -55,7 +55,12 @@ build_torchao_experimental = (
     and platform.system() == "Darwin"
 )
 
-use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and platform.system() == "Linux"
+import torch
+use_cpp_avx512 = (
+    os.getenv("USE_AVX512", "1") == "1"
+    and torch._C._cpu._is_avx512_supported()
+    and platform.system() == "Linux"
+)
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
@@ -72,7 +77,6 @@ def use_debug_mode():
     return os.getenv("DEBUG", "0") == "1"
 
 
-import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
     IS_WINDOWS,
