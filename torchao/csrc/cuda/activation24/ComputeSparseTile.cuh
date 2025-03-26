@@ -157,12 +157,69 @@ template <typename Op = IdentityOp> struct Causal1122 {
   }
 };
 
+// Given 1x4 values (a row), computes the selected indices that will remain
+// after 2:4 sparsification, as a bitmask. We have 1 constraint: (1) Exactly 2
+// values per row ALGO: We use a simple algorithm that selects the 2 largest
+// values in the row. NOTE: RF are not indexable, so we shouldn't rely on
+// indexing
+//   values at any point, otherwise they will be stored in local memory.
+template <typename Op = IdentityOp> struct LargestValuesRowwise {
+  template <typename T> static CUTLASS_DEVICE T outOfBoundsFillValue() {
+    return -cutlass::platform::numeric_limits<T>::infinity();
+  }
+
+  template <typename Tile4x4Accessor>
+  CUTLASS_DEVICE Indices4x4 operator()(Tile4x4Accessor values) {
+    using TileValueOrdered =
+        TileValueOrderedT<typename Tile4x4Accessor::Element, Op>;
+    using TileValuesFragment = cutlass::Array<TileValueOrdered, 4 * 4>;
+    Indices4x4 indices;
+    TileValuesFragment values_ordered;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < 4; ++i) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int j = 0; j < 4; ++j) {
+        TileValueOrdered &v = values_ordered[i * 4 + j];
+        v.parts.value = values.at(i, j).get();
+        v.parts.col = uint2b_t(j);
+        v.parts.row = uint2b_t(i);
+      }
+    }
+    // Use a sorting network (aka without branches) to avoid
+    // warp divergence
+    StaticSort<TileValuesFragment::kElements> sorter;
+    sorter(values_ordered);
+
+    // bitmask to store how many we have selected on a given row
+    // 0 selected: (numPerRow >> 2*row) = 00 (0)
+    // 1 selected: (numPerRow >> 2*row) = 01 (1)
+    // 2 selected: (numPerRow >> 2*row) = 11 (3)
+    uint32_t numPerRow = 0;
+    indices = 0;
+
+    // Take as many as we can, starting with the largest values
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = values_ordered.size() - 1; i >= 0; i--) {
+      auto &e = values_ordered[i];
+
+      uint32_t rcount = uint2b_t(numPerRow >> 2 * e.parts.row);
+      // NOTE: This is more efficient (yet equivalent) to:
+      // `rcount != 3 && ccount != 3`
+      bool selected = rcount <= 2;
+      indices |= selected << (e.parts.col + 4 * e.parts.row);
+
+      numPerRow |= (rcount + selected) << 2 * e.parts.row;
+    }
+    return indices;
+  }
+};
+
 template <typename T> void named_algorithms(T callback) {
   callback(LargestValuesGreedy<IdentityOp>(), "largest_values_greedy");
   callback(Causal1122<IdentityOp>(), "causal1122");
   callback(LargestValuesGreedy<AbsOp>(), "largest_abs_values_greedy");
   // default one
-  callback(LargestValuesGreedy<IdentityOp>(), "");
+  callback(LargestValuesRowwise<IdentityOp>(), "");
 }
 
 } // namespace torchao
