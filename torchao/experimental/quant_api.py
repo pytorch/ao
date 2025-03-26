@@ -1108,3 +1108,152 @@ class UIntxWeightOnlyLinearQuantizer:
             },
         )
         return model
+
+
+def _get_q_dq_patterns_and_replacements(weight_bit_width, has_weight_zeros, target):
+    w_qmin = -(1 << (weight_bit_width - 1))
+    w_qmax = (1 << (weight_bit_width - 1)) - 1
+    a_qmin = -128
+    a_qmax = 127
+
+    if not has_weight_zeros:
+
+        def pattern(a, w_int, w_scale, bias, group_size, a_block):
+            a_scale, a_zero = torch.ops.quant.choose_qparams_affine.default(
+                a,
+                "ASYMMETRIC",
+                a_block,
+                torch.int32,
+                a_qmin,
+                a_qmax,
+                None,
+                torch.float32,
+                torch.int32,
+            )
+            q_a = torch.ops.quant.quantize_affine.default(
+                a, a_block, a_scale, a_zero, torch.int32, a_qmin, a_qmax
+            )
+            dq_a = torch.ops.quant.dequantize_affine.default(
+                q_a, a_block, a_scale, a_zero, torch.int32, a_qmin, a_qmax
+            )
+            dq_w = torch.ops.quant.dequantize_affine.default(
+                w_int,
+                [1, group_size],
+                w_scale,
+                None,
+                torch.int32,
+                w_qmin,
+                w_qmax,
+                "NONE",
+            )
+            return torch.ops.aten.linear.default(dq_a, dq_w, bias)
+
+        def replacement(a, w_int, w_scale, bias, group_size, a_block):
+            n = w_int.size(0)
+            k = a_block[-1]
+            out_shape = a.shape[:-1] + (n,)
+            packed_weight = getattr(
+                torch.ops.torchao,
+                f"_pack_8bit_act_{weight_bit_width}bit_weight",
+            )(
+                w_int.to(torch.int8),
+                w_scale.reshape(-1),
+                None,
+                group_size,
+                bias,
+                target,
+            )
+            return getattr(
+                torch.ops.torchao, f"_linear_8bit_act_{weight_bit_width}bit_weight"
+            )(a.reshape(-1, k), packed_weight, group_size, n, k).reshape(out_shape)
+    else:
+
+        def pattern(a, w_int, w_scale, w_zero, bias, group_size, a_block):
+            a_scale, a_zero = torch.ops.quant.choose_qparams_affine.default(
+                a,
+                "ASYMMETRIC",
+                a_block,
+                torch.int32,
+                a_qmin,
+                a_qmax,
+                None,
+                torch.float32,
+                torch.int32,
+            )
+            q_a = torch.ops.quant.quantize_affine.default(
+                a, a_block, a_scale, a_zero, torch.int32, a_qmin, a_qmax
+            )
+            dq_a = torch.ops.quant.dequantize_affine.default(
+                q_a, a_block, a_scale, a_zero, torch.int32, a_qmin, a_qmax
+            )
+            dq_w = torch.ops.quant.dequantize_affine.default(
+                w_int, [1, group_size], w_scale, w_zero, torch.int32, w_qmin, w_qmax
+            )
+            return torch.ops.aten.linear.default(dq_a, dq_w, bias)
+
+        def replacement(a, w_int, w_scale, w_zero, bias, group_size, a_block):
+            n = w_int.size(0)
+            k = a_block[-1]
+            out_shape = a.shape[:-1] + (n,)
+            packed_weight = getattr(
+                torch.ops.torchao,
+                f"_pack_8bit_act_{weight_bit_width}bit_weight",
+            )(
+                w_int.to(torch.int8),
+                w_scale.reshape(-1),
+                w_zero.reshape(-1).to(torch.int8),
+                group_size,
+                bias,
+                target,
+            )
+            return getattr(
+                torch.ops.torchao, f"_linear_8bit_act_{weight_bit_width}bit_weight"
+            )(a.reshape(-1, k), packed_weight, group_size, n, k).reshape(out_shape)
+
+    return pattern, replacement
+
+
+def replace_q_dq_with_torchao_quantized_linear_ops(
+    ep: torch.export.ExportedProgram, target=None
+):
+    # TODO: figure out how to do this with dynamic_shapes (not saved on EP for easy re-export)
+    assert (
+        len(ep.range_constraints) == 0
+    ), "ExportedProgram with range constraints are not supported"
+
+    import itertools
+
+    from torch._export.passes.constant_folding import constant_fold
+    from torch.fx import subgraph_rewriter
+
+    def filter_invalid_a_block(match, x, y):
+        """
+        We only want a_block with shape [1, ..., 1, k]
+        """
+        a_block_node = [n for n in match.nodes_map if n.name == "a_block"]
+        assert len(a_block_node) == 1
+        a_block_node = a_block_node[0]
+        a_block_node_val = match.nodes_map[a_block_node]
+        for v in a_block_node_val[0:-1]:
+            if v != 1:
+                return False
+        return True
+
+    gm = (
+        ep.module()
+    )  # module() unlifts the inputs, which is needed for constant folding
+    for weight_bit_width, has_weight_zeros in itertools.product(
+        range(1, 9), [False, True]
+    ):
+        pattern, replacement = _get_q_dq_patterns_and_replacements(
+            weight_bit_width, has_weight_zeros, target
+        )
+        subgraph_rewriter.replace_pattern_with_filters(
+            gm, pattern, replacement, match_filters=[filter_invalid_a_block]
+        )
+
+    # Constant fold evaluates and removes the packing ops
+    constant_fold(gm)
+
+    # Re-export
+    return torch.export.export(gm, *ep.example_inputs)
