@@ -13,6 +13,8 @@ import torch
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
+    DTYPE_FP6_E2M3,
+    DTYPE_FP6_E3M2,
     DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
@@ -173,8 +175,8 @@ class MXInferenceLinearConfig(AOBaseConfig):
     use_fp4_custom_triton_dequant_kernel: bool = False
 
     # If True, packs 4xFP6 into 3xuint8 containers for inference, using custom triton
-    # kernels (fused unpack/dequantize). Training not currently supported.
-    pack_fp6 = True if hasattr(torch.library, "custom_op") else False
+    # kernels (fused unpack/dequantize).
+    pack_fp6: bool = True
 
     def __post_init__(self):
         _validate_elem_dtype(self.elem_dtype)
@@ -190,7 +192,7 @@ class MXInferenceLinearConfig(AOBaseConfig):
         s += f", kernel={self.gemm_kernel_choice.value}"
         if self.use_fp4_custom_triton_dequant_kernel:
             s += ", use_fp4_custom_triton_dequant_kernel=True"
-        if self.pack_fp6:
+        if self.elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2) and self.pack_fp6:
             s += ", pack_fp6=True"
         return s
 
