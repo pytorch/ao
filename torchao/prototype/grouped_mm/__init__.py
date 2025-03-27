@@ -42,9 +42,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         use_fast_accum: bool = False,
     ) -> torch.Tensor:
         # torch._scaled_grouped_mm only supports rowwise scaling currently.
-        assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, (
-            "Only rowwise scaling is supported by torch._scaled_grouped_mm."
-        )
+        assert (
+            float8_recipe_name == Float8LinearRecipeName.ROWWISE
+        ), "Only rowwise scaling is supported by torch._scaled_grouped_mm."
 
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
