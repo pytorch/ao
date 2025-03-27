@@ -58,6 +58,11 @@ class MXLinearConfig:
     # on the given hardware an exception will be thrown
     gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
 
+    # If True, uses a custom triton kernel for cast to mxfp8 across dim1
+    # TODO(1945): remove this config option once torch.compile gives us
+    # a fast kernel
+    use_fp8_dim1_cast_triton_kernel: bool = False
+
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
 

@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.custom_cast import triton_to_mxfp8_dim1
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
@@ -37,6 +38,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype: Any,
         block_size: int,
         gemm_kernel_choice: MXGemmKernelChoice,
+        use_fp8_dim1_cast_triton_kernel: bool,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -44,6 +46,7 @@ class mx_mm(torch.autograd.Function):
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
         ctx.gemm_kernel_choice = gemm_kernel_choice
+        ctx.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
@@ -63,12 +66,12 @@ class mx_mm(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output_hp: torch.Tensor):
         input_hp, weight_hp = ctx.saved_tensors
-        weight_hp_t_c = weight_hp.t().contiguous()
         in_elem_dtype = ctx.in_elem_dtype
         w_elem_dtype = ctx.w_elem_dtype
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
         gemm_kernel_choice = ctx.gemm_kernel_choice
+        use_fp8_dim1_cast_triton_kernel = ctx.use_fp8_dim1_cast_triton_kernel
 
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
@@ -83,34 +86,84 @@ class mx_mm(torch.autograd.Function):
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
         )
-        weight_mx_dim1 = MXTensor.to_mx(
-            weight_hp_t_c,
-            w_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
+
+        if use_fp8_dim1_cast_triton_kernel:
+            weight_mx_dim1_data, weight_mx_dim1_scale = triton_to_mxfp8_dim1(
+                weight_hp, block_size
+            )
+            weight_mx_dim1 = MXTensor(
+                weight_mx_dim1_scale.view(torch.uint8).reshape(-1),
+                weight_mx_dim1_data.t(),
+                w_elem_dtype,
+                block_size,
+                weight_hp.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+
+        else:
+            weight_hp_t_c = weight_hp.t().contiguous()
+            weight_mx_dim1 = MXTensor.to_mx(
+                weight_hp_t_c,
+                w_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
 
         # input_t @ grad_output = grad_weight
-        grad_output_mx_dim1 = MXTensor.to_mx(
-            grad_output_hp_r.t().contiguous(),
-            grad_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
-        input_t_mx_dim0_tmp = MXTensor.to_mx(
-            input_hp_r.t().contiguous(),
-            in_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
-        input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        if use_fp8_dim1_cast_triton_kernel:
+            grad_output_mx_dim1_data, grad_output_mx_dim1_scale = triton_to_mxfp8_dim1(
+                grad_output_hp_r, block_size
+            )
+            grad_output_mx_dim1 = MXTensor(
+                grad_output_mx_dim1_scale.view(torch.uint8).reshape(-1),
+                grad_output_mx_dim1_data.t(),
+                grad_elem_dtype,
+                block_size,
+                grad_output_hp_r.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+        else:
+            grad_output_mx_dim1 = MXTensor.to_mx(
+                grad_output_hp_r.t().contiguous(),
+                grad_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
+
+        if use_fp8_dim1_cast_triton_kernel:
+            input_t_mx_dim0_tmp_data, input_t_mx_dim0_tmp_scale = triton_to_mxfp8_dim1(
+                input_hp_r, block_size
+            )
+            input_t_mx_dim0_tmp = MXTensor(
+                input_t_mx_dim0_tmp_scale.view(torch.uint8).reshape(-1),
+                input_t_mx_dim0_tmp_data.t(),
+                in_elem_dtype,
+                block_size,
+                input_hp_r.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+            input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        else:
+            input_t_mx_dim0_tmp = MXTensor.to_mx(
+                input_hp_r.t().contiguous(),
+                in_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
+            input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None, None, None, None
+        return grad_input, grad_weight, None, None, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -154,6 +207,7 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
             config.gemm_kernel_choice,
+            config.use_fp8_dim1_cast_triton_kernel,
         )
         if self.bias is not None:
             y = y + self.bias
