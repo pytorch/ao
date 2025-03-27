@@ -5,19 +5,37 @@ from torchao.float8.config import Float8LinearRecipeName
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("float8_recipe", [Float8LinearRecipeName.TENSORWISE, Float8LinearRecipeName.ROWWISE])
 @pytest.mark.parametrize("use_fast_accum", [True, False])
-def test_grouped_gemm(float8_recipe, use_fast_accum):
+@pytest.mark.parametrize("strided", [True, False])
+def test_grouped_gemm_2d_3d(use_fast_accum, strided):
+    # unit test ensuring parity between torchao and pytorch core grouped_gemm
+    # https://github.com/pytorch/pytorch/blob/87bfd66c3c7061db6d36d8daa62f08f507f90e39/test/test_matmul_cuda.py#L1204
     device = "cuda"
-    m, n, k, n_groups = 16, 16, 16, 4
-    a = torch.randn(m, k * n_groups + k, device=device)
-    b = torch.randn(n, k * n_groups + k, device=device)
-    offs = torch.arange(k, n_groups * k + 1, k, device=device, dtype=torch.int32)
+    s_int = int(strided)
+    m, n, k, n_groups = 16, 32, 16, 4
+    a = torch.randn(m * n_groups, k * (1 + s_int), device=device)[:, :k]
+    b = torch.randn(n_groups * (1 + s_int), n, k * (1 + s_int), device=device)[::(1 + s_int), :, :k]
+    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
     result = grouped_mm(
-        a, b.t(), 
+        a, b,
         offs=offs, 
-        float8_recipe=float8_recipe, 
+        float8_recipe=Float8LinearRecipeName.ROWWISE, 
         out_dtype=torch.bfloat16, 
         use_fast_accum=use_fast_accum
     )
     assert isinstance(result, torch.Tensor)
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_tensorwise_scaling_not_supported():
+    device = "cuda"
+    m, n, k, n_groups = 16, 32, 16, 4
+    a = torch.randn(m * n_groups, k, device=device)[:, :k]
+    b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
+    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
+    with pytest.raises(AssertionError):
+        result = grouped_mm(
+            a, b,
+            offs=offs, 
+            float8_recipe=Float8LinearRecipeName.TENSORWISE, 
+            out_dtype=torch.bfloat16, 
+        )

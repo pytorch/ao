@@ -151,9 +151,6 @@ def float8_transpose(aten_op, args, kwargs=None):
     else:
         new_scale = args[0]._scale
 
-    if aten_op == aten.transpose.int:
-        _assert_tensorwise_scale(aten_op, args[0]._scale)
-
     old_axiswise_dim = args[0]._axiswise_dim
     new_axiswise_dim = old_axiswise_dim
     if old_axiswise_dim is not None:

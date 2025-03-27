@@ -2,6 +2,7 @@
 from typing import Optional
 
 import torch
+from torchao import float8
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic, get_maybe_axiswise_dim
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_tensor import GemmInputRole
@@ -36,7 +37,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         out_dtype: Optional[torch.dtype] = None,
         use_fast_accum: bool = False,
     ) -> torch.Tensor:
-        
+        # torch._scaled_grouped_mm only supports rowwise scaling currently.
+        assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, "Only rowwise scaling is supported by torch._scaled_grouped_mm."
+
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
         assert 2 <= B.ndim <= 3, "B must be 2D or 3D"
@@ -68,19 +71,31 @@ class _Float8GroupedMM(torch.autograd.Function):
                 -1, float8_config.cast_config_input.scaling_granularity
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
-        ) 
+        )
+        B_fp8_t = B_fp8.transpose(-2, -1)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
         ctx.float_config = float8_config
         ctx.offs = offs
 
+        # Scale shape adjustments for compatibility with torch._scaled_grouped_mm.
+        # For tensorwise scaling, torch._scaled_grouped_mm requires 1D scales, not 0D.
+        if float8_recipe_name == Float8LinearRecipeName.TENSORWISE:
+            A_fp8._scale = A_fp8._scale.unsqueeze(0)
+            B_fp8_t._scale = B_fp8_t._scale.unsqueeze(0)
+
+        # For rowwise scaling, torch._scaled_grouped_mm requires scales without any empty dims.
+        elif float8_recipe_name == Float8LinearRecipeName.ROWWISE:
+            A_fp8._scale = A_fp8._scale.squeeze()
+            B_fp8_t._scale = B_fp8_t._scale.squeeze()
+
         # Perform scaled grouped GEMM and return result.
         return torch._scaled_grouped_mm(
             A_fp8._data, 
-            B_fp8._data, 
-            A_fp8._scale, 
-            B_fp8._scale,
+            B_fp8_t._data, 
+            A_fp8._scale,
+            B_fp8_t._scale,
             offs, 
             out_dtype=out_dtype, 
             use_fast_accum=use_fast_accum,
