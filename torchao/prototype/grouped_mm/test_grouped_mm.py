@@ -11,7 +11,7 @@ from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
-from torchao.prototype.grouped_mm import _grouped_scaled_mm 
+from torchao.prototype.grouped_mm import _grouped_scaled_mm
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
