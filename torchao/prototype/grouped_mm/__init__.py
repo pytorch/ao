@@ -18,6 +18,19 @@ def _grouped_scaled_mm(
     out_dtype: Optional[torch.dtype] = None,
     use_fast_accum: bool = False,
 ) -> torch.Tensor:
+    """
+    This function performs dynamic float8 quantization on the input tensors A and B using the given recipe,
+    then performs a scaled grouped GEMM and returns the results.
+
+    Args:
+        A (torch.Tensor): The first input tensor (non-tranposed, row-major).
+        B (torch.Tensor): The second input tensor (non-transposed, row-major).
+        float8_recipe (Float8LinearRecipeName): The recipe to use for dynamic float8 quantization.
+        offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group. This
+            is required when 2D A tensor is used, otherwise it should be None.
+        out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
+        use_fast_accum (bool): Whether to use fast accumulation or not. Default is False.
+    """
     # perform dynamic float8 quantization using the given recipe, if specified
     return _Float8GroupedMM.apply(
         A,
@@ -48,6 +61,10 @@ class _Float8GroupedMM(torch.autograd.Function):
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
         assert B.ndim == 3, "B must be 3D"
+        if A.ndim == 2:
+            assert offs is not None, "offs must be specified for 2D A tensor"
+        else:
+            assert offs is None, "offs must not be specified for 3D A tensor"
 
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
