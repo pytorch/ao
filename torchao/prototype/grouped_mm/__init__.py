@@ -1,10 +1,13 @@
-
 from typing import Optional
 
 import torch
+
 from torchao import float8
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic, get_maybe_axiswise_dim
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
+from torchao.float8.float8_scaling_utils import (
+    get_maybe_axiswise_dim,
+    hp_tensor_to_float8_dynamic,
+)
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 
 
@@ -19,12 +22,13 @@ def grouped_mm(
     # perform dynamic float8 quantization using the given recipe, if specified
     return _Float8GroupedMM.apply(
         A,
-        B, 
-        float8_recipe, 
-        offs, 
-        out_dtype, 
+        B,
+        float8_recipe,
+        offs,
+        out_dtype,
         use_fast_accum,
     )
+
 
 class _Float8GroupedMM(torch.autograd.Function):
     @staticmethod
@@ -38,7 +42,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         use_fast_accum: bool = False,
     ) -> torch.Tensor:
         # torch._scaled_grouped_mm only supports rowwise scaling currently.
-        assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, "Only rowwise scaling is supported by torch._scaled_grouped_mm."
+        assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, (
+            "Only rowwise scaling is supported by torch._scaled_grouped_mm."
+        )
 
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
@@ -85,12 +91,12 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Perform scaled grouped GEMM and return result.
         return torch._scaled_grouped_mm(
-            A_fp8._data, 
-            B_fp8_t._data, 
+            A_fp8._data,
+            B_fp8_t._data,
             A_fp8._scale,
             B_fp8_t._scale,
-            offs, 
-            out_dtype=out_dtype, 
+            offs,
+            out_dtype=out_dtype,
             use_fast_accum=use_fast_accum,
         )
 
@@ -102,5 +108,5 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_A, grad_B = None, None
 
         # TODO: implement backward pass
-        
+
         return grad_A, grad_B, None, None, None, None
