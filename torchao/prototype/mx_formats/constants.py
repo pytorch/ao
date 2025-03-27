@@ -22,6 +22,14 @@ SUPPORTED_ELEM_DTYPES = [
     DTYPE_FP4,
 ]
 
+DTYPE_TO_SHORT_STR = {
+    torch.float8_e4m3fn: "f8e4m3",
+    torch.float8_e5m2: "f8e5m2",
+    DTYPE_FP6_E2M3: "f6e2m3",
+    DTYPE_FP6_E3M2: "f6e3m2",
+    DTYPE_FP4: "f4e2m1",
+}
+
 F8E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max  # 448.0
 F8E5M2_MAX = torch.finfo(torch.float8_e5m2).max  # 57344.0
 

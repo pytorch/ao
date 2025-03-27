@@ -12,6 +12,7 @@ import torch
 
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
+    DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
 
@@ -143,3 +144,22 @@ class MXLinearConfig:
             )
         else:
             raise AssertionError(f"unknown recipe_name {recipe_name}")
+
+    def short_str(self) -> str:
+        """
+        Returns a concise representation of the current config.
+        """
+        s = f"bl_sz={self.block_size}, lp_dtype={DTYPE_TO_SHORT_STR[self.elem_dtype]}"
+        if self.elem_dtype_weight_override is not None:
+            s += (
+                f", lp_w_override={DTYPE_TO_SHORT_STR[self.elem_dtype_weight_override]}"
+            )
+        if self.elem_dtype_grad_output_override is not None:
+            s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
+        s += f", kernel={self.gemm_kernel_choice.value}"
+        if self.use_fp8_dim1_cast_triton_kernel:
+            s += ", use_fp8_dim1_cast_triton_kernel=True"
+        if self.use_fp4_custom_triton_dequant_kernel:
+            s += ", use_fp4_custom_triton_dequant_kernel=True"
+        # TODO(future PR): split training from inference and add fp6 here
+        return s
