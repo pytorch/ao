@@ -29,6 +29,8 @@ from torchao.prototype.mx_formats.custom_cast import (
     triton_f4_to_bf16,
     triton_f6_e2m3_to_bf16,
     triton_f6_e3m2_to_bf16,
+    triton_to_mxfp8_dim1,
+    triton_to_mxfp8_dim1_reference,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.fp_format_spec import (
@@ -42,9 +44,16 @@ from torchao.prototype.mx_formats.fp_format_spec import (
     sem_vals_to_f32,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_sm_at_least_100
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_8,
+    is_sm_at_least_89,
+    is_sm_at_least_100,
+)
 
 torch.manual_seed(0)
+
+if not TORCH_VERSION_AT_LEAST_2_8:
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 @pytest.mark.skip(
@@ -311,10 +320,7 @@ def test_fp4_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
+@pytest.mark.skipif(is_sm_at_least_100(), reason="broken on CUDA capability 10.0")
 def test_fp4_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
     f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
@@ -324,10 +330,7 @@ def test_fp4_triton_unscaled_cast():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
+@pytest.mark.skipif(is_sm_at_least_100(), reason="broken on CUDA capability 10.0")
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
@@ -421,10 +424,6 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
 def test_fp6_e2m3_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 0.5, 7.5, -0.0], [-0.875, 1.0, -6.0, 0.125]]).to(
         "cuda"
@@ -440,10 +439,6 @@ def test_fp6_e2m3_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
-@pytest.mark.skipif(
-    is_sm_at_least_100(), reason="triton does not work yet on CUDA capability 10.0"
-)
 def test_fp6_e3m2_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 5.0, 28.0, -0.0], [-0.25, 0.1875, 0.0625, 8.0]]).to(
         "cuda"
@@ -455,3 +450,20 @@ def test_fp6_e3m2_pack_unpack():
         torch.float32
     )
     assert torch.all(orig_vals_f6_packed_unpacked == orig_vals)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+@pytest.mark.parametrize("M", (256, 2048))
+@pytest.mark.parametrize("K", (256, 2048))
+# @pytest.mark.parametrize("M", (256,))
+# @pytest.mark.parametrize("K", (256,))
+def test_triton_mxfp8_dim1(M, K):
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
+    x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)

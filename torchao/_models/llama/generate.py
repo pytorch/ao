@@ -863,7 +863,6 @@ def main(
             decode_one_token,
             mode="reduce-overhead",
             fullgraph=True,
-            dynamic=True,
         )
 
         if compile_prefill:
