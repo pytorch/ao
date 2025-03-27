@@ -15,7 +15,12 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
+from torchao.dtypes import (
+    CutlassInt4PackedLayout,
+    Int4CPULayout,
+    Int4XPULayout,
+    SemiSparseLayout,
+)
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     float8_weight_only,
@@ -31,6 +36,7 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
@@ -55,11 +61,15 @@ def get_quantization_functions(
             base_functions.append(
                 int4_weight_only(group_size=32, layout=Int4CPULayout())
             )
+        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_7:
+            base_functions.append(
+                int4_weight_only(group_size=32, layout=Int4XPULayout())
+            )
             if int4_zp_int:
                 base_functions.append(
                     int4_weight_only(
                         group_size=32,
-                        layout=Int4CPULayout(),
+                        layout=Int4XPULayout(),
                         zero_point_domain=ZeroPointDomain.INT,
                     )
                 )
@@ -76,7 +86,7 @@ def get_quantization_functions(
                 )
                 base_functions.append(int4_dynamic_activation_int4_weight())
 
-    if do_sparse:
+    if do_sparse and device != "xpu":
         base_functions.append(
             int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
         )
@@ -88,6 +98,10 @@ def get_quantization_functions(
 
 
 class TestAffineQuantized(TestCase):
+    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
+        ["xpu"] if torch.xpu.is_available() else []
+    )
+
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_tensor_core_layout_transpose(self):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
@@ -108,51 +122,53 @@ class TestAffineQuantized(TestCase):
             aqt_shape = aqt.shape
             self.assertEqual(aqt_shape, shape)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize(
-        "apply_quant",
-        get_quantization_functions(is_cusparselt_available, True, "cuda", True),
-    )
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_weights_only(self, apply_quant):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        if isinstance(apply_quant, AOBaseConfig):
-            quantize_(linear, apply_quant)
-            ql = linear
-        else:
-            # TODO(#1690): delete this once config migration is done
-            ql = apply_quant(linear)
-        with tempfile.NamedTemporaryFile() as f:
-            torch.save(ql.state_dict(), f)
-            f.seek(0)
-            # `weights_only=True` is enabled for torch 2.5+
-            if TORCH_VERSION_AT_LEAST_2_5:
-                _ = torch.load(f, weights_only=True)
-            else:
-                _ = torch.load(f, weights_only=False)
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    def test_weights_only(self):
+        for device in self.GPU_DEVICES:
+            apply_quant_list = get_quantization_functions(
+                is_cusparselt_available, True, device, True
+            )
+            for apply_quant in apply_quant_list:
+                linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
+                if isinstance(apply_quant, AOBaseConfig):
+                    quantize_(linear, apply_quant)
+                    ql = linear
+                else:
+                    # TODO(#1690): delete this once config migration is done
+                    ql = apply_quant(linear)
+                with tempfile.NamedTemporaryFile() as f:
+                    torch.save(ql.state_dict(), f)
+                    f.seek(0)
+                    # `weights_only=True` is enabled for torch 2.5+
+                    if TORCH_VERSION_AT_LEAST_2_5:
+                        _ = torch.load(f, weights_only=True)
+                    else:
+                        _ = torch.load(f, weights_only=False)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
     def test_to_device(self, apply_quant):
-        def _apply(module, config_or_subclass_inserter):
-            if isinstance(config_or_subclass_inserter, AOBaseConfig):
-                quantize_(module, config_or_subclass_inserter)
-            else:
-                # TODO(#1690): delete this once config migration is done
-                module = config_or_subclass_inserter(module)
-            return module
+        for device in self.GPU_DEVICES:
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.to("cuda")
+            def _apply(module, config_or_subclass_inserter):
+                if isinstance(config_or_subclass_inserter, AOBaseConfig):
+                    quantize_(module, config_or_subclass_inserter)
+                else:
+                    # TODO(#1690): delete this once config migration is done
+                    module = config_or_subclass_inserter(module)
+                return module
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.to(device="cuda")
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device)
 
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
-        ql = _apply(linear, apply_quant)
-        ql.cuda()
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device=device)
+
+            linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+            ql = _apply(linear, apply_quant)
+            ql.to(device)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
@@ -202,20 +218,19 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @common_utils.parametrize(
-        "apply_quant", get_quantization_functions(is_cusparselt_available, True)
-    )
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_print_quantized_module(self, apply_quant):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        if isinstance(apply_quant, AOBaseConfig):
-            quantize_(linear, apply_quant)
-            ql = linear
-        else:
-            # TODO(#1690): delete this once config migration is done
-            ql = apply_quant(linear)
-        assert "AffineQuantizedTensor" in str(ql)
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
+    def test_print_quantized_module(self):
+        for device in self.GPU_DEVICES:
+            apply_quant_list = get_quantization_functions(True, True, device, True)
+            for apply_quant in apply_quant_list:
+                linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
+                if isinstance(apply_quant, AOBaseConfig):
+                    quantize_(linear, apply_quant)
+                    ql = linear
+                else:
+                    # TODO(#1690): delete this once config migration is done
+                    ql = apply_quant(linear)
+                assert "AffineQuantizedTensor" in str(ql)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
@@ -266,7 +281,11 @@ class TestAffineQuantized(TestCase):
 
 
 class TestAffineQuantizedBasic(TestCase):
-    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+    COMMON_DEVICES = (
+        ["cpu"]
+        + (["cuda"] if torch.cuda.is_available() else [])
+        + (["xpu"] if torch.xpu.is_available() else [])
+    )
     COMMON_DTYPES = [torch.bfloat16]
 
     @common_utils.parametrize("device", COMMON_DEVICES)
