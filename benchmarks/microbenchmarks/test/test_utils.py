@@ -13,7 +13,11 @@ import torch
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
+    BlockSparseWeightConfig,
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
+    Int4WeightOnlyConfig,
     LNLinearSigmoid,
+    SemiSparseWeightConfig,
     ToyLinearModel,
     clean_caches,
     create_model_and_input,
@@ -39,6 +43,7 @@ class TestUtils(unittest.TestCase):
     def test_benchmark_config(self):
         config = BenchmarkConfig(
             quantization="baseline",
+            sparsity=None,
             params=self.test_params,
             shape_name="custom",
             shape=self.test_shape,
@@ -60,6 +65,7 @@ class TestUtils(unittest.TestCase):
     def test_benchmark_result(self):
         config = BenchmarkConfig(
             quantization="baseline",
+            sparsity=None,
             params=self.test_params,
             shape_name="custom",
             shape=self.test_shape,
@@ -82,16 +88,62 @@ class TestUtils(unittest.TestCase):
 
     def test_string_to_config(self):
         # Test baseline
-        config = string_to_config("baseline")
+        config = string_to_config("baseline", None)
         self.assertIsNone(config)
 
         # Test int8wo
-        config = string_to_config("int8wo")
+        config = string_to_config("int8wo", None)
         self.assertIsNotNone(config)
 
         # Test invalid config
-        config = string_to_config("not_a_real_config")
+        config = string_to_config("not_a_real_config", None)
         self.assertIsNone(config)
+
+    def test_string_to_config_sparsity(self):
+        """Test sparsity config generation"""
+        # Test semi-sparse config
+        config = string_to_config(None, "semi-sparse")
+        self.assertIsInstance(config, SemiSparseWeightConfig)
+
+        # Test block sparse config
+        config = string_to_config(None, "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+        # Test combined sparsity and quantization
+        config = string_to_config("marlin", "semi-sparse")
+        self.assertIsInstance(config, Int4WeightOnlyConfig)
+
+        # Test float8 with semi-sparse
+        config = string_to_config("float8dq", "semi-sparse")
+        self.assertIsInstance(
+            config, Float8DynamicActivationFloat8SemiSparseWeightConfig
+        )
+
+    def test_block_sparsity_with_baseline_quantization(self):
+        """Test that block sparsity with baseline quantization returns BlockSparseWeightConfig"""
+        config = string_to_config("baseline", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+    def test_block_sparsity_with_non_baseline_quantization(self):
+        """Test that block sparsity with non-baseline quantization still returns BlockSparseWeightConfig"""
+        # Block sparsity should take precedence over any quantization method
+        config = string_to_config("int8wo", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+        config = string_to_config("int4wo", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+        config = string_to_config("marlin", "block")
+        self.assertIsInstance(config, BlockSparseWeightConfig)
+
+    def test_invalid_sparsity(self):
+        """Test invalid sparsity config generation"""
+        from benchmarks.microbenchmarks.benchmark_runner import (
+            get_quantization_sparsity_recipes,
+        )
+
+        with self.assertRaises(ValueError):
+            get_quantization_sparsity_recipes(["baseline"], ["invalid_sparsity"])
 
     def test_toy_linear_model(self):
         model = ToyLinearModel(k=64, n=32, dtype=torch.float32)
@@ -139,6 +191,7 @@ class TestUtils(unittest.TestCase):
             BenchmarkResult(
                 BenchmarkConfig(
                     quantization="int8wo",
+                    sparsity=None,
                     params={},
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
@@ -149,6 +202,7 @@ class TestUtils(unittest.TestCase):
             BenchmarkResult(
                 BenchmarkConfig(
                     quantization="int4wo",
+                    sparsity=None,
                     params={},
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
