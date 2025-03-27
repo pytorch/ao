@@ -93,7 +93,7 @@ def test_tensorwise_scaling_not_supported():
     b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
     with pytest.raises(AssertionError):
-        result = grouped_mm(
+        grouped_mm(
             a,
             b,
             offs=offs,

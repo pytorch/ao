@@ -102,11 +102,4 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        A, B = ctx.saved_tensors
-        float8_config = ctx.float8_config
-
-        grad_A, grad_B = None, None
-
-        # TODO: implement backward pass
-
-        return grad_A, grad_B, None, None, None, None
+        return None, None, None, None, None, None
