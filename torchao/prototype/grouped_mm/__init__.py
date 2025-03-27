@@ -79,16 +79,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         ctx.float_config = float8_config
         ctx.offs = offs
 
-        # Scale shape adjustments for compatibility with torch._scaled_grouped_mm.
-        # For tensorwise scaling, torch._scaled_grouped_mm requires 1D scales, not 0D.
-        if float8_recipe_name == Float8LinearRecipeName.TENSORWISE:
-            A_fp8._scale = A_fp8._scale.unsqueeze(0)
-            B_fp8_t._scale = B_fp8_t._scale.unsqueeze(0)
-
         # For rowwise scaling, torch._scaled_grouped_mm requires scales without any empty dims.
-        elif float8_recipe_name == Float8LinearRecipeName.ROWWISE:
-            A_fp8._scale = A_fp8._scale.squeeze()
-            B_fp8_t._scale = B_fp8_t._scale.squeeze()
+        A_fp8._scale = A_fp8._scale.squeeze()
+        B_fp8_t._scale = B_fp8_t._scale.squeeze()
 
         # Perform scaled grouped GEMM and return result.
         return torch._scaled_grouped_mm(
