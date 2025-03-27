@@ -43,7 +43,7 @@ class TestUtils(unittest.TestCase):
     def test_benchmark_config(self):
         config = BenchmarkConfig(
             quantization="baseline",
-            sparsity="None",
+            sparsity=None,
             params=self.test_params,
             shape_name="custom",
             shape=self.test_shape,
@@ -65,7 +65,7 @@ class TestUtils(unittest.TestCase):
     def test_benchmark_result(self):
         config = BenchmarkConfig(
             quantization="baseline",
-            sparsity="None",
+            sparsity=None,
             params=self.test_params,
             shape_name="custom",
             shape=self.test_shape,
@@ -88,15 +88,15 @@ class TestUtils(unittest.TestCase):
 
     def test_string_to_config(self):
         # Test baseline
-        config = string_to_config("baseline", "None")
+        config = string_to_config("baseline", None)
         self.assertIsNone(config)
 
         # Test int8wo
-        config = string_to_config("int8wo", "None")
+        config = string_to_config("int8wo", None)
         self.assertIsNotNone(config)
 
         # Test invalid config
-        config = string_to_config("not_a_real_config", "None")
+        config = string_to_config("not_a_real_config", None)
         self.assertIsNone(config)
 
     def test_string_to_config_sparsity(self):
@@ -191,7 +191,7 @@ class TestUtils(unittest.TestCase):
             BenchmarkResult(
                 BenchmarkConfig(
                     quantization="int8wo",
-                    sparsity="None",
+                    sparsity=None,
                     params={},
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
@@ -202,7 +202,7 @@ class TestUtils(unittest.TestCase):
             BenchmarkResult(
                 BenchmarkConfig(
                     quantization="int4wo",
-                    sparsity="None",
+                    sparsity=None,
                     params={},
                     shape_name="custom",
                     shape=[1024, 1024, 1024],
