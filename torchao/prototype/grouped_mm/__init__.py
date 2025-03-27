@@ -47,7 +47,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
-        assert 2 <= B.ndim <= 3, "B must be 2D or 3D"
+        assert B.ndim == 3, "B must be 3D"
 
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
