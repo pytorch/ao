@@ -1,5 +1,7 @@
 # NOTE: these unit tests are based on the pytorch core unit tests here:
 # https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
+from typing import Optional
+
 import pytest
 import torch
 
@@ -37,7 +39,14 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
 
     # Validate result.
     validate_grouped_mm(
-        result, a, b, offs, n_groups, out_dtype, use_fast_accum, float8_recipe_name
+        result,
+        a,
+        b,
+        n_groups,
+        out_dtype,
+        use_fast_accum,
+        float8_recipe_name,
+        offs=offs,
     )
 
 
@@ -45,6 +54,8 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
 @pytest.mark.parametrize("use_fast_accum", [True, False])
 @pytest.mark.parametrize("strided", [True, False])
 def test_grouped_gemm_3d_3d(use_fast_accum, strided):
+    float8_recipe_name = Float8LinearRecipeName.ROWWISE
+    out_dtype = torch.bfloat16
     device = "cuda"
     s_int = int(strided)
     m, n, k, n_groups = 16, 32, 16, 4
@@ -57,11 +68,21 @@ def test_grouped_gemm_3d_3d(use_fast_accum, strided):
     result = grouped_mm(
         a,
         b,
-        float8_recipe=Float8LinearRecipeName.ROWWISE,
-        out_dtype=torch.bfloat16,
+        float8_recipe=float8_recipe_name,
+        out_dtype=out_dtype,
         use_fast_accum=use_fast_accum,
     )
-    assert isinstance(result, torch.Tensor)
+
+    # Validate result.
+    validate_grouped_mm(
+        result,
+        a,
+        b,
+        n_groups,
+        out_dtype,
+        use_fast_accum,
+        float8_recipe_name,
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -82,14 +103,14 @@ def test_tensorwise_scaling_not_supported():
 
 
 def validate_grouped_mm(
-    result,
-    A,
-    B,
-    offs,
-    n_groups,
-    out_dtype,
-    use_fast_accum,
-    float8_recipe_name,
+    result: torch.Tensor,
+    A: torch.Tensor,
+    B: torch.Tensor,
+    n_groups: int,
+    out_dtype: torch.dtype,
+    use_fast_accum: bool,
+    float8_recipe_name: Float8LinearRecipeName,
+    offs: Optional[torch.Tensor] = None,
 ):
     assert isinstance(result, torch.Tensor)
     assert result.dtype == out_dtype
@@ -127,19 +148,19 @@ def validate_grouped_mm(
     scale_A = A_fp8._scale.squeeze()
     scale_B = B_fp8_t._scale.squeeze()
 
-    offs_cpu = offs.cpu()
     A_list, B_list, A_scale_list, B_scale_list, result_list = [], [], [], [], []
     start = 0
 
-    if A.ndim == 2:
+    if A.ndim == 2 and offs is not None:
+        offs_cpu = offs.cpu()
         for i in range(n_groups):
             A_list.append(A_fp8._data[start : offs_cpu[i]])
             A_scale_list.append(scale_A[start : offs_cpu[i]])
             result_list.append(result[start : offs_cpu[i]])
             start = offs_cpu[i]
-    elif A.ndim == 3:
-        A_list = A_fp8
-        B_list = B_fp8_t
+    else:
+        A_list = A_fp8._data
+        B_list = B_fp8_t._data
 
     A_scale_list = scale_A
     B_scale_list = scale_B
