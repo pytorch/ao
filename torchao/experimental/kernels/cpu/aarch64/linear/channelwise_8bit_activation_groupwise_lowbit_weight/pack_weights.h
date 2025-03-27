@@ -7,7 +7,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cstring>
 
-namespace torchao::kernels::cpu::aarch64::linear::packing {
+namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing {
 
 namespace internal {
 
@@ -462,6 +462,6 @@ void unpack_weights(
   }
 }
 
-} // namespace torchao::kernels::cpu::aarch64::linear::packing
+} // namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

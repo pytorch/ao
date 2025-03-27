@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #include <gtest/gtest.h>
-#include <torchao/experimental/kernels/cpu/aarch64/linear/pack_weights.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
 
 template <int weight_nbit, int nr, int kr, int sr>
@@ -26,10 +26,19 @@ void test_weight_packing(
           has_bias,
           /*has_clamp*/ false);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::packing;
+  //   using namespace torchao::kernels::cpu::aarch64::linear::packing;
 
-  std::vector<char> packed_weights(packed_weights_size(
-      n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr));
+  std::vector<char> packed_weights(
+      torchao::kernels::cpu::aarch64::linear::
+          channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+              packed_weights_size(
+                  n,
+                  k,
+                  group_size,
+                  weight_nbit,
+                  has_weight_zeros,
+                  has_bias,
+                  nr));
 
   int8_t* weight_qvals_in = test_case.weight_qvals.data();
   float* weight_scales_in = test_case.weight_scales.data();
@@ -47,28 +56,30 @@ void test_weight_packing(
   std::vector<int8_t> weight_zeros_out(test_case.weight_zeros.size());
   std::vector<float> bias_out(test_case.bias.size());
 
-  torchao::kernels::cpu::aarch64::linear::packing::
-      pack_weights<weight_nbit, nr, kr, sr>(
-          packed_weights.data(),
-          n,
-          k,
-          group_size,
-          weight_qvals_in,
-          weight_scales_in,
-          weight_zeros_in,
-          bias_in);
-  torchao::kernels::cpu::aarch64::linear::packing::
-      unpack_weights<weight_nbit, nr, kr, sr>(
-          weight_qvals_out.data(),
-          weight_scales_out.data(),
-          weight_zeros_out.data(),
-          bias_out.data(),
-          n,
-          k,
-          group_size,
-          has_weight_zeros,
-          has_bias,
-          packed_weights.data());
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          pack_weights<weight_nbit, nr, kr, sr>(
+              packed_weights.data(),
+              n,
+              k,
+              group_size,
+              weight_qvals_in,
+              weight_scales_in,
+              weight_zeros_in,
+              bias_in);
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          unpack_weights<weight_nbit, nr, kr, sr>(
+              weight_qvals_out.data(),
+              weight_scales_out.data(),
+              weight_zeros_out.data(),
+              bias_out.data(),
+              n,
+              k,
+              group_size,
+              has_weight_zeros,
+              has_bias,
+              packed_weights.data());
 
   for (int i = 0; i < test_case.weight_qvals.size(); ++i) {
     EXPECT_EQ(weight_qvals_out[i], test_case.weight_qvals[i]);
