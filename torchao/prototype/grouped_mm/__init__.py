@@ -24,7 +24,7 @@ def _grouped_scaled_mm(
 
     Args:
         A (torch.Tensor): The first input tensor, which can be 2D or 3D.
-        B (torch.Tensor): The second input tensor which must be 3D.
+        B (torch.Tensor): The second input tensor which must be 3D. Dim 1 of B must match the final dim of A.
         float8_recipe (Float8LinearRecipeName): The recipe to use for dynamic float8 quantization.
         offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group. This
             is required when 2D A tensor is used, otherwise it should be None.
@@ -61,6 +61,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
         assert B.ndim == 3, "B must be 3D"
+
+        # Dim 1 of B must match the final dim of A.
+        assert B.size(1) == A.size(-1), "Dim 1 of B must match the final dim of A"
 
         # offsets are required for 2D A tensor, otherwise it should be None.
         if A.ndim == 2:
