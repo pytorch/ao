@@ -112,7 +112,6 @@ def validate_grouped_mm(
     float8_recipe_name: Float8LinearRecipeName,
     offs: Optional[torch.Tensor] = None,
 ):
-    assert isinstance(result, torch.Tensor)
     assert result.dtype == out_dtype
 
     # Validate output by comparing the partition of the grouped scaled mm output
@@ -150,6 +149,8 @@ def validate_grouped_mm(
     A_list, B_list, A_scale_list, B_scale_list, result_list = [], [], [], [], []
     start = 0
 
+    # If A is 2D, we need to split it into parts based on offs, so we can perform
+    # separate _scaled_mm calls for each part.
     if A.ndim == 2 and offs is not None:
         offs_cpu = offs.cpu()
         for i in range(n_groups):
