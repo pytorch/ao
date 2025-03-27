@@ -5,7 +5,7 @@ import torch
 from torchao import float8
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic, get_maybe_axiswise_dim
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
-from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 
 
 def grouped_mm(
@@ -51,7 +51,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         A_fp8 = hp_tensor_to_float8_dynamic(
             A,
             float8_config.cast_config_input.target_dtype,
-            linear_mm_config=None,
+            linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.INPUT,
             scaling_granularity=float8_config.cast_config_input.scaling_granularity,
             axiswise_dim=get_maybe_axiswise_dim(
@@ -64,7 +64,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         B_fp8 = hp_tensor_to_float8_dynamic(
             B,
             float8_config.cast_config_input.target_dtype,
-            linear_mm_config=None,
+            linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.WEIGHT,
             scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
             axiswise_dim=get_maybe_axiswise_dim(
