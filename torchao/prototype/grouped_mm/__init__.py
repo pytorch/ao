@@ -24,7 +24,7 @@ def _grouped_scaled_mm(
 
     Args:
         A (torch.Tensor): The first input tensor, which can be 2D or 3D.
-        B_t (torch.Tensor): The second input tensor which must be 3D.
+        B (torch.Tensor): The second input tensor which must be 3D.
         float8_recipe (Float8LinearRecipeName): The recipe to use for dynamic float8 quantization.
         offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group. This
             is required when 2D A tensor is used, otherwise it should be None.
@@ -47,7 +47,7 @@ class _Float8GroupedMM(torch.autograd.Function):
     def forward(
         ctx,
         A: torch.Tensor,
-        B_t: torch.Tensor,
+        B: torch.Tensor,
         float8_recipe_name: Float8LinearRecipeName,
         offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = None,
@@ -60,7 +60,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # perform dynamic float8 quantization using the given recipe, if specified
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
-        assert B_t.ndim == 3, "B must be 3D"
+        assert B.ndim == 3, "B must be 3D"
 
         # offsets are required for 2D A tensor, otherwise it should be None.
         if A.ndim == 2:
@@ -87,8 +87,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Convert high precision weight tensor to float8.
-        B_t_fp8 = hp_tensor_to_float8_dynamic(
-            B_t,
+        B_fp8 = hp_tensor_to_float8_dynamic(
+            B,
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.WEIGHT,
@@ -100,20 +100,20 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Store what we need for backward.
-        ctx.save_for_backward(A, B_t)
+        ctx.save_for_backward(A, B)
         ctx.float_config = float8_config
         ctx.offs = offs
 
         # For rowwise scaling, torch._scaled_grouped_mm requires scales without any empty dims.
         A_fp8._scale = A_fp8._scale.squeeze()
-        B_t_fp8._scale = B_t_fp8._scale.squeeze()
+        B_fp8._scale = B_fp8._scale.squeeze()
 
         # Perform scaled grouped GEMM and return result.
         return torch._scaled_grouped_mm(
             A_fp8._data,
-            B_t_fp8._data,
+            B_fp8._data,
             A_fp8._scale,
-            B_t_fp8._scale,
+            B_fp8._scale,
             offs,
             out_dtype=out_dtype,
             use_fast_accum=use_fast_accum,
