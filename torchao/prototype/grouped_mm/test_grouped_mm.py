@@ -30,7 +30,7 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
     result = _grouped_scaled_mm(
         a,
-        b,
+        b.transpose(-2, -1),
         offs=offs,
         float8_recipe=float8_recipe_name,
         out_dtype=out_dtype,
@@ -41,7 +41,7 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
     validate_grouped_mm(
         result,
         a,
-        b,
+        b.transpose(-2, -1),
         n_groups,
         out_dtype,
         use_fast_accum,
@@ -67,7 +67,7 @@ def test_grouped_gemm_3d_3d(use_fast_accum, strided):
     ]
     result = _grouped_scaled_mm(
         a,
-        b,
+        b.transpose(-2, -1),
         float8_recipe=float8_recipe_name,
         out_dtype=out_dtype,
         use_fast_accum=use_fast_accum,
@@ -77,7 +77,7 @@ def test_grouped_gemm_3d_3d(use_fast_accum, strided):
     validate_grouped_mm(
         result,
         a,
-        b,
+        b.transpose(-2, -1),
         n_groups,
         out_dtype,
         use_fast_accum,
@@ -95,7 +95,7 @@ def test_tensorwise_scaling_not_supported():
     with pytest.raises(AssertionError):
         _grouped_scaled_mm(
             a,
-            b,
+            b.transpose(-2, -1),
             offs=offs,
             float8_recipe=Float8LinearRecipeName.TENSORWISE,
             out_dtype=torch.bfloat16,
@@ -131,8 +131,8 @@ def validate_grouped_mm(
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
 
-    B_fp8 = hp_tensor_to_float8_dynamic(
-        B,
+    B_t_fp8 = hp_tensor_to_float8_dynamic(
+        B.transpose(-2, -1),
         float8_config.cast_config_input.target_dtype,
         linear_mm_config=LinearMMConfig(),
         gemm_input_role=GemmInputRole.WEIGHT,
@@ -142,11 +142,10 @@ def validate_grouped_mm(
         ),
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
-    B_fp8_t = B_fp8.transpose(-2, -1)
 
     # grouped_scaled_mm doesn't support empty dims
     scale_A = A_fp8._scale.squeeze()
-    scale_B = B_fp8_t._scale.squeeze()
+    scale_B = B_t_fp8._scale.squeeze()
 
     A_list, B_list, A_scale_list, B_scale_list, result_list = [], [], [], [], []
     start = 0
@@ -160,7 +159,7 @@ def validate_grouped_mm(
             start = offs_cpu[i]
     else:
         A_list = A_fp8._data
-        B_list = B_fp8_t._data
+        B_list = B_t_fp8._data
 
     A_scale_list = scale_A
     B_scale_list = scale_B
