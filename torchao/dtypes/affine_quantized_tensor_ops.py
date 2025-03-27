@@ -65,6 +65,12 @@ from torchao.dtypes.uintx.plain_layout import (
     _linear_int8_act_int8_weight_impl,
 )
 from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_check as _embedding_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_impl as _embedding_q_dq_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
     _linear_check as _linear_q_dq_check,
 )
 from torchao.dtypes.uintx.q_dq_layout import (
@@ -263,6 +269,9 @@ def _(func, types, args, kwargs):
 
 @implements(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
+    if _embedding_q_dq_check(args, kwargs):
+        return _embedding_q_dq_impl(args, kwargs)
+
     # new_arg1 = args[1].dequantize()
     # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
     assert isinstance(
