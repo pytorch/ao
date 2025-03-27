@@ -2,7 +2,6 @@ from typing import Optional
 
 import torch
 
-from torchao import float8
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_scaling_utils import (
     get_maybe_axiswise_dim,
@@ -11,7 +10,7 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 
 
-def grouped_mm(
+def _grouped_scaled_mm(
     A: torch.Tensor,
     B: torch.Tensor,
     float8_recipe: Float8LinearRecipeName,
