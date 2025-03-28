@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 from torchao.prototype.mx_formats.config import (
+    MXInferenceLinearConfig,
     MXLinearConfig,
     MXLinearRecipeName,
 )
@@ -23,7 +24,6 @@ from torchao.prototype.mx_formats.constants import (
 from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
-    swap_linear_with_mx_inference_linear,
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
@@ -294,8 +294,8 @@ def test_inference_linear(elem_dtype, bias, input_shape):
     m = nn.Sequential(nn.Linear(4, 8, bias=bias, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
-    swap_linear_with_mx_inference_linear(m_mx, config=config)
+    config = MXInferenceLinearConfig(block_size=4, elem_dtype=elem_dtype)
+    quantize_(m_mx, config=config)
 
     x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
     y_ref = m(x)
@@ -319,8 +319,8 @@ def test_inference_compile_simple(elem_dtype):
     m = nn.Sequential(nn.Linear(4, 8, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
-    config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
-    swap_linear_with_mx_inference_linear(m_mx, config=config)
+    config = MXInferenceLinearConfig(block_size=4, elem_dtype=elem_dtype)
+    quantize_(m_mx, config=config)
     m_mx = torch.compile(m_mx, fullgraph="true")
 
     x = torch.randn(2, 4, device="cuda", dtype=torch.bfloat16)
@@ -346,7 +346,8 @@ def test_filter_fn():
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
-    swap_linear_with_mx_inference_linear(m2, config=config, filter_fn=filter_fn)  # noqa: E501
+    config2 = MXInferenceLinearConfig(block_size=32)
+    quantize_(m2, config=config2, filter_fn=filter_fn)  # noqa: E501
     assert type(m2[0]) == MXInferenceLinear
     assert type(m2[1]) == torch.nn.Linear
 
@@ -362,8 +363,8 @@ def test_training_print_str():
 
 def test_inference_print_str():
     m = nn.Sequential(nn.Linear(32, 32))
-    config = MXLinearConfig()
-    swap_linear_with_mx_inference_linear(m, config=config)
+    config = MXInferenceLinearConfig()
+    quantize_(m, config=config)
     s = str(m)
     assert "bl_sz=32" in s
     assert "kernel=emulated" in s
