@@ -92,7 +92,7 @@ class mx_mm(torch.autograd.Function):
                 weight_hp, block_size
             )
             weight_mx_dim1 = MXTensor(
-                weight_mx_dim1_scale.view(torch.uint8).reshape(-1),
+                weight_mx_dim1_scale.reshape(-1),
                 weight_mx_dim1_data.t(),
                 w_elem_dtype,
                 block_size,
@@ -121,7 +121,7 @@ class mx_mm(torch.autograd.Function):
                 grad_output_hp_r, block_size
             )
             grad_output_mx_dim1 = MXTensor(
-                grad_output_mx_dim1_scale.view(torch.uint8).reshape(-1),
+                grad_output_mx_dim1_scale.reshape(-1),
                 grad_output_mx_dim1_data.t(),
                 grad_elem_dtype,
                 block_size,
@@ -143,7 +143,7 @@ class mx_mm(torch.autograd.Function):
                 input_hp_r, block_size
             )
             input_t_mx_dim0_tmp = MXTensor(
-                input_t_mx_dim0_tmp_scale.view(torch.uint8).reshape(-1),
+                input_t_mx_dim0_tmp_scale.reshape(-1),
                 input_t_mx_dim0_tmp_data.t(),
                 in_elem_dtype,
                 block_size,
