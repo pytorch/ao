@@ -16,6 +16,9 @@ import torch.nn.functional as F
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
 from torchao.prototype.mx_formats.custom_cast import triton_to_mxfp8_dim1
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 
 
 @torch._dynamo.allow_in_graph
@@ -183,7 +186,7 @@ class MXLinear(torch.nn.Linear):
         mod,
         config: Optional[MXLinearConfig] = MXLinearConfig(),
     ):
-        # TODO(before land): remove this
+        assert isinstance(mod, torch.nn.Linear), f"unsupported type(mod) {type(mod)}"
         assert isinstance(config, MXLinearConfig)
         mod.__class__ = MXLinear
         mod.config = config
@@ -290,25 +293,9 @@ def _is_linear(mod, fqn):
     return isinstance(mod, torch.nn.Linear)
 
 
-def swap_linear_with_mx_linear(
-    model,
-    *,
-    config: Optional[MXLinearConfig] = None,
-    filter_fn=None,
-):
-    if filter_fn is None:
-        combined_filter_fn = _is_linear
-    else:
-
-        def __fn(mod, fqn):
-            return _is_linear(mod, fqn) and filter_fn(mod, fqn)
-
-        combined_filter_fn = __fn
-    replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: MXLinear.from_float(mod, config=config),
-        combined_filter_fn,
-    )
+@register_quantize_module_handler(MXLinearConfig)
+def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
+    return MXLinear.from_float(module, config=config)
 
 
 def swap_linear_with_mx_inference_linear(
