@@ -90,7 +90,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
         # A shape: (M, K)
         # A_scale shape: (M,1)
-        # squeeze A_scale to be 1D for 2D tensor _scaled_grouped_mm
+        # squeeze A_scale to be 1D for 2D parent tensor, as required in _scaled_grouped_mm
         # A_scale shape: (M,)
 
         # Convert high precision weight tensor to float8.
@@ -105,23 +105,10 @@ class _Float8GroupedMM(torch.autograd.Function):
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        # B shape: (B,K,N) => this is compatible for matmul with A shape: (M,K) @ (B,K,N) = (B,M,N)
-        # B_scale shape: (B,K,1) => (using axiswise_dim=-1)
-        # squeeze A_scale to be 2D for 3D tensor in _scaled_grouped_mm
-        # B_scale shape: (B,K)
-
-        # This fails the check in _scaled_grouped_mm here: "scale.size(1) == mat.size(1 + dim)" where dim=1 for matrix B, because K != N
-        # check scale call: https://github.com/pytorch/pytorch/blob/d25acac357ff8663a7787e57e6bc5e69987a8f9a/aten/src/ATen/native/cuda/Blas.cpp#L1530
-        # failure: https://github.com/pytorch/pytorch/blob/d25acac357ff8663a7787e57e6bc5e69987a8f9a/aten/src/ATen/native/cuda/Blas.cpp#L1458-L1461
-
-        # To solve this, I changed axiswise_dim to 1, so scale shape becomes:
-        # B_scale shape: (B,1,N)
-        # squeeze A_scale to be 2D for 3D tensor in _scaled_grouped_mm
-        # B_scale shape: (B,N)
-        # This passes the check in _scaled_grouped_mm
-
-        # TODO: allowing axiswise_dim to be 1 breaks assumptions in torchao,
-        # so we need to either design long term support for this, or change the requirement in torch._scaled_grouped_mm
+        # B shape: (B, 1, N)
+        # B scales must be computed along the outer/final dim, so B_scale shape: (B, 1, N)
+        # squeeze B_scale to be 2D for parent 3D tensor, as required in _scaled_grouped_mm
+        # B scale shape: (B, N)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
