@@ -22,6 +22,7 @@ if [ -z "${TORCHTITAN_ROOT}" ]; then
   echo " * FLOAT8_RECIPE_WITH_BEST_SETTINGS: "rowwise" or "tensorwise". if set, use float8 training in torchtitan with the specified recipe, including the additional settings which are optimal for that recipe. otherwise, use bf16 mixed precision training."
   echo " * BATCH_SIZE: defaults to 1."
   echo " * STEPS: defaults to 100."
+  echo " * EXTRA_ARGS: additional arguments to pass to the torchtitan training script."
   exit 1
 fi
 
@@ -44,7 +45,7 @@ cd ${TORCHTITAN_ROOT}
 echo "float8 args: ${FLOAT8_ARGS}"
 
 # run the command with the specified arguments
-CONFIG_FILE="./torchtitan/models/llama/train_configs/llama3_8b.toml" ${TORCHTITAN_ROOT}/run_train.sh --training.steps=${STEPS} --training.batch_size=${BATCH_SIZE} --training.compile ${FLOAT8_ARGS} 2>&1 | tee ${LOG_FILE}
+CONFIG_FILE="./torchtitan/models/llama/train_configs/llama3_8b.toml" ${TORCHTITAN_ROOT}/run_train.sh --training.steps=${STEPS} --training.batch_size=${BATCH_SIZE} --training.compile ${FLOAT8_ARGS} ${EXTRA_ARGS} 2>&1 | tee ${LOG_FILE}
 
 # return to original working directory
 cd $original_dir
