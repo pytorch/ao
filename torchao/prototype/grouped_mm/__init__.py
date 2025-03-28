@@ -4,7 +4,6 @@ import torch
 
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_scaling_utils import (
-    get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
@@ -31,7 +30,6 @@ def _grouped_scaled_mm(
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
         use_fast_accum (bool): Whether to use fast accumulation or not. Default is False.
     """
-    # perform dynamic float8 quantization using the given recipe, if specified
     return _Float8GroupedMM.apply(
         A,
         B,
@@ -43,6 +41,8 @@ def _grouped_scaled_mm(
 
 
 class _Float8GroupedMM(torch.autograd.Function):
+    """Differentiable implementation of grouped GEMM with dynamic float8 quantization."""
+
     @staticmethod
     def forward(
         ctx,
