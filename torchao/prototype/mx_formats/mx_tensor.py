@@ -140,7 +140,7 @@ def _to_mx_rceil(
     data_lp = torch.clamp(
         data_hp * descale_fp.unsqueeze(1), min=-1 * max_pos, max=max_pos
     )
-    return exponent.view(torch.float8_e8m0fnu), data_lp
+    return exponent, data_lp
 
 
 def to_mx(
