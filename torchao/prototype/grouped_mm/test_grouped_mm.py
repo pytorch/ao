@@ -7,7 +7,6 @@ import torch
 
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_scaling_utils import (
-    get_maybe_axiswise_dim,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
