@@ -93,8 +93,12 @@ def test_grouped_gemm_2d_2d(use_fast_accum, strided):
     out_dtype = torch.bfloat16
     device = "cuda"
     m, n, k, n_groups = 16, 16, 16, 4  # all sizes have to be divisible by 16
-    a = torch.randn(m, k * n_groups + k * int(strided), device=device)[:, :k * n_groups]
-    b = torch.randn(n, k * n_groups + k * int(strided), device=device)[:, :k * n_groups]
+    a = torch.randn(m, k * n_groups + k * int(strided), device=device)[
+        :, : k * n_groups
+    ]
+    b = torch.randn(n, k * n_groups + k * int(strided), device=device)[
+        :, : k * n_groups
+    ]
     offs = torch.arange(k, n_groups * k + 1, k, device=device, dtype=torch.int32)
 
     # Compute result.
@@ -118,6 +122,7 @@ def test_grouped_gemm_2d_2d(use_fast_accum, strided):
         float8_recipe_name,
         offs=offs,
     )
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_tensorwise_scaling_not_supported():
