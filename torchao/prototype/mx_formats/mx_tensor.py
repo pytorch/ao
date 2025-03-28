@@ -236,7 +236,6 @@ def to_mx(
         # Calculate the scale for different modes
         max_abs_int32 = (max_abs + eps).view(hp_int_dtype)
         extracted_pow2 = ((max_abs_int32 >> hp_mbits) & 0b11111111) - hp_exp_bias
-        extracted_pow2 = extracted_pow2.to(data_hp.dtype)
 
         if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
             scale_e8m0_unbiased = extracted_pow2 - target_max_pow2

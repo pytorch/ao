@@ -459,9 +459,7 @@ def test_fp6_e3m2_pack_unpack():
 )
 @pytest.mark.parametrize("M", (256, 2048))
 @pytest.mark.parametrize("K", (256, 2048))
-# @pytest.mark.parametrize("M", (256,))
-# @pytest.mark.parametrize("K", (256,))
-def test_triton_mxfp8_dim1(M, K):
+def test_triton_mxfp8_dim1_randn(M, K):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
     x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)

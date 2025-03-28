@@ -1126,7 +1126,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
         scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
-        # TODO(future PR): add NaN handling here
+        # TODO(future PR): add NaN handling here,
+        # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
+        # get proper NaN propagation working
 
         # Calculate the scale in floating point.
         scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
