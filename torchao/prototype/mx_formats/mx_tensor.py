@@ -467,65 +467,6 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
     return new_size
 
 
-@torch._dynamo.allow_in_graph
-class ToMXConstrFunc(torch.autograd.Function):
-    """
-    Differentiable cast to MX, no-op in backward
-    """
-
-    @staticmethod
-    def forward(
-        ctx,
-        data_hp,
-        elem_dtype,
-        block_size,
-        scaling_mode,
-        use_fp4_custom_triton_dequant_kernel,
-        gemm_kernel_choice,
-        pack_fp6,
-    ):
-        scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6=pack_fp6
-        )
-        return MXTensor(
-            scale_e8m0_biased,
-            data_lp,
-            elem_dtype,
-            block_size,
-            data_hp.dtype,
-            use_fp4_custom_triton_dequant_kernel,
-            gemm_kernel_choice,
-            pack_fp6,
-        )
-
-    @staticmethod
-    def backward(ctx, g):
-        return g, None, None, None, None, None, None
-
-
-@torch._dynamo.allow_in_graph
-class FromMXConstrFunc(torch.autograd.Function):
-    """
-    Differentiable cast from MX, no-op in backward
-    """
-
-    @staticmethod
-    def forward(ctx, tensor_lp, target_dtype):
-        return to_dtype(
-            tensor_lp._data,
-            tensor_lp._scale_e8m0,
-            tensor_lp._elem_dtype,
-            tensor_lp._block_size,
-            target_dtype,
-            tensor_lp._use_fp4_custom_triton_dequant_kernel,
-            tensor_lp._pack_fp6,
-        )
-
-    @staticmethod
-    def backward(ctx, g):
-        return g, None, None
-
-
 class MXTensor(torch.Tensor):
     def __new__(
         cls,
@@ -627,7 +568,15 @@ class MXTensor(torch.Tensor):
         raise NotImplementedError(f"{func} not implemented")
 
     def to_dtype(self, target_dtype):
-        return FromMXConstrFunc.apply(self, target_dtype)
+        return to_dtype(
+            self._data,
+            self._scale_e8m0,
+            self._elem_dtype,
+            self._block_size,
+            target_dtype,
+            self._use_fp4_custom_triton_dequant_kernel,
+            self._pack_fp6,
+        )
 
     @staticmethod
     @torch._dynamo.allow_in_graph
@@ -640,11 +589,15 @@ class MXTensor(torch.Tensor):
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
     ):
-        return ToMXConstrFunc.apply(
-            data_hp,
+        scale_e8m0_biased, data_lp = to_mx(
+            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
+        )
+        return MXTensor(
+            scale_e8m0_biased,
+            data_lp,
             elem_dtype,
             block_size,
-            scaling_mode,
+            data_hp.dtype,
             use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
             pack_fp6,
