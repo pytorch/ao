@@ -10,6 +10,7 @@ from typing import Any, Optional, Union
 
 import torch
 
+from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
     DTYPE_TO_SHORT_STR,
@@ -41,7 +42,7 @@ class MXLinearRecipeName(Enum):
 
 
 @dataclass
-class MXLinearConfig:
+class MXLinearConfig(AOBaseConfig):
     # block size for scaling, default is 32 to match
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf,
     # section 5.2

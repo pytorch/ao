@@ -46,9 +46,9 @@ from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
 from torchao.prototype.mx_formats.config import MXLinearConfig
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.quantization import quantize_
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
@@ -379,7 +379,7 @@ def main(
     if mx_recipe_name is None:
         convert_to_float8_training(m_lowp, config=config)
     else:
-        swap_linear_with_mx_linear(m_lowp, config=config)
+        quantize_(m_lowp, config=config)
 
     # this function is only used for cast_only
     to_mx_func = MXTensor.to_mx

@@ -24,8 +24,8 @@ from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
     swap_linear_with_mx_inference_linear,
-    swap_linear_with_mx_linear,
 )
+from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
@@ -98,7 +98,7 @@ def test_linear_eager_vs_hp(
         elem_dtype_grad_output_override=elem_dtype[2],
         use_fp8_dim1_cast_triton_kernel=use_fp8_dim1_cast_triton_kernel,
     )
-    swap_linear_with_mx_linear(m_mx, config=config)
+    quantize_(m_mx, config)
 
     x_ref = torch.randn(
         *input_shape, device="cuda", dtype=torch.bfloat16
@@ -159,8 +159,8 @@ def test_linear_eager_emulated_vs_real_gemm(recipe_name, mkn):
     config_emulated = MXLinearConfig(block_size=32, elem_dtype=elem_dtype)
     config_real = MXLinearConfig.from_recipe_name(recipe_name)
 
-    swap_linear_with_mx_linear(m_emulated, config=config_emulated)
-    swap_linear_with_mx_linear(m_real, config=config_real)
+    quantize_(m_emulated, config=config_emulated)
+    quantize_(m_real, config=config_real)
 
     y_emulated = m_emulated(x)
     y_emulated.backward(g)
@@ -189,7 +189,7 @@ def test_activation_checkpointing():
         nn.Linear(8, 8, bias=True, device="cuda"),
     )
     config = MXLinearConfig(block_size=4, elem_dtype=elem_dtype)
-    swap_linear_with_mx_linear(m, config=config)
+    quantize_(m, config=config)
 
     x = torch.randn(*input_shape, device="cuda").requires_grad_()
     g = torch.randn(*grad_shape, device="cuda")
@@ -252,7 +252,7 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
     config = MXLinearConfig.from_recipe_name(recipe_name)
     config.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
 
-    swap_linear_with_mx_linear(m_mx, config=config)
+    quantize_(m_mx, config=config)
     m_mx_c = copy.deepcopy(m_mx)
     m_mx_c = torch.compile(m_mx_c, fullgraph=True, backend="inductor")
 
@@ -339,10 +339,10 @@ def test_filter_fn():
         nn.Linear(32, 32),
     )
     m2 = copy.deepcopy(m1)
-    filter_fn = lambda mod, fqn: fqn != "1"  # noqa: E731
+    filter_fn = lambda mod, fqn: isinstance(mod, torch.nn.Linear) and fqn != "1"  # noqa: E731
 
     config = MXLinearConfig(block_size=32)
-    swap_linear_with_mx_linear(m1, config=config, filter_fn=filter_fn)
+    quantize_(m1, config=config, filter_fn=filter_fn)
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
@@ -354,7 +354,7 @@ def test_filter_fn():
 def test_training_print_str():
     m = nn.Sequential(nn.Linear(32, 32))
     config = MXLinearConfig()
-    swap_linear_with_mx_linear(m, config=config)
+    quantize_(m, config=config)
     s = str(m)
     assert "bl_sz=32" in s
     assert "kernel=emulated" in s
