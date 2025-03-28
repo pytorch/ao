@@ -86,6 +86,40 @@ def test_grouped_gemm_3d_3d(use_fast_accum, strided):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("use_fast_accum", [True, False])
+@pytest.mark.parametrize("strided", [True, False])
+def test_grouped_gemm_2d_2d(use_fast_accum, strided):
+    float8_recipe_name = Float8LinearRecipeName.ROWWISE
+    out_dtype = torch.bfloat16
+    device = "cuda"
+    m, n, k, n_groups = 16, 16, 16, 4  # all sizes have to be divisible by 16
+    a = torch.randn(m, k * n_groups + k * int(strided), device=device)[:, :k * n_groups]
+    b = torch.randn(n, k * n_groups + k * int(strided), device=device)[:, :k * n_groups]
+    offs = torch.arange(k, n_groups * k + 1, k, device=device, dtype=torch.int32)
+
+    # Compute result.
+    result = _grouped_scaled_mm(
+        a,
+        b.transpose(-2, -1),
+        offs=offs,
+        float8_recipe=float8_recipe_name,
+        out_dtype=out_dtype,
+        use_fast_accum=use_fast_accum,
+    )
+
+    # Validate result.
+    validate_grouped_mm(
+        result,
+        a,
+        b.transpose(-2, -1),
+        n_groups,
+        out_dtype,
+        use_fast_accum,
+        float8_recipe_name,
+        offs=offs,
+    )
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_tensorwise_scaling_not_supported():
     device = "cuda"
     m, n, k, n_groups = 16, 32, 16, 4
