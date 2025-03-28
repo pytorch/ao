@@ -158,15 +158,15 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Convert B to non-transposed, float8, column-major for right operand of grouped GEMM
         # needed for grad_A: grad_output @ B.
         # Since B was transposed before entry to forward, we need to transpose it back here for this.
-        B_non_transposed = B.transpose(-2, -1)
+        B_non_transposed_col_major = B.contiguous().transpose(-2, -1)
 
         # - B shape: (K,N) or (B, K, N)
         # - B scales must be computed rowwise keeping the outer/final dim, so:
         # - B_scale shape: (1,N) or (B, 1, N)
         # - torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
         # - B scale shape: (N,) or (B, N)
-        B_fp8_col_major = hp_tensor_to_float8_dynamic(
-            B_non_transposed,
+        B_non_transposed_fp8_col_major = hp_tensor_to_float8_dynamic(
+            B_non_transposed_col_major,
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.WEIGHT,
@@ -174,7 +174,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             axiswise_dim=-2,
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        B_scale = B_fp8_col_major._scale.squeeze()
+        B_scale = B_non_transposed_fp8_col_major._scale.squeeze()
 
         # Compute grad_A.
         #
@@ -195,7 +195,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # grad_A = (M,N) @ (N,K) = (M,K)
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major._data,
-            B_fp8_col_major._data,
+            B_non_transposed_fp8_col_major._data,
             grad_output_scale,
             B_scale,
             offs,
@@ -233,7 +233,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         A_fp8_col_major = hp_tensor_to_float8_dynamic(
             A.transpose(-2, -1)
             .contiguous()
-            .tranpose(-2, -1),  # Convert to column-major
+            .transpose(-2, -1),  # Convert to column-major
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.INPUT,
@@ -269,5 +269,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             out_dtype=grad_output.dtype,
             use_fast_accum=False,
         )
+        # Since B was transposed before entry to forward, we need to transpose the gradient to match.
+        grad_B = grad_B.transpose(-2, -1)
 
         return grad_A, grad_B, None, None, None, None
