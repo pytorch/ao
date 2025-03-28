@@ -174,9 +174,7 @@ def validate_grouped_mm(
         linear_mm_config=LinearMMConfig(),
         gemm_input_role=GemmInputRole.INPUT,
         scaling_granularity=float8_config.cast_config_input.scaling_granularity,
-        axiswise_dim=get_maybe_axiswise_dim(
-            -1, float8_config.cast_config_input.scaling_granularity
-        ),
+        axiswise_dim=-1,
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
 
@@ -186,9 +184,7 @@ def validate_grouped_mm(
         linear_mm_config=LinearMMConfig(),
         gemm_input_role=GemmInputRole.WEIGHT,
         scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
-        axiswise_dim=get_maybe_axiswise_dim(
-            -1, float8_config.cast_config_input.scaling_granularity
-        ),
+        axiswise_dim=-2,
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
 
