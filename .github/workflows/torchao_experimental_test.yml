@@ -103,6 +103,7 @@ jobs:
           pip install parameterized
           pip install pyyaml
           pip install numpy
+          pip install importlib-metadata
       - name: Print pip freeze
         run: |
           pip freeze
