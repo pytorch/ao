@@ -12,9 +12,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
 
-namespace torchao::kernels::cpu::aarch64::linear {
-namespace channelwise_8bit_activation_prepare_activation_data_1xk_f32::
-    internal {
+namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing {
 
 // Prepares activation data for kernel_impl.
 //   Per m_idx (row), activations are stored as follows:
@@ -25,7 +23,7 @@ namespace channelwise_8bit_activation_prepare_activation_data_1xk_f32::
 //   The groupi_qvals_sum is only present if has_weight_zeros = true.
 
 // Returns number of bytes required for activation_data
-size_t inline activation_data_size_impl(
+size_t inline packed_activations_size(
     int m,
     int k,
     // Ignored if has_weight_zeros = false
@@ -52,7 +50,8 @@ size_t inline activation_data_size_impl(
   return row_size * m;
 }
 
-void inline prepare_activation_data_impl(
+template <int mr, int kr, int sr>
+void inline pack_activations(
     // Output
     void* activation_data,
     // Inputs
@@ -62,6 +61,9 @@ void inline prepare_activation_data_impl(
     int group_size,
     const float* activations,
     bool has_weight_zeros) {
+  // when mr == 1, kr/sr do not matter
+  static_assert(mr == 1);
+
   auto activation_data_byte_ptr = (char*)activation_data;
 
   float vmin, vmax, scale;
@@ -119,8 +121,6 @@ void inline prepare_activation_data_impl(
   }
 }
 
-} // namespace
-  // channelwise_8bit_activation_prepare_activation_data_1xk_f32::internal
-} // namespace torchao::kernels::cpu::aarch64::linear
+} // namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

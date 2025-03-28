@@ -24,6 +24,7 @@ from benchmarks.microbenchmarks.utils import (
     string_to_config,
 )
 from torchao.quantization import quantize_
+from torchao.sparsity.sparse_api import sparsify_
 
 
 def run(config: BenchmarkConfig) -> BenchmarkResult:
@@ -44,11 +45,33 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
 
     # Use quantize_ to apply each quantization function to the model
     m_copy = deepcopy(base_model).eval().to(config.device)
-    quantization_config = string_to_config(
-        config.quantization, high_precision_dtype=config.high_precision_dtype
+    ao_base_config = string_to_config(
+        config.quantization,
+        config.sparsity,
+        high_precision_dtype=config.high_precision_dtype,
     )
-    if quantization_config is not None:
-        quantize_(m_copy, quantization_config)
+
+    # Check if sparsity is requested and if the device is CUDA (sparsity operations require CUDA)
+    is_cuda = config.device == "cuda" and torch.cuda.is_available()
+
+    if config.sparsity is not None and (
+        config.quantization is None or "baseline" in config.quantization
+    ):
+        if is_cuda:
+            print(f"Applying {config.sparsity} sparsity to model")
+            sparsify_(m_copy, ao_base_config)
+        else:
+            print(
+                f"Warning: Skipping {config.sparsity} sparsity as it requires CUDA, but device is {config.device}"
+            )
+    elif config.sparsity is None and (
+        config.quantization is None or "baseline" in config.quantization
+    ):
+        pass  # No quantization or sparsity specified, do nothing
+    else:
+        print("Quantizing model....")
+        quantize_(m_copy, ao_base_config)
+
     if config.use_torch_compile:
         print("Compiling model....")
         m_copy = torch.compile(m_copy, mode=config.torch_compile_mode, fullgraph=True)

@@ -10,7 +10,7 @@
 
 #include <arm_neon.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
-#include <torchao/experimental/kernels/cpu/aarch64/linear/pack_weights.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <cassert>
 #include <vector>
@@ -353,19 +353,20 @@ inline void shared_embedding(
   n_idx = n_idx * nr;
   int j = index - n_idx;
 
-  torchao::kernels::cpu::aarch64::linear::packing::
-      unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
-          weight_qvals.data(),
-          weight_scales.data(),
-          has_weight_zeros ? weight_zeros.data() : nullptr,
-          has_bias ? bias.data() : nullptr,
-          n_idx,
-          n,
-          k,
-          group_size,
-          has_weight_zeros,
-          has_bias,
-          packed_weights);
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
+              weight_qvals.data(),
+              weight_scales.data(),
+              has_weight_zeros ? weight_zeros.data() : nullptr,
+              has_bias ? bias.data() : nullptr,
+              n_idx,
+              n,
+              k,
+              group_size,
+              has_weight_zeros,
+              has_bias,
+              packed_weights);
 
   // Dequantize and store to output (size k)
   int8x16_t qvals;
