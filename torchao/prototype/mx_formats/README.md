@@ -68,12 +68,17 @@ This is a module to do MX inference, weights are in MX and matmul is in high pre
 
 ```python
 import torch
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_inference_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.quantization import quantize_
+from torchao.prototype.mx_formats import MXInferenceLinearConfig, MXGemmKernelChoice
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
-swap_linear_with_mx_inference_linear(m, config=config)
+gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
+config = MXInferenceLinearConfig(
+    elem_dtype=torch.float8_e4m3fn, 
+    block_size=32, 
+    gemm_kernel_choice=gemm_kernel_choice,
+)
+quantize_(m, config=config)
 
 # do inference (not shown)
 ```

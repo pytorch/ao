@@ -13,6 +13,8 @@ import torch
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP4,
+    DTYPE_FP6_E2M3,
+    DTYPE_FP6_E3M2,
     DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
@@ -39,6 +41,31 @@ class MXLinearRecipeName(Enum):
     MXFP8_CUTLASS = "mxfp8_cutlass"
     MXFP4_EMULATED = "mxfp4_emulated"
     MXFP4_CUTLASS = "mxfp4_cutlass"
+
+
+def _validate_elem_dtype(elem_dtype):
+    assert (
+        elem_dtype in SUPPORTED_ELEM_DTYPES
+    ), f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {elem_dtype}"
+
+
+def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
+    if gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
+        assert (
+            block_size == 32
+        ), f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
+        valid_dtypes = [torch.float8_e4m3fn, DTYPE_FP4]
+        assert (
+            elem_dtype in valid_dtypes
+        ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+    elif gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
+        assert (
+            block_size == 32
+        ), f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {block_size}"
+        valid_dtypes = [torch.float8_e4m3fn]
+        assert (
+            elem_dtype in valid_dtypes
+        ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
 
 
 @dataclass
@@ -68,53 +95,17 @@ class MXLinearConfig(AOBaseConfig):
     # If True, uses a custom triton kernel for fp4 dequantize
     use_fp4_custom_triton_dequant_kernel: bool = False
 
-    # If True, packs 4xFP6 into 3xuint8 containers for inference, using custom triton
-    # kernels (fused unpack/dequantize). Training not currently supported.
-    pack_fp6 = True if hasattr(torch.library, "custom_op") else False
-
     def __post_init__(self):
-        # validate elem_dtype and its overrides
-        assert (
-            self.elem_dtype in SUPPORTED_ELEM_DTYPES
-        ), f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {self.elem_dtype}"
+        _validate_elem_dtype(self.elem_dtype)
+        _validate_gemm_kernel_choice(
+            self.gemm_kernel_choice, self.block_size, self.elem_dtype
+        )
         if self.elem_dtype_weight_override is not None:
-            assert (
-                self.elem_dtype_weight_override in SUPPORTED_ELEM_DTYPES
-            ), f"elem_dtype_weight_override: expected one of {SUPPORTED_ELEM_DTYPES}, got {self.elem_dtype}"
+            _validate_elem_dtype(self.elem_dtype_weight_override)
+            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
         if self.elem_dtype_grad_output_override is not None:
-            assert (
-                self.elem_dtype_grad_output_override in SUPPORTED_ELEM_DTYPES
-            ), f"elem_dtype_grad_output_override: expected one of {SUPPORTED_ELEM_DTYPES}, got {self.elem_dtype}"
-
-        # validate that block size and elem_dtype matches kernel choice
-        if self.gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
-            assert (
-                self.block_size == 32
-            ), f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {self.block_size}"
-            valid_dtypes = [torch.float8_e4m3fn, DTYPE_FP4]
-            assert (
-                self.elem_dtype in valid_dtypes
-            ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {self.elem_dtype}"
-            assert (
-                self.elem_dtype_weight_override is None
-            ), "elem_dtype_weight_override not supported for CUTLASS MX gemm kernels"
-            assert (
-                self.elem_dtype_grad_output_override is None
-            ), "elem_dtype_grad_output_override not supported for CUTLASS MX gemm kernels"
-        elif self.gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
-            assert (
-                self.block_size == 32
-            ), f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {self.block_size}"
-            valid_dtypes = [torch.float8_e4m3fn]
-            assert (
-                self.elem_dtype in valid_dtypes
-            ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {self.elem_dtype}"
-            assert (
-                self.elem_dtype_weight_override is None
-            ), "elem_dtype_weight_override not supported for CUTLASS MX gemm kernels"
-            assert (
-                self.elem_dtype_grad_output_override is None
-            ), "elem_dtype_grad_output_override not supported for CUTLASS MX gemm kernels"
+            _validate_elem_dtype(self.elem_dtype_grad_output_override)
+            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
 
     @staticmethod
     def from_recipe_name(
@@ -162,5 +153,47 @@ class MXLinearConfig(AOBaseConfig):
             s += ", use_fp8_dim1_cast_triton_kernel=True"
         if self.use_fp4_custom_triton_dequant_kernel:
             s += ", use_fp4_custom_triton_dequant_kernel=True"
-        # TODO(future PR): split training from inference and add fp6 here
         return s
+
+
+@dataclass
+class MXInferenceLinearConfig(AOBaseConfig):
+    # block size for scaling, default is 32 to match
+    # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf,
+    # section 5.2
+    block_size: int = 32
+
+    # element dtype, used for activations, weights and gradients
+    elem_dtype: Any = torch.float8_e4m3fn
+    # TODO(future PR): support different elem_dtype for activations vs weights
+
+    # defines the gemm kernel choice, if the chosen kernel is not supported
+    # on the given hardware an exception will be thrown
+    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
+
+    # If True, uses a custom triton kernel for fp4 dequantize
+    use_fp4_custom_triton_dequant_kernel: bool = False
+
+    # If True, packs 4xFP6 into 3xuint8 containers for inference, using custom triton
+    # kernels (fused unpack/dequantize).
+    pack_fp6: bool = True
+
+    def __post_init__(self):
+        _validate_elem_dtype(self.elem_dtype)
+        _validate_gemm_kernel_choice(
+            self.gemm_kernel_choice, self.block_size, self.elem_dtype
+        )
+
+    def short_str(self) -> str:
+        """
+        Returns a concise representation of the current config.
+        """
+        s = f"bl_sz={self.block_size}, lp_dtype={DTYPE_TO_SHORT_STR[self.elem_dtype]}"
+        s += f", kernel={self.gemm_kernel_choice.value}"
+        if self.use_fp4_custom_triton_dequant_kernel:
+            s += ", use_fp4_custom_triton_dequant_kernel=True"
+        if self.elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2) and self.pack_fp6:
+            s += ", pack_fp6=True"
+        return s
+
+    # TODO(future PR): add a recipe to config API for inference
