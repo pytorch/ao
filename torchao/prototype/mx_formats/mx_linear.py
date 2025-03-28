@@ -13,7 +13,11 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.config import (
+    MXGemmKernelChoice,
+    MXInferenceLinearConfig,
+    MXLinearConfig,
+)
 from torchao.prototype.mx_formats.custom_cast import triton_to_mxfp8_dim1
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.transform_module import (
@@ -234,7 +238,7 @@ class MXInferenceLinear(torch.nn.Linear):
     def from_float(
         cls,
         mod,
-        config: Optional[MXLinearConfig] = MXLinearConfig(),
+        config: Optional[MXInferenceLinearConfig] = MXInferenceLinearConfig(),
     ):
         with torch.device("meta"):
             super_kwargs = {
@@ -267,53 +271,13 @@ class MXInferenceLinear(torch.nn.Linear):
         return s
 
 
-def replace_with_custom_fn_if_matches_filter(
-    model, replacement_fn, filter_fn, cur_fqn=""
-) -> None:
-    """
-    For each `child` in `model`, replaces it with `replacement_fn(child)`
-    if `filter_fn(child)` is `True`
-    """
-    name_to_child = dict(model.named_children())
-    for name, child in name_to_child.items():
-        if cur_fqn == "":
-            new_fqn = name
-        else:
-            new_fqn = f"{cur_fqn}.{name}"
-        if filter_fn(child, new_fqn):
-            new_child = replacement_fn(child)
-            setattr(model, name, new_child)
-        else:
-            replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, new_fqn
-            )
-
-
-def _is_linear(mod, fqn):
-    return isinstance(mod, torch.nn.Linear)
-
-
 @register_quantize_module_handler(MXLinearConfig)
 def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
     return MXLinear.from_float(module, config=config)
 
 
-def swap_linear_with_mx_inference_linear(
-    model,
-    *,
-    config: Optional[MXLinearConfig] = None,
-    filter_fn=None,
+@register_quantize_module_handler(MXInferenceLinearConfig)
+def _mx_inference_linear_transform(
+    module: torch.nn.Module, config: MXInferenceLinearConfig
 ):
-    if filter_fn is None:
-        combined_filter_fn = _is_linear
-    else:
-
-        def __fn(mod, fqn):
-            return _is_linear(mod, fqn) and filter_fn(mod, fqn)
-
-        combined_filter_fn = __fn
-    replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: MXInferenceLinear.from_float(mod, config=config),
-        combined_filter_fn,
-    )
+    return MXInferenceLinear.from_float(module, config=config)
