@@ -230,10 +230,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         # - A_scale shape: (1,K) or (B, 1, K)
         # - torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
         # - A scale shape: (K,) or (B, K)
+        A_col_major = A.transpose(-2, -1).contiguous().transpose(-2, -1)
         A_fp8_col_major = hp_tensor_to_float8_dynamic(
-            A.transpose(-2, -1)
-            .contiguous()
-            .transpose(-2, -1),  # Convert to column-major
+            A_col_major,
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
             gemm_input_role=GemmInputRole.INPUT,
@@ -243,11 +242,17 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
         A_scale = A_fp8_col_major._scale.squeeze()
 
+        # Special case: 2D-2D grouped GEMM, the scales must be multiplied by the number of groups,
+        # which is the size of the `offs` tensor.
+        if grad_output_t_fp8_row_major.ndim == 2 and A_fp8_col_major.ndim == 2:
+            grad_output_t_scale = grad_output_t_scale.repeat(offs.numel())
+            A_scale = A_scale.repeat(offs.numel())
+
         # Compute grad_B = grad_output_t @ A.
         #
-        # Case 1: A=2D, B=3D with A=(M,K), B^T=(B,K,N) case, output=(B,M,N)
+        # Case 1: A=2D, B=3D with A=(M,K), B^T=(B,K,N) case, output=(M,N) <-- special case, B reduced?
         # grad_B = grad_output_t @ A
-        # grad_B = (B,N,M) @ (B,M,K) = (B,N,K)
+        # grad_B = (N,M) @ (M,K) = (N,K) <-- do we need to repeat along dim0 so it's (B,N,K)?
         #
         # Case 2: A=3D, B=2D with A=(B,M,K), B^T=(K,N) case, output=(B,M,N)
         # grad_B = grad_output_t @ A

@@ -23,10 +23,12 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
     device = "cuda"
     s_int = int(strided)
     m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(m * n_groups, k * (1 + s_int), device=device, requires_grad=True)[:, :k]
-    b = torch.randn(n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True)[
-        :: (1 + s_int), :, :k
+    a = torch.randn(m * n_groups, k * (1 + s_int), device=device, requires_grad=True)[
+        :, :k
     ]
+    b = torch.randn(
+        n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True
+    )[:: (1 + s_int), :, :k]
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
     result = _grouped_scaled_mm(
         a,
@@ -62,12 +64,12 @@ def test_grouped_gemm_3d_3d(use_fast_accum, strided):
     device = "cuda"
     s_int = int(strided)
     m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(n_groups * (1 + s_int), m, k * (1 + s_int), device=device, requires_grad=True)[
-        :: (1 + s_int), :, :k
-    ]
-    b = torch.randn(n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True)[
-        :: (1 + s_int), :, :k
-    ]
+    a = torch.randn(
+        n_groups * (1 + s_int), m, k * (1 + s_int), device=device, requires_grad=True
+    )[:: (1 + s_int), :, :k]
+    b = torch.randn(
+        n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True
+    )[:: (1 + s_int), :, :k]
     result = _grouped_scaled_mm(
         a,
         b.transpose(-2, -1),
@@ -99,12 +101,12 @@ def test_grouped_gemm_2d_2d(use_fast_accum, strided):
     out_dtype = torch.bfloat16
     device = "cuda"
     m, n, k, n_groups = 16, 16, 16, 4  # all sizes have to be divisible by 16
-    a = torch.randn(m, k * n_groups + k * int(strided), device=device, requires_grad=True)[
-        :, : k * n_groups
-    ]
-    b = torch.randn(n, k * n_groups + k * int(strided), device=device, requires_grad=True)[
-        :, : k * n_groups
-    ]
+    a = torch.randn(
+        m, k * n_groups + k * int(strided), device=device, requires_grad=True
+    )[:, : k * n_groups]
+    b = torch.randn(
+        n, k * n_groups + k * int(strided), device=device, requires_grad=True
+    )[:, : k * n_groups]
     offs = torch.arange(k, n_groups * k + 1, k, device=device, dtype=torch.int32)
 
     # Compute result.
