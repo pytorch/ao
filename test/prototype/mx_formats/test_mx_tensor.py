@@ -19,7 +19,6 @@ from torchao.prototype.mx_formats.constants import (
 )
 from torchao.prototype.mx_formats.custom_cast import pack_uint4, pack_uint6
 from torchao.prototype.mx_formats.mx_tensor import (
-    E8M0_EXPONENT_NAN_VAL,
     MXTensor,
     ScaleCalculationMode,
     to_dtype,
@@ -321,8 +320,8 @@ def test_exponent_nan_in(elem_dtype):
     )
     block_size = 4
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    assert torch.all(tensor_mx._scale_e8m0[0] == E8M0_EXPONENT_NAN_VAL)
-    assert not torch.any(tensor_mx._scale_e8m0[1:] == E8M0_EXPONENT_NAN_VAL)
+    assert torch.all(torch.isnan(tensor_mx._scale_e8m0[0]))
+    assert not torch.any(torch.isnan(tensor_mx._scale_e8m0[1:]))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -332,8 +331,11 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
     """
-    scale_e8m0_bits = torch.tensor(
-        [E8M0_EXPONENT_NAN_VAL, 23], dtype=torch.uint8, device="cuda"
+    if pack_fp6 and elem_dtype not in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2):
+        pytest.skip("invalid configuration")
+
+    scale_e8m0 = torch.tensor(
+        [float("nan"), 1.0], dtype=torch.float8_e8m0fnu, device="cuda"
     )
 
     block_size = 4
@@ -359,7 +361,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
     block_size = 4
     use_fp4_custom_triton_dequant_kernel = False
     tensor_mx = MXTensor(
-        scale_e8m0_bits,
+        scale_e8m0,
         data_bits,
         elem_dtype,
         block_size,
