@@ -342,9 +342,7 @@ def test_filter_fn():
     filter_fn = lambda mod, fqn: isinstance(mod, torch.nn.Linear) and fqn != "1"  # noqa: E731
 
     config = MXLinearConfig(block_size=32)
-    print("before", m1)
     quantize_(m1, config=config, filter_fn=filter_fn)
-    print("after", m1)
     assert type(m1[0]) == MXLinear
     assert type(m1[1]) == torch.nn.Linear
 
