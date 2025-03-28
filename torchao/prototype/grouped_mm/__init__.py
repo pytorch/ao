@@ -58,18 +58,18 @@ class _Float8GroupedMM(torch.autograd.Function):
             float8_recipe_name == Float8LinearRecipeName.ROWWISE
         ), "Only rowwise scaling is supported by torch._scaled_grouped_mm."
 
-        # perform dynamic float8 quantization using the given recipe, if specified
+
         assert 2 <= A.ndim <= 3, "A must be 2D or 3D"
-        assert B.ndim == 3, "B must be 3D"
+        assert 2 <= B.ndim == 3, "B must be 2D or 3D"
 
         # Dim 1 of B must match the final dim of A.
-        assert B.size(1) == A.size(-1), "Dim 1 of B must match the final dim of A"
+        assert A.size(-1) == B.size(-2), f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
 
         # offsets are required for 2D A tensor, otherwise it should be None.
-        if A.ndim == 2:
-            assert offs is not None, "offs must be specified for 2D A tensor"
+        if A.ndim == 2 or B.ndim == 2:
+            assert offs is not None, "offs must be specified for 2D tensor"
         else:
-            assert offs is None, "offs must not be specified for 3D A tensor"
+            assert offs is None, "offs must not be specified for 3D tensor"
 
         # TODO: pad dims to be multiples of 16, as required by torch._scaled_grouped_mm.
 
@@ -77,6 +77,10 @@ class _Float8GroupedMM(torch.autograd.Function):
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
 
         # Convert high precision input tensor to float8.
+        # A shape: (M, K) or (B, M, K)
+        # A_scale shape: (M,1) or (B, M, 1)
+        # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
+        # A_scale shape: (M,) or (B, M)
         A_fp8 = hp_tensor_to_float8_dynamic(
             A,
             float8_config.cast_config_input.target_dtype,
@@ -88,12 +92,14 @@ class _Float8GroupedMM(torch.autograd.Function):
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        # A shape: (M, K)
-        # A_scale shape: (M,1)
-        # squeeze A_scale to be 1D for 2D parent tensor, as required in _scaled_grouped_mm
-        # A_scale shape: (M,)
+        A_fp8_scale = A_fp8._scale.squeeze()
 
         # Convert high precision weight tensor to float8.
+        # B shape: (K,N) or (B, K, N)
+        # B scales must be computed rowwise keeping the outer/final dim, so:
+        # B_scale shape: (1,N) or (B, 1, N)
+        # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
+        # B scale shape: (N,) or (B, N)
         B_fp8 = hp_tensor_to_float8_dynamic(
             B,
             float8_config.cast_config_input.target_dtype,
@@ -105,19 +111,11 @@ class _Float8GroupedMM(torch.autograd.Function):
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        # B shape: (B, 1, N)
-        # B scales must be computed along the outer/final dim, so B_scale shape: (B, 1, N)
-        # squeeze B_scale to be 2D for parent 3D tensor, as required in _scaled_grouped_mm
-        # B scale shape: (B, N)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
         ctx.float_config = float8_config
         ctx.offs = offs
-
-        # For rowwise scaling, torch._scaled_grouped_mm requires scales without any empty dims.
-        A_fp8._scale = A_fp8._scale.squeeze()
-        B_fp8._scale = B_fp8._scale.squeeze()
 
         # Perform scaled grouped GEMM and return result.
         return torch._scaled_grouped_mm(
