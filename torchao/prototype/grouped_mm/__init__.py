@@ -76,12 +76,12 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
 
-        # Convert high precision input tensor to float8.
+        # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K) or (B, M, K)
         # A_scale shape: (M,1) or (B, M, 1)
         # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
         # A_scale shape: (M,) or (B, M)
-        A_fp8 = hp_tensor_to_float8_dynamic(
+        A_fp8_row_major = hp_tensor_to_float8_dynamic(
             A,
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
@@ -92,15 +92,15 @@ class _Float8GroupedMM(torch.autograd.Function):
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        A_fp8_scale = A_fp8._scale.squeeze()
+        A_scale = A_fp8_row_major._scale.squeeze()
 
-        # Convert high precision weight tensor to float8.
+         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B shape: (K,N) or (B, K, N)
         # B scales must be computed rowwise keeping the outer/final dim, so:
         # B_scale shape: (1,N) or (B, 1, N)
         # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
         # B scale shape: (N,) or (B, N)
-        B_fp8 = hp_tensor_to_float8_dynamic(
+        B_fp8_col_major = hp_tensor_to_float8_dynamic(
             B,
             float8_config.cast_config_input.target_dtype,
             linear_mm_config=LinearMMConfig(),
@@ -111,18 +111,20 @@ class _Float8GroupedMM(torch.autograd.Function):
             ),
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
+        B_scale = B_fp8_col_major._scale.squeeze()
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
-        ctx.float_config = float8_config
+        ctx.float8_config = float8_config
         ctx.offs = offs
 
         # Perform scaled grouped GEMM and return result.
+        # output shape: (M, N) or (B, M, N)
         return torch._scaled_grouped_mm(
-            A_fp8._data,
-            B_fp8._data,
-            A_fp8._scale,
-            B_fp8._scale,
+            A_fp8_row_major._data,
+            B_fp8_col_major._data,
+            A_scale,
+            B_scale,
             offs,
             out_dtype=out_dtype,
             use_fast_accum=use_fast_accum,
@@ -130,4 +132,108 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        return None, None, None, None, None, None
+        A, B = ctx.saved_tensors
+        offs = ctx.offs
+        float8_config = ctx.float8_config
+
+        # Convert grad_output to float8, row-major for left operand of grouped GEMM.
+        # grad_output shape: (M, N) or (B, M, N)
+        # grad_output_scale shape: (M, 1) or (B, M, 1)
+        # squeeze grad_output_scale to remove empty dim, as required by torch._scaled_grouped_mm.
+        # grad_output_scale shape: (M,) or (B, M)
+        grad_output_fp8_row_major = hp_tensor_to_float8_dynamic(
+            grad_output,
+            float8_config.cast_config_grad_output.target_dtype,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.GRAD_OUTPUT,
+            scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
+            axiswise_dim=get_maybe_axiswise_dim(
+                -1, float8_config.cast_config_grad_output.scaling_granularity
+            ),
+            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+        )
+        grad_output_scale = grad_output_fp8_row_major._scale.squeeze()
+
+        # Convert B to float8, column-major for right operand of grouped GEMM.
+        # B shape: (K,N) or (B, K, N)
+        # B scales must be computed rowwise keeping the outer/final dim, so:
+        # B_scale shape: (1,N) or (B, 1, N)
+        # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
+        # B scale shape: (N,) or (B, N)
+        B_fp8_col_major = hp_tensor_to_float8_dynamic(
+            B,
+            float8_config.cast_config_input.target_dtype,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.WEIGHT,
+            scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
+            axiswise_dim=get_maybe_axiswise_dim(
+                1, float8_config.cast_config_input.scaling_granularity
+            ),
+            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+        )
+        B_scale = B_fp8_col_major._scale.squeeze()
+
+        # grad_input = grad_output @ weight
+        # grad_A = grad_output @ B
+        grad_A = torch._scaled_grouped_mm(
+            grad_output_fp8_row_major._data,
+            B_fp8_col_major._data,
+            grad_output_scale,
+            B_scale,
+            offs,
+            out_dtype=grad_output.dtype,
+            use_fast_accum=False,
+        )
+
+        # Convert tranpose of grad_output to float8, row-major for left operand of grouped GEMM.
+        grad_output_t = grad_output.transpose(-2, -1)
+
+        # grad_output_t shape: (N, M) or (B, N, M)
+        # grad_output_t_scale shape: (N, 1) or (B, N, 1)
+        # squeeze grad_output_t_scale to remove empty dim, as required by torch._scaled_grouped_mm.
+        # grad_output_t_scale shape: (N,) or (B, N)
+        grad_output_t_fp8 = hp_tensor_to_float8_dynamic(
+            grad_output_t,
+            float8_config.cast_config_grad_output.target_dtype,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.GRAD_OUTPUT,
+            scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
+            axiswise_dim=get_maybe_axiswise_dim(
+                -1, float8_config.cast_config_grad_output.scaling_granularity
+            ),
+            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+        )
+        grad_output_t_scale = grad_output_t_fp8._scale.squeeze()
+
+        # Convert A to float8, column-major for right operand of grouped GEMM.
+        # A shape: (M, K) or (B, M, K)
+        # A scales must be computed rowwise keeping the outer/final dim, for right operand in grouped GEMM, so:
+        # A_scale shape: (1,K) or (B, 1, K)
+        # torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
+        # A scale shape: (K,) or (B, K)
+        A_fp8 = hp_tensor_to_float8_dynamic(
+            A,
+            float8_config.cast_config_input.target_dtype,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.INPUT,
+            scaling_granularity=float8_config.cast_config_input.scaling_granularity,
+            axiswise_dim=get_maybe_axiswise_dim(
+                1, float8_config.cast_config_input.scaling_granularity
+            ),
+            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+        )
+        A_scale = A_fp8._scale.squeeze()
+
+        # grad_weight = grad_output_t @ input
+        # grad_B = grad_output_t @ A
+        grad_B = torch._scaled_grouped_mm(
+            grad_output_t_fp8._data,
+            A_fp8._data,
+            grad_output_t_scale,
+            A_scale,
+            offs,
+            out_dtype=grad_output.dtype,
+            use_fast_accum=False,
+        )
+
+        return grad_A, grad_B, None, None, None, None
