@@ -326,10 +326,12 @@ def to_mx(
     else:
         raise AssertionError("unsupported")
 
+    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
     return scale_e8m0_biased, data_lp
 
 
 def get_fp_scale(scale_e8m0):
+    scale_e8m0 = scale_e8m0.view(torch.uint8)
     s_offset = scale_e8m0.to(torch.int16) - E8M0_EXPONENT_BIAS
     # TODO(later): it would be nice if there was a way to do the 2^x operation
     # in PyTorch without creating a tensor of twos
@@ -562,7 +564,9 @@ class MXTensor(torch.Tensor):
             dtype=orig_dtype,
             device=data_bits.device,
         )
-        assert scale_e8m0_bits.dtype == torch.uint8, "unsupported"
+        assert (
+            scale_e8m0_bits.dtype == torch.float8_e8m0fnu
+        ), f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
         assert len(scale_e8m0_bits.shape) == 1, "unsupported"
         assert data_bits.dtype in (
             torch.float8_e4m3fn,
