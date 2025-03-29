@@ -18,7 +18,7 @@ def _grouped_scaled_mm(
     A: torch.Tensor,
     B: torch.Tensor,
     float8_recipe: Float8LinearRecipeName,
-    offs: Optional[torch.Tensor] = None,
+    offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = None,
     use_fast_accum: bool = False,
 ) -> torch.Tensor:
@@ -27,11 +27,10 @@ def _grouped_scaled_mm(
     then performs a scaled grouped GEMM and returns the results.
 
     Args:
-        A (torch.Tensor): The first input tensor, which can be 2D or 3D.
-        B (torch.Tensor): The second input tensor which must be 3D. This tensor must be transposed. Dim 1 of B must match the final dim of A.
+        A (torch.Tensor): The first input tensor, which must be a 2D tensor of shape (M * num_groups, K).
+        B (torch.Tensor): The second input tensor which must be 3D, which must be shape (B, K, N).
         float8_recipe (Float8LinearRecipeName): The recipe to use for dynamic float8 quantization.
-        offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group. This
-            is required when 2D A tensor is used, otherwise it should be None.
+        offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group in the input tensor of shape
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
         use_fast_accum (bool): Whether to use fast accumulation or not. Default is False.
     """
@@ -70,8 +69,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert A.size(-1) == B.size(-2), (
             f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
         )
-
-        # TODO: pad dims to be multiples of 16, as required by torch._scaled_grouped_mm.
 
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)

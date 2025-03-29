@@ -1,6 +1,5 @@
 # NOTE: these unit tests are based on the pytorch core unit tests here:
 # https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
-from typing import Optional
 
 import pytest
 import torch
@@ -22,14 +21,25 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
     device = "cuda"
     s_int = int(strided)
     m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(m * n_groups, k * (1 + s_int), device=device, requires_grad=True)[
-        :, :k
-    ]
+    a = torch.randn(
+        m * n_groups,
+        k * (1 + s_int),
+        device=device,
+        requires_grad=True,
+        dtype=torch.bfloat16,
+    )[:, :k]
     b = torch.randn(
-        n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True
+        n_groups * (1 + s_int),
+        n,
+        k * (1 + s_int),
+        device=device,
+        requires_grad=True,
+        dtype=torch.bfloat16,
     )[:: (1 + s_int), :, :k]
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
-    result = _grouped_scaled_mm(
+
+    # Compute output.
+    out = _grouped_scaled_mm(
         a,
         b.transpose(-2, -1),
         offs=offs,
@@ -40,98 +50,18 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
 
     # Validate result.
     validate_grouped_mm(
-        result,
+        out,
         a,
-        b.transpose(-2, -1),
+        b,
         n_groups,
         out_dtype,
         use_fast_accum,
         float8_recipe_name,
-        offs=offs,
+        offs,
     )
 
-    # Backward pass.
-    result.sum().backward()
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("use_fast_accum", [True, False])
-@pytest.mark.parametrize("strided", [True, False])
-def test_grouped_gemm_3d_3d(use_fast_accum, strided):
-    float8_recipe_name = Float8LinearRecipeName.ROWWISE
-    out_dtype = torch.bfloat16
-    device = "cuda"
-    s_int = int(strided)
-    m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(
-        n_groups * (1 + s_int), m, k * (1 + s_int), device=device, requires_grad=True
-    )[:: (1 + s_int), :, :k]
-    b = torch.randn(
-        n_groups * (1 + s_int), n, k * (1 + s_int), device=device, requires_grad=True
-    )[:: (1 + s_int), :, :k]
-    result = _grouped_scaled_mm(
-        a,
-        b.transpose(-2, -1),
-        float8_recipe=float8_recipe_name,
-        out_dtype=out_dtype,
-        use_fast_accum=use_fast_accum,
-    )
-
-    # Validate result.
-    validate_grouped_mm(
-        result,
-        a,
-        b.transpose(-2, -1),
-        n_groups,
-        out_dtype,
-        use_fast_accum,
-        float8_recipe_name,
-    )
-
-    # Backward pass.
-    result.sum().backward()
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("use_fast_accum", [True, False])
-@pytest.mark.parametrize("strided", [True, False])
-def test_grouped_gemm_2d_2d(use_fast_accum, strided):
-    float8_recipe_name = Float8LinearRecipeName.ROWWISE
-    out_dtype = torch.bfloat16
-    device = "cuda"
-    m, n, k, n_groups = 16, 16, 16, 4  # all sizes have to be divisible by 16
-    a = torch.randn(
-        m, k * n_groups + k * int(strided), device=device, requires_grad=True
-    )[:, : k * n_groups]
-    b = torch.randn(
-        n, k * n_groups + k * int(strided), device=device, requires_grad=True
-    )[:, : k * n_groups]
-    offs = torch.arange(k, n_groups * k + 1, k, device=device, dtype=torch.int32)
-
-    # Compute result.
-    result = _grouped_scaled_mm(
-        a,
-        b.transpose(-2, -1),
-        offs=offs,
-        float8_recipe=float8_recipe_name,
-        out_dtype=out_dtype,
-        use_fast_accum=use_fast_accum,
-    )
-
-    # Validate result.
-    validate_grouped_mm(
-        result,
-        a,
-        b.transpose(-2, -1),
-        n_groups,
-        out_dtype,
-        use_fast_accum,
-        float8_recipe_name,
-        offs=offs,
-    )
-
-    # Backward pass.
-    result.sum().backward()
+    # Run backward pass.
+    out.sum().backward()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -159,7 +89,7 @@ def validate_grouped_mm(
     out_dtype: torch.dtype,
     use_fast_accum: bool,
     float8_recipe_name: Float8LinearRecipeName,
-    offs: Optional[torch.Tensor] = None,
+    offs: torch.Tensor,
 ):
     assert result.dtype == out_dtype
 
@@ -194,18 +124,14 @@ def validate_grouped_mm(
     A_list, B_list, A_scale_list, B_scale_list, result_list = [], [], [], [], []
     start = 0
 
-    # If A is 2D, we need to split it into parts based on offs, so we can perform
+    # Since A 2D, we need to split it into parts based on offs, so we can perform
     # separate _scaled_mm calls for each part.
-    if A.ndim == 2 and offs is not None:
-        offs_cpu = offs.cpu()
-        for i in range(n_groups):
-            A_list.append(A_fp8._data[start : offs_cpu[i]])
-            A_scale_list.append(scale_A[start : offs_cpu[i]])
-            result_list.append(result[start : offs_cpu[i]])
-            start = offs_cpu[i]
-    else:
-        A_list = A_fp8._data
-        B_list = B_t_fp8._data
+    offs_cpu = offs.cpu()
+    for i in range(n_groups):
+        A_list.append(A_fp8._data[start : offs_cpu[i]])
+        A_scale_list.append(scale_A[start : offs_cpu[i]])
+        result_list.append(result[start : offs_cpu[i]])
+        start = offs_cpu[i]
 
     A_scale_list = scale_A
     B_scale_list = scale_B
