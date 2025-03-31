@@ -1,9 +1,11 @@
 import math
+
 import torch
 from torch import Tensor
-from torch.nn import functional as F, init
+from torch.nn import Module, init
+from torch.nn import functional as F
 from torch.nn.parameter import Parameter
-from torch.nn import Module
+
 
 class PartialLinear(Module):
     r"""Applies a linear transformation where each output feature connects to only the top-k
