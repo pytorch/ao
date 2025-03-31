@@ -42,7 +42,7 @@ struct MetadataCutlass {
         at::empty({roundedx, cutlass::ceil_div(roundedy, 2)}, like.options());
     at::Tensor packed_meta =
         at::empty({roundedx * roundedy / 16},
-                  like.options().dtype(at::ScalarType::Short))
+                  like.options().dtype(at::ScalarType::Byte))
             .view({roundedy / 32, roundedx, 2})
             .permute({1, 2, 0});
     return std::make_tuple(packed, packed, packed_meta);
