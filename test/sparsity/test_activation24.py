@@ -71,12 +71,40 @@ def test_fast_rowwise_packing():
     W_subclass_sparse = to_sparse_semi_structured(W_ref)
     # print(W_ref)
 
-    packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
-    # packed_meta = packed_meta.view(128, -1)
-    vc_mine = torch.unique(packed_meta, return_counts=True)
-    vc_ref = torch.unique(W_subclass_sparse.meta, return_counts=True)
-    # breakpoint()
+
+    # Test packed
+    vc_mine = torch.unique(packed, return_counts=True)
+    vc_ref = torch.unique(W_subclass_sparse.packed, return_counts=True)
+    print(packed[:16, :16])
+    print(W_subclass_sparse.packed[:16, :16])
     torch.testing.assert_close(vc_mine, vc_ref)
+
+    # Test meta
+    # vc_mine = torch.unique(packed_meta, return_counts=True)
+    # vc_ref = torch.unique(W_subclass_sparse.meta, return_counts=True)
+    # torch.testing.assert_close(vc_mine, vc_ref)
+
+
+def test_packed_fp8():
+    # W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
+    W_ref = torch.Tensor([[2, 3, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 8, 0, 0], 
+                          [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
+                          [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
+                          [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
+    packed_refernece, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
+    packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
+    vc_mine = torch.unique(packed.to(torch.bfloat16), return_counts=True)
+    vc_ref = torch.unique(packed_refernece.to(torch.bfloat16), return_counts=True)
+    torch.testing.assert_close(vc_mine, vc_ref)
+    # breakpoint()
+
+    # packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
+    # # packed_meta = packed_meta.view(128, -1)
+
+    # # Test packed
+    # print(packed[:16, :16])
+    # print(W_subclass_sparse.packed[:16, :16])
+
 
 # common_utils.instantiate_parametrized_tests(TestActivation24)
 # 

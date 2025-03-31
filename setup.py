@@ -276,6 +276,7 @@ def get_extensions():
             "-O3" if not debug_mode else "-O0",
             "-t=0",
             "-std=c++17",
+            "-w",
         ],
     }
 
