@@ -52,6 +52,13 @@ class _Float8GroupedMM(torch.autograd.Function):
         assert A.ndim == 2, "A must be 2D"
         assert B.ndim == 3, "B must be 3D"
 
+        assert (
+            A.size(-1) % 16 == 0
+        ), f"A must have a last dim divisible by 16, but got shape: {A.shape}"
+        assert (
+            B.size(-2) % 16 == 0 and B.size(-1) % 16 == 0
+        ), f"B must have last 2 dims divisible by 16, but got shape: {B.shape}"
+
         # Assert input tensors are in high-precision dtypes.
         assert (
             A.dtype == torch.float32 or A.dtype == torch.bfloat16
