@@ -5,11 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
+import subprocess
 from typing import Any, Dict, List, Optional
+import uuid
 
 import torch
 from tabulate import tabulate
 from torch.utils.benchmark import Timer
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
@@ -50,6 +53,109 @@ def get_default_device(device: str = "cuda") -> str:
         return "cpu"
 
 
+def upload_trace_file(local_path: str, overwrite: bool = False) -> Optional[str]:
+    MANIFOLD_FOLDER = "perfetto_internal_traces/tree/shared_trace"
+    DEFAULT_TTL_SEC = 28 * 24 * 60 * 60
+    file_name = os.path.basename(local_path)
+    manifold_path = os.path.join(
+        MANIFOLD_FOLDER, f"{os.getlogin()}_{str(uuid.uuid4())}_{file_name}"
+    )
+    cmd = [
+        "manifold",
+        "put",
+        local_path,
+        manifold_path,
+        "--ttl",
+        str(DEFAULT_TTL_SEC),
+        "--userData",
+        "false",
+    ]
+    ret = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+    )
+    if ret.returncode == 0:
+        print("Upload trace successfully.")
+        return manifold_path
+    else:
+        print("[ERROR] Upload failed, maybe the trace file exists.")
+        return None
+
+
+def print_perfetto_ui_url(manifold_path: str) -> Optional[str]:
+    """Generate and print the Perfetto UI URL for a Manifold trace file.
+    
+    Args:
+        manifold_path: Path to the trace file in Manifold
+        
+    Returns:
+        The URL to the Perfetto UI or None if there was an error
+    """
+    try:
+        url = (
+            "https://interncache-all.fbcdn.net/manifold/perfetto-artifacts/tree/ui/index.html#!/?url=https://interncache-all.fbcdn.net/manifold/"
+            + manifold_path
+        )
+        print(f"The trace is accessible at:\n{url}")
+        return url
+    except Exception as e:
+        print(f"Error generating Perfetto UI URL: {e}")
+        return None
+
+
+def generate_model_profile(model, input_data, profile_file_path):
+    """Function to benchmark model evaluation with profiling.
+    
+    Args:
+        model: The model to profile
+        input_data: Input data for the model
+        profile_file_path: Path to save the profiler output
+        
+    Returns:
+        Tuple of (profile_file_path, perfetto_url)
+    """
+    # Create parent directory if it doesn't exist
+    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
+    
+    # Initialize profiler
+    torch.profiler._utils._init_for_cuda_graphs()
+    
+    # Set up profiler activities based on device
+    activities = [ProfilerActivity.CPU]
+    if torch.cuda.is_available() and next(model.parameters()).device.type == 'cuda':
+        activities.append(ProfilerActivity.CUDA)
+    
+    # Run profiler
+    prof = torch.profiler.profile(
+        activities=activities, 
+        record_shapes=True,
+        with_stack=True,
+        profile_memory=True
+    )
+    
+    with prof:
+        for _ in range(5):  # Run the model multiple times to warm up the cache
+            with torch.no_grad():
+                _ = model(input_data)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+    
+    # Save profiling details
+    prof.export_chrome_trace(profile_file_path)
+    print(f"Profile saved to: {profile_file_path}")
+    
+    # Try to upload to Perfetto UI
+    perfetto_url = None
+    try:
+        manifold_path = upload_trace_file(profile_file_path)
+        if manifold_path:
+            print_perfetto_ui_url(manifold_path)
+            perfetto_url = manifold_path
+    except Exception as e:
+        print(f"Warning: Failed to upload profile to Perfetto UI: {e}")
+    
+    # Return the file path and perfetto URL
+    return profile_file_path, perfetto_url
+
 class BenchmarkConfig:
     def __init__(
         self,
@@ -84,6 +190,11 @@ class BenchmarkConfig:
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
+        self.enable_profiler = bool(params.get("enable_profiler", False))
+        # Create profiler directory path without leading slash
+        profiler_dir = os.path.join(self.output_dir, "profiler")
+        os.makedirs(profiler_dir, exist_ok=True)
+        self.profiler_file_name = os.path.join(profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_profile.json")
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -105,6 +216,7 @@ class BenchmarkConfig:
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
+            "enable_profiler": self.enable_profiler,
         }
 
 
@@ -116,12 +228,16 @@ class BenchmarkResult:
         self.config = config
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
+        self.profiler_json_path: Optional[str] = None
+        self.perfetto_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
         return {
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
+            "profiler_json_path": self.profiler_json_path,
+            "perfetto_url": self.perfetto_url,
         }
 
 
@@ -373,6 +489,11 @@ def generate_results_csv(
         output_dir (str): Directory to save the CSV file.
         file_name (str, optional): Name of the CSV file. Defaults to "results.csv".
     """
+    # Check if results list is empty
+    if not results:
+        print("No results to save to CSV.")
+        return
+        
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, file_name)
@@ -390,68 +511,28 @@ def generate_results_csv(
 
 
 def print_results(results: List[BenchmarkResult]):
-    """Print benchmark results in a formatted table.
-
-    Args:
-        results (List[BenchmarkResult]): List of benchmark results
-    """
-    if not results:
-        print("No results to display")
-        return
-
-    # Extract relevant columns for display
-    display_columns = [
-        "quantization",
-        "sparsity",
-        "model_type",
-        "m",
-        "k",
-        "n",
-        "model_inference_time_in_ms",
-        "use_torch_compile",
-    ]
-
-    # Format data for tabulate
-    headers = {
-        "quantization": "Quantization",
-        "sparsity": "Sparsity",
-        "model_type": "Model Type",
-        "m": "M",
-        "k": "K",
-        "n": "N",
-        "model_inference_time_in_ms": "Time (μs)",
-        "use_torch_compile": "Compile Mode",
-    }
-
-    # Extract and format data
+    """Print results in a table format"""
     table_data = []
     for result in results:
-        result_dict = result.to_dict()
-        row = []
-        for col in display_columns:
-            value = result_dict.get(col, "N/A")
-            if value is None:
-                value = "N/A"
-            if col == "model_inference_time_in_ms":
-                value = f"{value:.2f}" if isinstance(value, (int, float)) else value
-            elif col == "use_torch_compile":
-                # Show compile mode if compile is True, otherwise show False
-                value = (
-                    result_dict.get("torch_compile_mode", "default")
-                    if result_dict.get("use_torch_compile")
-                    else "False"
-                )
-            row.append(value)
+        row = [
+            result.config.name,
+            result.config.quantization,
+            result.config.sparsity,
+            f"{result.model_inference_time_in_ms:.2f}",
+        ]
+        if result.config.enable_profiler:
+            if result.profiler_json_path:
+                profile_info = f"Profile saved to: {result.profiler_json_path}"
+                if result.perfetto_url:
+                    profile_info += " (Perfetto UI available)"
+                row.append(profile_info)
+            else:
+                row.append("Profiling failed")
         table_data.append(row)
 
-    # Print formatted table
+    headers = ["Name", "Quantization", "Sparsity", "Inference Time (ms)"]
+    if any(r.config.enable_profiler for r in results):
+        headers.append("Profiler Data")
+
     print("\nBenchmark Results:")
-    print(
-        tabulate(
-            table_data,
-            headers=[headers[col] for col in display_columns],
-            tablefmt="grid",
-            floatfmt=".2f",
-        )
-    )
-    print()
+    print(tabulate(table_data, headers=headers, tablefmt="grid"))

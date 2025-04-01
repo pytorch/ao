@@ -12,8 +12,12 @@ This script runs inference benchmarks and generates a micro-benchmarking report 
 
 from copy import deepcopy
 from pathlib import Path
+import os
+import subprocess
+import uuid
 
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
@@ -22,6 +26,7 @@ from benchmarks.microbenchmarks.utils import (
     create_model_and_input,
     model_inference_time_in_ms,
     string_to_config,
+    generate_model_profile,
 )
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
@@ -84,15 +89,12 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         model=m_copy, input_data=input_data
     )
 
-    # TODO: Benchmark time using profiler
-    # Profile dtype model evaluation
-    # prof_dtype = benchmark_model_op_with_profiler_in_microseconds(m_copy, input_data, quantized_dtype)
-    # prof_dtype.export_chrome_trace(f"{quantization}_model_{input_data[0].size()[0]}.json")  # Save profiling details
-
-    # TODO: Benchmark gemm time using cuda graph
-    # gemm_time = benchmark_torch_function_in_microseconds(gemm_op, *args, **kwargs)
-
-    # TODO: Benchmark op with cuda graph
-    # time = benchmark_op_with_cuda_graph(op, args)
+    # Run profiler if enabled
+    if config.enable_profiler:
+        print("Running profiler...")
+        try:
+            result.profiler_json_path, result.perfetto_url = generate_model_profile(m_copy, input_data, config.profiler_file_name)
+        except Exception as e:
+            print(f"Error running profiler: {e}")
 
     return result
