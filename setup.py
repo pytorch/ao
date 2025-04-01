@@ -280,8 +280,6 @@ def get_extensions():
             "-DNDEBUG" if not debug_mode else "-DDEBUG",
             "-O3" if not debug_mode else "-O0",
             "-std=c++17",
-            "-U__HIP_NO_HALF_CONVERSIONS__",
-            "-U__HIP_NO_HALF_OPERATORS__",
         ]
 
     extra_link_args = []
