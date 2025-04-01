@@ -101,19 +101,19 @@ def choose_scaled_mm_config(
     b_linear_mm_config: LinearMMConfig,
 ):
     if a_role is GemmInputRole.INPUT and b_role is GemmInputRole.WEIGHT:
-        assert (
-            a_linear_mm_config.output == b_linear_mm_config.output
-        ), f"linear_mm_config.output mismatch: {a_linear_mm_config.output} vs {b_linear_mm_config.output}"
+        assert a_linear_mm_config.output == b_linear_mm_config.output, (
+            f"linear_mm_config.output mismatch: {a_linear_mm_config.output} vs {b_linear_mm_config.output}"
+        )
         return a_linear_mm_config.output
     elif a_role is GemmInputRole.GRAD_OUTPUT and b_role is GemmInputRole.WEIGHT:
-        assert (
-            a_linear_mm_config.grad_input == b_linear_mm_config.grad_input
-        ), f"linear_mm_config.grad_input mismatch: {a_linear_mm_config.grad_input} vs {b_linear_mm_config.grad_input}"
+        assert a_linear_mm_config.grad_input == b_linear_mm_config.grad_input, (
+            f"linear_mm_config.grad_input mismatch: {a_linear_mm_config.grad_input} vs {b_linear_mm_config.grad_input}"
+        )
         return a_linear_mm_config.grad_input
     elif a_role is GemmInputRole.GRAD_OUTPUT and b_role is GemmInputRole.INPUT:
-        assert (
-            a_linear_mm_config.grad_weight == b_linear_mm_config.grad_weight
-        ), f"linear_mm_config.grad_weight mismatch: {a_linear_mm_config.grad_weight} vs {b_linear_mm_config.grad_weight}"
+        assert a_linear_mm_config.grad_weight == b_linear_mm_config.grad_weight, (
+            f"linear_mm_config.grad_weight mismatch: {a_linear_mm_config.grad_weight} vs {b_linear_mm_config.grad_weight}"
+        )
         return a_linear_mm_config.grad_weight
     else:
         raise AssertionError(f"unexpected a_role {a_role} and b_role {b_role}")
@@ -154,9 +154,9 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
-            assert isinstance(
-                scale, DTensor
-            ), "Expected Float8 scale to be a DTensor if bits_fp8 is a DTensor"
+            assert isinstance(scale, DTensor), (
+                "Expected Float8 scale to be a DTensor if bits_fp8 is a DTensor"
+            )
             bits_mesh = bits_fp8.device_mesh
             bits_placements = bits_fp8.placements
             local_bits = bits_fp8.to_local()
