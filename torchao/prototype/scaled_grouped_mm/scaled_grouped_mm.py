@@ -84,11 +84,6 @@ class _Float8GroupedMM(torch.autograd.Function):
             Float8LinearRecipeName.ROWWISE
         )
 
-        # Store what we need for backward.
-        ctx.save_for_backward(A, B, offs)
-        ctx.float8_config = float8_config
-        ctx.out_dtype = out_dtype
-
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K)
         # A_scales shape: (M,1)
@@ -120,43 +115,9 @@ class _Float8GroupedMM(torch.autograd.Function):
             B_scaled, float8_config.cast_config_weight.target_dtype
         )
 
-        # Perform scaled grouped GEMM and return result.
-        # output shape: scaled grouped mm of (M,K) @ (B,K,N) = (M,N)
-        return torch._scaled_grouped_mm(
-            A_fp8_row_major,
-            B_fp8_col_major,
-            A_scales.squeeze().reciprocal(),
-            B_scales.squeeze().reciprocal(),
-            offs,
-            out_dtype=out_dtype,
-            use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
-        )
-
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        A, B, offs = ctx.saved_tensors
-        float8_config = ctx.float8_config
-        out_dtype = ctx.out_dtype
-
-        # Convert grad_output to float8, row-major for left operand of grouped GEMM
-        # needed for grad_A: grad_output @ B
-        #
-        # grad_output shape: (M, N)
-        # grad_output_scale shape: (M, 1)
-        grad_output_scales = tensor_to_scale(
-            grad_output,
-            float8_config.cast_config_grad_output.target_dtype,
-            scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
-            axiswise_dim=-1,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
-        )
-        grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
-        grad_output_fp8_row_major = to_fp8_saturated(
-            grad_output_scaled, float8_config.cast_config_grad_output.target_dtype
-        )
-
-        # Convert B to non-transposed, float8, column-major for right operand of grouped GEMM
-        # needed for grad_A: grad_output @ B.
+        # Precompute B_non_transposed_col_major for backward, to save memory by storing the
+        # low precision B tensor instead of the high precision B tensor.
+        # In the backward this is needed for grad_A: grad_output @ B.
         # Since B was transposed before entry to forward, we need to transpose it back here for this.
         B_non_transposed_col_major = B.contiguous().transpose(-2, -1)
 
@@ -175,6 +136,50 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
         B_non_transposed_fp8_col_major = to_fp8_saturated(
             B_non_transposed_scaled, float8_config.cast_config_weight.target_dtype
+        )
+
+        # Store what we need for backward.
+        ctx.save_for_backward(
+            A, B_non_transposed_fp8_col_major, B_non_transposed_scales, offs
+        )
+        ctx.float8_config = float8_config
+        ctx.out_dtype = out_dtype
+
+        # Perform scaled grouped GEMM and return result.
+        # output shape: scaled grouped mm of (M,K) @ (B,K,N) = (M,N)
+        return torch._scaled_grouped_mm(
+            A_fp8_row_major,
+            B_fp8_col_major,
+            A_scales.squeeze().reciprocal(),
+            B_scales.squeeze().reciprocal(),
+            offs,
+            out_dtype=out_dtype,
+            use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        A, B_non_transposed_fp8_col_major, B_non_transposed_scales, offs = (
+            ctx.saved_tensors
+        )
+        float8_config = ctx.float8_config
+        out_dtype = ctx.out_dtype
+
+        # Convert grad_output to float8, row-major for left operand of grouped GEMM
+        # needed for grad_A: grad_output @ B
+        #
+        # grad_output shape: (M, N)
+        # grad_output_scale shape: (M, 1)
+        grad_output_scales = tensor_to_scale(
+            grad_output,
+            float8_config.cast_config_grad_output.target_dtype,
+            scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
+            axiswise_dim=-1,
+            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+        )
+        grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
+        grad_output_fp8_row_major = to_fp8_saturated(
+            grad_output_scaled, float8_config.cast_config_grad_output.target_dtype
         )
 
         # Compute grad_A.

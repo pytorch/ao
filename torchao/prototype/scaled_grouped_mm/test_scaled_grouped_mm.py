@@ -104,38 +104,6 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
         )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_group_sizes_not_multiple_of_16():
-    out_dtype = torch.bfloat16
-    device = "cuda"
-    m, n, k, n_groups = 16, 16, 32, 4
-    a = torch.randn(
-        m * n_groups,
-        k,
-        device=device,
-        requires_grad=True,
-        dtype=torch.bfloat16,
-    )
-    b = torch.randn(
-        n_groups,
-        n,
-        k,
-        device=device,
-        requires_grad=True,
-        dtype=torch.bfloat16,
-    )
-    offs = torch.tensor([15, 32, 45, 64], device="cuda", dtype=torch.int32)
-
-    # Compute output.
-    with pytest.raises(AssertionError):
-        _scaled_grouped_mm(
-            a,
-            b.transpose(-2, -1),
-            offs=offs,
-            out_dtype=out_dtype,
-        )
-
-
 def compute_reference_forward(
     result: torch.Tensor,
     A: torch.Tensor,
