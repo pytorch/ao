@@ -114,6 +114,69 @@ void pack_weights(
       bias);
 }
 
+template <int weight_nbit, int nr, int kr, int sr>
+void pack_weights_with_lut(
+    // Output
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qval_idxs,
+    int n_luts,
+    const int8_t* luts,
+    const float* weight_scales,
+    // weight_zeros not packed if nullptr
+    const int8_t* weight_zeros,
+    // bias not packed if nullptr
+    const float* bias) {
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          pack_weights_with_lut<weight_nbit, nr, kr, sr>(
+              packed_weights,
+              n,
+              k,
+              group_size,
+              weight_qval_idxs,
+              n_luts,
+              luts,
+              weight_scales,
+              weight_zeros,
+              bias);
+}
+
+inline size_t packed_weights_with_lut_size(
+    int n,
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)kr; // unused
+  (void)sr; // unused
+  return weight_packing::packed_weights_with_lut_size(
+      n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr);
+}
+
+inline size_t packed_weights_with_lut_offset(
+    int n_idx,
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    int nr,
+    int kr,
+    int sr) {
+  assert(n_idx % nr == 0);
+  auto packed_weights_size_nr_cols = packed_weights_with_lut_size(
+      nr, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr);
+  return (n_idx / nr) * packed_weights_size_nr_cols;
+}
+
 template <int weight_nbit>
 void kernel_1x1x32_f32_neondot(
     // Outputs
@@ -182,7 +245,7 @@ void kernel_1x4x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit>
+template <int weight_nbit, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -200,7 +263,7 @@ void kernel_1x8x16_f32_neondot(
     bool has_weight_zeros,
     bool has_bias,
     bool has_clamp) {
-  kernel::kernel_1x8x16_f32_neondot<weight_nbit>(
+  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_lut>(
       output,
       output_m_stride,
       m,
