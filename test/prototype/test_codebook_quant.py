@@ -69,6 +69,20 @@ class TestCodebookQuantization(unittest.TestCase):
         quantize_(m, codebook_weight_only())
         assert type(m[0].weight) == CodebookQuantizedTensor
 
+    def test_export(self):
+        m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(
+            dtype=torch.bfloat16, device="cuda"
+        )
+        quantize_(m, codebook_weight_only())
+        # quantize_(m, int4_weight_only(group_size=16))
+        example_inputs = (torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"),)
+        print("m:", m)
+        # torchao.utils.unwrap_tensor_subclass(m)
+        m = torch.export.export_for_training(m, example_inputs).module()
+        print("m:", m)
+        targets = [n.target for n in m.graph.nodes]
+        self.assertTrue(torch.ops.quant.quantize_codebook.default in targets)
+
 
 if __name__ == "__main__":
     unittest.main()
