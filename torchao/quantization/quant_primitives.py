@@ -42,6 +42,9 @@ __all__ = [
     "choose_qparams_affine_float8",
     "quantize_affine_float8",
     "dequantize_affine_float8",
+    "choose_qparams_gguf",
+    "quantize_gguf",
+    "dequantize_gguf",
 ]
 
 
@@ -194,6 +197,8 @@ if TORCH_VERSION_AT_LEAST_2_6:
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
+
+_GGUF_QK_K = 256
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
@@ -1037,6 +1042,172 @@ def choose_qparams_and_quantize_affine_qqq(
         s_channel = s_channel.reshape(size_n, -1).contiguous().to(torch.float)
 
     return q_w, s_group, s_channel, w_ref
+
+
+def choose_qparams_gguf(
+    input: Optional[torch.Tensor],
+    block_size: List[int],
+    target_dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # there are two sets of qparams: quantized_block_scale, quantized_block_min and super_block_scale_scale and super_block_min_scale
+    # the relationship is the following:
+    # block_scale = quantized_block_scale * super_block_sclae
+    # block_min = quantized_block_min * super_block_min
+    # quantized_val = (float_val - block_min) / block_scale + quant_min
+    # first we calculate block_scale and block_min
+    # then we calculate super_block_scale_scale and super_block_min_scale
+    # after that we can calculate quantized_block_scale and quantized_min_scale
+    # the returned values are: super_block_scale_scale, super_block_min_scale, quantized_block_scale
+    # and quantized_min_scale
+
+    # 1. get block_scale block_min
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    input = input.view(shape_for_reduction)
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    quant_max = 15
+    quant_min = 0
+    # asymmetric quant to fully utilize the range
+    block_scale = max_val / (float(quant_max - quant_min) / 2)
+    block_scale = (max_val - min_val) / float(quant_max - quant_min)
+    block_min = min_val
+
+    # 2. get super_block_scale_scale and super_block_min_scale
+    block_scale_clone = block_scale.clone()
+    block_min_clone = block_min.clone()
+
+    assert _GGUF_QK_K % block_size[-1] == 0
+    super_block_size = (1, _GGUF_QK_K // block_size[-1])
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, block_scale_clone.size()
+    )
+    block_scale_clone = block_scale_clone.view(shape_for_reduction)
+    block_min_clone = block_min_clone.view(shape_for_reduction)
+
+    shape_after_reduction = shape_for_reduction.copy()
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+
+    block_scale_absmax = torch.amax(
+        torch.abs(block_scale_clone), dim=reduction_dims, keepdim=False
+    )
+    block_min_absmax = torch.amax(
+        torch.abs(block_min_clone), dim=reduction_dims, keepdim=False
+    )
+
+    # 2. get super_block_scale_scale and super_block_min_scale
+    quant_max = 2**6 - 1
+    quant_min = 0
+    super_block_scale_scale = block_scale_absmax / float(quant_max - quant_min)
+    super_block_min_scale = block_min_absmax / float(quant_max - quant_min)
+    super_block_scale_scale_view = super_block_scale_scale.view(shape_after_reduction)
+    super_block_min_scale_view = super_block_min_scale.view(shape_after_reduction)
+
+    # 3. quantize block scale and min are stored in 6 bits using super_block_scale_scale and super_block_min_scale
+    quantized_block_scale = torch.clamp(
+        block_scale / super_block_scale_scale_view, quant_min, quant_max
+    )
+    quantized_block_min = torch.clamp(
+        block_min / super_block_min_scale_view, quant_min, quant_max
+    )
+    return (
+        super_block_scale_scale,
+        super_block_min_scale,
+        quantized_block_scale,
+        quantized_block_min,
+    )
+
+
+def quantize_gguf(
+    input: torch.Tensor,
+    block_size: List[int],
+    target_dtype: torch.dtype,
+    super_block_scale_scale: torch.Tensor,
+    super_block_min_scale: torch.Tensor,
+    quantized_block_scale: torch.Tensor,
+    quantized_block_min: torch.Tensor,
+) -> torch.Tensor:
+    assert target_dtype == torch.uint4
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+
+    block_shape_after_reduction = shape_for_reduction.copy()
+    for i in reduction_dims:
+        block_shape_after_reduction[i] = 1
+
+    quantized_block_scale = quantized_block_scale.view(block_shape_after_reduction)
+
+    super_block_size = (1, _GGUF_QK_K // block_size[-1], 1)
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, quantized_block_scale.size()
+    )
+    super_block_shape_after_reduction = shape_for_reduction.copy()
+    for i in reduction_dims:
+        super_block_shape_after_reduction[i] = 1
+
+    super_block_scale_scale = super_block_scale_scale.view(
+        super_block_shape_after_reduction
+    )
+    super_block_min_scale = super_block_min_scale.view(
+        super_block_shape_after_reduction
+    )
+
+    quantized_block_scale = quantized_block_scale.view(block_shape_after_reduction)
+    quantized_block_min = quantized_block_min.view(block_shape_after_reduction)
+
+    block_scale = super_block_scale_scale * quantized_block_scale
+    block_min = super_block_min_scale * quantized_block_min
+    int_data = (input - block_min) / block_scale
+    int_data = int_data.view(original_shape)
+    return int_data
+
+
+def dequantize_gguf(
+    input: torch.Tensor,
+    block_size: List[int],
+    target_dtype: torch.dtype,
+    super_block_scale_scale: torch.Tensor,
+    super_block_min_scale: torch.Tensor,
+    quantized_block_scale: torch.Tensor,
+    quantized_block_min: torch.Tensor,
+) -> torch.Tensor:
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+
+    quantized_block_scale = quantized_block_scale.view(shape_after_reduction)
+    quantized_block_min = quantized_block_min.view(shape_after_reduction)
+
+    super_block_size = (1, _GGUF_QK_K // block_size[-1], 1)
+    super_block_shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, quantized_block_scale.size()
+    )
+    super_block_shape_after_reduction = super_block_shape_for_reduction
+    for i in reduction_dims:
+        super_block_shape_after_reduction[i] = 1
+
+    super_block_scale_scale = super_block_scale_scale.view(
+        super_block_shape_after_reduction
+    )
+    super_block_min_scale = super_block_min_scale.view(
+        super_block_shape_after_reduction
+    )
+
+    block_scale = super_block_scale_scale * quantized_block_scale
+    block_min = super_block_min_scale * quantized_block_min
+    dequant = input * block_scale + block_min
+    dequant = dequant.view(original_shape)
+    return dequant
 
 
 def dequantize_affine_qqq(
