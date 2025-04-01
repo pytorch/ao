@@ -148,7 +148,7 @@ def run(
         )
 
         assert y_d0.dtype == torch.float8_e4m3fn
-        assert s_d0.dtype == torch.uint8
+        assert s_d0.dtype == torch.float8_e8m0fnu
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
@@ -166,7 +166,7 @@ def run(
         )
 
         assert y_d1.dtype == torch.float8_e4m3fn
-        assert s_d1.dtype == torch.uint8
+        assert s_d1.dtype == torch.float8_e8m0fnu
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
