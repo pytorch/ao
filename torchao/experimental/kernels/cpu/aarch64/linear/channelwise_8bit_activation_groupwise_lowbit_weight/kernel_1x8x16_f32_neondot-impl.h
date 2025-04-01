@@ -58,7 +58,7 @@ vec_clamp(float32x4_t x, float32x4_t vec_min, float32x4_t vec_max) {
 // Roughly inspired by
 // https://gitlab.arm.com/kleidi/kleidiai/-/blob/main/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp8x8_1x8x32_neon_dotprod.c?ref_type=heads
 
-template <int weight_nbit>
+template <int weight_nbit, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -78,6 +78,11 @@ void kernel_1x8x16_f32_neondot(
     bool has_clamp) {
   assert(k % group_size == 0);
   assert(group_size % 16 == 0);
+
+  int8x16_t lut;
+  if constexpr (!has_lut) {
+    (void)lut; // unused
+  }
 
   constexpr int bytes_per_128_weight_values = 16 * weight_nbit;
 
@@ -99,6 +104,11 @@ void kernel_1x8x16_f32_neondot(
     // Weights and activations are padded when prepared, so the
     // reads are legal, even if on a partial tile
     for (int n_idx = 0; n_idx < n; n_idx += 8) {
+      if constexpr (has_lut) {
+        lut = vld1q_s8((int8_t*)weight_data_byte_ptr);
+        weight_data_byte_ptr += 16;
+      }
+
       // Set activation_ptr to start of activation qvals for row m_idx
       activation_ptr = activation_data_byte_ptr;
       float32x4_t res_0123 = vdupq_n_f32(0.0);
@@ -167,16 +177,33 @@ void kernel_1x8x16_f32_neondot(
           // Each chunk is 64 values of unpacked data (4 cols x 16 vals/col).
           // This comes out to (64 * weight_nbit / 8) bits = 8 * weight_nbit
           // bytes of bitpacked data
-          torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
-              weight_q_cols01_0,
-              weight_q_cols23_0,
-              weight_q_cols45_0,
-              weight_q_cols67_0,
-              weight_q_cols01_1,
-              weight_q_cols23_1,
-              weight_q_cols45_1,
-              weight_q_cols67_1,
-              (uint8_t*)weight_data_byte_ptr);
+
+          if constexpr (has_lut) {
+            torchao::bitpacking::vec_unpack_128_lowbit_values_with_lut<
+                weight_nbit>(
+                weight_q_cols01_0,
+                weight_q_cols23_0,
+                weight_q_cols45_0,
+                weight_q_cols67_0,
+                weight_q_cols01_1,
+                weight_q_cols23_1,
+                weight_q_cols45_1,
+                weight_q_cols67_1,
+                (uint8_t*)weight_data_byte_ptr,
+                lut);
+          } else {
+            torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
+                weight_q_cols01_0,
+                weight_q_cols23_0,
+                weight_q_cols45_0,
+                weight_q_cols67_0,
+                weight_q_cols01_1,
+                weight_q_cols23_1,
+                weight_q_cols45_1,
+                weight_q_cols67_1,
+                (uint8_t*)weight_data_byte_ptr);
+          }
+
           weight_data_byte_ptr += bytes_per_128_weight_values;
 
           // Load 16 activation values
