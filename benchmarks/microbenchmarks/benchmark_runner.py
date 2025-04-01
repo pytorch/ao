@@ -164,9 +164,11 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
                 f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
             )
             result = run_inference(config)  # Pass the config object directly
-            results.append(result)
+            if result is not None:  # Only add successful results
+                results.append(result)
         except Exception as e:
             import traceback
+
             print(f"Error running benchmark {config.name} with error: {e}")
             print(traceback.format_exc())
             continue
