@@ -65,7 +65,6 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
         offs=offs,
         float8_recipe=float8_recipe_name,
         out_dtype=out_dtype,
-        use_fast_accum=use_fast_accum,
     )
 
     # Validate result.
@@ -77,7 +76,6 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
         ref_b,
         n_groups,
         out_dtype,
-        use_fast_accum,
         float8_recipe_name,
         offs,
     )
@@ -97,7 +95,6 @@ def compute_reference_forward(
     B: torch.Tensor,
     n_groups: int,
     out_dtype: torch.dtype,
-    use_fast_accum: bool,
     float8_recipe_name: Float8LinearRecipeName,
     offs: torch.Tensor,
 ):
@@ -107,7 +104,7 @@ def compute_reference_forward(
     float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
     A_scales = tensor_to_scale(
         A,
-        float8_config.cast_config_input.target_dtype, 
+        float8_config.cast_config_input.target_dtype,
         scaling_granularity=float8_config.cast_config_input.scaling_granularity, 
         axiswise_dim=-1,
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
@@ -129,31 +126,45 @@ def compute_reference_forward(
 
     # Split A and result into chunks, one for each group.
     offs_cpu = offs.cpu()
-    A_list, A_scale_list, result_list = [], [], []
+    A_list, A_list_fp8, A_scale_list, result_list = [], [], [], []
     start = 0
     for i in range(n_groups):
-        A_list.append(A_fp8[start : offs_cpu[i]])
+        A_list.append(A[start : offs_cpu[i]])
+        A_list_fp8.append(A_fp8[start : offs_cpu[i]])
         A_scale_list.append(A_scales[start : offs_cpu[i]])
         result_list.append(result[start : offs_cpu[i]])
         start = offs_cpu[i]
 
-    # Validate result of each part of the grouped mm is equal to the separate scaled mm.
+    # Validate each result group == manual _scaled_mm for the group == matmul_with_hp_or_float8_args for the group.
     outputs = []
-    for a, b, ascale, bscale, group_result in zip(
-        A_list, B_t_fp8, A_scale_list, B_t_scales, result_list
-    ):
-        ref_group_result = torch._scaled_mm(
-            a,
-            b,
-            ascale,
-            bscale,
+    list1 = list(zip(
+        A_list_fp8, B_t_fp8, A_scale_list, B_t_scales, result_list
+    ))
+    list2 = list(zip(
+        A_list, B_t, result_list
+    ))
+    for i in range(len(list1)):
+        a1, b1, a1scale, b1scale, result1 = list1[i]
+        ref_group_result1 = torch._scaled_mm(
+            a1,
+            b1,
+            a1scale.reciprocal(),
+            b1scale.reciprocal(),
             out_dtype=torch.bfloat16,
-            use_fast_accum=use_fast_accum,
+            bias=None,
+            use_fast_accum=True,
         )
-
-        # Verify group result is accurate.
-        assert torch.equal(group_result, ref_group_result)
-        outputs.append(ref_group_result)
+        a2, b2, result2 = list2[i]
+        ref_group_result2 = matmul_with_hp_or_float8_args.apply(
+            a2,
+            b2,
+            LinearMMConfig(),
+            float8_config,
+        )
+        assert torch.equal(ref_group_result1, ref_group_result2)
+        assert torch.equal(result1, ref_group_result1)
+        assert torch.equal(result2, ref_group_result2)
+        outputs.append(ref_group_result2)
 
     # Concatenate the outputs and verify the full result is correct.
     output_ref = torch.cat(outputs, dim=0)

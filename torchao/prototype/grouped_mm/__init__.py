@@ -20,7 +20,6 @@ def _grouped_scaled_mm(
     float8_recipe: Float8LinearRecipeName,
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = None,
-    use_fast_accum: bool = False,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization on the input tensors A and B using the given recipe,
@@ -40,7 +39,6 @@ def _grouped_scaled_mm(
         float8_recipe,
         offs,
         out_dtype,
-        use_fast_accum,
     )
 
 
@@ -55,7 +53,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         float8_recipe_name: Float8LinearRecipeName,
         offs: torch.Tensor,
         out_dtype: Optional[torch.dtype] = None,
-        use_fast_accum: bool = False,
     ) -> torch.Tensor:
         # torch._scaled_grouped_mm only supports rowwise scaling currently.
         assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, (
@@ -80,7 +77,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         ctx.save_for_backward(A, B)
         ctx.float8_config = float8_config
         ctx.offs = offs
-        ctx.use_fast_accum = use_fast_accum
         ctx.out_dtype = out_dtype
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
@@ -121,11 +117,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         return torch._scaled_grouped_mm(
             A_fp8_row_major._data,
             B_fp8_col_major._data,
-            A_scale,
-            B_scale,
+            A_scale.reciprocal(),
+            B_scale.reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=use_fast_accum,
+            use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
         )
 
     @staticmethod
@@ -133,7 +129,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         A, B = ctx.saved_tensors
         offs = ctx.offs
         float8_config = ctx.float8_config
-        use_fast_accum = ctx.use_fast_accum
         out_dtype = ctx.out_dtype
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
@@ -182,11 +177,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_A = torch._scaled_grouped_mm(
             grad_output_fp8_row_major._data,
             B_non_transposed_fp8_col_major._data,
-            grad_output_scale,
-            B_scale,
+            grad_output_scale.reciprocal(),
+            B_scale.reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=use_fast_accum,
+            use_fast_accum=float8_config.gemm_config_grad_input.use_fast_accum,
         )
 
         # Convert tranpose of grad_output to float8, row-major for left operand of grouped GEMM
@@ -220,11 +215,11 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_B = torch._scaled_grouped_mm(
             grad_output_t_fp8_row_major,
             A_fp8_col_major,
-            grad_output_t_scales,
-            A_scales,
+            grad_output_t_scales.reciprocal(),
+            A_scales.reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=use_fast_accum,
+            use_fast_accum=float8_config.gemm_config_grad_weight.use_fast_accum,
         )
         # Since B was transposed before entry to forward, we need to transpose the grad_B to get the gradient for transposed B input.
         return grad_A, grad_B.transpose(-2, -1), None, None, None, None
