@@ -69,6 +69,7 @@ def test_grouped_gemm_2d_3d():
         float8_recipe_name,
         offs,
     )
+    assert torch.equal(out, ref_out)
 
     # Run backward pass.
     out.sum().backward()
