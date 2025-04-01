@@ -320,7 +320,7 @@ void prepare_weight_data(
               bias);
 }
 
-template <int weight_nbit>
+template <int weight_nbit, bool has_weight_zeros>
 void kernel(
     // Outputs
     float32_t* output,
@@ -335,12 +335,13 @@ void kernel(
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max,
-    bool has_weight_zeros,
+    bool has_weight_zeros_,
     bool has_bias,
     bool has_clamp) {
+  (void)has_weight_zeros_; // unused
   torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::
-          kernel_1x8x16_f32_neondot<weight_nbit, /*has_lut*/ false>(
+          kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, /*has_lut*/ false>(
               output,
               output_m_stride,
               m,
