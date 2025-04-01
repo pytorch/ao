@@ -9,9 +9,11 @@
 torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training.
 
 From the team that brought you the fast series
-* 9.5x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
-* 10x speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
-* 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+* 9.5x inference speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
+* 10x inference speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
+* 3x inference speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+
+torchao works for training too, with [up to 1.5x e2e speedups](https://pytorch.org/blog/training-using-float8-fsdp2/) on large scale (512 GPU / 405B parameter count) pretraining jobs with `torchao.float8`!
 
 torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models on Huggingface out of the box.
 
@@ -90,14 +92,20 @@ quantize_(my_model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 
 [torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
 
-With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on 128 H100 GPU LLaMa 3 70B pretraining jobs** ([details](https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359))
+With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on up to 512 GPU / 405B parameter count scale** ([details](https://pytorch.org/blog/training-using-float8-fsdp2/))
 
 ```python
 from torchao.float8 import convert_to_float8_training
 convert_to_float8_training(m, module_filter_fn=...)
 ```
 
-And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md)
+And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md). 
+
+#### Blog posts about float8 training
+
+* [Supercharging Training using float8 and FSDP2](https://pytorch.org/blog/training-using-float8-fsdp2/)
+* [Efficient Pre-training of Llama 3-like model architectures using torchtitan on Amazon SageMaker](https://aws.amazon.com/blogs/machine-learning/efficient-pre-training-of-llama-3-like-model-architectures-using-torchtitan-on-amazon-sagemaker/)
+* [Float8 in PyTorch](https://dev-discuss.pytorch.org/t/float8-in-pytorch-1-x/1815)
 
 
 ### Sparse Training
