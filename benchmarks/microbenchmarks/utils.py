@@ -4,13 +4,16 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import csv
+import json
 import os
 import subprocess
+import uuid
 from typing import Any, Dict, List, Optional
 import uuid
 
 import torch
 from tabulate import tabulate
+from torch.profiler import ProfilerActivity
 from torch.utils.benchmark import Timer
 from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -83,10 +86,10 @@ def upload_trace_file(local_path: str, overwrite: bool = False) -> Optional[str]
 
 def print_perfetto_ui_url(manifold_path: str) -> Optional[str]:
     """Generate and print the Perfetto UI URL for a Manifold trace file.
-    
+
     Args:
         manifold_path: Path to the trace file in Manifold
-        
+
     Returns:
         The URL to the Perfetto UI or None if there was an error
     """
@@ -104,12 +107,12 @@ def print_perfetto_ui_url(manifold_path: str) -> Optional[str]:
 
 def generate_model_profile(model, input_data, profile_file_path):
     """Function to benchmark model evaluation with profiling.
-    
+
     Args:
         model: The model to profile
         input_data: Input data for the model
         profile_file_path: Path to save the profiler output
-        
+
     Returns:
         Tuple of (profile_file_path, perfetto_url)
     """
@@ -118,43 +121,199 @@ def generate_model_profile(model, input_data, profile_file_path):
     
     # Initialize profiler
     torch.profiler._utils._init_for_cuda_graphs()
-    
+
     # Set up profiler activities based on device
     activities = [ProfilerActivity.CPU]
-    if torch.cuda.is_available() and next(model.parameters()).device.type == 'cuda':
+    device = next(model.parameters()).device
+    if device.type == "cuda" and torch.cuda.is_available():
         activities.append(ProfilerActivity.CUDA)
-    
-    # Run profiler
+
+    # Run profiler with minimal settings to ensure compatibility
     prof = torch.profiler.profile(
-        activities=activities, 
+        activities=activities,
         record_shapes=True,
-        with_stack=True,
-        profile_memory=True
+        with_stack=False,  # Disable stack traces to reduce overhead
+        profile_memory=False,  # Disable memory profiling as it's not reliable across all devices
     )
-    
+
+    # Warm up
+    with torch.no_grad():
+        for _ in range(3):
+            _ = model(input_data)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
+    # Profile
     with prof:
-        for _ in range(5):  # Run the model multiple times to warm up the cache
-            with torch.no_grad():
-                _ = model(input_data)
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-    
+        with torch.no_grad():
+            _ = model(input_data)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
     # Save profiling details
     prof.export_chrome_trace(profile_file_path)
     print(f"Profile saved to: {profile_file_path}")
-    
+
     # Try to upload to Perfetto UI
     perfetto_url = None
     try:
         manifold_path = upload_trace_file(profile_file_path)
         if manifold_path:
-            print_perfetto_ui_url(manifold_path)
-            perfetto_url = manifold_path
+            perfetto_url = print_perfetto_ui_url(manifold_path)
     except Exception as e:
         print(f"Warning: Failed to upload profile to Perfetto UI: {e}")
-    
-    # Return the file path and perfetto URL
+
     return profile_file_path, perfetto_url
+
+
+# def visualize_memory_profile(pickle_path: str, output_html_path: Optional[str] = None) -> Optional[str]:
+#     """Visualize memory profile from pickle file using PyTorch's memory visualization tools.
+
+#     Args:
+#         pickle_path: Path to the pickle file containing memory snapshot
+#         output_html_path: Optional path to save the HTML visualization. If None, will use pickle_path with .html extension
+
+#     Returns:
+#         Path to the generated HTML file if successful, None otherwise
+#     """
+#     try:
+#         import subprocess
+#         import sys
+
+#         if output_html_path is None:
+#             output_html_path = pickle_path.replace('.pickle', '.html')
+
+#         # Get the path to PyTorch's memory visualization script
+#         pytorch_dir = os.path.dirname(os.path.dirname(torch.__file__))
+#         memory_viz_script = os.path.join(pytorch_dir, "torch", "cuda", "_memory_viz.py")
+
+#         if not os.path.exists(memory_viz_script):
+#             print(f"Warning: Memory visualization script not found at {memory_viz_script}")
+#             return None
+
+#         # Run the visualization script
+#         cmd = [
+#             sys.executable,
+#             memory_viz_script,
+#             "trace_plot",
+#             pickle_path,
+#             "-o",
+#             output_html_path
+#         ]
+
+#         result = subprocess.run(
+#             cmd,
+#             stdout=subprocess.PIPE,
+#             stderr=subprocess.PIPE,
+#             universal_newlines=True
+#         )
+
+#         if result.returncode == 0:
+#             print(f"Memory visualization saved to: {output_html_path}")
+#             return output_html_path
+#         else:
+#             print(f"Warning: Failed to generate memory visualization: {result.stderr}")
+#             return None
+
+#     except Exception as e:
+#         print(f"Warning: Failed to generate memory visualization: {e}")
+#         return None
+
+
+def generate_memory_profile(model, input_data, profile_file_path):
+    """Function to generate memory profile for model evaluation.
+
+    Args:
+        model: The model to profile
+        input_data: Input data for the model
+        profile_file_path: Path to save the memory profile output
+
+    Returns:
+        Tuple of (profile_file_path, memory_stats)
+    """
+    # Create parent directory if it doesn't exist
+    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
+
+    device = next(model.parameters()).device
+    memory_stats = {
+        "peak_memory_allocated": 0,
+        "peak_memory_reserved": 0,
+        "total_memory_allocated": 0,
+        "total_memory_reserved": 0,
+        "memory_events": [],
+    }
+
+    if device.type == "cuda":
+        # Enable memory history recording for CUDA
+        torch.cuda.memory._record_memory_history(
+            True, trace_alloc_max_entries=250000, trace_alloc_record_context=True
+        )
+
+        # Reset CUDA memory stats
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.empty_cache()
+
+        # Warm up
+        with torch.no_grad():
+            for _ in range(3):
+                _ = model(input_data)
+                torch.cuda.synchronize()
+
+        # Profile memory
+        with torch.no_grad():
+            _ = model(input_data)
+            torch.cuda.synchronize()
+
+        # Collect memory stats
+        memory_stats.update(
+            {
+                "peak_memory_allocated": torch.cuda.max_memory_allocated()
+                / 1024**2,  # Convert to MB
+                "peak_memory_reserved": torch.cuda.max_memory_reserved() / 1024**2,
+                "total_memory_allocated": torch.cuda.memory_allocated() / 1024**2,
+                "total_memory_reserved": torch.cuda.memory_reserved() / 1024**2,
+            }
+        )
+
+        # Get detailed memory snapshot
+        snapshot = torch.cuda.memory._snapshot()
+
+        # Save memory profile as pickle file
+        pickle_path = profile_file_path.replace(".json", ".pickle")
+        with open(pickle_path, "wb") as f:
+            from pickle import dump
+
+            dump(snapshot, f)
+
+        print(f"Memory profile saved to: {pickle_path}")
+        print(
+            f"\nmemory profile {pickle_path} saved, to convert that to a usable file, use",
+            "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html",
+        )
+
+        # TODO: Generate HTML visualization
+        # html_path = visualize_memory_profile(pickle_path)
+        # if html_path:
+        #     # Set the visualization path in the result
+        #     if isinstance(model, torch.nn.Module):
+        #         result = getattr(model, '_benchmark_result', None)
+        #         if result is not None:
+        #             result.memory_visualization_path = html_path
+
+        # Disable memory history recording
+        torch.cuda.memory._record_memory_history(False)
+
+    else:
+        print("Memory profiling only works on CUDA devices")
+        # TODO: Add XPU support when available
+        return profile_file_path, memory_stats
+
+    # Save basic stats as JSON for easy access
+    with open(profile_file_path, "w") as f:
+        json.dump(memory_stats, f, indent=2)
+
+    return profile_file_path, memory_stats
+
 
 class BenchmarkConfig:
     def __init__(
@@ -191,10 +350,16 @@ class BenchmarkConfig:
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profile = bool(params.get("enable_memory_profile", False))
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
-        self.profiler_file_name = os.path.join(profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_profile.json")
+        self.profiler_file_name = os.path.join(
+            profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_profile.json"
+        )
+        self.memory_profile_file_name = os.path.join(
+            profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_memory_profile.json"
+        )
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -217,6 +382,7 @@ class BenchmarkConfig:
             "model_type": self.model_type,
             "output_dir": self.output_dir,
             "enable_profiler": self.enable_profiler,
+            "enable_memory_profile": self.enable_memory_profile,
         }
 
 
@@ -230,15 +396,22 @@ class BenchmarkResult:
         self.model_inference_time_in_ms = 0.0
         self.profiler_json_path: Optional[str] = None
         self.perfetto_url: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
+        # self.memory_visualization_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
-        return {
+        result_dict = {
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
             "profiler_json_path": self.profiler_json_path,
             "perfetto_url": self.perfetto_url,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_stats": self.memory_stats,
+            # "memory_visualization_path": self.memory_visualization_path,
         }
+        return result_dict
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -493,7 +666,6 @@ def generate_results_csv(
     if not results:
         print("No results to save to CSV.")
         return
-        
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, file_name)
@@ -512,27 +684,49 @@ def generate_results_csv(
 
 def print_results(results: List[BenchmarkResult]):
     """Print results in a table format"""
+    if not results:
+        print("No results to display")
+        return
+
     table_data = []
     for result in results:
+        if result is None:
+            continue
+
         row = [
             result.config.name,
-            result.config.quantization,
-            result.config.sparsity,
+            result.config.quantization or "baseline",
+            result.config.sparsity or "none",
             f"{result.model_inference_time_in_ms:.2f}",
+            str(result.config.enable_profiler),
+            str(result.config.enable_memory_profile),
         ]
-        if result.config.enable_profiler:
-            if result.profiler_json_path:
-                profile_info = f"Profile saved to: {result.profiler_json_path}"
-                if result.perfetto_url:
-                    profile_info += " (Perfetto UI available)"
-                row.append(profile_info)
+
+        # Add memory profile data if enabled
+        if result.config.enable_memory_profile:
+            if result.memory_stats:
+                row.append(
+                    f"Peak memory: {result.memory_stats['peak_memory_allocated']:.2f}MB"
+                )
             else:
-                row.append("Profiling failed")
+                row.append("Memory profiling failed")
+
         table_data.append(row)
 
-    headers = ["Name", "Quantization", "Sparsity", "Inference Time (ms)"]
-    if any(r.config.enable_profiler for r in results):
-        headers.append("Profiler Data")
+    # Define headers
+    headers = [
+        "Name",
+        "Quantization",
+        "Sparsity",
+        "Inference Time (ms)",
+        "Profiler Enabled",
+        "Memory Profiling Enabled",
+    ]
+    if any(r.config.enable_memory_profile for r in results if r is not None):
+        headers.append("Memory Profile Data")
 
-    print("\nBenchmark Results:")
-    print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    if table_data:
+        print("\nBenchmark Results:")
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    else:
+        print("\nNo valid results to display")

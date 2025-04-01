@@ -36,7 +36,8 @@ model_params:
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
-    enable_profiler: true  # Disable profiling for this model
+    enable_profiler: true  # Enable profiling for this model
+    enable_memory_profile: true  # Enable memory profiling for this model
 
   # - name: "cpu_fp32_linear"
   #   matrix_shapes:
