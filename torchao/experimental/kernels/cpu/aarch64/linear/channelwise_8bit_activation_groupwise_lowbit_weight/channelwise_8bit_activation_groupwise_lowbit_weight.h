@@ -49,15 +49,21 @@ inline size_t packed_activations_offset(
   return (m_idx / mr) * packed_activations_size_mr_rows;
 }
 
-template <int mr, int kr, int sr>
+template <int mr_, int kr_, int sr_>
 void pack_activations(
     void* packed_activations,
     int m,
     int k,
     int group_size,
     const float* activations,
-    bool has_weight_zeros) {
-  activation_packing::pack_activations<mr, kr, sr>(
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
+  activation_packing::pack_activations<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
 }
 
@@ -93,7 +99,7 @@ inline size_t packed_weights_offset(
   return (n_idx / nr) * packed_weights_size_nr_cols;
 }
 
-template <int weight_nbit, int nr, int kr, int sr>
+template <int weight_nbit, int nr_, int kr_, int sr_>
 void pack_weights(
     void* packed_weights,
     int n,
@@ -102,8 +108,14 @@ void pack_weights(
     const int8_t* weight_qvals,
     const float* weight_scales,
     const int8_t* weight_zeros,
-    const float* bias) {
-  weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
+    const float* bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)nr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
+  weight_packing::pack_weights<weight_nbit, nr_, kr_, sr_>(
       packed_weights,
       n,
       k,
