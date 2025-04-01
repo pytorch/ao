@@ -90,9 +90,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Store what we need for backward.
-        ctx.save_for_backward(A, B)
+        ctx.save_for_backward(A, B, offs)
         ctx.float8_config = float8_config
-        ctx.offs = offs
         ctx.out_dtype = out_dtype
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
@@ -140,8 +139,7 @@ class _Float8GroupedMM(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        A, B = ctx.saved_tensors
-        offs = ctx.offs
+        A, B, offs = ctx.saved_tensors
         float8_config = ctx.float8_config
         out_dtype = ctx.out_dtype
 
