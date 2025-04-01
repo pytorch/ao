@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import math
 from typing import Optional, Tuple, Union
@@ -160,14 +165,18 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dq
 
     def __tensor_flatten__(self):
-        return ["tensor_impl"], [
-            self.block_size,
-            self.shape,
-            self.quant_min,
-            self.quant_max,
-            self.zero_point_domain,
-            self.dtype,
-        ]
+        # This is used in rumtime to unwrap AffineQuantizedTensor activations.
+        # AffineQuantizedTensor has __torch_function__ override:
+        # Each getattr will go through it, which is up to 10x slower than default attribute access.
+        with torch._C.DisableTorchFunctionSubclass():
+            return ["tensor_impl"], [
+                self.block_size,
+                self.shape,
+                self.quant_min,
+                self.quant_max,
+                self.zero_point_domain,
+                self.dtype,
+            ]
 
     @classmethod
     def __tensor_unflatten__(

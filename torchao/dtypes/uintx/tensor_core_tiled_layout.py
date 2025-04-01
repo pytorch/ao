@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -259,7 +264,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
-        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
+        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
         return cls(packed_weight, scale_and_zero, False, _layout)
 
     def to(self, *args, **kwargs):

@@ -152,9 +152,12 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
       vst1q_u8(buffer7 + 16, shifted1);
 
       torchao::bitpacking::internal::pack_8_uint7_values(packed, buffer7);
-      torchao::bitpacking::internal::pack_8_uint7_values(packed + 7, buffer7 + 8);
-      torchao::bitpacking::internal::pack_8_uint7_values(packed + 14, buffer7 + 16);
-      torchao::bitpacking::internal::pack_8_uint7_values(packed + 21, buffer7 + 24);
+      torchao::bitpacking::internal::pack_8_uint7_values(
+          packed + 7, buffer7 + 8);
+      torchao::bitpacking::internal::pack_8_uint7_values(
+          packed + 14, buffer7 + 16);
+      torchao::bitpacking::internal::pack_8_uint7_values(
+          packed + 21, buffer7 + 24);
       break;
     case 8:
       vst1q_u8(packed, vreinterpretq_u8_s8(unpacked0));
@@ -284,7 +287,6 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_64_lowbit_values(
     shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
   }
 
-
   switch (nbit) {
     case 1:
       torchao::bitpacking::internal::vec_pack_64_uint1_values(
@@ -395,6 +397,204 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_64_lowbit_values(
 }
 
 template <int nbit>
+TORCHAO_ALWAYS_INLINE inline void vec_pack_128_uintx_values(
+    uint8_t* packed,
+    const uint8x16_t& unpacked0,
+    const uint8x16_t& unpacked1,
+    const uint8x16_t& unpacked2,
+    const uint8x16_t& unpacked3,
+    const uint8x16_t& unpacked4,
+    const uint8x16_t& unpacked5,
+    const uint8x16_t& unpacked6,
+    const uint8x16_t& unpacked7) {
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
+  switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_pack_128_uint1_values(
+          packed,
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7);
+      break;
+    case 2:
+      torchao::bitpacking::internal::vec_pack_64_uint2_values(
+          packed, unpacked0, unpacked1, unpacked2, unpacked3);
+      torchao::bitpacking::internal::vec_pack_64_uint2_values(
+          packed + 16, unpacked4, unpacked5, unpacked6, unpacked7);
+      break;
+    case 3:
+      torchao::bitpacking::internal::vec_pack_128_uint3_values(
+          packed,
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7);
+      break;
+    case 4:
+      torchao::bitpacking::internal::vec_pack_32_uint4_values(
+          packed, unpacked0, unpacked1);
+      torchao::bitpacking::internal::vec_pack_32_uint4_values(
+          packed + 16, unpacked2, unpacked3);
+      torchao::bitpacking::internal::vec_pack_32_uint4_values(
+          packed + 32, unpacked4, unpacked5);
+      torchao::bitpacking::internal::vec_pack_32_uint4_values(
+          packed + 48, unpacked6, unpacked7);
+      break;
+    case 5:
+      torchao::bitpacking::internal::vec_pack_128_uint5_values(
+          packed,
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7);
+      break;
+    case 6:
+      torchao::bitpacking::internal::vec_pack_64_uint6_values(
+          packed, unpacked0, unpacked1, unpacked2, unpacked3);
+      torchao::bitpacking::internal::vec_pack_64_uint6_values(
+          packed + 48, unpacked4, unpacked5, unpacked6, unpacked7);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_pack_128_uint7_values(
+          packed,
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7);
+      break;
+    case 8:
+      vst1q_u8(packed, unpacked0);
+      vst1q_u8(packed + 16, unpacked1);
+      vst1q_u8(packed + 32, unpacked2);
+      vst1q_u8(packed + 48, unpacked3);
+      vst1q_u8(packed + 64, unpacked4);
+      vst1q_u8(packed + 80, unpacked5);
+      vst1q_u8(packed + 96, unpacked6);
+      vst1q_u8(packed + 112, unpacked7);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+template <int nbit>
+TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_uintx_values(
+    uint8x16_t& unpacked0,
+    uint8x16_t& unpacked1,
+    uint8x16_t& unpacked2,
+    uint8x16_t& unpacked3,
+    uint8x16_t& unpacked4,
+    uint8x16_t& unpacked5,
+    uint8x16_t& unpacked6,
+    uint8x16_t& unpacked7,
+    const uint8_t* packed) {
+  static_assert(nbit < 9);
+  static_assert(nbit >= 1);
+  switch (nbit) {
+    case 1:
+      torchao::bitpacking::internal::vec_unpack_128_uint1_values(
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7,
+          packed);
+      break;
+    case 2:
+      torchao::bitpacking::internal::vec_unpack_64_uint2_values(
+          unpacked0, unpacked1, unpacked2, unpacked3, packed);
+      torchao::bitpacking::internal::vec_unpack_64_uint2_values(
+          unpacked4, unpacked5, unpacked6, unpacked7, packed + 16);
+      break;
+    case 3:
+      torchao::bitpacking::internal::vec_unpack_128_uint3_values(
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7,
+          packed);
+      break;
+    case 4:
+      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
+          unpacked0, unpacked1, packed);
+      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
+          unpacked2, unpacked3, packed + 16);
+      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
+          unpacked4, unpacked5, packed + 32);
+      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
+          unpacked6, unpacked7, packed + 48);
+      break;
+    case 5:
+      torchao::bitpacking::internal::vec_unpack_128_uint5_values(
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7,
+          packed);
+      break;
+    case 6:
+      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+          unpacked0, unpacked1, unpacked2, unpacked3, packed);
+      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+          unpacked4, unpacked5, unpacked6, unpacked7, packed + 48);
+      break;
+    case 7:
+      torchao::bitpacking::internal::vec_unpack_128_uint7_values(
+          unpacked0,
+          unpacked1,
+          unpacked2,
+          unpacked3,
+          unpacked4,
+          unpacked5,
+          unpacked6,
+          unpacked7,
+          packed);
+      break;
+    case 8:
+      unpacked0 = vld1q_u8(packed);
+      unpacked1 = vld1q_u8(packed + 16);
+      unpacked2 = vld1q_u8(packed + 32);
+      unpacked3 = vld1q_u8(packed + 48);
+      unpacked4 = vld1q_u8(packed + 64);
+      unpacked5 = vld1q_u8(packed + 80);
+      unpacked6 = vld1q_u8(packed + 96);
+      unpacked7 = vld1q_u8(packed + 112);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+template <int nbit>
 TORCHAO_ALWAYS_INLINE inline void vec_pack_128_lowbit_values(
     uint8_t* packed,
     const int8x16_t& unpacked0,
@@ -410,111 +610,37 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_128_lowbit_values(
 
   // Shift unpacked values to nonnegative range for quantization of 1-7 bits
   // No shifting is needed for 8-bit packing
-  uint8x16_t shifted0;
-  uint8x16_t shifted1;
-  uint8x16_t shifted2;
-  uint8x16_t shifted3;
-  uint8x16_t shifted4;
-  uint8x16_t shifted5;
-  uint8x16_t shifted6;
-  uint8x16_t shifted7;
+  uint8x16_t uintx0;
+  uint8x16_t uintx1;
+  uint8x16_t uintx2;
+  uint8x16_t uintx3;
+  uint8x16_t uintx4;
+  uint8x16_t uintx5;
+  uint8x16_t uintx6;
+  uint8x16_t uintx7;
   if constexpr (nbit < 8) {
     int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
-    shifted0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
-    shifted1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
-    shifted2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
-    shifted3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
-    shifted4 = vreinterpretq_u8_s8(vaddq_s8(unpacked4, shift));
-    shifted5 = vreinterpretq_u8_s8(vaddq_s8(unpacked5, shift));
-    shifted6 = vreinterpretq_u8_s8(vaddq_s8(unpacked6, shift));
-    shifted7 = vreinterpretq_u8_s8(vaddq_s8(unpacked7, shift));
+    uintx0 = vreinterpretq_u8_s8(vaddq_s8(unpacked0, shift));
+    uintx1 = vreinterpretq_u8_s8(vaddq_s8(unpacked1, shift));
+    uintx2 = vreinterpretq_u8_s8(vaddq_s8(unpacked2, shift));
+    uintx3 = vreinterpretq_u8_s8(vaddq_s8(unpacked3, shift));
+    uintx4 = vreinterpretq_u8_s8(vaddq_s8(unpacked4, shift));
+    uintx5 = vreinterpretq_u8_s8(vaddq_s8(unpacked5, shift));
+    uintx6 = vreinterpretq_u8_s8(vaddq_s8(unpacked6, shift));
+    uintx7 = vreinterpretq_u8_s8(vaddq_s8(unpacked7, shift));
+  } else {
+    static_assert(nbit == 8);
+    uintx0 = vreinterpretq_u8_s8(unpacked0);
+    uintx1 = vreinterpretq_u8_s8(unpacked1);
+    uintx2 = vreinterpretq_u8_s8(unpacked2);
+    uintx3 = vreinterpretq_u8_s8(unpacked3);
+    uintx4 = vreinterpretq_u8_s8(unpacked4);
+    uintx5 = vreinterpretq_u8_s8(unpacked5);
+    uintx6 = vreinterpretq_u8_s8(unpacked6);
+    uintx7 = vreinterpretq_u8_s8(unpacked7);
   }
-
-
-  switch (nbit) {
-    case 1:
-      torchao::bitpacking::internal::vec_pack_128_uint1_values(
-          packed,
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7);
-      break;
-    case 2:
-      torchao::bitpacking::internal::vec_pack_64_uint2_values(
-          packed, shifted0, shifted1, shifted2, shifted3);
-      torchao::bitpacking::internal::vec_pack_64_uint2_values(
-          packed + 16, shifted4, shifted5, shifted6, shifted7);
-      break;
-    case 3:
-      torchao::bitpacking::internal::vec_pack_128_uint3_values(
-          packed,
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7);
-      break;
-    case 4:
-      torchao::bitpacking::internal::vec_pack_32_uint4_values(
-          packed, shifted0, shifted1);
-      torchao::bitpacking::internal::vec_pack_32_uint4_values(
-          packed + 16, shifted2, shifted3);
-      torchao::bitpacking::internal::vec_pack_32_uint4_values(
-          packed + 32, shifted4, shifted5);
-      torchao::bitpacking::internal::vec_pack_32_uint4_values(
-          packed + 48, shifted6, shifted7);
-      break;
-    case 5:
-      torchao::bitpacking::internal::vec_pack_128_uint5_values(
-          packed,
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7);
-      break;
-    case 6:
-      torchao::bitpacking::internal::vec_pack_64_uint6_values(
-          packed, shifted0, shifted1, shifted2, shifted3);
-      torchao::bitpacking::internal::vec_pack_64_uint6_values(
-          packed + 48, shifted4, shifted5, shifted6, shifted7);
-      break;
-    case 7:
-      torchao::bitpacking::internal::vec_pack_128_uint7_values(
-          packed,
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7);
-      break;
-    case 8:
-      vst1q_u8(packed, vreinterpretq_u8_s8(unpacked0));
-      vst1q_u8(packed + 16, vreinterpretq_u8_s8(unpacked1));
-      vst1q_u8(packed + 32, vreinterpretq_u8_s8(unpacked2));
-      vst1q_u8(packed + 48, vreinterpretq_u8_s8(unpacked3));
-      vst1q_u8(packed + 64, vreinterpretq_u8_s8(unpacked4));
-      vst1q_u8(packed + 80, vreinterpretq_u8_s8(unpacked5));
-      vst1q_u8(packed + 96, vreinterpretq_u8_s8(unpacked6));
-      vst1q_u8(packed + 112, vreinterpretq_u8_s8(unpacked7));
-      break;
-    default:
-      assert(false);
-  }
+  vec_pack_128_uintx_values<nbit>(
+      packed, uintx0, uintx1, uintx2, uintx3, uintx4, uintx5, uintx6, uintx7);
 }
 
 template <int nbit>
@@ -530,114 +656,74 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values(
     const uint8_t* packed) {
   static_assert(nbit < 9);
   static_assert(nbit >= 1);
-
-  uint8x16_t shifted0;
-  uint8x16_t shifted1;
-  uint8x16_t shifted2;
-  uint8x16_t shifted3;
-  uint8x16_t shifted4;
-  uint8x16_t shifted5;
-  uint8x16_t shifted6;
-  uint8x16_t shifted7;
-
-  switch (nbit) {
-    case 1:
-      torchao::bitpacking::internal::vec_unpack_128_uint1_values(
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7,
-          packed);
-      break;
-    case 2:
-      torchao::bitpacking::internal::vec_unpack_64_uint2_values(
-          shifted0, shifted1, shifted2, shifted3, packed);
-      torchao::bitpacking::internal::vec_unpack_64_uint2_values(
-          shifted4, shifted5, shifted6, shifted7, packed + 16);
-      break;
-    case 3:
-      torchao::bitpacking::internal::vec_unpack_128_uint3_values(
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7,
-          packed);
-      break;
-    case 4:
-      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
-          shifted0, shifted1, packed);
-      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
-          shifted2, shifted3, packed + 16);
-      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
-          shifted4, shifted5, packed + 32);
-      torchao::bitpacking::internal::vec_unpack_32_uint4_values(
-          shifted6, shifted7, packed + 48);
-      break;
-    case 5:
-      torchao::bitpacking::internal::vec_unpack_128_uint5_values(
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7,
-          packed);
-      break;
-    case 6:
-      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
-          shifted0, shifted1, shifted2, shifted3, packed);
-      torchao::bitpacking::internal::vec_unpack_64_uint6_values(
-          shifted4, shifted5, shifted6, shifted7, packed + 48);
-      break;
-    case 7:
-      torchao::bitpacking::internal::vec_unpack_128_uint7_values(
-          shifted0,
-          shifted1,
-          shifted2,
-          shifted3,
-          shifted4,
-          shifted5,
-          shifted6,
-          shifted7,
-          packed);
-      break;
-    case 8:
-      unpacked0 = vreinterpretq_s8_u8(vld1q_u8(packed));
-      unpacked1 = vreinterpretq_s8_u8(vld1q_u8(packed + 16));
-      unpacked2 = vreinterpretq_s8_u8(vld1q_u8(packed + 32));
-      unpacked3 = vreinterpretq_s8_u8(vld1q_u8(packed + 48));
-      unpacked4 = vreinterpretq_s8_u8(vld1q_u8(packed + 64));
-      unpacked5 = vreinterpretq_s8_u8(vld1q_u8(packed + 80));
-      unpacked6 = vreinterpretq_s8_u8(vld1q_u8(packed + 96));
-      unpacked7 = vreinterpretq_s8_u8(vld1q_u8(packed + 112));
-      break;
-    default:
-      assert(false);
-  }
+  uint8x16_t uintx0;
+  uint8x16_t uintx1;
+  uint8x16_t uintx2;
+  uint8x16_t uintx3;
+  uint8x16_t uintx4;
+  uint8x16_t uintx5;
+  uint8x16_t uintx6;
+  uint8x16_t uintx7;
+  vec_unpack_128_uintx_values<nbit>(
+      uintx0, uintx1, uintx2, uintx3, uintx4, uintx5, uintx6, uintx7, packed);
 
   // unshift to move unpacked values to full range
   // no shifting is needed for 8-bit packing
   if constexpr (nbit < 8) {
     int8x16_t unshift = vdupq_n_s8(-(1 << (nbit - 1)));
-    unpacked0 = vaddq_s8(vreinterpretq_s8_u8(shifted0), unshift);
-    unpacked1 = vaddq_s8(vreinterpretq_s8_u8(shifted1), unshift);
-    unpacked2 = vaddq_s8(vreinterpretq_s8_u8(shifted2), unshift);
-    unpacked3 = vaddq_s8(vreinterpretq_s8_u8(shifted3), unshift);
-    unpacked4 = vaddq_s8(vreinterpretq_s8_u8(shifted4), unshift);
-    unpacked5 = vaddq_s8(vreinterpretq_s8_u8(shifted5), unshift);
-    unpacked6 = vaddq_s8(vreinterpretq_s8_u8(shifted6), unshift);
-    unpacked7 = vaddq_s8(vreinterpretq_s8_u8(shifted7), unshift);
+    unpacked0 = vaddq_s8(vreinterpretq_s8_u8(uintx0), unshift);
+    unpacked1 = vaddq_s8(vreinterpretq_s8_u8(uintx1), unshift);
+    unpacked2 = vaddq_s8(vreinterpretq_s8_u8(uintx2), unshift);
+    unpacked3 = vaddq_s8(vreinterpretq_s8_u8(uintx3), unshift);
+    unpacked4 = vaddq_s8(vreinterpretq_s8_u8(uintx4), unshift);
+    unpacked5 = vaddq_s8(vreinterpretq_s8_u8(uintx5), unshift);
+    unpacked6 = vaddq_s8(vreinterpretq_s8_u8(uintx6), unshift);
+    unpacked7 = vaddq_s8(vreinterpretq_s8_u8(uintx7), unshift);
+  } else {
+    static_assert(nbit == 8);
+    unpacked0 = vreinterpretq_s8_u8(uintx0);
+    unpacked1 = vreinterpretq_s8_u8(uintx1);
+    unpacked2 = vreinterpretq_s8_u8(uintx2);
+    unpacked3 = vreinterpretq_s8_u8(uintx3);
+    unpacked4 = vreinterpretq_s8_u8(uintx4);
+    unpacked5 = vreinterpretq_s8_u8(uintx5);
+    unpacked6 = vreinterpretq_s8_u8(uintx6);
+    unpacked7 = vreinterpretq_s8_u8(uintx7);
   }
+}
+
+template <int nbit>
+TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values_with_lut(
+    int8x16_t& unpacked0,
+    int8x16_t& unpacked1,
+    int8x16_t& unpacked2,
+    int8x16_t& unpacked3,
+    int8x16_t& unpacked4,
+    int8x16_t& unpacked5,
+    int8x16_t& unpacked6,
+    int8x16_t& unpacked7,
+    const uint8_t* packed,
+    const int8x16_t& lut) {
+  static_assert(nbit <= 4);
+  static_assert(nbit >= 1);
+  uint8x16_t idx0;
+  uint8x16_t idx1;
+  uint8x16_t idx2;
+  uint8x16_t idx3;
+  uint8x16_t idx4;
+  uint8x16_t idx5;
+  uint8x16_t idx6;
+  uint8x16_t idx7;
+  vec_unpack_128_uintx_values<nbit>(
+      idx0, idx1, idx2, idx3, idx4, idx5, idx6, idx7, packed);
+  unpacked0 = vqtbl1q_s8(lut, idx0);
+  unpacked1 = vqtbl1q_s8(lut, idx1);
+  unpacked2 = vqtbl1q_s8(lut, idx2);
+  unpacked3 = vqtbl1q_s8(lut, idx3);
+  unpacked4 = vqtbl1q_s8(lut, idx4);
+  unpacked5 = vqtbl1q_s8(lut, idx5);
+  unpacked6 = vqtbl1q_s8(lut, idx6);
+  unpacked7 = vqtbl1q_s8(lut, idx7);
 }
 
 } // namespace bitpacking
