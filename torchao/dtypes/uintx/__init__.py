@@ -42,7 +42,6 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "CutlassInt4PackedLayout",
-    "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
 ]
