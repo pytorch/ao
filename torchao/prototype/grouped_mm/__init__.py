@@ -319,8 +319,6 @@ def _to_2d_jagged_float8_tensor_rowwise(
     """
     assert x.ndim == 2, "input tensor must be 2D"
 
-    # Special case: for the 2D-2D grouped GEMM of grad_B = grad_output_t @ A, the rowwise A scales need be computed
-    # for each subtensor in A separately (as defined by the offsets).
     num_groups = offs.numel()
     x_fp8 = torch.empty_like(x, dtype=target_dtype)
     x_scales = torch.empty(
