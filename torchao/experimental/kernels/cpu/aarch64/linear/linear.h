@@ -340,7 +340,7 @@ void kernel(
     bool has_clamp) {
   torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::
-          kernel_1x8x16_f32_neondot<weight_nbit>(
+          kernel_1x8x16_f32_neondot<weight_nbit, /*has_lut*/ false>(
               output,
               output_m_stride,
               m,

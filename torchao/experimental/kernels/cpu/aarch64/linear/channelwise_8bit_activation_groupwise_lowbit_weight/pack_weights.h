@@ -5,9 +5,11 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
+#include <array>
 #include <cstring>
 
-namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing {
+namespace torchao::kernels::cpu::aarch64::linear::
+    channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing {
 
 namespace internal {
 
@@ -41,6 +43,29 @@ TORCHAO_ALWAYS_INLINE inline void pack_buffer(
   if constexpr (kr * nr == 32) {
     bitpacking::vec_pack_32_lowbit_values<weight_nbit>(
         (uint8_t*)packed_weights, vld1q_s8(buffer), vld1q_s8(buffer + 16));
+    return;
+  }
+  assert(false);
+}
+
+template <int weight_nbit, int kr, int nr>
+TORCHAO_ALWAYS_INLINE inline void pack_buffer_for_lut(
+    void* packed_weights,
+    const int8_t* buffer) {
+  static_assert(weight_nbit >= 1);
+  static_assert(weight_nbit <= 4);
+  const uint8_t* buffer_u8 = reinterpret_cast<const uint8_t*>(buffer);
+  if constexpr (kr * nr == 128) {
+    bitpacking::vec_pack_128_uintx_values<weight_nbit>(
+        (uint8_t*)packed_weights,
+        vld1q_u8(buffer_u8),
+        vld1q_u8(buffer_u8 + 16),
+        vld1q_u8(buffer_u8 + 32),
+        vld1q_u8(buffer_u8 + 48),
+        vld1q_u8(buffer_u8 + 64),
+        vld1q_u8(buffer_u8 + 80),
+        vld1q_u8(buffer_u8 + 96),
+        vld1q_u8(buffer_u8 + 112));
     return;
   }
   assert(false);
@@ -188,28 +213,74 @@ size_t inline packed_weights_size_per_n(
   return col_size;
 }
 
-} // namespace internal
+TORCHAO_ALWAYS_INLINE inline void
+map_values(int8_t* dst, int8_t* src, int8x16_t lut, int size) {
+  // src will be in range 0 to 16, which fits in int8_t
+  assert(size % 16 == 0);
+  for (int i = 0; i < size; i += 16) {
+    uint8x16_t idx = vreinterpretq_u8_s8(vld1q_s8(src + i));
+    vst1q_s8(dst + i, vqtbl1q_s8(lut, idx));
+  }
+}
 
-template <int weight_nbit, int nr, int kr, int sr>
-void pack_weights(
+// Call pack_weights every n_step columns
+
+template <int weight_nbit, int nr, int kr, int sr, bool has_lut>
+TORCHAO_ALWAYS_INLINE inline void pack_weights_impl(
     // Output
     void* packed_weights,
     // Inputs
     int n,
     int k,
     int group_size,
-    const int8_t* weight_qvals,
+    // weight_ints holds weight_qvals if has_lut is false
+    // Otherwise it holds weight_qval_idxs
+    const int8_t* weight_ints,
+    // number of luts, not used if has_lut is false
+    // must be nr group or coarser (per tensor)
+    int n_luts,
+    const int8_t*
+        luts, // luts (each 2**weight_nbit values), not used if has_lut is false
     const float* weight_scales,
     // weight_zeros not packed if nullptr
     const int8_t* weight_zeros,
     // bias not packed if nullptr
     const float* bias) {
+  if constexpr (!has_lut) {
+    (void)n_luts; // unused
+    (void)luts; // unused
+  }
+
   assert(k % group_size == 0);
   assert(group_size % kr == 0);
   bool has_weight_zeros = (weight_zeros != nullptr);
   bool has_bias = (bias != nullptr);
-
   int groups_per_k = k / group_size;
+
+  // LUT has size lut_size, which is <= 16
+  // If lut_size < 16, we extend it with 0s in lut_buffer
+  int8x16_t lut;
+  constexpr int lut_size = (1 << weight_nbit);
+  std::array<int8_t, 16> lut_buffer;
+  int cols_per_lut;
+
+  // Buffer to hold kr qvals, mapped with LUT from qval_idxs
+  std::array<int8_t, kr> mapped_val_buffer;
+  if constexpr (has_lut) {
+    static_assert(weight_nbit <= 4);
+    static_assert(lut_size <= 16);
+    lut_buffer.fill(0);
+
+    assert(n % n_luts == 0);
+    cols_per_lut = n / n_luts;
+    assert((cols_per_lut == n) || (cols_per_lut % nr == 0));
+  } else {
+    (void)lut; // unused
+    (void)lut_size; // unused
+    (void)lut_buffer; // unused
+    (void)cols_per_lut; // unused
+    (void)mapped_val_buffer; // unused
+  }
 
   // Buffer to hold (kr * nr) values
   std::array<int8_t, nr * kr> buffer;
@@ -232,6 +303,18 @@ void pack_weights(
   for (int n_idx = 0; n_idx < n; n_idx += nr) {
     // Look over groups along k
     for (int group_idx = 0; group_idx < groups_per_k; group_idx++) {
+      // Populate lut and write it out to packed_weights
+      if constexpr (has_lut) {
+        // Set lut variable and write lut for nr group
+        if (group_idx == 0) {
+          int lut_idx = n_idx / cols_per_lut;
+          std::memcpy(lut_buffer.data(), luts + lut_idx * lut_size, lut_size);
+          lut = vld1q_s8(lut_buffer.data());
+          vst1q_s8((int8_t*)packed_weights_byte_ptr, lut);
+          packed_weights_byte_ptr += 16;
+        }
+      }
+
       // Initialize qvals_sum for each group to 0
       qvals_sum.fill(0);
 
@@ -246,16 +329,29 @@ void pack_weights(
           if (n_idx + j < n) {
             std::memcpy(
                 buffer.data() + kr * j,
-                weight_qvals + (n_idx + j) * k + (k_idx + idx_in_group),
+                weight_ints + (n_idx + j) * k + (k_idx + idx_in_group),
                 kr);
-            qvals_sum[j] += reduction::compute_sum(buffer.data() + kr * j, kr);
+            if constexpr (has_lut) {
+              internal::map_values(
+                  mapped_val_buffer.data(), buffer.data() + kr * j, lut, kr);
+              qvals_sum[j] +=
+                  reduction::compute_sum(mapped_val_buffer.data(), kr);
+            } else {
+              qvals_sum[j] +=
+                  reduction::compute_sum(buffer.data() + kr * j, kr);
+            }
           }
         }
 
         // Pack buffer
         internal::pack_values(packed_values, buffer.data(), nr, kr, sr);
-        internal::pack_buffer<weight_nbit, kr, nr>(
-            packed_weights_byte_ptr, packed_values);
+        if constexpr (has_lut) {
+          internal::pack_buffer_for_lut<weight_nbit, kr, nr>(
+              packed_weights_byte_ptr, packed_values);
+        } else {
+          internal::pack_buffer<weight_nbit, kr, nr>(
+              packed_weights_byte_ptr, packed_values);
+        }
         packed_weights_byte_ptr += packed_buffer_bytes;
       } // loop over group (idx_in_group)
 
@@ -303,6 +399,35 @@ void pack_weights(
       }
     }
   } // n_idx
+}
+
+} // namespace internal
+
+template <int weight_nbit, int nr, int kr, int sr>
+void pack_weights(
+    // Output
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qvals,
+    const float* weight_scales,
+    // weight_zeros not packed if nullptr
+    const int8_t* weight_zeros,
+    // bias not packed if nullptr
+    const float* bias) {
+  internal::pack_weights_impl<weight_nbit, nr, kr, sr, /*has_lut*/ false>(
+      packed_weights,
+      n,
+      k,
+      group_size,
+      /*weight_ints*/ weight_qvals,
+      /*n_luts*/ 0,
+      /*luts*/ nullptr,
+      weight_scales,
+      weight_zeros,
+      bias);
 }
 
 // Returns number of bytes required for weight_data
@@ -462,6 +587,56 @@ void unpack_weights(
   }
 }
 
-} // namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing
+template <int weight_nbit, int nr, int kr, int sr>
+void pack_weights_with_lut(
+    // Output
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qval_idxs,
+    int n_luts,
+    const int8_t* luts,
+    const float* weight_scales,
+    // weight_zeros not packed if nullptr
+    const int8_t* weight_zeros,
+    // bias not packed if nullptr
+    const float* bias) {
+  internal::pack_weights_impl<weight_nbit, nr, kr, sr, /*has_lut*/ true>(
+      packed_weights,
+      n,
+      k,
+      group_size,
+      weight_qval_idxs,
+      n_luts,
+      luts,
+      weight_scales,
+      weight_zeros,
+      bias);
+}
+
+size_t inline packed_weights_with_lut_size(
+    int n,
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    int nr) {
+  auto packed_weights_col_size = internal::packed_weights_size_per_n(
+      k, group_size, weight_nbit, has_weight_zeros, has_bias);
+
+  // Replace n with next multiple of nr >= n
+  n = ((n + nr - 1) / nr) * nr;
+
+  // Per nr columns, we have one 16 byte lut
+  auto lut_size = (n / nr) * 16;
+
+  return packed_weights_col_size * n + lut_size;
+}
+
+} // namespace
+  // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
