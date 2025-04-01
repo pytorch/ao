@@ -42,7 +42,7 @@ UKernelConfig get_ukernel_config() {
          /*prepare_activation_data_fn*/
          &kernel::prepare_activation_data,
          /*kernel*/
-         &kernel::kernel<weight_nbit>}}}};
+         &kernel::kernel<weight_nbit, has_weight_zeros>}}}};
 }
 
 template <

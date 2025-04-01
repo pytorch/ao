@@ -89,9 +89,11 @@ void register_ukernel_config_universal(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  check_format<weight_nbit>(
+
+  check_format(
       format,
-      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
+      weight_nbit);
 
   if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
@@ -99,25 +101,50 @@ void register_ukernel_config_universal(
       log_registration(format, "universal");
       namespace kernel = torchao::kernels::cpu::aarch64::linear::
           channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
-      table.register_ukernel_config(
-          format,
-          uarch,
-          UKernelConfig{
-              /*preferred_alignment*/ 16,
-              /*nr*/ 8,
-              /*weight_packing_config*/
-              {/*weight_data_size_fn*/
-               &kernel::weight_data_size<weight_nbit>,
-               /*prepare_weight_data_fn*/
-               &kernel::prepare_weight_data<weight_nbit>},
-              /*linear_configs*/
-              {{{/*mr*/ 1,
-                 /*activation_data_size_fn*/
-                 &kernel::activation_data_size,
-                 /*prepare_activation_data_fn*/
-                 &kernel::prepare_activation_data,
-                 /*kernel*/
-                 &kernel::kernel<weight_nbit>}}}});
+
+      if (format.has_weight_zeros) {
+        constexpr bool has_weight_zeros = true;
+        table.register_ukernel_config(
+            format,
+            uarch,
+            UKernelConfig{
+                /*preferred_alignment*/ 16,
+                /*nr*/ 8,
+                /*weight_packing_config*/
+                {/*weight_data_size_fn*/
+                 &kernel::weight_data_size<weight_nbit>,
+                 /*prepare_weight_data_fn*/
+                 &kernel::prepare_weight_data<weight_nbit>},
+                /*linear_configs*/
+                {{{/*mr*/ 1,
+                   /*activation_data_size_fn*/
+                   &kernel::activation_data_size,
+                   /*prepare_activation_data_fn*/
+                   &kernel::prepare_activation_data,
+                   /*kernel*/
+                   &kernel::kernel<weight_nbit, has_weight_zeros>}}}});
+      } else {
+        constexpr bool has_weight_zeros = false;
+        table.register_ukernel_config(
+            format,
+            uarch,
+            UKernelConfig{
+                /*preferred_alignment*/ 16,
+                /*nr*/ 8,
+                /*weight_packing_config*/
+                {/*weight_data_size_fn*/
+                 &kernel::weight_data_size<weight_nbit>,
+                 /*prepare_weight_data_fn*/
+                 &kernel::prepare_weight_data<weight_nbit>},
+                /*linear_configs*/
+                {{{/*mr*/ 1,
+                   /*activation_data_size_fn*/
+                   &kernel::activation_data_size,
+                   /*prepare_activation_data_fn*/
+                   &kernel::prepare_activation_data,
+                   /*kernel*/
+                   &kernel::kernel<weight_nbit, has_weight_zeros>}}}});
+      }
       return;
     }
 #endif // TORCHAO_BUILD_CPU_AARCH64
@@ -166,7 +193,7 @@ void register_ukernel_config_kleidi(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  check_format<weight_nbit>(format, torchao::ops::PackedWeightsType::kleidi_ai);
+  check_format(format, torchao::ops::PackedWeightsType::kleidi_ai, weight_nbit);
   namespace op = torchao::kernels::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 

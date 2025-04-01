@@ -58,7 +58,7 @@ vec_clamp(float32x4_t x, float32x4_t vec_min, float32x4_t vec_max) {
 // Roughly inspired by
 // https://gitlab.arm.com/kleidi/kleidiai/-/blob/main/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp8x8_1x8x32_neon_dotprod.c?ref_type=heads
 
-template <int weight_nbit, bool has_lut>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -73,7 +73,6 @@ void kernel_1x8x16_f32_neondot(
     // Ignored if has_clamp is false
     float clamp_min,
     float clamp_max,
-    bool has_weight_zeros,
     bool has_bias,
     bool has_clamp) {
   assert(k % group_size == 0);
@@ -267,7 +266,7 @@ void kernel_1x8x16_f32_neondot(
 
         int32x4_t term1_4567 = vmulq_n_s32(weight_qvals_sum, activation_zero);
 
-        if (has_weight_zeros) {
+        if constexpr (has_weight_zeros) {
           // Compute term2 and term3
 
           int32_t activation_qvals_sum = *((int32_t*)activation_ptr);
