@@ -12,15 +12,12 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import PlainLayout
-from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-)
-from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerGroup, PerRow
-from torchao.quantization.quant_api import quantize_
-from torchao.utils import unwrap_tensor_subclass
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
+    quantize_,
+)
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -34,7 +31,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         for layout in [
             PackedLinearInt8DynamicActivationIntxWeightLayout(),
             PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
-            QDQLayout(),
         ]
         for weight_dtype in [
             torch.int1,
@@ -79,7 +75,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -91,7 +87,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -176,7 +172,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -188,7 +184,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -220,7 +216,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
 
     def _reference_layout(self):
-        return PlainLayout()
+        return QDQLayout()
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
@@ -247,7 +243,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -257,7 +253,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         eager_results = model(activations)
 
         unwrapped_model = copy.deepcopy(model)
-        unwrap_tensor_subclass(model)
 
         # Export
         exported = torch.export.export(model, (activations,), strict=True)
@@ -309,7 +304,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -317,8 +312,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             ),
         )
         eager_results = model(activations)
-
-        unwrap_tensor_subclass(model)
 
         # Export
         exported = torch.export.export(
@@ -342,7 +335,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -351,8 +344,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         eager_results = model(activations)
 
-        unwrap_tensor_subclass(model)
         exported = torch.export.export(model, (activations,), strict=True)
+        print(exported)
         exported_results = exported.module()(activations)
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
@@ -360,7 +353,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             "torch.ops.quant.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int32, -128, 127, None, torch.float32, torch.int32)",
             "torch.ops.quant.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int32, -128, 127)",
             "torch.ops.quant.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int32, -128, 127)",
-            "torch.ops.quant.dequantize_affine.default(p_fn_0_parametrizations_weight_original0, [1, 64], p_fn_0_parametrizations_weight_original1, None, torch.int32, -8, 7, 'NONE')",
+            "torch.ops.quant.dequantize_affine.default(access_subclass_inner_tensor_default_72, [1, 64], access_subclass_inner_tensor_default_73, None, torch.int8, -8, 7, 'NONE')",
             "torch.ops.aten.linear.default(dequantize_affine, dequantize_affine_1)",
         ]
         for line in expected_lines:

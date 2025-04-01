@@ -55,3 +55,14 @@ for weight_nbit in range(1, 9):
         assert indices.dim() == 1
         num_out = indices.shape[0]
         return torch.empty(num_out, k, dtype=torch.float32, device="meta")
+
+
+def _check_torchao_ops_loaded():
+    # Check kernels are installed/loaded
+    try:
+        torch.ops.torchao._pack_8bit_act_4bit_weight
+    except AttributeError:
+        raise Exception(
+            "TorchAO experimental kernels are not loaded.  To install the kernels, run `USE_CPP=1 pip install .` from ao on a machine with an ARM CPU."
+            + " You can also set target to 'aten' if you are using ARM CPU."
+        )

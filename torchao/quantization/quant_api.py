@@ -35,7 +35,9 @@ from torchao.dtypes import (
     Int4CPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
     PlainLayout,
+    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
@@ -43,6 +45,10 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
     to_marlinqqq_quantized_intx,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    Target,
+    make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.float8_linear import Float8Linear
@@ -75,6 +81,7 @@ from .GPTQ import (
     Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -86,6 +93,7 @@ from .qat import (
     intx_quantization_aware_training,
 )
 from .quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
 )
@@ -661,6 +669,137 @@ def _int8_dynamic_activation_int4_weight_transform(
     weight = to_linear_activation_quantized(weight, input_quant_func)
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
+    """
+    Configuration for dynamically quantizing activations with 8-bits and quantizing weights with a low-bit value.
+    More specifically, activations are dynamically quantized to 8-bits in a channelwise manner with scales and zeros.
+    Weights are quantized with scales and optionally zeros (controlled by has_weight_zeros) in a groupwise or channelwise
+    manner using the number of bits specified by weight_dtype.
+
+    args:
+        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
+        has_weight_zeros: Whether or not to include zeros in the weight quantization.
+        weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        round_weight_scale_to_bf16: Whether or not to round the weight scale to bfloat16.  This is different than weight_scales being bfloat16,
+            because computation and dequantization still happens in float32.
+        layout: The layout to use for the packed weight tensor.  The layout does not affect the quantization numerically and different
+            layouts will give similar results.  The following are available layouts:
+            - PackedLinearInt8DynamicActivationIntxWeightLayout: This layout is optimized for CPU performance.
+            - QDQLayout: This layout is designed for export to ExecuTorch
+    """
+
+    weight_dtype: torch.dtype = torch.int4
+    granularity: Union[PerRow, PerGroup] = PerRow()
+    has_weight_zeros: bool = False
+    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
+    act_mapping_type: MappingType = MappingType.ASYMMETRIC
+    round_weight_scale_to_bf16: bool = True
+    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
+        target=Target.AUTO
+    )
+
+
+# For BC
+int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
+
+
+@register_quantize_module_handler(Int8DynamicActivationIntxWeightConfig)
+def _int8_dynamic_activation_intx_weight_transform(
+    module: torch.nn.Module, config: Int8DynamicActivationIntxWeightConfig
+) -> torch.nn.Module:
+    weight = module.weight
+    bias = module.bias
+    weight_dtype = config.weight_dtype
+    granularity = config.granularity
+    has_weight_zeros = config.has_weight_zeros
+    weight_mapping_type = config.weight_mapping_type
+    act_mapping_type = config.act_mapping_type
+    layout = config.layout
+
+    valid_layouts = [QDQLayout, PackedLinearInt8DynamicActivationIntxWeightLayout]
+    assert any(
+        [isinstance(layout, l) for l in valid_layouts]
+    ), f"layout must be one of {valid_layouts}, got {type(layout)}"
+
+    valid_weight_dtypes = [getattr(torch, f"int{b}") for b in range(1, 9)]
+    if weight_dtype not in valid_weight_dtypes:
+        raise ValueError(
+            f"dtype must be one of {valid_weight_dtypes}, got {weight_dtype}"
+        )
+
+    round_weight_scale_to_bf16 = config.round_weight_scale_to_bf16
+
+    if isinstance(granularity, PerGroup):
+        group_size = granularity.group_size
+    elif isinstance(granularity, PerRow):
+        group_size = weight.shape[-1]
+    else:
+        raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
+
+    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
+
+    quantization_layout = layout
+    if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+        quantization_layout = QDQLayout()
+
+    weight = to_affine_quantized_intx(
+        input_float=weight,
+        mapping_type=weight_mapping_type,
+        block_size=(1, group_size),
+        target_dtype=torch.int8,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=torch.finfo(torch.float32).eps,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.int8,
+        preserve_zero=has_weight_zeros,
+        zero_point_domain=(
+            ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        ),
+        _layout=quantization_layout,
+        use_hqq=False,
+    )
+    if round_weight_scale_to_bf16:
+        weight.tensor_impl.scale = weight.tensor_impl.scale.to(torch.bfloat16).to(
+            torch.float32
+        )
+
+    if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
+        # Note that PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization fused
+        # with the kernel and it should not be applied separately
+        assert (
+            act_mapping_type == MappingType.ASYMMETRIC
+        ), "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
+        data, scale, zero_point = weight.tensor_impl.get_plain()
+        groups_per_row = weight.shape[-1] // group_size
+        scale = scale.reshape(-1, groups_per_row)
+        if zero_point is not None:
+            zero_point = zero_point.reshape(-1, groups_per_row)
+        weight = make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
+            data, scale, zero_point, bias, weight_dtype, layout.target
+        )
+        bias = None  # bias is packed with weights
+    else:
+        activation_quant_func = lambda x: to_affine_quantized_intx(
+            x,
+            mapping_type=act_mapping_type,
+            block_size=_get_per_token_block_size(x),
+            target_dtype=torch.int32,
+            quant_min=-128,  # lower bound of int8
+            quant_max=127,  # upper bound of int8
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        weight = to_linear_activation_quantized(weight, activation_quant_func)
+
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    module.bias = bias
     return module
 
 
