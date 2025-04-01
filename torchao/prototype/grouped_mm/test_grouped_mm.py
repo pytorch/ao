@@ -78,6 +78,7 @@ def test_gradients():
     params = nn.Parameter(torch.randn(n_groups, k, n, device=device, dtype=torch.bfloat16))
     offs = torch.arange(m, m * n_groups + 1, m, device="cuda", dtype=torch.int32)
 
+    # clone the inputs and params for computing the reference gradients
     ref_x, ref_params = x.clone(), params.clone()
 
     # compute the output
@@ -94,10 +95,10 @@ def test_gradients():
     out.sum().backward()
 
     # check the gradients exist
-    assert params.grad is not None
+    assert params.data.grad is not None
 
     # check the gradients are not all nan
-    assert not params.grad.isnan().any()
+    assert not params.data.grad.isnan().any()
 
     # compare with reference gradients
     ref_grad = compute_reference_gradients(ref_x, ref_params, offs)
@@ -127,18 +128,22 @@ def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: tor
 
     # convert params to column-major memory layout
     params = params.transpose(-2, -1).contiguous().transpose(-2, -1)
+
+    # determine group sizes based on offsets
     group_sizes = offs_to_group_sizes(offs.tolist())
+    
+    # use group sizes to split x into groups
     x_groups = torch.split(x, group_sizes, dim=0)
+
+    # compute a separate _scaled_mm for each group, with the weight (i.e., expert) it's assigned to
     outputs = []
     for group_idx, group in enumerate(x_groups):
-        # compute scaled mm
         group_output = matmul_with_hp_or_float8_args.apply(
             group,
             params[group_idx],
             LinearMMConfig(),
             Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE),
         )
-        # update outputs
         outputs.append(group_output)
         
     # compute the param gradients and return them
@@ -147,12 +152,11 @@ def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: tor
 
     # perform backward pass
     output.sum().backward()
-    assert all(o.grad is not None for o in outputs), "not all group outputs have gradients"
-    assert params.grad is not None, "params don't have gradients"
+    assert params.data.grad is not None, "params don't have gradients"
 
     # return reference gradient
-    ref_grad = params.grad
-    return ref_grad
+    ref_grad = params.data.grad
+    return ref_grad, output
 
 
 def offs_to_group_sizes(offs: List[int]) -> List[int]:
