@@ -140,13 +140,15 @@ def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: tor
         )
         # update outputs
         outputs.append(group_output)
-
+        
     # compute the param gradients and return them
     output = torch.cat(outputs, dim=0)
     assert output.shape[0] == x.shape[0] and output.shape[-1] == params.shape[-1], "invalid output shape"
 
     # perform backward pass
     output.sum().backward()
+    assert all(o.grad is not None for o in outputs), "not all group outputs have gradients"
+    assert params.grad is not None, "params don't have gradients"
 
     # return reference gradient
     ref_grad = params.grad
