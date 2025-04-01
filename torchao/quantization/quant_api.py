@@ -682,6 +682,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
 
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+            torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
         granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
         has_weight_zeros: Whether or not to include zeros in the weight quantization.
         weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
@@ -693,7 +694,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             This is different having bfloat16 weight_scale because computation and dequantization still happens in float32.
     """
 
-    weight_dtype: torch.dtype = torch.int4
+    weight_dtype: torch.dtype = torch.int8
     granularity: Union[PerRow, PerGroup] = PerRow()
     has_weight_zeros: bool = False
     weight_mapping_type: MappingType = MappingType.ASYMMETRIC
@@ -712,6 +713,7 @@ int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 def _int8_dynamic_activation_intx_weight_transform(
     module: torch.nn.Module, config: Int8DynamicActivationIntxWeightConfig
 ) -> torch.nn.Module:
+    assert TORCH_VERSION_AT_LEAST_2_6, "torch.int8 quantization requires torch 2.6+"
     weight = module.weight
     bias = module.bias
     weight_dtype = config.weight_dtype

@@ -334,11 +334,13 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     Constructs an AffineQuantizedTensor with PackedLinearInt8DynamicActivationIntxWeightLayout
     from plain data.
     """
+    # TORCH_VERSION_AT_LEAST_2_6 is needed for torch.intx with x < 8
+    assert TORCH_VERSION_AT_LEAST_2_6, "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
+
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
     if layout.target != Target.ATEN:
         _check_torchao_ops_loaded()
     else:
-        assert TORCH_VERSION_AT_LEAST_2_6, "ATEN target requires torch version > 2.6.0"
         assert (
             torch.backends.kleidiai.is_available()
         ), "ATEN target requires torch.backends.kleidiai.is_available()"
