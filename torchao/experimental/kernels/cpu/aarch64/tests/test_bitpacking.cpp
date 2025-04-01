@@ -790,6 +790,85 @@ void test_bitpacking_128_lowbit_values() {
   }
 }
 
+template <int nbit>
+void test_bitpacking_128_lowbit_values_with_lut() {
+  int unpacked_bytes = 128;
+  int packed_bytes = unpacked_bytes * nbit / 8;
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
+  std::vector<uint8_t> packed(packed_bytes, 0);
+
+  int8x16_t input0;
+  int8x16_t input1;
+  int8x16_t input2;
+  int8x16_t input3;
+  int8x16_t input4;
+  int8x16_t input5;
+  int8x16_t input6;
+  int8x16_t input7;
+  int8x16_t unpacked0;
+  int8x16_t unpacked1;
+  int8x16_t unpacked2;
+  int8x16_t unpacked3;
+  int8x16_t unpacked4;
+  int8x16_t unpacked5;
+  int8x16_t unpacked6;
+  int8x16_t unpacked7;
+
+  input0 = vld1q_s8(input.data());
+  input1 = vld1q_s8(input.data() + 16);
+  input2 = vld1q_s8(input.data() + 32);
+  input3 = vld1q_s8(input.data() + 48);
+  input4 = vld1q_s8(input.data() + 64);
+  input5 = vld1q_s8(input.data() + 80);
+  input6 = vld1q_s8(input.data() + 96);
+  input7 = vld1q_s8(input.data() + 112);
+
+  int8x16_t shift = vdupq_n_s8(1 << (nbit - 1));
+  uint8x16_t idx0 = vreinterpretq_u8_s8(vaddq_s8(input0, shift));
+  uint8x16_t idx1 = vreinterpretq_u8_s8(vaddq_s8(input1, shift));
+  uint8x16_t idx2 = vreinterpretq_u8_s8(vaddq_s8(input2, shift));
+  uint8x16_t idx3 = vreinterpretq_u8_s8(vaddq_s8(input3, shift));
+  uint8x16_t idx4 = vreinterpretq_u8_s8(vaddq_s8(input4, shift));
+  uint8x16_t idx5 = vreinterpretq_u8_s8(vaddq_s8(input5, shift));
+  uint8x16_t idx6 = vreinterpretq_u8_s8(vaddq_s8(input6, shift));
+  uint8x16_t idx7 = vreinterpretq_u8_s8(vaddq_s8(input7, shift));
+
+  int8x16_t lut;
+  if constexpr (nbit == 1) {
+    lut = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  } else if constexpr (nbit == 2) {
+    lut = {-2, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  } else if constexpr (nbit == 3) {
+    lut = {-4, -3, -2, -1, 0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0};
+  } else {
+    lut = {-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7};
+  }
+
+  torchao::bitpacking::vec_pack_128_uintx_values<nbit>(
+      packed.data(), idx0, idx1, idx2, idx3, idx4, idx5, idx6, idx7);
+  torchao::bitpacking::vec_unpack_128_lowbit_values_with_lut<nbit>(
+      unpacked0,
+      unpacked1,
+      unpacked2,
+      unpacked3,
+      unpacked4,
+      unpacked5,
+      unpacked6,
+      unpacked7,
+      packed.data(),
+      lut);
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(input0[i], unpacked0[i]);
+    EXPECT_EQ(input1[i], unpacked1[i]);
+    EXPECT_EQ(input2[i], unpacked2[i]);
+    EXPECT_EQ(input3[i], unpacked3[i]);
+    EXPECT_EQ(input4[i], unpacked4[i]);
+    EXPECT_EQ(input5[i], unpacked5[i]);
+    EXPECT_EQ(input6[i], unpacked6[i]);
+    EXPECT_EQ(input7[i], unpacked7[i]);
+  }
+}
+
 #define TEST_BITPACKING_32_LOWBIT_VALUES(nbit)                       \
   TEST(test_bitpacking_32_lowbit_values_##nbit, PackUnpackAreSame) { \
     test_bitpacking_32_lowbit_values<nbit>();                        \
@@ -803,6 +882,11 @@ void test_bitpacking_128_lowbit_values() {
 #define TEST_BITPACKING_128_LOWBIT_VALUES(nbit)                       \
   TEST(test_bitpacking_128_lowbit_values_##nbit, PackUnpackAreSame) { \
     test_bitpacking_128_lowbit_values<nbit>();                        \
+  }
+
+#define TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(nbit)                       \
+  TEST(test_bitpacking_128_lowbit_values_with_lut_##nbit, PackUnpackAreSame) { \
+    test_bitpacking_128_lowbit_values_with_lut<nbit>();                        \
   }
 
 TEST_BITPACKING_32_LOWBIT_VALUES(1);
@@ -831,5 +915,10 @@ TEST_BITPACKING_128_LOWBIT_VALUES(5);
 TEST_BITPACKING_128_LOWBIT_VALUES(6);
 TEST_BITPACKING_128_LOWBIT_VALUES(7);
 TEST_BITPACKING_128_LOWBIT_VALUES(8);
+
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(1);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(2);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(3);
+TEST_BITPACKING_128_LOWBIT_VALUES_WITH_LUT(4);
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
