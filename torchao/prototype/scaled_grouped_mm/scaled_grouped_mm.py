@@ -10,11 +10,11 @@ from torchao.float8.config import (
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 
 
-def _grouped_scaled_mm(
+def _scaled_grouped_mm(
     A: torch.Tensor,
     B: torch.Tensor,
-    float8_recipe: Float8LinearRecipeName,
     offs: torch.Tensor,
+    float8_recipe: Float8LinearRecipeName,
     out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
@@ -22,10 +22,10 @@ def _grouped_scaled_mm(
     then performs a scaled grouped GEMM and returns the results.
 
     Args:
-        A (torch.Tensor): The first input tensor, which must be a 2D tensor of shape (M * num_groups, K).
-        B (torch.Tensor): The second input tensor which must be 3D, which must be shape (B, K, N).
+        A (bf16/float32 torch.Tensor): The first high-precision input tensor, which must be a 2D tensor of shape (M * num_groups, K).
+        B (bf16/float32 torch.Tensor): The second high-precision input tensor which must be 3D, which must be shape (B, K, N).
+        offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group in the input tensor of shape.
         float8_recipe (Float8LinearRecipeName): The recipe to use for dynamic float8 quantization.
-        offs (Optional[torch.Tensor]): The offsets to use to mark the starting index of each group in the input tensor of shape
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
         use_fast_accum (bool): Whether to use fast accumulation or not. Default is False.
     """
@@ -57,6 +57,13 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         assert A.ndim == 2, "A must be 2D"
         assert B.ndim == 3, "B must be 3D"
+        assert (
+            A.dtype == torch.float32 or A.dtype == torch.bfloat16
+        ), "A must be float32 or bfloat16"
+        assert (
+            B.dtype == torch.float32 or B.dtype == torch.bfloat16
+        ), "B must be float32 or bfloat16"
+        assert offs.dtype == torch.int32, "offs must be int32"
 
         # Dim 1 of B must match the final dim of A.
         assert A.size(-1) == B.size(

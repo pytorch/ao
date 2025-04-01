@@ -5,7 +5,7 @@ from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.grouped_mm import _grouped_scaled_mm
+from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import _scaled_grouped_mm
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -16,7 +16,7 @@ def test_tensorwise_scaling_not_supported():
     b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
     with pytest.raises(AssertionError):
-        _grouped_scaled_mm(
+        _scaled_grouped_mm(
             a,
             b.transpose(-2, -1),
             offs=offs,
@@ -49,7 +49,7 @@ def test_grouped_gemm_2d_3d():
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
 
     # Compute output.
-    out = _grouped_scaled_mm(
+    out = _scaled_grouped_mm(
         a,
         b.transpose(-2, -1),
         offs=offs,
