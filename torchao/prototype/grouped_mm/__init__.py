@@ -7,10 +7,6 @@ from torchao.float8.config import (
     Float8LinearRecipeName,
     ScalingGranularity,
 )
-from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
-)
-from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 
 
@@ -92,7 +88,9 @@ class _Float8GroupedMM(torch.autograd.Function):
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
         A_scaled = A.to(torch.float32) * A_scales
-        A_fp8_row_major = to_fp8_saturated(A_scaled, float8_config.cast_config_input.target_dtype)
+        A_fp8_row_major = to_fp8_saturated(
+            A_scaled, float8_config.cast_config_input.target_dtype
+        )
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B shape: (B, K, N)
@@ -100,13 +98,15 @@ class _Float8GroupedMM(torch.autograd.Function):
         # B_scales shape: (B, 1, N)
         B_scales = tensor_to_scale(
             B_col_major,
-            float8_config.cast_config_weight.target_dtype, 
-            scaling_granularity=float8_config.cast_config_weight.scaling_granularity, 
+            float8_config.cast_config_weight.target_dtype,
+            scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
             axiswise_dim=-2,
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
         B_scaled = B.to(torch.float32) * B_scales
-        B_fp8_col_major = to_fp8_saturated(B_scaled, float8_config.cast_config_weight.target_dtype)
+        B_fp8_col_major = to_fp8_saturated(
+            B_scaled, float8_config.cast_config_weight.target_dtype
+        )
 
         # Perform scaled grouped GEMM and return result.
         # output shape: scaled grouped mm of (M,K) @ (B,K,N) = (M,N)
@@ -159,7 +159,9 @@ class _Float8GroupedMM(torch.autograd.Function):
             axiswise_dim=-2,
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        B_non_transposed_scaled = B_non_transposed_col_major.to(torch.float32) * B_non_transposed_scales
+        B_non_transposed_scaled = (
+            B_non_transposed_col_major.to(torch.float32) * B_non_transposed_scales
+        )
         B_non_transposed_fp8_col_major = to_fp8_saturated(
             B_non_transposed_scaled, float8_config.cast_config_weight.target_dtype
         )
@@ -355,6 +357,7 @@ def _to_2d_jagged_float8_tensor_rowwise(
         next_scale_idx += subtensor_scales.numel()
 
     return x_fp8, x_scales
+
 
 def _is_column_major(x: torch.Tensor) -> bool:
     """
