@@ -13,7 +13,12 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.experimental.op_lib import _check_torchao_ops_loaded
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_BIT_WIDTH,
+    _DTYPE_TO_QVALUE_BOUNDS,
+    ZeroPointDomain,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
@@ -311,139 +316,95 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     return res
 
 
-import math
-
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
-    get_tensor_impl_constructor,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    choose_qparams_affine,
-    choose_qparams_and_quantize_affine_hqq,
-    quantize_affine,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout
 
 
-class _AffineQuantizedTensor(AffineQuantizedTensor):
+def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
+    int_data: torch.Tensor,
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    bias: Optional[torch.Tensor],
+    data_dtype: torch.dtype,
+    target: Union[str, Target] = "auto",
+) -> AffineQuantizedTensor:
     """
-    PackedLinearInt8DynamicActivationIntxWeightAtenTensor quantized tensor subclass which inherits AffineQuantizedTensor class.
+    Constructs an AffineQuantizedTensor with PackedLinearInt8DynamicActivationIntxWeightLayout
+    from plain data.
     """
+    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
+    if layout.target != Target.ATEN:
+        _check_torchao_ops_loaded()
+    else:
+        assert TORCH_VERSION_AT_LEAST_2_6, "ATEN target requires torch version > 2.6.0"
+        assert (
+            torch.backends.kleidiai.is_available()
+        ), "ATEN target requires torch.backends.kleidiai.is_available()"
+        assert data_dtype == torch.int4, "ATEN target only supports torch.int4"
+        assert zero_point is None, "ATEN target does not support zeros"
 
-    @classmethod
-    def from_hp_to_intx(
-        cls,
-        input_float: torch.Tensor,
-        mapping_type: MappingType,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
-        eps: Optional[float] = None,
-        scale_dtype: Optional[torch.dtype] = None,
-        zero_point_dtype: Optional[torch.dtype] = None,
-        preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        _layout: Layout = PlainLayout(),
-        use_hqq: bool = False,
-        tensor_impl_ctr_kwargs: Optional[dict] = None,
-        round_weight_scale_to_bf16: bool = False,
-    ):
-        """Convert a high precision tensor to an integer affine quantized tensor."""
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
+    assert data_dtype in [getattr(torch, f"int{x}") for x in range(1, 9)]
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[data_dtype]
+    bit_width = _DTYPE_TO_BIT_WIDTH[data_dtype]
 
-        if round_weight_scale_to_bf16:
-            assert not use_hqq, "round_weight_scale_to_bf16 not supported for HQQ"
-            assert (
-                scale_dtype == torch.float32
-            ), "round_weight_scale_to_bf16 requires FP32 scales"
+    # Check int_data
+    assert int_data.device == torch.device("cpu")
+    assert int_data.dtype in [torch.int8, torch.int32, torch.int64]
+    assert int_data.min().item() >= qmin
+    assert int_data.max().item() <= qmax
+    n, k = int_data.shape
 
-        if use_hqq:
-            assert (
-                zero_point_domain == ZeroPointDomain.FLOAT
-                and mapping_type == MappingType.ASYMMETRIC
-                and quant_min == 0
-            ), "Invalid input parameters for HQQ quantization."
-            nbits = int(math.log2(quant_max + 1))
-            axis = 1 if (block_size[0] == 1) else 0
-            group_size = max(block_size)
-            compute_dtype = (
-                zero_point_dtype
-                if (zero_point_dtype is not None)
-                else input_float.dtype
-            )
-            device = input_float.device
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
+    # Check scale
+    assert scale.device == torch.device("cpu")
+    assert scale.dtype == torch.float32
+    assert scale.min().item() > 0
+    n_, groups_per_k = scale.shape
+    assert n_ == n
+    assert k % groups_per_k == 0
+    group_size = k // groups_per_k
 
-            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
-                input_float,
-                nbits=nbits,
-                group_size=group_size,
-                axis=axis,
-                compute_dtype=compute_dtype,
-                device=device,
-                verbose=False,
-                raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
-                ),
-                # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
-                # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
-                # zero is preserved.
-                # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
-                # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
-                # TODO change PlainLayout to use raw_output.
-            )
-            data = data.to(target_dtype)
-        else:
-            scale, zero_point = choose_qparams_affine(
-                input_float,
-                mapping_type,
-                block_size,
-                target_dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype,
-                zero_point_dtype,
-                preserve_zero,
-                zero_point_domain,
-            )
-            if round_weight_scale_to_bf16:
-                scale = scale.to(torch.bfloat16)
-                scale = scale.to(torch.float32)  # convert back to FP32 for computation
+    # Some targets require scales be rounded to bfloat16
+    scale_is_rounded_to_bf16 = torch.allclose(
+        scale, scale.to(torch.bfloat16).to(torch.float32)
+    )
+    if layout.target == Target.ATEN and (group_size < k):
+        assert scale_is_rounded_to_bf16, "When using Target.ATEN, scale must be rounded to bfloat16 when group_size < k"
+    if layout.target in [Target.AUTO, Target.KLEIDIAI]:
+        assert scale_is_rounded_to_bf16, "When using target [Target.AUTO, Target.KLEIDIAI], scale must be rounded to bfloat16"
 
-            # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
-            if zero_point_domain == ZeroPointDomain.NONE:
-                zero_point = None
-            data = quantize_affine(
-                input_float,
-                block_size,
-                scale,
-                zero_point,
-                target_dtype,
-                quant_min,
-                quant_max,
-                zero_point_domain,
-            )
-            # Note: output will be uint8 tensor for sub byte tensors for now
+    # Check zero_point
+    has_weight_zeros = zero_point is not None
+    if has_weight_zeros:
+        assert zero_point.device == torch.device("cpu")
+        assert zero_point.shape == scale.shape
+        assert zero_point.dtype in [torch.int8, torch.int32, torch.int64]
+        assert zero_point.min().item() >= qmin
+        assert zero_point.max().item() <= qmax
 
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(
-            data, scale, zero_point, _layout, **(tensor_impl_ctr_kwargs or {})
-        )
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-            dtype=input_float.dtype,
-        )
+    # Check bias
+    has_bias = bias is not None
+    if has_bias:
+        assert bias.device == torch.device("cpu")
+        assert bias.dtype == torch.float32
+        assert bias.shape == (n,)
 
+    has_weight_zeros = zero_point is not None
 
-to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight = (
-    _AffineQuantizedTensor.from_hp_to_intx
-)
+    layout.set_params(bit_width, group_size, has_weight_zeros, has_bias)
+    assert layout.has_params_set()
+    tensor_impl = PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl.from_plain(
+        int_data, scale, zero_point, layout, bias
+    )
+
+    return AffineQuantizedTensor(
+        tensor_impl,
+        block_size=(1, group_size),
+        shape=int_data.shape,
+        quant_min=qmin,
+        quant_max=qmax,
+        zero_point_domain=ZeroPointDomain.INT
+        if has_weight_zeros
+        else ZeroPointDomain.NONE,
+    )
