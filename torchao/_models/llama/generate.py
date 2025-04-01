@@ -20,7 +20,11 @@ from torchao._models.utils import (
     write_json_result_ossci,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+    get_model_size_in_bytes,
+)
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 torch.backends.cuda.enable_cudnn_sdp(True)
@@ -553,14 +557,17 @@ def main(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         elif "int8_dynamic_activation_intx_weight" in quantization:
-            from torchao.experimental.quant_api import (
-                int8_dynamic_activation_intx_weight,
-            )
-            from torchao.quantization.granularity import PerGroup
-
+            assert (
+                TORCH_VERSION_AT_LEAST_2_6
+            ), "int8_dynamic_activation_intx_weight requires torch2.6+"
             assert (
                 precision == torch.float32
             ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
+
+            from torchao.quantization.granularity import PerGroup
+            from torchao.quantization.quant_api import (
+                Int8DynamicActivationIntxWeightConfig,
+            )
 
             # Quantize model
             _quant_args = quantization.split("-")
@@ -569,7 +576,7 @@ def main(
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
-                int8_dynamic_activation_intx_weight(
+                Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=weight_dtype,
                     granularity=granularity,
                     has_weight_zeros=has_weight_zeros,
