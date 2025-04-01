@@ -6,13 +6,13 @@
 import csv
 import os
 import subprocess
-from typing import Any, Dict, List, Optional
 import uuid
+from typing import Any, Dict, List, Optional
 
 import torch
 from tabulate import tabulate
+from torch.profiler import ProfilerActivity
 from torch.utils.benchmark import Timer
-from torch.profiler import profile, record_function, ProfilerActivity
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
@@ -83,10 +83,10 @@ def upload_trace_file(local_path: str, overwrite: bool = False) -> Optional[str]
 
 def print_perfetto_ui_url(manifold_path: str) -> Optional[str]:
     """Generate and print the Perfetto UI URL for a Manifold trace file.
-    
+
     Args:
         manifold_path: Path to the trace file in Manifold
-        
+
     Returns:
         The URL to the Perfetto UI or None if there was an error
     """
@@ -104,57 +104,61 @@ def print_perfetto_ui_url(manifold_path: str) -> Optional[str]:
 
 def generate_model_profile(model, input_data, profile_file_path):
     """Function to benchmark model evaluation with profiling.
-    
+
     Args:
         model: The model to profile
         input_data: Input data for the model
         profile_file_path: Path to save the profiler output
-        
+
     Returns:
         Tuple of (profile_file_path, perfetto_url)
     """
     # Create parent directory if it doesn't exist
     os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
-    
-    # Initialize profiler
-    torch.profiler._utils._init_for_cuda_graphs()
-    
+
     # Set up profiler activities based on device
     activities = [ProfilerActivity.CPU]
-    if torch.cuda.is_available() and next(model.parameters()).device.type == 'cuda':
+    device = next(model.parameters()).device
+    if device.type == "cuda" and torch.cuda.is_available():
         activities.append(ProfilerActivity.CUDA)
-    
-    # Run profiler
+
+    # Run profiler with minimal settings to ensure compatibility
     prof = torch.profiler.profile(
-        activities=activities, 
+        activities=activities,
         record_shapes=True,
-        with_stack=True,
-        profile_memory=True
+        with_stack=False,  # Disable stack traces to reduce overhead
+        profile_memory=False,  # Disable memory profiling as it's not reliable across all devices
     )
-    
+
+    # Warm up
+    with torch.no_grad():
+        for _ in range(3):
+            _ = model(input_data)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
+    # Profile
     with prof:
-        for _ in range(5):  # Run the model multiple times to warm up the cache
-            with torch.no_grad():
-                _ = model(input_data)
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-    
+        with torch.no_grad():
+            _ = model(input_data)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
     # Save profiling details
     prof.export_chrome_trace(profile_file_path)
     print(f"Profile saved to: {profile_file_path}")
-    
+
     # Try to upload to Perfetto UI
     perfetto_url = None
     try:
         manifold_path = upload_trace_file(profile_file_path)
         if manifold_path:
-            print_perfetto_ui_url(manifold_path)
-            perfetto_url = manifold_path
+            perfetto_url = print_perfetto_ui_url(manifold_path)
     except Exception as e:
         print(f"Warning: Failed to upload profile to Perfetto UI: {e}")
-    
-    # Return the file path and perfetto URL
+
     return profile_file_path, perfetto_url
+
 
 class BenchmarkConfig:
     def __init__(
@@ -194,7 +198,9 @@ class BenchmarkConfig:
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
-        self.profiler_file_name = os.path.join(profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_profile.json")
+        self.profiler_file_name = os.path.join(
+            profiler_dir, f"{self.name}_{self.m}_{self.k}_{self.n}_profile.json"
+        )
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -493,7 +499,7 @@ def generate_results_csv(
     if not results:
         print("No results to save to CSV.")
         return
-        
+
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, file_name)
