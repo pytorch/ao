@@ -13,7 +13,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.experimental.op_lib import _check_torchao_ops_loaded
+from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,

@@ -26,7 +26,7 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-from torchao.experimental.op_lib import _check_torchao_ops_loaded
+from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 
 
 def _dtype_to_bit_width(dtype: torch.dtype) -> int:

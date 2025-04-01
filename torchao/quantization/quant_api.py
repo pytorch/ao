@@ -675,7 +675,7 @@ def _int8_dynamic_activation_int4_weight_transform(
 @dataclass
 class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     """
-    Configuration for dynamically quantizing activations with 8-bits and quantizing weights with a low-bit value.
+    Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 <= x <= 8.
     More specifically, activations are dynamically quantized to 8-bits in a channelwise manner with scales and zeros.
     Weights are quantized with scales and optionally zeros (controlled by has_weight_zeros) in a groupwise or channelwise
     manner using the number of bits specified by weight_dtype.
@@ -686,12 +686,11 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         has_weight_zeros: Whether or not to include zeros in the weight quantization.
         weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        round_weight_scale_to_bf16: Whether or not to round the weight scale to bfloat16.  This is different than weight_scales being bfloat16,
-            because computation and dequantization still happens in float32.
-        layout: The layout to use for the packed weight tensor.  The layout does not affect the quantization numerically and different
-            layouts will give similar results.  The following are available layouts:
-            - PackedLinearInt8DynamicActivationIntxWeightLayout: This layout is optimized for CPU performance.
-            - QDQLayout: This layout is designed for export to ExecuTorch
+        layout: The layout to use for the packed weight tensor:
+            - PackedLinearInt8DynamicActivationIntxWeightLayout: this layout is optimized for CPU performance.
+            - QDQLayout: this layout is designed for export to ExecuTorch.
+        round_weight_scale_to_bf16: Whether or not to round the float32 weight_scale to bfloat16.
+            This is different having bfloat16 weight_scale because computation and dequantization still happens in float32.
     """
 
     weight_dtype: torch.dtype = torch.int4
@@ -699,10 +698,10 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     has_weight_zeros: bool = False
     weight_mapping_type: MappingType = MappingType.ASYMMETRIC
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    round_weight_scale_to_bf16: bool = True
     layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
         target=Target.AUTO
     )
+    round_weight_scale_to_bf16: bool = True
 
 
 # For BC
@@ -721,6 +720,7 @@ def _int8_dynamic_activation_intx_weight_transform(
     weight_mapping_type = config.weight_mapping_type
     act_mapping_type = config.act_mapping_type
     layout = config.layout
+    round_weight_scale_to_bf16 = config.round_weight_scale_to_bf16
 
     valid_layouts = [QDQLayout, PackedLinearInt8DynamicActivationIntxWeightLayout]
     assert any(
@@ -732,8 +732,6 @@ def _int8_dynamic_activation_intx_weight_transform(
         raise ValueError(
             f"dtype must be one of {valid_weight_dtypes}, got {weight_dtype}"
         )
-
-    round_weight_scale_to_bf16 = config.round_weight_scale_to_bf16
 
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
