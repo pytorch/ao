@@ -7,27 +7,8 @@ from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import _scaled_grouped_mm
 
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_tensorwise_scaling_not_supported():
-    device = "cuda"
-    m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(m * n_groups, k, device=device)[:, :k]
-    b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
-    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
-    with pytest.raises(AssertionError):
-        _scaled_grouped_mm(
-            a,
-            b.transpose(-2, -1),
-            offs=offs,
-            float8_recipe=Float8LinearRecipeName.TENSORWISE,
-            out_dtype=torch.bfloat16,
-        )
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_grouped_gemm_2d_3d():
-    float8_recipe_name = Float8LinearRecipeName.ROWWISE
     out_dtype = torch.bfloat16
     device = "cuda"
     m, n, k, n_groups = 16, 32, 16, 4
@@ -53,7 +34,6 @@ def test_grouped_gemm_2d_3d():
         a,
         b.transpose(-2, -1),
         offs=offs,
-        float8_recipe=float8_recipe_name,
         out_dtype=out_dtype,
     )
 
@@ -66,7 +46,6 @@ def test_grouped_gemm_2d_3d():
         ref_b,
         n_groups,
         out_dtype,
-        float8_recipe_name,
         offs,
     )
     assert torch.equal(out, ref_out)
@@ -86,13 +65,12 @@ def compute_reference_forward(
     B: torch.Tensor,
     n_groups: int,
     out_dtype: torch.dtype,
-    float8_recipe_name: Float8LinearRecipeName,
     offs: torch.Tensor,
 ):
     assert result.dtype == out_dtype
 
     # Convert A to fp8.
-    float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
+    float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
     A_scales = tensor_to_scale(
         A,
         float8_config.cast_config_input.target_dtype,

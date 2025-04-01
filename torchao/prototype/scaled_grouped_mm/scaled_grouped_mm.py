@@ -14,12 +14,12 @@ def _scaled_grouped_mm(
     A: torch.Tensor,
     B: torch.Tensor,
     offs: torch.Tensor,
-    float8_recipe: Float8LinearRecipeName,
     out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
-    This function performs dynamic float8 quantization on the input tensors A and B using the given recipe,
-    then performs a scaled grouped GEMM and returns the results.
+    This function performs dynamic float8 quantization with row-wise scaling
+    on the input tensors A and B using the given recipe, then performs a
+    scaled grouped GEMM and returns the results.
 
     Args:
         A (bf16/float32 torch.Tensor): The first high-precision input tensor, which must be a 2D tensor of shape (M * num_groups, K).
@@ -32,7 +32,6 @@ def _scaled_grouped_mm(
     return _Float8GroupedMM.apply(
         A,
         B,
-        float8_recipe,
         offs,
         out_dtype,
     )
@@ -46,17 +45,14 @@ class _Float8GroupedMM(torch.autograd.Function):
         ctx,
         A: torch.Tensor,
         B: torch.Tensor,
-        float8_recipe_name: Float8LinearRecipeName,
         offs: torch.Tensor,
         out_dtype: Optional[torch.dtype] = None,
     ) -> torch.Tensor:
-        # torch._scaled_grouped_mm only supports rowwise scaling currently.
-        assert (
-            float8_recipe_name == Float8LinearRecipeName.ROWWISE
-        ), "Only rowwise scaling is supported by torch._scaled_grouped_mm."
-
+        # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B.ndim == 3, "B must be 3D"
+
+        # Assert input tensors are in high-precision dtypes.
         assert (
             A.dtype == torch.float32 or A.dtype == torch.bfloat16
         ), "A must be float32 or bfloat16"
@@ -65,18 +61,19 @@ class _Float8GroupedMM(torch.autograd.Function):
         ), "B must be float32 or bfloat16"
         assert offs.dtype == torch.int32, "offs must be int32"
 
-        # Dim 1 of B must match the final dim of A.
+        # Assert A and B dims are compatible for a scaled grouped GEMM.
         assert A.size(-1) == B.size(
             -2
         ), f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
 
+        # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
         if not _is_column_major(B):
             B_col_major = B.transpose(-2, -1).contiguous().transpose(-2, -1)
         else:
             B_col_major = B
 
         # Fetch float8 config from specified recipe name.
-        float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
+        float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
