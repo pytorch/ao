@@ -1,10 +1,9 @@
-# NOTE: these unit tests are based on the pytorch core unit tests here:
-# https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
-
+from typing import List
 import pytest
 import torch
+from torch import nn
 
-from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
+from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName, ScalingGranularity
 from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
@@ -12,6 +11,8 @@ from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 from torchao.prototype.grouped_mm import _grouped_scaled_mm
 
 
+# NOTE: this unit test is based on the pytorch core unit tests here:
+# https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("use_fast_accum", [True, False])
 @pytest.mark.parametrize("strided", [True, False])
@@ -65,6 +66,42 @@ def test_grouped_gemm_2d_3d(use_fast_accum, strided):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_gradients():
+    # define a fake W1 for a MoE layer
+    device = "cuda"
+    m, k, n, n_groups = 16, 16, 32, 4
+
+    params = nn.Parameter(torch.randn(n_groups, k, n, device=device, dtype=torch.bfloat16, requires_grad=True))
+    x = torch.randn(m * n_groups, k, device=device, dtype=torch.bfloat16)
+    offs = torch.arange(m, m * n_groups + 1, m, device="cuda", dtype=torch.int32)
+
+    ref_x, ref_params = x.clone(), params.clone()
+
+    # compute the output
+    out = _grouped_scaled_mm(
+        x,
+        params,
+        offs=offs,
+        float8_recipe=Float8LinearRecipeName.ROWWISE,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=False,
+    )
+
+    # compute the gradients
+    out.sum().backward()
+
+    # check the gradients exist
+    assert params.grad is not None
+
+    # check the gradients are not all nan
+    assert not params.grad.isnan().any()
+
+    # compare with reference gradients
+    ref_grad = compute_reference_gradients(ref_x, ref_params, offs)
+    assert torch.allclose(params.grad, ref_grad, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_tensorwise_scaling_not_supported():
     device = "cuda"
     m, n, k, n_groups = 16, 32, 16, 4
@@ -79,6 +116,61 @@ def test_tensorwise_scaling_not_supported():
             float8_recipe=Float8LinearRecipeName.TENSORWISE,
             out_dtype=torch.bfloat16,
         )
+
+def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: torch.Tensor):
+    assert len(offs) == params.size(0), "len(offs) != params.size(0); expected same number of offs/groups as params"
+    assert x.ndim == 2, "expected 2D input"
+    assert params.ndim == 3, "expected 3D params"
+
+    # convert params to column-major memory layout
+    params = params.transpose(-2, -1).contiguous().transpose(-2, -1)
+    group_sizes = offs_to_group_sizes(offs.tolist())
+    x_groups = torch.split(x, group_sizes, dim=0)
+    outputs = []
+    for group_idx, group in enumerate(x_groups):
+        # convert input to float8
+        group_fp8 = hp_tensor_to_float8_dynamic(
+            group,
+            float8_dtype=torch.float8_e4m3fn,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.INPUT,
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=-1,
+            round_scales_to_power_of_2=True,
+        )
+
+        # convert weights to float8
+        params_fp8 = hp_tensor_to_float8_dynamic(
+            params[group_idx],  # select expert this token group was routed to
+            float8_dtype=torch.float8_e4m3fn,
+            linear_mm_config=LinearMMConfig(),
+            gemm_input_role=GemmInputRole.WEIGHT,
+            scaling_granularity=ScalingGranularity.AXISWISE,
+            axiswise_dim=-2,
+            round_scales_to_power_of_2=True,
+        )
+
+        # compute scaled mm
+        group_output = torch.mm(group_fp8, params_fp8)
+
+        # update outputs
+        outputs.append(group_output)
+
+    # compute the param gradients and return them
+    output = torch.cat(outputs, dim=0)
+    assert output.shape[0] == x.shape[0] and output.shape[-1] == params.shape[-1], "invalid output shape"
+    output.sum().backward()
+    ref_grad = params.grad
+    return ref_grad
+
+
+def offs_to_group_sizes(offs: List[int]) -> List[int]:
+    group_sizes = []
+    prev_off = 0
+    for off in offs:
+        group_sizes.append(off - prev_off)
+        prev_off = off
+    return group_sizes
 
 
 def validate_grouped_mm(

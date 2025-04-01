@@ -70,6 +70,9 @@ class _Float8GroupedMM(torch.autograd.Function):
             f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
         )
 
+        if not _is_column_major(B):
+            B = B.transpose(-2, -1).contiguous().transpose(-2, -1)
+
         # Fetch float8 config from specified recipe name.
         float8_config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
 
@@ -363,3 +366,15 @@ def _to_2d_jagged_float8_tensor_rowwise(
         next_scale_idx += subtensor_scales.numel()
 
     return x_fp8, x_scales
+
+def _is_column_major(x: torch.Tensor) -> bool:
+    """
+    This function checks if the input tensor is column-major.
+
+    Args:
+        x (torch.Tensor): The input tensor to be checked.
+
+    Returns:
+        A boolean indicating whether the input tensor is column-major.
+    """
+    return x.stride(-2) == 1 and x.stride(-1) > 1
