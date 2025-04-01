@@ -30,11 +30,7 @@ def test_tensorwise_scaling_not_supported():
             out_dtype=torch.bfloat16,
         )
 
-# NOTE: this unit test is based on the pytorch core unit tests here:
-# https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.parametrize("use_fast_accum", [True, False])
-# @pytest.mark.parametrize("strided", [True, False])
 def test_grouped_gemm_2d_3d():
     float8_recipe_name = Float8LinearRecipeName.ROWWISE
     out_dtype = torch.bfloat16
