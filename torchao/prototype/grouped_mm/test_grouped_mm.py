@@ -13,6 +13,21 @@ from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 from torchao.prototype.grouped_mm import _grouped_scaled_mm
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_tensorwise_scaling_not_supported():
+    device = "cuda"
+    m, n, k, n_groups = 16, 32, 16, 4
+    a = torch.randn(m * n_groups, k, device=device)[:, :k]
+    b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
+    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
+    with pytest.raises(AssertionError):
+        _grouped_scaled_mm(
+            a,
+            b.transpose(-2, -1),
+            offs=offs,
+            float8_recipe=Float8LinearRecipeName.TENSORWISE,
+            out_dtype=torch.bfloat16,
+        )
 
 # NOTE: this unit test is based on the pytorch core unit tests here:
 # https://github.com/pytorch/pytorch/blob/6eb3c2e2822c50d8a87b43938a9cf7ef0561ede2/test/test_matmul_cuda.py#L1204
@@ -79,7 +94,7 @@ def test_gradients():
     offs = torch.arange(m, m * n_groups + 1, m, device="cuda", dtype=torch.int32)
 
     # clone the inputs and params for computing the reference gradients
-    ref_x, ref_params = x.clone(), params.clone()
+    ref_x, ref_params = x.detach().clone().requires_grad_(True), params.detach().clone().requires_grad_(True)
 
     # compute the output
     out = _grouped_scaled_mm(
@@ -95,39 +110,24 @@ def test_gradients():
     out.sum().backward()
 
     # check the gradients exist
-    assert params.data.grad is not None
+    assert params.grad is not None
 
     # check the gradients are not all nan
-    assert not params.data.grad.isnan().any()
+    assert not params.grad.isnan().any()
 
     # compare with reference gradients
-    ref_grad = compute_reference_gradients(ref_x, ref_params, offs)
-    assert torch.allclose(params.grad, ref_grad, atol=1e-2, rtol=1e-2)
+    ref_out, ref_grad = compute_reference_output_and_gradient(ref_x, ref_params, offs)
+    assert torch.allclose(out, ref_out, atol=1e-2, rtol=1e-2), "outputs not close"
+    assert torch.allclose(params.grad, ref_grad, atol=1e-2, rtol=1e-2), "gradients not close"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_tensorwise_scaling_not_supported():
-    device = "cuda"
-    m, n, k, n_groups = 16, 32, 16, 4
-    a = torch.randn(m * n_groups, k, device=device)[:, :k]
-    b = torch.randn(n_groups, n, k, device=device)[::1, :, :k]
-    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
-    with pytest.raises(AssertionError):
-        _grouped_scaled_mm(
-            a,
-            b.transpose(-2, -1),
-            offs=offs,
-            float8_recipe=Float8LinearRecipeName.TENSORWISE,
-            out_dtype=torch.bfloat16,
-        )
-
-def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: torch.Tensor):
+def compute_reference_output_and_gradient(x: torch.Tensor, params: torch.Tensor, offs: torch.Tensor):
     assert len(offs) == params.size(0), "len(offs) != params.size(0); expected same number of offs/groups as params"
     assert x.ndim == 2, "expected 2D input"
     assert params.ndim == 3, "expected 3D params"
 
     # convert params to column-major memory layout
-    params = params.transpose(-2, -1).contiguous().transpose(-2, -1)
+    params_col_major = params.transpose(-2, -1).contiguous().transpose(-2, -1)
 
     # determine group sizes based on offsets
     group_sizes = offs_to_group_sizes(offs.tolist())
@@ -140,23 +140,23 @@ def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: tor
     for group_idx, group in enumerate(x_groups):
         group_output = matmul_with_hp_or_float8_args.apply(
             group,
-            params[group_idx],
+            params_col_major[group_idx],
             LinearMMConfig(),
             Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE),
         )
         outputs.append(group_output)
         
     # compute the param gradients and return them
-    output = torch.cat(outputs, dim=0)
-    assert output.shape[0] == x.shape[0] and output.shape[-1] == params.shape[-1], "invalid output shape"
+    ref_output = torch.cat(outputs, dim=0)
+    assert ref_output.shape[0] == x.shape[0] and ref_output.shape[-1] == params.shape[-1], "invalid output shape"
 
     # perform backward pass
-    output.sum().backward()
-    assert params.data.grad is not None, "params don't have gradients"
+    ref_output.sum().backward()
+    assert params.grad is not None, "params don't have gradients"
 
     # return reference gradient
-    ref_grad = params.data.grad
-    return ref_grad, output
+    ref_grad = params.grad
+    return ref_output, ref_grad
 
 
 def offs_to_group_sizes(offs: List[int]) -> List[int]:
