@@ -311,7 +311,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot
       bias_ptr);
 
   std::vector<float> output(m * n);
-  kernel<weight_nbit>(
+  kernel<weight_nbit, has_weight_zeros>(
       output.data(),
       /*output_m_stride=*/n,
       m,
@@ -388,13 +388,12 @@ TEST(
   }
 }
 
-template <int weight_nbit>
+template <int weight_nbit, bool has_weight_zeros>
 void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
     int m,
     int k,
     int n,
     int group_size,
-    bool has_weight_zeros,
     bool has_bias,
     bool has_clamp) {
   constexpr int mr = 1;
@@ -453,7 +452,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
       has_bias ? test_case.bias.data() : nullptr);
 
   std::vector<float> output(m * n);
-  kernel_1x8x16_f32_neondot<weight_nbit, /*has_lut*/ true>(
+  kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, /*has_lut*/ true>(
       output.data(),
       /*output_m_stride=*/n,
       m,
@@ -476,85 +475,90 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
 TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, LUT) {
   constexpr int weight_nbit = 4;
 
-  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<weight_nbit>(
+  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
+      weight_nbit,
+      /*has_weight_zeros*/ false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/false,
       /*has_clamp=*/false);
 
   // has_weight_zeros
-  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<weight_nbit>(
+  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
+      weight_nbit,
+      /*has_weight_zeros*/ true>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/true,
       /*has_bias=*/false,
       /*has_clamp=*/false);
 
   // has_bias
-  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<weight_nbit>(
+  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
+      weight_nbit,
+      /*has_weight_zeros=*/false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/true,
       /*has_clamp=*/false);
 
   // has_clamp
-  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<weight_nbit>(
+  test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
+      weight_nbit,
+      /*has_weight_zeros*/ false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/false,
       /*has_clamp=*/true);
 
   // n less than 8 (nr)
   for (int n = 1; n < 8; n++) {
-    test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<weight_nbit>(
+    test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
+        weight_nbit,
+        /*has_weight_zeros=*/false>(
         /*m=*/7,
         /*k=*/64,
         /*n=*/n,
         /*group_size=*/16,
-        /*has_weight_zeros=*/false,
         /*has_bias=*/false,
         /*has_clamp=*/false);
   }
 
   // Other bitwidths
   test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
-      /*weight_nbit*/ 1>(
+      /*weight_nbit*/ 1,
+      /*has_weight_zeros=*/false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/false,
       /*has_clamp=*/false);
 
   test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
-      /*weight_nbit*/ 2>(
+      /*weight_nbit*/ 2,
+      /*has_weight_zeros=*/false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/false,
       /*has_clamp=*/false);
 
   test_channelwise_8bit_activation_groupwise_lowbit_weight_lut<
-      /*weight_nbit*/ 3>(
+      /*weight_nbit*/ 3,
+      /*has_weight_zeros=*/false>(
       /*m=*/7,
       /*k=*/64,
       /*n=*/13,
       /*group_size=*/16,
-      /*has_weight_zeros=*/false,
       /*has_bias=*/false,
       /*has_clamp=*/false);
 }

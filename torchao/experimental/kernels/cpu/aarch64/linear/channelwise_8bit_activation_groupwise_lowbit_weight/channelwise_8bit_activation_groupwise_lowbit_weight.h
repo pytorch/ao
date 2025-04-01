@@ -245,7 +245,7 @@ void kernel_1x4x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit, bool has_lut>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -260,10 +260,11 @@ void kernel_1x8x16_f32_neondot(
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max,
-    bool has_weight_zeros,
+    bool has_weight_zeros_,
     bool has_bias,
     bool has_clamp) {
-  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_lut>(
+  (void)has_weight_zeros_; // unused
+  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
       output,
       output_m_stride,
       m,
@@ -274,7 +275,6 @@ void kernel_1x8x16_f32_neondot(
       packed_activations,
       clamp_min,
       clamp_max,
-      has_weight_zeros,
       has_bias,
       has_clamp);
 }
