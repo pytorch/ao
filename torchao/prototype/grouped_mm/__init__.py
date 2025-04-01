@@ -132,18 +132,17 @@ class _Float8GroupedMM(torch.autograd.Function):
         #
         # grad_output shape: (M, N)
         # grad_output_scale shape: (M, 1)
-        # squeeze grad_output_scale to remove empty dim, as required by torch._scaled_grouped_mm.
-        # grad_output_scale shape: (M,)
-        grad_output_fp8_row_major = hp_tensor_to_float8_dynamic(
+        grad_output_scales = tensor_to_scale(
             grad_output,
             float8_config.cast_config_grad_output.target_dtype,
-            linear_mm_config=LinearMMConfig(),
-            gemm_input_role=GemmInputRole.GRAD_OUTPUT,
             scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
             axiswise_dim=-1,
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        grad_output_scale = grad_output_fp8_row_major._scale.squeeze()
+        grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
+        grad_output_fp8_row_major = to_fp8_saturated(
+            grad_output_scaled, float8_config.cast_config_grad_output.target_dtype
+        )
 
         # Convert B to non-transposed, float8, column-major for right operand of grouped GEMM
         # needed for grad_A: grad_output @ B.
@@ -153,28 +152,27 @@ class _Float8GroupedMM(torch.autograd.Function):
         # - B shape: (B, K, N)
         # - B scales must be computed rowwise keeping the outer/final dim, so:
         # - B_scale shape: (B, 1, N)
-        # - torch._scaled_grouped_mm requires scales without any empty dims, so squeeze A_scale.
-        # - B scale shape: (B, N)
-        B_non_transposed_fp8_col_major = hp_tensor_to_float8_dynamic(
+        B_non_transposed_scales = tensor_to_scale(
             B_non_transposed_col_major,
-            float8_config.cast_config_input.target_dtype,
-            linear_mm_config=LinearMMConfig(),
-            gemm_input_role=GemmInputRole.WEIGHT,
+            float8_config.cast_config_weight.target_dtype,
             scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
             axiswise_dim=-2,
             round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
         )
-        B_scale = B_non_transposed_fp8_col_major._scale.squeeze()
+        B_non_transposed_scaled = B_non_transposed_col_major.to(torch.float32) * B_non_transposed_scales
+        B_non_transposed_fp8_col_major = to_fp8_saturated(
+            B_non_transposed_scaled, float8_config.cast_config_weight.target_dtype
+        )
 
         # Compute grad_A.
         #
         # grad_A = grad_output @ B
         # grad_A = scaled grouped mm of (M,N) @ (B,N,K) = (M,K)
         grad_A = torch._scaled_grouped_mm(
-            grad_output_fp8_row_major._data,
-            B_non_transposed_fp8_col_major._data,
-            grad_output_scale.reciprocal(),
-            B_scale.reciprocal(),
+            grad_output_fp8_row_major,
+            B_non_transposed_fp8_col_major,
+            grad_output_scales.squeeze().reciprocal(),
+            B_non_transposed_scales.squeeze().reciprocal(),
             offs,
             out_dtype=out_dtype,
             use_fast_accum=float8_config.gemm_config_grad_input.use_fast_accum,

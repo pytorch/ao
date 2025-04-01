@@ -317,7 +317,6 @@ class Float8Tensor(torch.Tensor):
             None,
             0,
             -1,
-            -2,
         ), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
 
