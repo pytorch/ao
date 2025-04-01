@@ -7,8 +7,11 @@ from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName, Sc
 from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
+from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
+from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
 from torchao.prototype.grouped_mm import _grouped_scaled_mm
+
 
 
 # NOTE: this unit test is based on the pytorch core unit tests here:
@@ -71,8 +74,8 @@ def test_gradients():
     device = "cuda"
     m, k, n, n_groups = 16, 16, 32, 4
 
-    params = nn.Parameter(torch.randn(n_groups, k, n, device=device, dtype=torch.bfloat16, requires_grad=True))
     x = torch.randn(m * n_groups, k, device=device, dtype=torch.bfloat16)
+    params = nn.Parameter(torch.randn(n_groups, k, n, device=device, dtype=torch.bfloat16))
     offs = torch.arange(m, m * n_groups + 1, m, device="cuda", dtype=torch.int32)
 
     ref_x, ref_params = x.clone(), params.clone()
@@ -128,38 +131,24 @@ def compute_reference_gradients(x: torch.Tensor, params: torch.Tensor, offs: tor
     x_groups = torch.split(x, group_sizes, dim=0)
     outputs = []
     for group_idx, group in enumerate(x_groups):
-        # convert input to float8
-        group_fp8 = hp_tensor_to_float8_dynamic(
-            group,
-            float8_dtype=torch.float8_e4m3fn,
-            linear_mm_config=LinearMMConfig(),
-            gemm_input_role=GemmInputRole.INPUT,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
-            round_scales_to_power_of_2=True,
-        )
-
-        # convert weights to float8
-        params_fp8 = hp_tensor_to_float8_dynamic(
-            params[group_idx],  # select expert this token group was routed to
-            float8_dtype=torch.float8_e4m3fn,
-            linear_mm_config=LinearMMConfig(),
-            gemm_input_role=GemmInputRole.WEIGHT,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-2,
-            round_scales_to_power_of_2=True,
-        )
-
         # compute scaled mm
-        group_output = torch.mm(group_fp8, params_fp8)
-
+        group_output = matmul_with_hp_or_float8_args.apply(
+            group,
+            params[group_idx],
+            LinearMMConfig(),
+            Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE),
+        )
         # update outputs
         outputs.append(group_output)
 
     # compute the param gradients and return them
     output = torch.cat(outputs, dim=0)
     assert output.shape[0] == x.shape[0] and output.shape[-1] == params.shape[-1], "invalid output shape"
+
+    # perform backward pass
     output.sum().backward()
+
+    # return reference gradient
     ref_grad = params.grad
     return ref_grad
 
