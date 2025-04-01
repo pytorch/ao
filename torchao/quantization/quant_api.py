@@ -36,6 +36,7 @@ from torchao.dtypes import (
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
+    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
@@ -75,6 +76,7 @@ from .GPTQ import (
     Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -86,6 +88,7 @@ from .qat import (
     intx_quantization_aware_training,
 )
 from .quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
 )
@@ -1566,6 +1569,75 @@ def _uintx_weight_only_transform(
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class IntxWeightOnlyConfig(AOBaseConfig):
+    """
+    Configuration for quantizing weights to torch.intx, with 1 <= x <= 8.
+    Weights are quantized with scales and optionally zeros (controlled by has_weight_zeros) in a groupwise or channelwise
+    manner using the number of bits specified by weight_dtype.
+    args:
+        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+            torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
+        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
+        has_weight_zeros: Whether or not to include zeros in the weight quantization.
+        weight_mapping_type: The type of mapping to use for the weight quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        act_mapping_type: The type of mapping to use for the activation quantization.  Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        layout: The layout to use for the packed weight tensor:
+            - QDQLayout: this layout is designed for export to ExecuTorch.
+    """
+
+    weight_dtype: torch.dtype = torch.int8
+    granularity: Union[PerRow, PerGroup] = PerRow()
+    has_weight_zeros: bool = False
+    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
+    layout: Layout = QDQLayout()
+
+
+@register_quantize_module_handler(IntxWeightOnlyConfig)
+def _intx_weight_only_transform(
+    module: torch.nn.Module, config: IntxWeightOnlyConfig
+) -> torch.nn.Module:
+    # Needed for torch.intx data types
+    assert (
+        TORCH_VERSION_AT_LEAST_2_6
+    ), "IntxWeightOnlyConfig quantization requires torch>=2.6"
+
+    weight = module.weight
+    weight_dtype = config.weight_dtype
+    granularity = config.granularity
+    has_weight_zeros = config.has_weight_zeros
+    weight_mapping_type = config.weight_mapping_type
+    layout = config.layout
+
+    if isinstance(granularity, PerGroup):
+        group_size = granularity.group_size
+    elif isinstance(granularity, PerRow):
+        group_size = weight.shape[-1]
+    else:
+        raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
+
+    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
+    weight = to_affine_quantized_intx(
+        input_float=weight,
+        mapping_type=weight_mapping_type,
+        block_size=(1, group_size),
+        target_dtype=torch.int32,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=torch.finfo(torch.float32).eps,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.int8,
+        preserve_zero=has_weight_zeros,
+        zero_point_domain=(
+            ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        ),
+        _layout=layout,
+        use_hqq=False,
+    )
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
     return module
 
 
