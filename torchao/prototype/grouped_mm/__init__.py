@@ -51,17 +51,17 @@ class _Float8GroupedMM(torch.autograd.Function):
         out_dtype: Optional[torch.dtype] = None,
     ) -> torch.Tensor:
         # torch._scaled_grouped_mm only supports rowwise scaling currently.
-        assert float8_recipe_name == Float8LinearRecipeName.ROWWISE, (
-            "Only rowwise scaling is supported by torch._scaled_grouped_mm."
-        )
+        assert (
+            float8_recipe_name == Float8LinearRecipeName.ROWWISE
+        ), "Only rowwise scaling is supported by torch._scaled_grouped_mm."
 
         assert A.ndim == 2, "A must be 2D"
         assert B.ndim == 3, "B must be 3D"
 
         # Dim 1 of B must match the final dim of A.
-        assert A.size(-1) == B.size(-2), (
-            f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
-        )
+        assert A.size(-1) == B.size(
+            -2
+        ), f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
 
         if not _is_column_major(B):
             B_col_major = B.transpose(-2, -1).contiguous().transpose(-2, -1)
