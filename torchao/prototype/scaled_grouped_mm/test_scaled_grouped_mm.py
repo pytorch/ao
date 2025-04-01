@@ -7,6 +7,7 @@ from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import _scaled_grouped_mm
 
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_grouped_gemm_2d_3d():
     out_dtype = torch.bfloat16

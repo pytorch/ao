@@ -73,7 +73,9 @@ class _Float8GroupedMM(torch.autograd.Function):
             B_col_major = B
 
         # Fetch float8 config from specified recipe name.
-        float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
+        float8_config = Float8LinearConfig.from_recipe_name(
+            Float8LinearRecipeName.ROWWISE
+        )
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B)
