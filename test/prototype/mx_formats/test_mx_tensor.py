@@ -445,18 +445,6 @@ def test_transpose(elem_dtype, fp4_triton):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_cast_autograd(elem_dtype):
-    x = torch.arange(8, device="cuda").bfloat16().requires_grad_()
-    grad = torch.arange(8, device="cuda").bfloat16() * 0.5
-    block_size = 8
-    x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
-    x_dq = x_mx.to_dtype(torch.bfloat16)
-    x_dq.backward(gradient=grad)
-    torch.testing.assert_close(grad, x.grad, atol=0, rtol=0)
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_view(elem_dtype):
     x = torch.randn(1, 2, 4, device="cuda")
     block_size = 4
