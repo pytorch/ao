@@ -73,11 +73,6 @@ class _Float8GroupedMM(torch.autograd.Function):
             -2
         ), f"shape {A.shape} and {B.shape} are not compatible for _scaled_grouped_mm"
 
-        # assert group sizes are all multiples of 16
-        assert _group_sizes_are_multiples_of_16(
-            offs
-        ), "group sizes (determines by `offs`) must be multiples of 16"
-
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
         if not _is_column_major(B):
             B_col_major = B.transpose(-2, -1).contiguous().transpose(-2, -1)
@@ -401,15 +396,3 @@ def _offs_to_group_sizes(offs: torch.Tensor):
         group_sizes.append(group_size)
         start_idx = end_idx
     return group_sizes
-
-
-def _group_sizes_are_multiples_of_16(offs: torch.Tensor) -> bool:
-    """
-    Args:
-        offs: (int32 torch.Tensor): list of group offsets
-
-    Returns:
-        A boolean value indicating of group sizes (based on `offs`) are all multiples of 16
-    """
-    group_sizes = _offs_to_group_sizes(offs)
-    return all(group_size % 16 == 0 for group_size in group_sizes)
