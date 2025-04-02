@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+ZeroPointDomain
+===============
+
+.. autoclass:: ZeroPointDomain
+    :members:

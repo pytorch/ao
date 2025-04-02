@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+intx_quantization_aware_training
+================================
+
+.. autoclass:: intx_quantization_aware_training
+    :members:
