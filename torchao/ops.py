@@ -71,6 +71,13 @@ def register_custom_op_impl(name):
     return decorator
 
 
+@functools.lru_cache
+def cached_compute_capability():
+    device_props = torch.cuda.get_device_properties(torch.cuda.current_device())
+    compute_capability = device_props.major * 10 + device_props.minor
+    return compute_capability
+
+
 def quant_llm_linear(
     EXPONENT: int,
     MANTISSA: int,
@@ -93,6 +100,12 @@ def quant_llm_linear(
     Returns
         output of linear layer
     """
+    # Check if we're on a supported architecture (sm7.5 or higher)
+    compute_capability = cached_compute_capability()
+    torch._check(
+        compute_capability >= 75,
+        lambda: f"quant_llm_linear requires sm7.5+ GPU architecture, but current device has sm{compute_capability}",
+    )
     return torch.ops.torchao.quant_llm_linear.default(
         EXPONENT, MANTISSA, _in_feats, _weights, _scales, splitK
     )

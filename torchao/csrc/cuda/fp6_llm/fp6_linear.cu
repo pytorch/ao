@@ -21,6 +21,7 @@
 //
 // MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
 // - Modified the TilingConfig parameters for SM75 to deal with smaller shared memory
+// - Added proper architecture check at both host and device level
 //
 
 
@@ -98,7 +99,24 @@ void        fpx_linear_kernel(cudaStream_t    stream,
     static_assert(std::is_same<InputDataType, half>::value || std::is_same<InputDataType, __nv_bfloat16>::value, "Type must be 'half' or '__nv_bfloat16'");
     assert(M_Global % 256 == 0);
     assert(K_Global % 64 == 0);
-    assert(N_Global>0);
+    assert(N_Global > 0);
+
+    // Check GPU Compute Capability before proceeding
+    int device, major, minor;
+    CHECK_CUDA(cudaGetDevice(&device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
+
+    // Early exit with error for unsupported architectures
+    if ((major < 7) || (major == 7 && minor < 5)) {
+        TORCH_CHECK(false, "Quant-LLM Error: This kernel requires GPU with SM75 (Turing) or higher architecture. "
+                         "Your current device has SM", major, minor, " which is not supported.");
+    }
+
+    const bool is_sm75_gpu = (major == 7) && (minor == 5);
+    if (is_sm75_gpu && std::is_same<InputDataType, __nv_bfloat16>::value) {
+        TORCH_CHECK(false, "Quant-LLM Error: BFloat16 inputs are not supported on SM75 (Turing) GPUs.");
+    }
 
     // Work around to support more N shapes:
     size_t N_PowerOf2;
@@ -108,17 +126,6 @@ void        fpx_linear_kernel(cudaStream_t    stream,
     if(N_Global>32 && N_Global<=64)     N_PowerOf2 = 64;
     if(N_Global>64 && N_Global<=128)    N_PowerOf2 = 128;
     if(N_Global>128)                    N_PowerOf2 = ((N_Global-1)/128+1) * 128;
-
-    // Check GPU Compute Capability
-    int device, major, minor;
-    CHECK_CUDA(cudaGetDevice(&device));
-    CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
-    CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
-    const bool is_sm75_gpu = (major == 7) && (minor == 5);
-    if (is_sm75_gpu && std::is_same<InputDataType, __nv_bfloat16>::value)
-        TORCH_CHECK(false, "Bfloat16 inputs are not supported for SM75");
-    if ((major < 7) || (major == 7 && minor < 5))
-        TORCH_CHECK(false, "FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
 
     if (is_sm75_gpu && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
         // For SM75 and N >= 64, we use a different TilingConfig to deal with smaller shared memory.
@@ -136,7 +143,7 @@ void        fpx_linear_kernel(cudaStream_t    stream,
                 case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
                 case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
+                                TORCH_CHECK(false, "Quant-LLM Error: Unsupported N dimension ", N_PowerOf2);
                             }
                             Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
             }
@@ -149,7 +156,7 @@ void        fpx_linear_kernel(cudaStream_t    stream,
                 case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
                 case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
+                                TORCH_CHECK(false, "Quant-LLM Error: Unsupported N dimension ", N_PowerOf2);
                             }
                             Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
             }
@@ -210,6 +217,23 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     torch::Tensor   _scales,
     int64_t         splitK=1)
 {
+    // Check GPU Compute Capability before proceeding
+    int device, major, minor;
+    CHECK_CUDA(cudaGetDevice(&device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
+
+    // Early exit with error for unsupported architectures
+    if ((major < 7) || (major == 7 && minor < 5)) {
+        TORCH_CHECK(false, "Quant-LLM Error: This kernel requires GPU with SM75 (Turing) or higher architecture. "
+                         "Your current device has SM", major, minor, " which is not supported.");
+    }
+
+    const bool is_sm75_gpu = (major == 7) && (minor == 5);
+    if (is_sm75_gpu && _in_feats.scalar_type() == at::ScalarType::BFloat16) {
+        TORCH_CHECK(false, "Quant-LLM Error: BFloat16 inputs are not supported on SM75 (Turing) GPUs.");
+    }
+
     const int64_t NBITS   = 1 + EXPONENT + MANTISSA;
     int num_in_feats      = _in_feats.size(0);
     int num_in_channels   = _in_feats.size(1);
