@@ -30,26 +30,28 @@ def test_valid_scaled_grouped_mm_2d_3d():
         n,
         k,
         device=device,
-        requires_grad=True,
         dtype=torch.bfloat16,
     )
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
 
+    # b must be transposed and in column major format.
+    b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
+
     # Compute output.
     out = _scaled_grouped_mm(
         a,
-        b.transpose(-2, -1),
+        b_t,
         offs=offs,
         out_dtype=out_dtype,
     )
 
     # Validate result.
     ref_a = a.detach().clone().requires_grad_(True)
-    ref_b = b.detach().clone().requires_grad_(True)
+    ref_b_t = b_t.detach().clone().requires_grad_(True)
     ref_out = compute_reference_forward(
         out,
         ref_a,
-        ref_b,
+        ref_b_t,
         n_groups,
         out_dtype,
         offs,
@@ -62,7 +64,7 @@ def test_valid_scaled_grouped_mm_2d_3d():
 
     # Validate gradients.
     assert torch.equal(a.grad, ref_a.grad)
-    assert torch.equal(b.grad, ref_b.grad)
+    assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -95,13 +97,18 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
         requires_grad=True,
         dtype=torch.bfloat16,
     )
+
+    # b must be transposed and in column major format.
+    b_t = b.transpose(-2, -1)
+    b_t = b_t.transpose(-2, -1).contiguous().transpose(-2, -1)
+
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
 
     # Compute output.
     with pytest.raises(AssertionError):
         _scaled_grouped_mm(
             a,
-            b.transpose(-2, -1),
+            b_t,
             offs=offs,
             out_dtype=out_dtype,
         )
@@ -110,7 +117,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
 def compute_reference_forward(
     result: torch.Tensor,
     A: torch.Tensor,
-    B: torch.Tensor,
+    B_t: torch.Tensor,
     n_groups: int,
     out_dtype: torch.dtype,
     offs: torch.Tensor,
@@ -132,7 +139,6 @@ def compute_reference_forward(
     A_fp8 = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
     # Convert B^t to fp8.
-    B_t = B.transpose(-2, -1)
     B_t_scales = tensor_to_scale(
         B_t,
         float8_config.cast_config_weight.target_dtype,
