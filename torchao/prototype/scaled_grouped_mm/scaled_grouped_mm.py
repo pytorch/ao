@@ -357,4 +357,5 @@ def _is_column_major(x: torch.Tensor) -> bool:
     Returns:
         A boolean indicating whether the input tensor is column-major.
     """
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
     return x.stride(-2) == 1 and x.stride(-1) > 1
