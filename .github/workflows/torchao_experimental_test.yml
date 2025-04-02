@@ -98,7 +98,7 @@ jobs:
       - name: Install requirements
         run: |
           pip install -r dev-requirements.txt
-          pip install pyyaml, importlib-metadata
+          pip install pyyaml importlib-metadata
       - name: Print pip freeze
         run: |
           pip freeze
