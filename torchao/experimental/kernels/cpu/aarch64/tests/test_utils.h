@@ -86,6 +86,7 @@ inline float get_float_from_bf16(uint16_t bf16) {
 
 namespace test_utils {
 auto generate_per_token_quantized_tensor(int m, int n, bool transposed = false);
+
 auto generate_per_token_quantized_tensor(int m, int n, bool transposed) {
   auto activations = get_random_vector(m * n, -1.0, 1.0);
   auto activation_qvals = std::vector<int8_t>(m * n, 0);

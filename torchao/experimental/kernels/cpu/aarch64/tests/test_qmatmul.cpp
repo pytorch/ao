@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/matmul.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
+#include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils_quantized_attention.h>
 
 float kTol = 0.0001;
 
@@ -410,5 +411,102 @@ INSTANTIATE_TEST_SUITE_P(
     F32AInt8BFP32CTest,
     FP32A_QuantizedB_FP32C_Test,
     ::testing::Values(0.0, 1.0, 2.69));
+
+static void test_8bit_per_token_q_at_k_matmul_attention(
+    int b,
+    int s_q,
+    int s_k,
+    int h,
+    int d,
+    bool transpose = true) {
+  auto test_case = torchao::
+      channelwise_8bit_a_channelwise_8bit_b_q_at_k_attention_test_case::
+          generate(b, s_q, s_k, h, d, transpose);
+
+  using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+      channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
+
+  size_t q_b_stride = test_case.b_q_stride;
+  size_t q_h_stride = test_case.h_q_stride;
+  size_t q_s_q_stride = test_case.s_q_stride;
+  size_t q_scale_zp_b_stride = test_case.b_q_qparams_stride;
+  size_t q_scale_zp_h_stride = test_case.h_q_qparams_stride;
+  size_t q_scale_zp_s_stride = test_case.s_q_qparams_stride;
+
+  size_t k_b_stride = test_case.b_k_stride;
+  size_t k_h_stride = test_case.h_k_stride;
+  size_t k_s_k_stride = test_case.s_k_stride;
+  size_t k_scale_zp_b_stride = test_case.b_k_qparams_stride;
+  size_t k_scale_zp_h_stride = test_case.h_k_qparams_stride;
+  size_t k_scale_zp_s_stride = test_case.s_k_qparams_stride;
+
+  std::vector<float> output(b * h * s_q * s_k);
+  size_t output_b_stride = h * s_q * s_k;
+  size_t output_h_stride = s_q * s_k;
+  size_t output_s_q_stride = s_k;
+
+  for (int b_idx = 0; b_idx < b; b_idx++) {
+    for (int h_idx = 0; h_idx < h; h_idx++) {
+      kernel<true, true, false, true>(
+          s_q,
+          s_k,
+          d,
+          test_case.q_qvals.data() + b_idx * q_b_stride + h_idx * q_h_stride,
+          q_s_q_stride /*lhs_stride_m*/,
+          test_case.k_qvals.data() + b_idx * k_b_stride + h_idx * k_h_stride,
+          k_s_k_stride /*rhs_stride_n*/,
+          output.data() + b_idx * output_b_stride + h_idx * output_h_stride,
+          output_s_q_stride /*out_stride_n*/,
+          test_case.q_zeros.data() + b_idx * q_scale_zp_b_stride +
+              h_idx * q_scale_zp_h_stride,
+          test_case.k_zeros.data() + b_idx * k_scale_zp_b_stride +
+              h_idx * k_scale_zp_h_stride,
+          test_case.q_scales.data() + b_idx * q_scale_zp_b_stride +
+              h_idx * q_scale_zp_h_stride,
+          test_case.k_scales.data() + b_idx * k_scale_zp_b_stride +
+              h_idx * k_scale_zp_h_stride,
+          q_scale_zp_s_stride /*lhs qparams stride*/,
+          k_scale_zp_s_stride /*rhs qparams stride*/);
+    }
+  }
+
+  for (int i = 0; i < b * h * s_q * s_k; i++) {
+    EXPECT_NEAR(output[i], test_case.expected_output[i], kTol);
+  }
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, Basic) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 16, 16, 8, 16);
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, PrimeHeadsAndHeadDim) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 8, 8, 7, 33);
+}
+
+TEST(
+    test_8bit_per_token_q_at_k_matmul_attention,
+    PrimeHeadsAndHeadDimDiffSqSk) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 7, 16, 7, 33);
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, PrimeHeadsAndSmallHeadDim) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 8, 8, 7, 3);
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, BasicNoTransposed) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 16, 16, 8, 16, false);
+}
+
+TEST(
+    test_8bit_per_token_q_at_k_matmul_attention,
+    PrimeHeadsAndHeadDimDiffSqSkNoTranspose) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 7, 16, 7, 33, false);
+}
+
+TEST(
+    test_8bit_per_token_q_at_k_matmul_attention,
+    PrimeHeadsAndSmallHeadDimNoTranspose) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 8, 8, 7, 3, false);
+}
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
