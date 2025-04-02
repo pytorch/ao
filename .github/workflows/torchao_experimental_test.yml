@@ -37,9 +37,7 @@ jobs:
           # of torch and torchao, which we do not want to use
           pip install executorch
           pip install torch==2.7.0.dev20250311 --index-url "https://download.pytorch.org/whl/nightly/cpu" --force-reinstall
-          pip install numpy
-          pip install pytest
-          pip install parameterized
+          pip install -r dev-requirements.txt
           USE_CPP=1 TOCHAO_BUILD_KLEIDIAI=1 pip install .
       - name: Run python tests
         run: |
@@ -99,11 +97,8 @@ jobs:
           python -c "import torch; print(torch.__version__)"
       - name: Install requirements
         run: |
-          pip install cmake
-          pip install parameterized
-          pip install pyyaml
-          pip install numpy
-          pip install importlib-metadata
+          pip install -r dev-requirements.txt
+          pip install pyyaml importlib-metadata
       - name: Print pip freeze
         run: |
           pip freeze
