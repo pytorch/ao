@@ -14,9 +14,14 @@
 #include <vector>
 
 #include <kai/kai_common.h>
+#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp_qsi4c32p_interface.h>
+
+#ifdef TORCHAO_ENABLE_ARM_NEON_DOT
+#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod.h>
 #include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
 #include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod.h>
-#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp_qsi4c32p_interface.h>
+#include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod.h>
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
 
 #ifdef TORCHAO_ENABLE_ARM_I8MM
 #include <kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm.h>
@@ -297,10 +302,14 @@ size_t get_preferred_alignement() {
     }                                                                 \
   }
 
+#ifdef TORCHAO_ENABLE_ARM_NEON_DOT
 DEFINE_KERNEL_STRUCT(
     matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod);
 DEFINE_KERNEL_STRUCT(
     matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod);
+DEFINE_KERNEL_STRUCT(matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod);
+DEFINE_KERNEL_STRUCT(matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod);
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
 
 #ifdef TORCHAO_ENABLE_ARM_I8MM
 DEFINE_KERNEL_STRUCT(matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm);
