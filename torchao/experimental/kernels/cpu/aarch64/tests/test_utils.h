@@ -84,11 +84,9 @@ inline float get_float_from_bf16(uint16_t bf16) {
   return f;
 }
 
-namespace {
-auto generate_per_token_quantized_tensor(
-    int m,
-    int n,
-    bool transposed = false) {
+namespace test_utils {
+auto generate_per_token_quantized_tensor(int m, int n, bool transposed = false);
+auto generate_per_token_quantized_tensor(int m, int n, bool transposed) {
   auto activations = get_random_vector(m * n, -1.0, 1.0);
   auto activation_qvals = std::vector<int8_t>(m * n, 0);
   auto activation_scales = std::vector<float>(m, 0);
@@ -135,7 +133,7 @@ auto generate_per_token_quantized_tensor(
   return std::make_tuple(
       activations, activation_qvals, activation_scales, activation_zeros);
 }
-} // namespace
+} // namespace test_utils
 
 struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
   int m;
@@ -236,7 +234,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
 
     // Generate activations
     auto [activations, activation_qvals, activation_scales, activation_zeros] =
-        generate_per_token_quantized_tensor(m, k);
+        test_utils::generate_per_token_quantized_tensor(m, k);
 
     //  Generate weights
     assert(k % weight_group_size == 0);
@@ -441,10 +439,11 @@ struct channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case {
     assert(rhs_is_transposed || stride == 1);
     // Generate activations
     auto [lhs, lhs_qvals, lhs_scales, lhs_zeros] =
-        generate_per_token_quantized_tensor(m * stride, k);
+        test_utils::generate_per_token_quantized_tensor(m * stride, k);
 
     auto [rhs, rhs_qvals, rhs_scales, rhs_zeros] =
-        generate_per_token_quantized_tensor(n * stride, k, !rhs_is_transposed);
+        test_utils::generate_per_token_quantized_tensor(
+            n * stride, k, !rhs_is_transposed);
     // Above function produces nxk matrix and to produce kxn you need transposed
     // = true. we do !rhs_is_transposed becaues when rhs_is_transposed = true
     // the shape should be nxk instead of kxn.
