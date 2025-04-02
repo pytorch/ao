@@ -84,6 +84,59 @@ inline float get_float_from_bf16(uint16_t bf16) {
   return f;
 }
 
+namespace {
+auto generate_per_token_quantized_tensor(
+    int m,
+    int n,
+    bool transposed = false) {
+  auto activations = get_random_vector(m * n, -1.0, 1.0);
+  auto activation_qvals = std::vector<int8_t>(m * n, 0);
+  auto activation_scales = std::vector<float>(m, 0);
+  auto activation_zeros = std::vector<int8_t>(m, 0);
+
+  // Quantize activations with 8-bit asymmetric
+  // TODO: replace with generic function that does not use aarch64
+  // quantize method after we combine with torchao
+  int qmin, qmax, zero;
+  float vmin, vmax, scale;
+  torchao::quantization::get_qvals_range(
+      qmin, qmax, /*nbit=*/8, /*is_symmetric=*/false);
+  for (int m_idx = 0; m_idx < m; m_idx++) {
+    torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+        vmin, vmax, /*vals=*/activations.data() + m_idx * n, /*size=*/n);
+    torchao::quantization::get_scale_and_zero(
+        scale, zero, vmin, vmax, qmin, qmax);
+    activation_scales[m_idx] = scale;
+    activation_zeros[m_idx] = zero;
+    torchao::kernels::cpu::aarch64::quantization::quantize(
+        /*qvals=*/activation_qvals.data() + m_idx * n,
+        /*vals=*/activations.data() + m_idx * n,
+        /*size=*/n,
+        scale,
+        zero,
+        qmin,
+        qmax);
+  }
+  if (transposed) {
+    auto activations_t = std::vector<float32_t>(m * n, 0);
+    auto activation_qvals_t = std::vector<int8_t>(m * n, 0);
+    for (int m_idx = 0; m_idx < m; m_idx++) {
+      for (int n_idx = 0; n_idx < n; n_idx++) {
+        int activation_idx = m_idx * n + n_idx;
+        int tranposed_idx = n_idx * m + m_idx;
+        activations_t[tranposed_idx] = activations[activation_idx];
+        activation_qvals_t[tranposed_idx] = activation_qvals[activation_idx];
+      }
+    }
+    activations = activations_t;
+    activation_qvals = activation_qvals_t;
+  }
+
+  return std::make_tuple(
+      activations, activation_qvals, activation_scales, activation_zeros);
+}
+} // namespace
+
 struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
   int m;
   int k;
@@ -182,34 +235,8 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
     // weights is k x n (stored in column-major)
 
     // Generate activations
-    auto activations = get_random_vector(m * k, -1.0, 1.0);
-    auto activation_qvals = std::vector<int8_t>(m * k, 0);
-    auto activation_scales = std::vector<float>(m, 0);
-    auto activation_zeros = std::vector<int8_t>(m, 0);
-
-    // Quantize activations with 8-bit asymmetric
-    // TODO: replace with generic function that does not use aarch64
-    // quantize method after we combine with torchao
-    int qmin, qmax, zero;
-    float vmin, vmax, scale;
-    torchao::quantization::get_qvals_range(
-        qmin, qmax, /*nbit=*/8, /*is_symmetric=*/false);
-    for (int m_idx = 0; m_idx < m; m_idx++) {
-      torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
-          vmin, vmax, /*vals=*/activations.data() + m_idx * k, /*size=*/k);
-      torchao::quantization::get_scale_and_zero(
-          scale, zero, vmin, vmax, qmin, qmax);
-      activation_scales[m_idx] = scale;
-      activation_zeros[m_idx] = zero;
-      torchao::kernels::cpu::aarch64::quantization::quantize(
-          /*qvals=*/activation_qvals.data() + m_idx * k,
-          /*vals=*/activations.data() + m_idx * k,
-          /*size=*/k,
-          scale,
-          zero,
-          qmin,
-          qmax);
-    }
+    auto [activations, activation_qvals, activation_scales, activation_zeros] =
+        generate_per_token_quantized_tensor(m, k);
 
     //  Generate weights
     assert(k % weight_group_size == 0);
@@ -219,6 +246,8 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
     auto weight_scales = std::vector<float>(n_weight_groups, 0.0);
     auto weight_zeros = std::vector<int8_t>(n_weight_groups, 0);
 
+    int qmin, qmax, zero;
+    float vmin, vmax, scale;
     // Quantize weights with weight_nbit
     // TODO: replace with generic function that does not use aarch64
     // quantize method after we combine with torchao
@@ -319,6 +348,150 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         weight_scales,
         weight_zeros,
         bias);
+  }
+};
+
+struct channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case {
+  int m;
+  int k;
+  int n;
+  int stride;
+
+  bool lhs_has_zeros;
+  bool rhs_has_zeros;
+  bool lhs_is_transposed;
+  bool rhs_is_transposed;
+
+  std::vector<float> expected_output;
+
+  std::vector<float> lhs;
+  std::vector<int8_t> lhs_qvals;
+  std::vector<float> lhs_scales;
+  std::vector<int8_t> lhs_zeros;
+
+  std::vector<float> rhs;
+  std::vector<int8_t> rhs_qvals;
+  std::vector<float> rhs_scales;
+  std::vector<int8_t> rhs_zeros;
+
+  channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case(
+      int m_,
+      int k_,
+      int n_,
+      int stride_,
+      bool lhs_has_zeros_,
+      bool rhs_has_zeros_,
+      bool lhs_is_transposed_,
+      bool rhs_is_transposed_,
+      std::vector<float> expected_output_,
+      std::vector<float> lhs_,
+      std::vector<int8_t> lhs_qvals_,
+      std::vector<float> lhs_scales_,
+      std::vector<int8_t> lhs_zeros_,
+      std::vector<float> rhs_,
+      std::vector<int8_t> rhs_qvals_,
+      std::vector<float> rhs_scales_,
+      std::vector<int8_t> rhs_zeros_)
+      : m(m_),
+        k(k_),
+        n(n_),
+        stride(stride_),
+        lhs_has_zeros(lhs_has_zeros_),
+        rhs_has_zeros(rhs_has_zeros_),
+        lhs_is_transposed(lhs_is_transposed_),
+        rhs_is_transposed(rhs_is_transposed_),
+        expected_output(expected_output_),
+        lhs(lhs_),
+        lhs_qvals(lhs_qvals_),
+        lhs_scales(lhs_scales_),
+        lhs_zeros(lhs_zeros_),
+        rhs(rhs_),
+        rhs_qvals(rhs_qvals_),
+        rhs_scales(rhs_scales_),
+        rhs_zeros(rhs_zeros_) {
+    assert(expected_output.size() == m * n);
+    assert(lhs.size() == m * stride * k);
+    assert(lhs_qvals.size() == m * stride * k);
+    assert(lhs_scales.size() == m * stride);
+    assert(lhs_zeros.size() == m * stride);
+    assert(rhs.size() == n * stride * k);
+    assert(rhs_qvals.size() == n * stride * k);
+    assert(rhs_scales.size() == n * stride);
+    assert(rhs_zeros.size() == n * stride);
+  }
+
+  static channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case generate(
+      int m,
+      int k,
+      int n,
+      bool lhs_has_zeros,
+      bool rhs_has_zeros,
+      bool lhs_is_transposed,
+      // rhs_is_transposed means generated b matrix is mxk instead of kxm
+      bool rhs_is_transposed,
+      int stride = 1) {
+    assert(!lhs_is_transposed);
+    assert(lhs_has_zeros);
+    assert(rhs_has_zeros);
+    // !Rhs transposed was considered if we were doing quantized(softmax(q@k)) @
+    // quantized(v) Since v would have been [B, H, S, D]. And [S, D] would be
+    // rhs matrix which is not transposed when considered matmul terminology
+    // because for matmul we would have A[S_q, S] x B[S, D].
+    // It would have been transposed if A[S_q, S] x B[D, S].
+    assert(rhs_is_transposed || stride == 1);
+    // Generate activations
+    auto [lhs, lhs_qvals, lhs_scales, lhs_zeros] =
+        generate_per_token_quantized_tensor(m * stride, k);
+
+    auto [rhs, rhs_qvals, rhs_scales, rhs_zeros] =
+        generate_per_token_quantized_tensor(n * stride, k, !rhs_is_transposed);
+    // Above function produces nxk matrix and to produce kxn you need transposed
+    // = true. we do !rhs_is_transposed becaues when rhs_is_transposed = true
+    // the shape should be nxk instead of kxn.
+
+    // Compute expected output
+    std::vector<float> expected_output(m * n);
+
+    for (int m_idx = 0; m_idx < m; m_idx++) {
+      for (int n_idx = 0; n_idx < n; n_idx++) {
+        float res = 0.0;
+        for (int k_idx = 0; k_idx < k; k_idx++) {
+          int lhs_idx = m_idx * stride * k + k_idx;
+          int rhs_idx = k_idx * stride * n + n_idx * stride;
+          if (rhs_is_transposed) {
+            rhs_idx = n_idx * stride * k + k_idx;
+          }
+          float lhs_dequant = lhs_scales[m_idx * stride] *
+              (lhs_qvals[lhs_idx] - lhs_zeros[m_idx * stride]);
+
+          float rhs_dequant = rhs_scales[n_idx * stride] *
+              (rhs_qvals[rhs_idx] - rhs_zeros[n_idx * stride]);
+
+          res += lhs_dequant * rhs_dequant;
+        }
+        expected_output[m_idx * n + n_idx] = res;
+      }
+    }
+
+    // Return test case
+    return channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case(
+        m,
+        k,
+        n,
+        stride,
+        lhs_has_zeros,
+        rhs_has_zeros,
+        lhs_is_transposed,
+        rhs_is_transposed,
+        expected_output,
+        lhs,
+        lhs_qvals,
+        lhs_scales,
+        lhs_zeros,
+        rhs,
+        rhs_qvals,
+        rhs_scales,
+        rhs_zeros);
   }
 };
 
