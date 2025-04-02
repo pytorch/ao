@@ -2,11 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from torchao.float8.config import (
-    Float8LinearConfig,
-    Float8LinearRecipeName,
-    ScalingGranularity,
-)
+from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 
 
@@ -79,25 +75,18 @@ class _Float8GroupedMM(torch.autograd.Function):
         else:
             B_col_major = B
 
-        # Fetch float8 config from specified recipe name.
-        float8_config = Float8LinearConfig.from_recipe_name(
-            Float8LinearRecipeName.ROWWISE
-        )
-
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
         # A shape: (M, K)
         # A_scales shape: (M,1)
         A_scales = tensor_to_scale(
             A,
-            float8_config.cast_config_input.target_dtype,
-            scaling_granularity=float8_config.cast_config_input.scaling_granularity,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+            round_scales_to_power_of_2=True,
         )
         A_scaled = A.to(torch.float32) * A_scales
-        A_fp8_row_major = to_fp8_saturated(
-            A_scaled, float8_config.cast_config_input.target_dtype
-        )
+        A_fp8_row_major = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B shape: (B, K, N)
@@ -105,15 +94,13 @@ class _Float8GroupedMM(torch.autograd.Function):
         # B_scales shape: (B, 1, N)
         B_scales = tensor_to_scale(
             B_col_major,
-            float8_config.cast_config_weight.target_dtype,
-            scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-2,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+            round_scales_to_power_of_2=True,
         )
         B_scaled = B.to(torch.float32) * B_scales
-        B_fp8_col_major = to_fp8_saturated(
-            B_scaled, float8_config.cast_config_weight.target_dtype
-        )
+        B_fp8_col_major = to_fp8_saturated(B_scaled, torch.float8_e4m3fn)
 
         # Precompute B_non_transposed_col_major for backward, to save memory by storing the
         # low precision B tensor instead of the high precision B tensor.
@@ -126,23 +113,22 @@ class _Float8GroupedMM(torch.autograd.Function):
         # - B_scale shape: (B, 1, N)
         B_non_transposed_scales = tensor_to_scale(
             B_non_transposed_col_major,
-            float8_config.cast_config_weight.target_dtype,
-            scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-2,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+            round_scales_to_power_of_2=True,
         )
         B_non_transposed_scaled = (
             B_non_transposed_col_major.to(torch.float32) * B_non_transposed_scales
         )
         B_non_transposed_fp8_col_major = to_fp8_saturated(
-            B_non_transposed_scaled, float8_config.cast_config_weight.target_dtype
+            B_non_transposed_scaled, torch.float8_e4m3fn
         )
 
         # Store what we need for backward.
         ctx.save_for_backward(
             A, B_non_transposed_fp8_col_major, B_non_transposed_scales, offs
         )
-        ctx.float8_config = float8_config
         ctx.out_dtype = out_dtype
 
         # Perform scaled grouped GEMM and return result.
@@ -154,7 +140,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             B_scales.squeeze().reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
+            use_fast_accum=True,
         )
 
     @staticmethod
@@ -162,7 +148,6 @@ class _Float8GroupedMM(torch.autograd.Function):
         A, B_non_transposed_fp8_col_major, B_non_transposed_scales, offs = (
             ctx.saved_tensors
         )
-        float8_config = ctx.float8_config
         out_dtype = ctx.out_dtype
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
@@ -172,14 +157,14 @@ class _Float8GroupedMM(torch.autograd.Function):
         # grad_output_scale shape: (M, 1)
         grad_output_scales = tensor_to_scale(
             grad_output,
-            float8_config.cast_config_grad_output.target_dtype,
-            scaling_granularity=float8_config.cast_config_grad_output.scaling_granularity,
+            torch.float8_e4m3fn,
+            scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+            round_scales_to_power_of_2=True,
         )
         grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
         grad_output_fp8_row_major = to_fp8_saturated(
-            grad_output_scaled, float8_config.cast_config_grad_output.target_dtype
+            grad_output_scaled, torch.float8_e4m3fn
         )
 
         # Compute grad_A.
@@ -193,7 +178,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             B_non_transposed_scales.squeeze().reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=float8_config.gemm_config_grad_input.use_fast_accum,
+            use_fast_accum=True,
         )
 
         # Convert tranpose of grad_output to float8, row-major for left operand of grouped GEMM
@@ -210,15 +195,15 @@ class _Float8GroupedMM(torch.autograd.Function):
             _to_2d_jagged_float8_tensor_rowwise(
                 grad_output_t_row_major,
                 offs,
-                target_dtype=float8_config.cast_config_grad_output.target_dtype,
-                round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+                target_dtype=torch.float8_e4m3fn,
+                round_scales_to_power_of_2=True,
             )
         )
         A_fp8_col_major, A_scales = _to_2d_jagged_float8_tensor_colwise(
             A_col_major,
             offs,
-            target_dtype=float8_config.cast_config_input.target_dtype,
-            round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
+            target_dtype=torch.float8_e4m3fn,
+            round_scales_to_power_of_2=True,
         )
 
         # Compute grad_B = grad_output_t @ A.
@@ -231,7 +216,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             A_scales.reciprocal(),
             offs,
             out_dtype=out_dtype,
-            use_fast_accum=float8_config.gemm_config_grad_weight.use_fast_accum,
+            use_fast_accum=True,
         )
         # Since B was transposed before entry to forward, we need to transpose the grad_B to get the gradient for transposed B input.
         return grad_A, grad_B.transpose(-2, -1), None, None, None, None
@@ -384,20 +369,3 @@ def _is_column_major(x: torch.Tensor) -> bool:
         A boolean indicating whether the input tensor is column-major.
     """
     return x.stride(-2) == 1 and x.stride(-1) > 1
-
-
-def _offs_to_group_sizes(offs: torch.Tensor):
-    """
-    Args:
-        offs: (int32 torch.Tensor): list of group offsets
-
-    Returns:
-        list of integers representing the group sizes
-    """
-    group_sizes = []
-    start_idx = 0
-    for end_idx in offs.tolist():
-        group_size = end_idx - start_idx
-        group_sizes.append(group_size)
-        start_idx = end_idx
-    return group_sizes

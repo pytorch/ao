@@ -1,7 +1,10 @@
 import pytest
 import torch
 
-from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
+from torchao.float8.config import (
+    Float8LinearConfig,
+    Float8LinearRecipeName,
+)
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
@@ -114,8 +117,10 @@ def compute_reference_forward(
 ):
     assert result.dtype == out_dtype
 
-    # Convert A to fp8.
+    # Use official rowwise recipe as reference to ensure implementation is correct.
     float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
+
+    # Convert A to fp8.
     A_scales = tensor_to_scale(
         A,
         float8_config.cast_config_input.target_dtype,
@@ -124,20 +129,21 @@ def compute_reference_forward(
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     A_scaled = A.to(torch.float32) * A_scales
-    A_fp8 = to_fp8_saturated(A_scaled, float8_config.cast_config_input.target_dtype)
+    A_fp8 = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
     # Convert B^t to fp8.
     B_t = B.transpose(-2, -1)
     B_t_scales = tensor_to_scale(
         B_t,
         float8_config.cast_config_weight.target_dtype,
-        scaling_granularity=float8_config.cast_config_input.scaling_granularity,
+        scaling_granularity=float8_config.cast_config_weight.scaling_granularity,
         axiswise_dim=-2,
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     B_t_scaled = B_t.to(torch.float32) * B_t_scales
     B_t_fp8 = to_fp8_saturated(
-        B_t_scaled, float8_config.cast_config_weight.target_dtype
+        B_t_scaled,
+        torch.float8_e4m3fn,
     )
 
     # Split A and result into chunks, one for each group.
@@ -164,9 +170,9 @@ def compute_reference_forward(
             b1,
             a1scale.reciprocal(),
             b1scale.reciprocal(),
-            out_dtype=torch.bfloat16,
+            out_dtype=out_dtype,
             bias=None,
-            use_fast_accum=True,
+            use_fast_accum=float8_config.gemm_config_output.use_fast_accum,
         )
         a2, b2, result2 = list2[i]
         ref_group_result2 = matmul_with_hp_or_float8_args.apply(
