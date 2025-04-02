@@ -11,7 +11,7 @@ from torchao.prototype.sparsity.PartialLinear.partial_linear import PartialLinea
 
 
 class TestPartialLinear(unittest.TestCase):
-    def test_basic_functionality(self):
+    def test_partial_linear(self):
         in_features = 20
         out_features = 10
         top_k = 5
@@ -32,7 +32,7 @@ class TestPartialLinear(unittest.TestCase):
         output_single = m(x_single)
         self.assertEqual(output_single.shape, (out_features,))
     
-    def test_invalid_input(self):
+    def test_invalid_k(self):
         with self.assertRaises(ValueError):
             PartialLinear(20, 10, top_k=0)
         
