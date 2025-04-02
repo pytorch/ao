@@ -16,7 +16,7 @@ class PartialLinear(Module):
     Args:
         in_features: size of each input sample
         out_features: size of each output sample
-        top_k: number of weights to retain per output feature (default: in_features // 2)
+        top_k: number of weights to retain per output feature
         bias: If set to ``False``, the layer will not learn an additive bias.
             Default: ``True``
         update_mask_every: update the mask every N forward passes during training (default: 50)
@@ -56,7 +56,7 @@ class PartialLinear(Module):
         self,
         in_features: int,
         out_features: int,
-        top_k: int = None,
+        top_k: int,
         bias: bool = True,
         update_mask_every: int = 50,
         is_sparse_forward: bool = False,
@@ -68,10 +68,6 @@ class PartialLinear(Module):
 
         self.in_features = in_features
         self.out_features = out_features
-
-        # Default to half of the input features if not specified
-        if top_k is None:
-            top_k = max(1, in_features // 2)
 
         if top_k <= 0 or top_k > in_features:
             raise ValueError(f"top_k must be between 1 and {in_features}, got {top_k}")
@@ -87,7 +83,7 @@ class PartialLinear(Module):
         )
 
         # Create a binary mask for the weights
-        mask = torch.ones((out_features, in_features), **factory_kwargs)
+        mask = torch.ones((out_features, in_features, dtype=torch.bool), **factory_kwargs)
         self.register_buffer('mask', mask)
 
         if bias:
