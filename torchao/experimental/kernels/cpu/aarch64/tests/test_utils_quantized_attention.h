@@ -230,6 +230,174 @@ struct channelwise_8bit_a_channelwise_8bit_b_q_at_k_attention_test_case {
   }
 };
 
+struct fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case {
+  int b;
+  int s_attn;
+  int s_v;
+  int h;
+  int d;
+  size_t b_attn_stride;
+  size_t h_attn_stride;
+  size_t s_attn_stride;
+  size_t b_v_stride;
+  size_t h_v_stride;
+  size_t s_v_stride;
+  size_t b_v_qparams_stride;
+  size_t h_v_qparams_stride;
+  size_t s_v_qparams_stride;
+
+  std::vector<float> expected_output;
+
+  std::vector<float> attn_scores;
+
+  std::vector<float> v;
+  std::vector<int8_t> v_qvals;
+  std::vector<float> v_scales;
+  std::vector<int8_t> v_zeros;
+
+  fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case(
+      int b_,
+      int s_attn_,
+      int s_v_,
+      int h_,
+      int d_,
+      size_t b_attn_stride_,
+      size_t h_attn_stride_,
+      size_t s_attn_stride_,
+      size_t b_v_stride_,
+      size_t h_v_stride_,
+      size_t s_v_stride_,
+      size_t b_v_qparams_stride_,
+      size_t h_v_qparams_stride_,
+      size_t s_v_qparams_stride_,
+      std::vector<float> expected_output_,
+      std::vector<float> attn_scores_,
+      std::vector<float> v_,
+      std::vector<int8_t> v_qvals_,
+      std::vector<float> v_scales_,
+      std::vector<int8_t> v_zeros_)
+      : b(b_),
+        s_attn(s_attn_),
+        s_v(s_v_),
+        h(h_),
+        d(d_),
+        b_attn_stride(b_attn_stride_),
+        h_attn_stride(h_attn_stride_),
+        s_attn_stride(s_attn_stride_),
+        b_v_stride(b_v_stride_),
+        h_v_stride(h_v_stride_),
+        s_v_stride(s_v_stride_),
+        b_v_qparams_stride(b_v_qparams_stride_),
+        h_v_qparams_stride(h_v_qparams_stride_),
+        s_v_qparams_stride(s_v_qparams_stride_),
+        expected_output(expected_output_),
+        attn_scores(attn_scores_),
+        v(v_),
+        v_qvals(v_qvals_),
+        v_scales(v_scales_),
+        v_zeros(v_zeros_) {
+    assert(expected_output.size() == b * s_attn * h * d);
+    assert(attn_scores.size() == b * h * s_attn * s_v);
+    assert(v.size() == b * h * s_v * d);
+    assert(v_qvals.size() == b * h * s_v * d);
+    assert(v_scales.size() == b * h * s_v);
+    assert(v_zeros.size() == b * h * s_v);
+  }
+
+  static fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case
+  generate(int b, int s_attn, int s_v, int h, int d, bool transposed_v = true) {
+    // Generate activations
+    auto lhs = get_random_vector(b * h * s_attn * s_v, -1.0, 1.0);
+
+    auto [rhs, rhs_qvals, rhs_scales, rhs_zeros] =
+        torchao::test_utils::generate_per_token_quantized_tensor(
+            b * h * s_v, d);
+    // Above function produces nxk matrix and to produce kxn you need transposed
+    // = true. we do !rhs_is_transposed becaues when rhs_is_transposed = true
+    // the shape should be nxk instead of kxn.
+
+    size_t b_attn_stride = h * s_attn * s_v;
+    size_t h_attn_stride = s_attn * s_v;
+    size_t s_attn_stride = s_v;
+
+    size_t b_v_stride = h * s_v * d;
+    size_t h_v_stride = s_v * d;
+    size_t s_v_stride = d;
+
+    size_t b_v_qparams_stride = h * s_v;
+    size_t h_v_qparams_stride = s_v;
+    size_t s_v_qparams_stride = 1;
+
+    if (!transposed_v) {
+      h_v_stride = d;
+      s_v_stride = h * d;
+
+      s_v_qparams_stride = h;
+      h_v_qparams_stride = 1;
+    }
+
+    // Compute expected output
+    // Note that while the inputs can be in shape b x h x s_attn x s_v,
+    // and b x h x s_v x d the output is not in b x h x s_attn x s_v
+    // but rather b x s_attn x h x d. This is because the output of
+    // SDPA will normally be in b x h x s_attn x d, but we want to
+    // avoid any tranposes. Thus just aim to output in b x s_attn x h x d
+    // This is just for testing purposes. Kernel can actually write output
+    // in [B, H, S, D] if needed.
+    std::vector<float> expected_output(b * s_attn * h * d);
+    size_t b_out_stride = s_attn * h * d;
+    size_t s_attn_out_stride = h * d;
+    size_t h_out_stride = d;
+
+    for (int b_idx = 0; b_idx < b; b_idx++) {
+      for (int s_attn_idx = 0; s_attn_idx < s_attn; s_attn_idx++) {
+        for (int h_idx = 0; h_idx < h; h_idx++) {
+          for (int d_idx = 0; d_idx < d; d_idx++) {
+            float res = 0.0;
+            for (int s_v_idx = 0; s_v_idx < s_v; s_v_idx++) {
+              int lhs_idx = b_idx * b_attn_stride + s_attn_idx * s_attn_stride +
+                  h_idx * h_attn_stride + s_v_idx;
+              int rhs_idx = b_idx * b_v_stride + h_idx * h_v_stride + d_idx +
+                  s_v_idx * s_v_stride;
+              int rhs_scales_zp_idx = b_idx * b_v_qparams_stride +
+                  h_idx * h_v_qparams_stride + s_v_idx * s_v_qparams_stride;
+              float rhs_dequant = rhs_scales[rhs_scales_zp_idx] *
+                  (rhs_qvals[rhs_idx] - rhs_zeros[rhs_scales_zp_idx]);
+
+              res += lhs[lhs_idx] * rhs_dequant;
+            }
+            expected_output
+                [b_idx * b_out_stride + s_attn_idx * s_attn_out_stride +
+                 h_idx * h_out_stride + d_idx] = res;
+          }
+        }
+      }
+    }
+
+    // Return test case
+    return fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case(
+        b,
+        s_attn,
+        s_v,
+        h,
+        d,
+        b_attn_stride,
+        h_attn_stride,
+        s_attn_stride,
+        b_v_stride,
+        h_v_stride,
+        s_v_stride,
+        b_v_qparams_stride,
+        h_v_qparams_stride,
+        s_v_qparams_stride,
+        expected_output,
+        lhs,
+        rhs,
+        rhs_qvals,
+        rhs_scales,
+        rhs_zeros);
+  }
+};
 } // namespace torchao
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

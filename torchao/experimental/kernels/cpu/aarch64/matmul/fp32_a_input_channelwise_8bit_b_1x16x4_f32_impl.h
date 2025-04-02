@@ -101,6 +101,12 @@ struct KernelImpl {
       const int rhs_qparams_stride);
 };
 
+/*
+Document param meaning
+rhs_stride_n: Since rhs transposed == false, the expected shape of rhs is k x n.
+Thus rhs_stride_n is the stride of k dim, that how many bytes aparts elements
+in k dim are.
+*/
 template <>
 struct KernelImpl<true, false, false> {
   static void run(

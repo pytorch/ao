@@ -509,4 +509,91 @@ TEST(
   test_8bit_per_token_q_at_k_matmul_attention(1, 8, 8, 7, 3, false);
 }
 
+static void test_fp32_attn_scores_at_v_matmul_attention(
+    int b,
+    int s_attn,
+    int s_v,
+    int h,
+    int d,
+    bool transpose_v = true) {
+  auto test_case =
+      torchao::fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case::generate(
+          b, s_attn, s_v, h, d, transpose_v);
+
+  using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+      fp32_a_input_channelwise_8bit_b_1x16x4_f32;
+
+  size_t attn_b_stride = test_case.b_attn_stride;
+  size_t attn_h_stride = test_case.h_attn_stride;
+  size_t attn_s_q_stride = test_case.s_attn_stride;
+
+  size_t v_b_stride = test_case.b_v_stride;
+  size_t v_h_stride = test_case.h_v_stride;
+  size_t v_s_v_stride = test_case.s_v_stride;
+  size_t v_scale_zp_b_stride = test_case.b_v_qparams_stride;
+  size_t v_scale_zp_h_stride = test_case.h_v_qparams_stride;
+  size_t v_scale_zp_s_stride = test_case.s_v_qparams_stride;
+
+  std::vector<float> output(b * s_attn * h * d);
+  size_t output_b_stride = s_attn * h * d;
+  size_t output_s_attn_stride = h * d;
+  size_t output_h_stride = d;
+
+  for (int b_idx = 0; b_idx < b; b_idx++) {
+    for (int h_idx = 0; h_idx < h; h_idx++) {
+      kernel<true, false, false>(
+          s_attn,
+          d,
+          s_v,
+          test_case.attn_scores.data() + b_idx * attn_b_stride +
+              h_idx * attn_h_stride,
+          attn_s_q_stride /*lhs_stride_m*/,
+          test_case.v_qvals.data() + b_idx * v_b_stride + h_idx * v_h_stride,
+          v_s_v_stride /*rhs_stride_n*/,
+          output.data() + b_idx * output_b_stride + h_idx * output_h_stride,
+          output_s_attn_stride /*out_stride_n*/,
+          test_case.v_zeros.data() + b_idx * v_scale_zp_b_stride +
+              h_idx * v_scale_zp_h_stride,
+          test_case.v_scales.data() + b_idx * v_scale_zp_b_stride +
+              h_idx * v_scale_zp_h_stride,
+          0.0 /*beta*/,
+          v_scale_zp_s_stride /*rhs qparams stride*/);
+    }
+  }
+
+  for (int i = 0; i < b * s_attn * h * d; i++) {
+    EXPECT_NEAR(output[i], test_case.expected_output[i], kTol);
+  }
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, Basic) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 16, 16, 8, 16);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, PrimeHeadsAndHeadDim) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 8, 8, 7, 33);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, PrimeSequenceDim) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 7, 9, 7, 33);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, PrimeHeadsAndSmallHeadDim) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 8, 8, 7, 17);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, BasicNoTranspose) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 16, 16, 8, 16, false);
+}
+
+TEST(
+    test_fp32_attn_scores_at_v_matmul_attention,
+    PrimeHeadsAndSmallHeadDimNoTranspose) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 8, 8, 7, 17, false);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, PrimeSequenceDimNoTranspose) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 7, 9, 7, 33, false);
+}
+
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
