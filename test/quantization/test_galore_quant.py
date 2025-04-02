@@ -38,6 +38,7 @@ TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
 
 
 @pytest.mark.skip("skipping for now, see comments below")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 @pytest.mark.parametrize(
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
@@ -89,6 +90,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     TEST_CONFIGS,
 )
 @skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 
