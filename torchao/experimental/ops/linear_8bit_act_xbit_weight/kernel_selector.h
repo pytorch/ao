@@ -8,18 +8,19 @@
 #include <cpuinfo.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/kernel_config.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_format.h>
-
-#if defined(TORCHAO_BUILD_CPU_AARCH64)
-#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/channelwise_8bit_activation_groupwise_lowbit_weight.h>
-#endif // TORCHAO_BUILD_CPU_AARCH64
-
 #include <optional>
 #include <string>
 #include <unordered_map>
 
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
+
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #endif // TORCHAO_ENABLE_KLEIDI
+#endif // TORCHAO_BUILD_CPU_AARCH64
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
@@ -110,7 +111,7 @@ void register_ukernel_config_universal(
     constexpr int mr = 1;
     constexpr int m_step = 1;
 
-#if defined(TORCHAO_BUILD_CPU_AARCH64)
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
       log_registration(format, "universal: kernel_1x8x16_f32_neondot");
       auto uk = UKernelConfig::make(
@@ -159,7 +160,7 @@ void register_ukernel_config_universal(
         return;
       }
     }
-#endif // TORCHAO_BUILD_CPU_AARCH64
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 }
 
@@ -213,18 +214,24 @@ void register_ukernel_config_kleidi(
 
 #if defined(TORCHAO_ENABLE_ARM_I8MM)
     if (cpuinfo_has_arm_i8mm()) {
-      /*m_step=4*/
-      uk.linear_configs[0] = get_linear_config_kleidi<
-          op::matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm>(
-          uk.n_step, uk.nr, uk.kr, uk.sr);
       log_registration(
           format,
-          "kleidiai: matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm");
+          "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod, matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm");
+      /*m_step=1*/
+      uk.linear_configs[0] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+
+      /*m_step=4*/
+      uk.linear_configs[1] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
       table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
 #endif // TORCHAO_ENABLE_ARM_I8MM
 
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
       log_registration(
           format,
@@ -236,22 +243,27 @@ void register_ukernel_config_kleidi(
       table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 
-  if (format.nr == 4 && format.kr == 16 && format.sr == 2) {
-    uk.n_step = 4;
+  if (format.nr == 8 && format.kr == 8 && format.sr == 2) {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      /*m_step=1*/
-      uk.linear_configs[0] = get_linear_config_kleidi<
-          op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod>(
-          uk.n_step, uk.nr, uk.kr, uk.sr);
-
       log_registration(
           format,
-          "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod");
+          "kleidiai: matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod, matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod");
+      // m_step 1
+      uk.linear_configs[0] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+      // m_step 4
+      uk.linear_configs[1] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
       table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 }
 #endif // TORCHAO_ENABLE_KLEIDI
@@ -325,8 +337,7 @@ PackedWeightsFormat select_packed_weights_format(
 #if defined(TORCHAO_ENABLE_KLEIDI)
   if (!target || *target == "kleidiai") {
     if (weight_nbit == 4 && (!has_weight_zeros)) {
-      // KleidiAI will pack bias with weights always,
-      // even if bias is not provided 0s will be packed
+#if defined(TORCHAO_ENABLE_ARM_I8MM)
       return PackedWeightsFormat(
           torchao::ops::PackedWeightsType::kleidi_ai,
           weight_nbit,
@@ -335,12 +346,23 @@ PackedWeightsFormat select_packed_weights_format(
           /*nr*/ 8,
           /*kr*/ 16,
           /*sr*/ 2);
+#elif defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+      return PackedWeightsFormat(
+          torchao::ops::PackedWeightsType::kleidi_ai,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          /*nr*/ 8,
+          /*kr*/ 8,
+          /*sr*/ 2);
+#endif
     }
   }
 #endif // defined(TORCHAO_ENABLE_KLEIDI)
 
   // Select universal format
   if (!target || *target == "universal") {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     return PackedWeightsFormat(
         torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
         weight_nbit,
@@ -349,6 +371,7 @@ PackedWeightsFormat select_packed_weights_format(
         /*nr*/ 8,
         /*kr*/ 16,
         /*sr*/ 2);
+#endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
   }
 
   throw std::runtime_error("No packed_weights_format was selected");
