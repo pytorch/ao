@@ -59,61 +59,58 @@ CUTLASS_DEVICE uint32_t warp_shuffle_meta(uint32_t meta_ab,
   // ['a[ 3, 32:40]', 'a[ 3, 40:48]', 'a[ 3, 48:56]', 'a[ 3, 56:64]']
 
   // Use warp-shuffles to send data around threads
-  bool thread_left = (threadIdx.y % 2) == 0;
-  bool thread_bottom = threadIdx.x % 2;
+  // bool thread_bottom = threadIdx.x % 2;
+  // For rowwise, the pattern is much simpler - we only need to ensure
+  // the metadata for each row is arranged correctly across threads
 
-  // This creates an array of 2 unsigned 8bit integers, correspoding
-  // to a[0, 0:8] and a[0, 16:24]
-  uint8b_t stage0_data[2] = {uint8b_t(meta_ab >> (8 * thread_left)),
-                             uint8b_t(meta_ab >> (8 * (thread_left + 2)))};
+  // Get thread position within warp
+  int lane_id = threadIdx.x % 32;
+  int warp_row = lane_id / 8; // Which row this thread handles in the warp
 
-  // shfl t0-t4 / t1-t5
-  stage0_data[0] =
-      __shfl_xor_sync(0xffffffff, stage0_data[0], transposed ? 1 : 4);
-  stage0_data[1] =
-      __shfl_xor_sync(0xffffffff, stage0_data[1], transposed ? 1 : 4);
+  // Exchange metadata with appropriate threads
+  // For rowwise pattern, we can simplify to just exchange between adjacent
+  // threads
+  uint32_t shuffled_meta = __shfl_xor_sync(0xffffffff, meta_ab, 8);
 
-  uint16_t line0 = int(uint8b_t(meta_ab >> (8 * (1 - thread_left))))
-                   << ((1 - thread_left) * 8);
-  line0 |= int(stage0_data[0]) << (thread_left * 8);
+  // Select which parts to keep based on thread position
+  bool is_even_lane = (lane_id % 2) == 0;
+  uint16_t my_part = uint16_t(meta_ab & 0xFFFF);
+  uint16_t neighbor_part = uint16_t(shuffled_meta & 0xFFFF);
 
-  uint16_t line1 = int(uint8b_t(meta_ab >> (8 * (1 - thread_left + 2))))
-                   << ((1 - thread_left) * 8);
-  line1 |= int(stage0_data[1]) << (thread_left * 8);
-
-  uint16_t stage1_data = thread_bottom ? line0 : line1;
-  stage1_data = __shfl_xor_sync(0xffffffff, stage1_data, transposed ? 4 : 1);
-
+  // Reconstruct final metadata
   uint32_t final_metadata;
-  if (thread_bottom) {
-    final_metadata = uint32_t(stage1_data) | uint32_t(line1) << 16;
+  if (is_even_lane) {
+    final_metadata = uint32_t(my_part) | (uint32_t(neighbor_part) << 16);
   } else {
-    final_metadata = uint32_t(stage1_data) << 16 | uint32_t(line0);
+    final_metadata = uint32_t(neighbor_part) | (uint32_t(my_part) << 16);
   }
-  return final_metadata;
+  // if (threadIdx.x == 0 && threadIdx.y == 2) {
+  //   // Build binary string for metadata.meta_a
+  //   char meta_a[33] = {0};
+  //   for (int bit = 31; bit >= 0; bit--) {
+  //     meta_a[31 - bit] = (final_metadata & (1 << bit)) ? '1' : '0';
+  //   }
+  //   printf("final_metadata: %s \n", meta_a);
+  // }
+
+  return meta_ab;
 }
 
 CUTLASS_DEVICE void warp_shuffle_and_write_meta(ElementInputE *metadata_duo,
                                                 uint32_t meta_ab,
                                                 bool transposed = false) {
-  bool thread_left = (threadIdx.y % 2) == 0;
   bool thread_bottom = threadIdx.x % 2;
-
-  if (transposed) {
-    thread_left = (threadIdx.x % 2) == 0;
-    thread_bottom = threadIdx.y % 2;
-  }
 
   uint32_t final_metadata = warp_shuffle_meta(meta_ab, transposed);
 
-  int index = (!thread_left + 2 * thread_bottom) * 4;
+  int index = (2 * thread_bottom) * 4;
   ((uint32_t *)metadata_duo)[index] = final_metadata;
 }
 
 template <typename Element_> struct KernelTypes {
   using Element = Element_;
-  using Fragment =
-      cutlass::Array<Element, 16>; // always read from gmem in chunks of 128bits
+  // always read from gmem in chunks of 128bits
+  using Fragment = cutlass::Array<Element, 16>;
   using Fragment8 = cutlass::Array<Element, 8>;
 
   struct Params {
@@ -250,7 +247,7 @@ template <typename Element_> struct KernelTypes {
         packValue(0, 2);
       }
       // this needs to be changed and can probably be moved out of the for loop
-      int add_mask = (col0_from | (col1_from << 2)) << (4 * strip + meta_pos);
+      int add_mask = (col0_from | (col1_from << 2)) << (meta_pos + 4 * strip);
       meta |= add_mask;
     }
     return packed;
@@ -316,19 +313,18 @@ template <typename Element_> struct KernelTypes {
       warp_shuffle_and_write_meta(packed_meta_reordered, metadata.meta_ab);
     }
 
+    //--------------------------- DEBUG -----------------------------------
     // indices.b = compute_tile_indices(Tile1x16Accessor(lines, 1, 0));
     char binary_a[17] = {0}; // 16 bits + null terminator
     char binary_b[17] = {0}; // 16 bits + null terminator
 
-    char meta_a[33] = {0};
-
-    //--------------------------- DEBUG -----------------------------------
     // Build binary string for indices.a
     for (int bit = 15; bit >= 0; bit--) {
       binary_a[15 - bit] = (indices.a & (1 << bit)) ? '1' : '0';
     }
 
     // Build binary string for metadata.meta_a
+    char meta_a[33] = {0};
     for (int bit = 31; bit >= 0; bit--) {
       meta_a[31 - bit] = (metadata.meta_ab & (1 << bit)) ? '1' : '0';
     }

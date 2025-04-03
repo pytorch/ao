@@ -59,14 +59,19 @@ struct MetadataCutlass {
   int64_t _get_meta_offset(int warp_row, int thread_row, int warp_col,
                            int thread_col, int64_t stride) const {
     int64_t offset = 0;
-    offset += warp_row * 2 + (warp_col / 32) * stride;
-    // A single warp is 32x64. The right 32x32 tile is at a different position
-    offset += 64 * (thread_row / 32);
-    offset += (thread_col / 32) * stride;
-    // Top/bottom 16x16 tile
-    offset += ((thread_row % 32) / 16) * 4;
-    // Left/right 16x16 tile
-    offset += ((thread_col % 32) / 16) * 2;
+
+    // Base offset for the warp's starting position
+    offset += warp_row * 4;              // Each warp handles 4 rows
+    offset += (warp_col / 128) * stride; // Column offset for warps
+
+    // Thread position within the warp
+    // offset += thread_row * 128; // Each thread handles 1 row
+    offset += 128 * (thread_row / 32);
+
+    // Column offset within the warp
+    // Each thread handles 16 columns, and we're packing 2:4 sparsity
+    offset += (thread_col / 16) * stride;
+
     return offset;
   }
 
