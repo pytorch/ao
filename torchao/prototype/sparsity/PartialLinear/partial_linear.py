@@ -83,7 +83,7 @@ class PartialLinear(Module):
         )
 
         # Create a binary mask for the weights
-        mask = torch.ones((out_features, in_features, dtype=torch.bool), **factory_kwargs)
+        mask = torch.ones((out_features, in_features), dtype=torch.bool, device=factory_kwargs.get('device'))
         self.register_buffer('mask', mask)
 
         if bias:
@@ -114,14 +114,14 @@ class PartialLinear(Module):
             weight_mag = self.weight.abs()
 
             # Create a new binary mask
-            new_mask = torch.zeros_like(self.mask)
+            new_mask = torch.zeros_like(self.mask, dtype=torch.bool)
 
             # For each output feature, find the top-k input connections
             _, top_k_indices = weight_mag.topk(self.top_k, dim=1)
 
-            # Set mask to 1 for top-k weights for each output
+            # Set mask to True for top-k weights for each output
             for i in range(self.out_features):
-                new_mask[i, top_k_indices[i]] = 1.0
+                new_mask[i, top_k_indices[i]] = True
 
             # Update the mask
             self.mask.copy_(new_mask)
