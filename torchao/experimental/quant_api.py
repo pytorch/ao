@@ -780,11 +780,11 @@ def _int8_dynamic_activation_intx_weight_transform(
             x,
             mapping_type=act_mapping_type,
             block_size=_get_per_token_block_size(x),
-            target_dtype=torch.int32,
+            target_dtype=torch.int8,
             quant_min=-128,  # lower bound of int8
             quant_max=127,  # upper bound of int8
             scale_dtype=torch.float32,
-            zero_point_dtype=torch.int32,
+            zero_point_dtype=torch.int8,
         )
         weight = to_linear_activation_quantized(weight, activation_quant_func)
 

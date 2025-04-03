@@ -17,10 +17,7 @@ from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layo
     PackedLinearInt8DynamicActivationIntxWeightLayout,
 )
 from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    replace_q_dq_with_torchao_quantized_linear_ops,
-)
+from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
 from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import unwrap_tensor_subclass
@@ -82,7 +79,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -94,7 +91,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -179,7 +176,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -191,7 +188,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -250,7 +247,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -312,7 +309,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -345,7 +342,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig(
+            int8_dynamic_activation_intx_weight(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
                 has_weight_zeros=has_weight_zeros,
@@ -370,76 +367,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             FileCheck().check_count(line, 1, exactly=True).run(
                 exported.graph_module.code
             )
-
-    def test_replace_q_dq_with_torchao_quantized_linear_ops(self):
-        layers = [
-            torch.nn.Linear(256, 128, bias=True),
-            torch.nn.Linear(128, 64, bias=False),
-            torch.nn.Linear(64, 32, bias=True),
-        ]
-        model = torch.nn.Sequential(*layers)
-        activations = torch.randn(2, 1, 256, dtype=torch.float32)
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int4,
-                granularity=PerGroup(64),
-                has_weight_zeros=True,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "0",
-        )
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int3,
-                granularity=PerRow(),
-                has_weight_zeros=False,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "1",
-        )
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int5,
-                granularity=PerGroup(32),
-                has_weight_zeros=False,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "2",
-        )
-
-        eager_results = model(activations)
-
-        unwrap_tensor_subclass(model)
-        exported = torch.export.export(model, (activations,), strict=True)
-        exported = replace_q_dq_with_torchao_quantized_linear_ops(exported)
-
-        # We should not find pack op because it gets constant folded
-        FileCheck().check_not("torch.ops.torchao._pack_8bit_act").run(
-            exported.graph_module.code
-        )
-
-        # We should find 3 torchao linear ops
-        FileCheck().check_count(
-            "torch.ops.torchao._linear_8bit_act_", count=3, exactly=True
-        ).run(exported.graph_module.code)
-
-        # We should not find Q/DQ ops
-        FileCheck().check_not("torch.ops.quant.quantize_affine.default").run(
-            exported.graph_module.code
-        )
-        FileCheck().check_not("torch.ops.quant.dequantize_affine.default").run(
-            exported.graph_module.code
-        )
-        FileCheck().check_not("torch.ops.quant.choose_qparams_affine.default").run(
-            exported.graph_module.code
-        )
-
-        # Numerics should match
-        exported_results = exported.module()(activations)
-        self.assertTrue(torch.allclose(exported_results, eager_results))
 
 
 if __name__ == "__main__":
