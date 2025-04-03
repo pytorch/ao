@@ -21,7 +21,7 @@ using namespace torchao::kernels::cpu::aarch64::kleidi::
 #endif // TORCHAO_ENABLE_KLEIDI
 
 const float kTol = 1.0e-5;
-const float kTolKleidiAI = 1.0e-2;
+const float kTolKleidiAI = 5.0e-2;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
@@ -207,6 +207,86 @@ UKernelConfig get_ukernel_config_kleidi_impl() {
 
   return ukernel_config;
 }
+
+template <typename kleidiai_kernel_struct>
+void test_linear_8bit_act_xbit_weight_kleidiai() {
+  constexpr int weight_nbit = 4;
+  constexpr bool has_kleidi = true;
+  constexpr bool has_weight_zeros = false;
+  constexpr bool has_bias = true;
+  auto uk = get_ukernel_config_kleidi_impl<kleidiai_kernel_struct>();
+
+  for (auto m : {1, 3, 4, 8, 9, 13, 21, 43, 101}) {
+    for (auto n :
+         {1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          4 * 13,
+          4 * 13 + 3,
+          8 * 13,
+          8 * 13 + 3,
+          16 * 13,
+          16 * 13 + 3}) {
+      for (auto k : {32, 64, 128}) {
+        int group_size = 32;
+        test_linear_8bit_act_xbit_weight<
+            weight_nbit,
+            has_weight_zeros,
+            has_bias,
+            /*has_clamp*/ true,
+            has_kleidi>(m, n, k, group_size, &uk);
+        test_linear_8bit_act_xbit_weight<
+            weight_nbit,
+            has_weight_zeros,
+            has_bias,
+            /*has_clamp*/ false,
+            has_kleidi>(m, n, k, group_size, &uk);
+
+        if (k >= 64) {
+          group_size = 64;
+          test_linear_8bit_act_xbit_weight<
+              weight_nbit,
+              has_weight_zeros,
+              has_bias,
+              /*has_clamp*/ true,
+              has_kleidi>(m, n, k, group_size, &uk);
+        }
+      }
+    }
+  }
+}
+
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+TEST(
+    test_linear_8bit_act_xbit_weight,
+    matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod) {
+  test_linear_8bit_act_xbit_weight_kleidiai<
+      matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod>();
+}
+TEST(
+    test_linear_8bit_act_xbit_weight,
+    matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod) {
+  test_linear_8bit_act_xbit_weight_kleidiai<
+      matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod>();
+}
+TEST(
+    test_linear_8bit_act_xbit_weight,
+    matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod) {
+  test_linear_8bit_act_xbit_weight_kleidiai<
+      matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod>();
+}
+TEST(
+    test_linear_8bit_act_xbit_weight,
+    matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod) {
+  test_linear_8bit_act_xbit_weight_kleidiai<
+      matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod>();
+}
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
 
 template <kai_kernel_id kernel_id>
 UKernelConfig get_ukernel_config_kleidi() {

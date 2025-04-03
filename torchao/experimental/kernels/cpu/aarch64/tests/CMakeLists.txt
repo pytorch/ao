@@ -42,6 +42,7 @@ add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 $
 
 if(TORCHAO_BUILD_KLEIDIAI)
   add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 endif()
 
 if(TORCHAO_BUILD_ARM_I8MM)
