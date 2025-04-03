@@ -70,6 +70,7 @@ struct test_channelwise_8bit_channelwise_8bit_b<
     false,
     false> {
   static void Run(int m, int k, int n, int stride = 1) {
+    // TODO: make use of stride for this kernel
     auto test_case =
         torchao::channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case::
             generate(m, k, n, a_has_zeros, a_has_zeros, false, false);
