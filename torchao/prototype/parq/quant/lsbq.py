@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 import itertools
 from collections.abc import Iterable
 from typing import Optional
@@ -23,8 +24,56 @@ def binary_quant_residue(u: Tensor, vs: Iterable[float]) -> Tensor:
     """Return residue for foldable binary quantization"""
     r = u.detach().clone()
     for v in vs:
-        r -= v * binary_sign(r)
+        r.sub_(v * binary_sign(r))
     return r
+
+
+def compute_v_per_channel(p: Tensor, dim: Optional[int] = None, ternary: bool = False):
+    """Vectorized computation of optimal `v` for ternary/2-bit algorithm."""
+    v_cands = p.abs().sort(dim=dim).values
+    cumsum = v_cands.cumsum(dim=dim)
+    cumsum, total_sum = cumsum[:, 1:-1], cumsum[:, -1:]
+
+    # compute cumulative mean from right to left
+    counts = torch.arange(1, p.size(dim=dim), device=p.device)
+    counts_r2l = counts[:-1].flip((-1,))
+    cmean_r2l = (total_sum - cumsum).div_(counts_r2l.mul_(2))
+    v_cands, v_cands2 = v_cands[:, 1:-1], v_cands[:, 2:]
+
+    # mask to estimate conditional expectation
+    mask = (v_cands <= cmean_r2l).logical_and_(v_cands2 >= cmean_r2l)
+    if ternary:
+        # detect and fix any edge cases
+        optimal_v = p.mean(dim=dim, keepdim=True).div_(2)
+        row_invalid = optimal_v < p.min(dim=dim, keepdim=True).values
+        if row_invalid.any():
+            extra_col = row_invalid.to(p.dtype).mul(optimal_v)
+            v_cands = torch.cat((v_cands, extra_col), -1)
+            mask = torch.cat((mask, row_invalid), -1)
+    else:
+        # compute cumulative mean from left to right
+        cmean_l2r = cumsum.div_(counts[1:].mul_(2)).add_(cmean_r2l)
+        mask.logical_or_((v_cands <= cmean_l2r).logical_and_(v_cands2 >= cmean_l2r))
+
+    # handle variable number of candidates per channel
+    split_sizes = mask.sum(dim=dim).tolist()
+    v_cands = v_cands[mask].split(split_sizes)
+    v_cands = torch.nested.nested_tensor(list(v_cands))
+    v_cands = torch.nested.to_padded_tensor(v_cands, 0.0)
+
+    # update residual for each candidate `v`
+    r = p.unsqueeze(dim - 1)
+    v = v_cands.unsqueeze(-1)
+    r = r.sub(v * binary_sign(r))
+    if not ternary:
+        v = v.mean(dim=dim, keepdim=True)
+    r = r.sub(v * binary_sign(r))
+
+    # compute least squares error, then select the `v` minimizes it
+    costs = r.norm(dim=dim)
+    indices = costs.argmin(dim=dim, keepdim=True)
+    v_best = v_cands.gather(1, indices)
+    return v_best
 
 
 class LSBQuantizer(Quantizer):
@@ -44,25 +93,31 @@ class LSBQuantizer(Quantizer):
         self.optimal = optimal
         self.ternary_multiplier = ternary_multiplier
 
+    def get_quant_size(self, b: int) -> int:
+        return 2**b if b > 0 else 3
+
     def quantize(
         self, p: Tensor, b: int, dim: Optional[int] = None
     ) -> tuple[Tensor, Tensor]:
         """Instantiation of Quantizer.quantize(), with b=0 for ternary"""
-        assert b >= 0  # b==0 means ternary
+        if b < 0:
+            raise ValueError(f"Invalid {b=}; must be nonnegative")
+        if self.optimal and b > 2:
+            raise NotImplementedError(f"Unsupported {self.optimal=} for {b=}")
+
         if self.center:
             q, mean = super().remove_mean(p.detach(), dim=dim)
         else:
             q = p.detach().clone()
             mean = torch.zeros(1, dtype=p.dtype, device=p.device)
 
-        # b == 0 means ternary; b == 1 optimal same as greedy
-        if b == 0:
-            if self.optimal:
-                q, Q = self.quantize_optimal_ternary(q)
-            else:
-                q, Q = self.quantize_simple_ternary(q, self.ternary_multiplier, dim=dim)
-        elif b == 2 and self.optimal:
-            q, Q = self.quantize_optimal_2bits(q)
+        if self.optimal and b != 1:  # b == 1 optimal is the same as greedy
+            if b == 0:
+                q, Q = self.quantize_optimal_ternary(q, dim=dim)
+            elif b == 2:
+                q, Q = self.quantize_optimal_2bits(q, dim=dim)
+        elif b == 0:
+            q, Q = self.quantize_simple_ternary(q, self.ternary_multiplier, dim=dim)
         else:
             q, Q = self.quantize_greedy(q, b, dim=dim)
 
@@ -81,7 +136,7 @@ class LSBQuantizer(Quantizer):
         keepdim = dim is not None
         for _ in range(b):
             v = r.abs().mean(dim=dim, keepdim=keepdim)
-            r -= v * binary_sign(r)
+            r.sub_(binary_sign(r).mul_(v))
             vs.append(v)
         q = p - r
 
@@ -90,16 +145,32 @@ class LSBQuantizer(Quantizer):
         B = torch.tensor(basis, dtype=p.dtype, device=p.device)
         if dim is not None:
             V = torch.concat(vs, dim=1)  # [dim0, b]
-            Q = torch.sort(V @ B.T, dim=dim)[0]  # [dim0, 2^b]
+            Q = torch.sort(V @ B.T, dim=dim).values  # [dim0, 2^b]
         else:
             V = torch.tensor(vs, dtype=p.dtype, device=p.device)
             Q = torch.msort(B.matmul(V))  # [2^b]
         return q, Q
 
     @staticmethod
-    def quantize_optimal_2bits(p: Tensor) -> tuple[Tensor, Tensor]:
+    def quantize_optimal_2bits(
+        p: Tensor, dim: Optional[int] = None
+    ) -> tuple[Tensor, Tensor]:
+        # generate 4 x 2 basis tensor B, sorted lexicographically along dim 0
+        basis = list(itertools.product((-1, 1), repeat=2))
+        B = torch.tensor(basis, dtype=p.dtype, device=p.device)
+        if dim is not None:
+            v1 = compute_v_per_channel(p, dim=dim, ternary=False)
+            s = binary_sign(p).mul_(v1)
+            r = p.sub(s)
+            v2 = r.abs().mean(dim=dim, keepdim=True)
+            q = s.add_(binary_sign(r).mul_(v2))
+
+            V = torch.cat((v1, v2), dim=-1)  # [dim0, b]
+            Q = V @ B.T  # [dim0, 2^b]
+            return q, Q
+
         # first form the cumulative sum of sorted absolute values of p
-        p_abs_sorted = torch.msort(torch.flatten(p.abs()))
+        p_abs_sorted = p.abs().flatten().sort().values
         cumsum = torch.cumsum(p_abs_sorted, dim=0)
         n = cumsum.numel()
         # find all solutions v1 to an inclusion problem (after sorting |p|)
@@ -133,18 +204,31 @@ class LSBQuantizer(Quantizer):
                 min_error = error
                 q = p - r
                 v1, v2 = v1v2
-        # generate 4 x 2 basis tensor B, sorted lexicographically along dim 0
-        basis = list(itertools.product((-1, 1), repeat=2))
-        B = torch.tensor(basis, dtype=p.dtype, device=p.device)
-        # vmap workaround: calling torch.tensor on v1, v2 raises an error
-        Q = v1 * B[:, 0] + v2 * B[:, 1]
+
+        V = torch.tensor((v1, v2), dtype=p.dtype, device=p.device)
+        Q = B @ V
         return q, Q
 
     @staticmethod
-    def quantize_optimal_ternary(p: Tensor) -> tuple[Tensor, Tensor]:
+    def quantize_optimal_ternary(
+        p: Tensor, dim: Optional[int] = None
+    ) -> tuple[Tensor, Tensor]:
         """Formula look reasonable, but derivation in reference incorrect?"""
+        if dim is not None:
+            v = compute_v_per_channel(p, dim=dim, ternary=True)
+            p_sign = binary_sign(p)
+            r = p.sub(p_sign.mul(v))
+
+            # 0 if sign(p) != sign(r), else sign(p) * 2v
+            q = p_sign.add_(binary_sign(r)).mul_(v)
+
+            # each channel can take values [-2v, 0, 2v]
+            v.mul_(2)
+            Q = torch.cat((-v, torch.zeros_like(v), v), dim=-1)  # [dim0, 3]
+            return q, Q
+
         # first form the cumulative sum of sorted absolute values of p
-        p_abs_sorted = torch.msort(torch.flatten(p.abs()))
+        p_abs_sorted = p.abs().flatten().sort().values
         cumsum = torch.cumsum(p_abs_sorted, dim=0)
         n = cumsum.numel()
         # find all solutions v1 to an inclusion problem (after sorting |p|)
