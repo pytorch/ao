@@ -44,6 +44,7 @@ jobs:
           conda activate venv
           pytest torchao/experimental/tests/test_int8_dynamic_activation_intx_weight.py
           python torchao/experimental/tests/test_embedding_xbit_quantizer.py
+          python torchao/experimental/tests/test_quant_passes.py
       - name: Run kernels/cpu/aarch64/tests
         run: |
           conda activate venv
