@@ -1098,19 +1098,26 @@ def choose_qparams_gguf(
     )
 
     # 2. get super_block_scale_scale and super_block_min_scale
-    quant_max = 2**6 - 1
-    quant_min = 0
-    super_block_scale_scale = block_scale_absmax / float(quant_max - quant_min)
-    super_block_min_scale = block_min_absmax / float(quant_max - quant_min)
+    # TODO: make this configurable
+    # we also quantize the quantization parameters (scale and min) for each block to 6 bit
+    # for Q4_K
+    qparam_quant_max = 2**6 - 1
+    qparam_quant_min = 0
+    super_block_scale_scale = block_scale_absmax / float(
+        qparam_quant_max - qparam_quant_min
+    )
+    super_block_min_scale = block_min_absmax / float(
+        qparam_quant_max - qparam_quant_min
+    )
     super_block_scale_scale_view = super_block_scale_scale.view(shape_after_reduction)
     super_block_min_scale_view = super_block_min_scale.view(shape_after_reduction)
 
     # 3. quantize block scale and min are stored in 6 bits using super_block_scale_scale and super_block_min_scale
     quantized_block_scale = torch.clamp(
-        block_scale / super_block_scale_scale_view, quant_min, quant_max
+        block_scale / super_block_scale_scale_view, qparam_quant_min, qparam_quant_max
     )
     quantized_block_min = torch.clamp(
-        block_min / super_block_min_scale_view, quant_min, quant_max
+        block_min / super_block_min_scale_view, qparam_quant_min, qparam_quant_max
     )
     return (
         super_block_scale_scale,

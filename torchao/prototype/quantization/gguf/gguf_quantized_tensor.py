@@ -39,7 +39,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
     @staticmethod
     def __new__(
         cls,
-        n_super_blocks,
+        n_blocks_per_superblock,
         super_block_scale_scale,
         super_block_min_scale,
         quantized_block_scale,
@@ -55,7 +55,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
     def __init__(
         self,
-        n_super_blocks,
+        n_blocks_per_superblock,
         super_block_scale_scale,
         super_block_min_scale,
         quantized_block_scale,
@@ -64,7 +64,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         shape,
         **kwargs,
     ):
-        self.n_super_blocks = n_super_blocks
+        self.n_blocks_per_superblock = n_blocks_per_superblock
         self.super_block_scale_scale = super_block_scale_scale
         self.super_block_min_scale = super_block_min_scale
         self.quantized_block_scale = quantized_block_scale
@@ -73,7 +73,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            self.n_super_blocks,
+            self.n_blocks_per_superblock,
             fn(self.super_block_scale_scale),
             fn(self.super_block_min_sclae),
             fn(self.quantized_block_scale),
@@ -91,7 +91,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             "quantized_block_min",
             "int_data",
         ], (
-            self.n_super_blocks,
+            self.n_blocks_per_superblock,
             self.dtype,
             self.shape,
         )
@@ -113,9 +113,9 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             tensor_data_dict["quantized_block_min"],
             tensor_data_dict["int_data"],
         )
-        n_super_blocks, dtype, shape = attributes
+        n_blocks_per_superblock, dtype, shape = attributes
         return cls(
-            n_super_blocks,
+            n_blocks_per_superblock,
             super_block_scale_scale,
             super_block_min_scale,
             quantized_block_scale,
@@ -127,7 +127,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         block_size = tuple(
-            [1] * (self.int_data.ndim - 1) + [_QK_K // self.n_super_blocks]
+            [1] * (self.int_data.ndim - 1) + [_QK_K // self.n_blocks_per_superblock]
         )
         return dequantize_gguf(
             self.int_data,
@@ -144,7 +144,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         Returns a new `CodebookQuantizedTensor`.
         """
         return self.__class__(
-            self.n_super_blocks,
+            self.n_blocks_per_superblock,
             self.super_block_scale_scale.detach(),
             self.super_block_min_scale.detach(),
             self.quantized_block_scale.detach(),
@@ -162,7 +162,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         return self
 
     @classmethod
-    def from_float(cls, input_float, n_super_blocks, target_dtype):
+    def from_float(cls, input_float, n_blocks_per_superblock, target_dtype):
         """
         Method used to convert a linear weight tensor to an instance of the
         GGMLInt4LinearWeight subclass.
@@ -176,7 +176,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         assert (
             target_dtype == torch.uint4
         ), "only uint4 quantization is supported right now"
-        block_size = (1, _QK_K // n_super_blocks)
+        block_size = (1, _QK_K // n_blocks_per_superblock)
         (
             super_block_scale_scale,
             super_block_min_scale,
@@ -194,7 +194,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             quantized_block_min,
         )
         return cls(
-            n_super_blocks,
+            n_blocks_per_superblock,
             super_block_scale_scale,
             super_block_min_scale,
             quantized_block_scale,
@@ -208,7 +208,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 @dataclass
 class GGUFWeightOnlyConfig(AOBaseConfig):
     dtype: torch.dtype = torch.uint4
-    n_super_blocks: int = 8
+    n_blocks_per_superblock: int = 8
 
 
 @register_quantize_module_handler(GGUFWeightOnlyConfig)
@@ -221,7 +221,7 @@ def _gguf_weight_only_transform(
 
     Args:
         dtype: torch.uint1 to torch.uint8, torch.int32 supported.
-        n_super_blocks: the number of super blocks in a 256 element block for gguf, e.g. when it is 8
+        n_blocks_per_superblock: the number of super blocks in a 256 element block for gguf, e.g. when it is 8
             it means we have blocks of 32 and 8 blocks in a superblock of 256 elements.
     Returns:
         Callable for quantization transformation.
@@ -231,7 +231,9 @@ def _gguf_weight_only_transform(
         return module
 
     quantized_weight = GGUFQuantizedTensor.from_float(
-        weight, n_super_blocks=config.n_super_blocks, target_dtype=config.dtype
+        weight,
+        n_blocks_per_superblock=config.n_blocks_per_superblock,
+        target_dtype=config.dtype,
     )
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     return module

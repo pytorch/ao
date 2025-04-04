@@ -15,7 +15,7 @@ class TestGGUFQuantization(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.input = torch.randn(2, 256, dtype=torch.float32)
-        self.n_super_blocks = 8
+        self.n_blocks_per_superblock = 8
         self.block_size = (1, 32)
         self.dtype = torch.uint4
 
@@ -34,7 +34,7 @@ class TestGGUFQuantization(unittest.TestCase):
     def test_gguf_quantized_tensor_from_float(self):
         gqt = GGUFQuantizedTensor.from_float(
             self.input,
-            self.n_super_blocks,
+            self.n_blocks_per_superblock,
             self.dtype,
         )
 
