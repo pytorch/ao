@@ -21,45 +21,32 @@ from torchao.quantization.quant_api import quantize_
 
 
 class TestQuantPasses(unittest.TestCase):
-    def replace_q_dq_patterns_with_quantized_linear_ops_pass(self):
-        # setattr(torch.ops.pt2e_quant, "dequantize_affine", None)
-        layers = [
-            torch.nn.Linear(256, 128, bias=True),
-            torch.nn.Linear(128, 64, bias=False),
-            torch.nn.Linear(64, 32, bias=True),
-        ]
+    def test_replace_q_dq_patterns_with_quantized_linear_ops_pass(self):
+        layers = []
+        layer_to_weight_dtype = {}
+        layer_to_has_weight_zeros = {}
+        for weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]:
+            for has_weight_zeros in [True, False]:
+                for has_bias in [True, False]:
+                    idx = len(layers)
+                    layer_to_weight_dtype[idx] = weight_dtype
+                    layer_to_has_weight_zeros[idx] = has_weight_zeros
+                    layers.append(torch.nn.Linear(64, 64, bias=has_bias))
+        activations = torch.randn(2, 1, 64, dtype=torch.float32)
+
         model = torch.nn.Sequential(*layers)
-        activations = torch.randn(2, 1, 256, dtype=torch.float32)
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int4,
-                granularity=PerGroup(64),
-                has_weight_zeros=True,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "0",
-        )
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int3,
-                granularity=PerRow(),
-                has_weight_zeros=False,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "1",
-        )
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=torch.int5,
-                granularity=PerGroup(32),
-                has_weight_zeros=False,
-                layout=QDQLayout(),
-            ),
-            lambda m, fqn: fqn == "2",
-        )
+        for idx in range(len(layers)):
+            quantize_(
+                model,
+                Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=layer_to_weight_dtype[idx],
+                    # Test out different granularities
+                    granularity=PerGroup(32) if idx % 2 == 0 else PerRow(),
+                    has_weight_zeros=layer_to_has_weight_zeros[idx],
+                    layout=QDQLayout(),
+                ),
+                lambda m, fqn: fqn == str(idx),
+            )
 
         eager_results = model(activations)
         exported = torch.export.export(model, (activations,), strict=True)
@@ -70,9 +57,9 @@ class TestQuantPasses(unittest.TestCase):
             exported.graph_module.code
         )
 
-        # We should find 3 torchao linear ops
+        # We should find len(layers) torchao linear ops
         FileCheck().check_count(
-            "torch.ops.torchao._linear_8bit_act_", count=3, exactly=True
+            "torch.ops.torchao._linear_8bit_act_", count=len(layers), exactly=True
         ).run(exported.graph_module.code)
 
         # We should not find Q/DQ ops
