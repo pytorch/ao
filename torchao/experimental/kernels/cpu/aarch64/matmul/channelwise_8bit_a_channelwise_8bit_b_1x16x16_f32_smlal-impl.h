@@ -6,7 +6,7 @@
 
 #pragma once
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__) && defined(__ARM_NEON)
 
 #include <algorithm>
 #include <cassert>
@@ -381,4 +381,4 @@ void kernel(
 } // namespace channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal
 } // namespace torchao::kernels::cpu::aarch64::quantized_matmul
 
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // defined(__aarch64__) && defined(__ARM_NEON)

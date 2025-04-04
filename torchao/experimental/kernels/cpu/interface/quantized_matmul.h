@@ -11,11 +11,11 @@
 #include <torchao/experimental/kernels/cpu/fallback/matmul/channelwise_8bit_a_channelwise_8bit_b.h>
 #include <torchao/experimental/kernels/cpu/fallback/matmul/fp32_a_channelwise_8bit_b_fp32_c.h>
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__) && defined(__ARM_NEON)
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/fp32_a_input_channelwise_8bit_b_1x16x4_f32_impl.h>
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // defined(__aarch64__) && defined(__ARM_NEON)
 
 namespace torchao::kernels::cpu::quantized_matmul {
 
@@ -67,7 +67,7 @@ get_int8_a_int8_b_channelwise_qmatmul(
     bool b_transposed,
     int& a_stride_m,
     int& b_stride_n) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__) && defined(__ARM_NEON)
   if (!a_transposed && b_transposed && n >= 8) {
     a_stride_m = k;
     b_stride_n = k;
@@ -75,7 +75,7 @@ get_int8_a_int8_b_channelwise_qmatmul(
         channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot::
             kernel<true, true, false, true>;
   }
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // defined(__aarch64__) && defined(__ARM_NEON)
   assert(!a_transposed);
   if (b_transposed) {
     a_stride_m = k;
@@ -134,14 +134,14 @@ get_fp32_a_input_channelwise_8bit_b_f32_c_matmul(
     bool b_transposed,
     int& a_stride_m,
     int& b_stride_n) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__) && defined(__ARM_NEON)
   if (!a_transposed && !b_transposed && n >= 16) {
     a_stride_m = k;
     b_stride_n = n;
     return aarch64::quantized_matmul::
         fp32_a_input_channelwise_8bit_b_1x16x4_f32::kernel<true, false, false>;
   }
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // defined(__aarch64__) && defined(__ARM_NEON)
   assert(!a_transposed);
   if (b_transposed) {
     a_stride_m = k;
