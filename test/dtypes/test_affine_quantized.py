@@ -308,9 +308,9 @@ class TestAffineQuantizedBasic(TestCase):
         quantize_(dummy, Int8DynamicActivationInt8WeightConfig())
         _ = dummy.weight[...]
 
-    @skip_if_no_cuda()
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
+    @skip_if_no_cuda()
     def test_slice(self, device, dtype):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8

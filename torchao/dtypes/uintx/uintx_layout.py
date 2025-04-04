@@ -228,9 +228,6 @@ class UintxLayout(Layout):
     dtype: torch.dtype
     pack_dim: int = -1
 
-    def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        return to_uintx(input, self.dtype, self.pack_dim)
-
 
 @register_layout(UintxLayout)
 class UintxAQTTensorImpl(PlainAQTTensorImpl):
