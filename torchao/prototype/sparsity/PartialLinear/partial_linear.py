@@ -126,34 +126,6 @@ class PartialLinear(Module):
             # Update the mask
             self.mask.copy_(new_mask)
 
-    def _sparse_forward(self, input):
-        # Create output tensor
-        output = torch.zeros(input.shape[:-1] + (self.out_features,), 
-                          device=input.device, dtype=input.dtype)
-
-        # Get non-zero indices of the mask
-        nonzero_indices = self.mask.nonzero(as_tuple=True)
-
-        # For each non-zero weight, add its contribution to the output
-        for out_idx, in_idx in zip(*nonzero_indices):
-            # Get the corresponding weight
-            weight_val = self.weight[out_idx, in_idx]
-
-            # Get the corresponding input values (handle batched inputs)
-            if input.dim() > 1:
-                in_vals = input[..., in_idx]
-                # Add contribution to output (broadcasting handles batched inputs)
-                output[..., out_idx] += in_vals * weight_val
-            else:
-                # For single input vector
-                output[out_idx] += input[in_idx] * weight_val
-
-        # Add bias if needed
-        if self.bias is not None:
-            output += self.bias
-
-        return output
-
     def forward(self, input: Tensor) -> Tensor:
         # During training, periodically update the mask
         if self.training:
@@ -161,10 +133,6 @@ class PartialLinear(Module):
             if self._forward_counter >= self.update_mask_every:
                 self._update_mask()
                 self._forward_counter = 0
-
-        # Use sparse computation if requested
-        if self.is_sparse_forward:
-            return self._sparse_forward(input)
 
         # Apply the mask to the weights
         masked_weight = self.weight * self.mask
