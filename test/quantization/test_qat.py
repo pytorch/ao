@@ -133,6 +133,18 @@ class M3(torch.nn.Module):
         return x
 
 
+class M4(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(512, 256, bias=False).to(torch.float)
+
+    def example_inputs(self):
+        return (torch.randn(1, 512).to(torch.float),)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
 class ModelWithLinearBias(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -1388,6 +1400,65 @@ class TestQAT(unittest.TestCase):
         )
         example_inputs = m.example_inputs()
         m(*example_inputs)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_fake_quantize_per_token_vs_convert(self):
+        """
+        Test that the following produce the exact same numerics:
+          1. FakeQuantizer with asymmetric per_token config
+          2. torchao.quantization.utils.per_token_dynamic_quant
+        """
+        from torchao.quantization.utils import per_token_dynamic_quant
+
+        torch.manual_seed(self.SEED)
+        x = torch.randn(1, 235, 2048)
+        config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer_out = fake_quantizer(x)
+        baseline_out = per_token_dynamic_quant(x)
+        torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_8da4w_prepare_vs_convert(self):
+        """
+        Test that the prepare and convert steps of Int8DynActInt4QATQuantizer produces
+        numerics that match exactly over N trials.
+        """
+        from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.quantization.utils import compute_error
+
+        num_trials = 1000
+        group_size = 16
+        non_inf_sqnr = []
+
+        for seed in range(self.SEED, self.SEED + num_trials):
+            torch.manual_seed(seed)
+            m = M4()
+            torch.manual_seed(seed)
+            x = m.example_inputs()
+
+            quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+            prepared = quantizer.prepare(m)
+            prepared_out = prepared(*x)
+            converted = quantizer.convert(prepared)
+            converted_out = converted(*x)
+            sqnr = compute_error(prepared_out, converted_out).item()
+            if sqnr != float("inf"):
+                non_inf_sqnr.append(sqnr)
+
+        avg_sqnr = (
+            sum(non_inf_sqnr) / len(non_inf_sqnr) if len(non_inf_sqnr) > 0 else -1
+        )
+        fail_message = "%s/%s trials did not match exactly, average sqnr = %s" % (
+            len(non_inf_sqnr),
+            num_trials,
+            avg_sqnr,
+        )
+        self.assertEqual(len(non_inf_sqnr), 0, fail_message)
 
 
 if __name__ == "__main__":
