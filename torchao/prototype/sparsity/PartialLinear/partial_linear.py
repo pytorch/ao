@@ -36,7 +36,6 @@ class PartialLinear(Module):
                 If :attr:`bias` is ``True``, the values are initialized from
                 :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
                 :math:`k = \frac{1}{\text{in\_features}}`
-        is_sparse_forward: when True, uses a completely sparse computation for forward pass
     Examples::
         >>> m = nn.PartialLinear(20, 30, top_k=5)  # Each output connected to top 5 inputs
         >>> input = torch.randn(128, 20)
@@ -49,7 +48,6 @@ class PartialLinear(Module):
     out_features: int
     top_k: int
     update_mask_every: int
-    is_sparse_forward: bool
     weight: Tensor
 
     def __init__(
@@ -59,7 +57,6 @@ class PartialLinear(Module):
         top_k: int,
         bias: bool = True,
         update_mask_every: int = 50,
-        is_sparse_forward: bool = False,
         device=None,
         dtype=None,
     ) -> None:
@@ -74,7 +71,6 @@ class PartialLinear(Module):
 
         self.top_k = top_k
         self.update_mask_every = update_mask_every
-        self.is_sparse_forward = is_sparse_forward
         self._forward_counter = 0
 
         # Create a full weight matrix
