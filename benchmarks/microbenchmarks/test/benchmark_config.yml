@@ -31,6 +31,20 @@ model_params:
           [2048, 4096, 1024],
           # [4096, 4096, 1024]
         ]
+      # Example of using LLaMa shapes
+      - name: "llama"
+      # Example of using power of 2 shapes
+      - name: "pow2"
+        min_power: 10  # 1024
+        max_power: 12  # 4096
+      # Example of using extended power of 2 shapes
+      - name: "pow2_extended"
+        min_power: 10  # 1024
+        max_power: 11  # 2048
+      # Example of using sweep shapes (commented out as it generates many shapes)
+      # - name: "sweep"
+      #   min_power: 8   # 256
+      #   max_power: 9   # 512
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
