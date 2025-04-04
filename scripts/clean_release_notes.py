@@ -223,7 +223,7 @@ def format_commit(commit_line: str) -> str:
       After:  * Commit title (https://github.com/pytorch/ao/pull/123)
     """
     # Remove author, put PR link in parentheses
-    commit_line = re.sub(" by @.* in (.*)", r" (\\g<1>)", commit_line)
+    commit_line = re.sub(" by @.* in (.*)", r" (\g<1>)", commit_line)
     # Capitalize first letter
     commit_line = commit_line.lstrip("* ")
     commit_line = "* " + commit_line[0].upper() + commit_line[1:]
