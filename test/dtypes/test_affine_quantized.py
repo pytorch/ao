@@ -17,6 +17,7 @@ from torch.testing._internal.common_utils import (
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import CutlassInt4PackedLayout, Int4CPULayout, SemiSparseLayout
 from torchao.quantization import (
+    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     float8_weight_only,
     int4_dynamic_activation_int4_weight,
@@ -306,6 +307,18 @@ class TestAffineQuantizedBasic(TestCase):
         dummy = nn.Linear(128, 256, dtype=dtype, device=device)
         quantize_(dummy, Int8DynamicActivationInt8WeightConfig())
         _ = dummy.weight[...]
+
+    @common_utils.parametrize("device", ["cuda"] if torch.cuda.is_available() else [])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_slice(self, device, dtype):
+        # in_feature not divisible by 1024
+        # out_feature not divisible by 8
+        # to test slice + padding for int4 weight only quantization
+        dummy = nn.Linear(256, 321, dtype=dtype, device=device)
+        quantize_(dummy, Int4WeightOnlyConfig())
+        # make sure these run without error
+        _ = dummy.weight.narrow(0, 0, 64)
+        _ = dummy.weight.narrow(1, 0, 128)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)

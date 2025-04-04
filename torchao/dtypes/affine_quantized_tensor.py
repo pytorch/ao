@@ -284,7 +284,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data = _layout.post_process(data)
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
