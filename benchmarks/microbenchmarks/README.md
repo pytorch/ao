@@ -46,6 +46,16 @@ model_params:
         [2048, 4096, 1024],
         [4096, 4096, 1024]
       ]
+    - name: "llama"
+    - name: "pow2"
+      min_power: 10  # Optional, default is 10 (1024)
+      max_power: 14  # Optional, default is 14 (16,384)
+    - name: "pow2_extended"
+      min_power: 10  # Optional, default is 10 (1024)
+      max_power: 14  # Optional, default is 14 (16,384)
+    - name: "sweep"
+      min_power: 8   # Optional, default is 8 (256)
+      max_power: 15  # Optional, default is 15 (32,768)
   high_precision_dtype: "torch.bfloat16"
   compile: "max-autotune" # Options: "default", "max-autotune", "false"
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
@@ -53,6 +63,13 @@ model_params:
 ```
 
 ## Configuration Options
+
+### Shape Generation Options
+- `custom`: Manually specify shapes as a list of [m, k, n] dimensions
+- `llama`: Use LLaMa 2 70B single-node weight shapes (assumes fused attn.wqkv and ffn.w13)
+- `pow2`: Generate shapes with dimensions that are powers of 2 (e.g., 1024, 2048, 4096, etc.)
+- `pow2_extended`: Generate shapes with dimensions that are powers of 2 and powers of 2 + half (e.g., 1024, 1536, 2048, 3072, etc.)
+- `sweep`: Generate a sweep of shapes with different powers of 2 for M, K, N dimensions
 
 ### Quantization Methods
 Currently, quantization string is in same format as the one being passed in llama/generate.py.
