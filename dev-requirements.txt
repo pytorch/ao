@@ -26,9 +26,6 @@ importlib_metadata
 # Custom CUDA Extensions
 ninja
 
-# CPU kernels
-cmake<4.0.0,>=3.19.0
-
 # Linting
 ruff==0.6.8
 pre-commit

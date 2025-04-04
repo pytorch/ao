@@ -49,21 +49,15 @@ inline size_t packed_activations_offset(
   return (m_idx / mr) * packed_activations_size_mr_rows;
 }
 
-template <int mr_, int kr_, int sr_>
+template <int mr, int kr, int sr>
 void pack_activations(
     void* packed_activations,
     int m,
     int k,
     int group_size,
     const float* activations,
-    bool has_weight_zeros,
-    int mr,
-    int kr,
-    int sr) {
-  (void)mr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
-  activation_packing::pack_activations<mr_, kr_, sr_>(
+    bool has_weight_zeros) {
+  activation_packing::pack_activations<mr, kr, sr>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
 }
 
@@ -99,7 +93,7 @@ inline size_t packed_weights_offset(
   return (n_idx / nr) * packed_weights_size_nr_cols;
 }
 
-template <int weight_nbit, int nr_, int kr_, int sr_>
+template <int weight_nbit, int nr, int kr, int sr>
 void pack_weights(
     void* packed_weights,
     int n,
@@ -108,14 +102,8 @@ void pack_weights(
     const int8_t* weight_qvals,
     const float* weight_scales,
     const int8_t* weight_zeros,
-    const float* bias,
-    int nr,
-    int kr,
-    int sr) {
-  (void)nr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
-  weight_packing::pack_weights<weight_nbit, nr_, kr_, sr_>(
+    const float* bias) {
+  weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
       packed_weights,
       n,
       k,
@@ -257,7 +245,7 @@ void kernel_1x4x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit, bool has_weight_zeros, bool has_lut>
+template <int weight_nbit, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -272,11 +260,10 @@ void kernel_1x8x16_f32_neondot(
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max,
-    bool has_weight_zeros_,
+    bool has_weight_zeros,
     bool has_bias,
     bool has_clamp) {
-  (void)has_weight_zeros_; // unused
-  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
+  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_lut>(
       output,
       output_m_stride,
       m,
@@ -287,6 +274,7 @@ void kernel_1x8x16_f32_neondot(
       packed_activations,
       clamp_min,
       clamp_max,
+      has_weight_zeros,
       has_bias,
       has_clamp);
 }

@@ -69,31 +69,29 @@ Tensor pack_weights_cpu(
     bias_ptr = bias.value().const_data_ptr<float>();
   }
 
-  auto packed_weights_format =
-      torchao::ops::linear_8bit_act_xbit_weight::select_packed_weights_format<
-          weight_nbit>(target, has_weight_zeros, has_bias);
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
+
+  auto packed_weights_format = select_packed_weights_format<weight_nbit>(
+      target, has_weight_zeros, has_bias);
   auto packed_weights_header = packed_weights_format.to_packed_weights_header();
-  auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<
-      weight_nbit>(packed_weights_header);
+  auto ukernel_config =
+      select_ukernel_config<weight_nbit>(packed_weights_header);
 
-  auto packed_weight_data_size = torchao::ops::PackedWeightsHeader::size() +
-      uk.packed_weights_size(
-          n,
-          k,
-          group_size,
-          weight_nbit,
-          has_weight_zeros,
-          has_bias,
-          uk.nr,
-          uk.kr,
-          uk.sr);
+  auto pack_weight_tiling_params = get_default_pack_weight_data_tiling_params(
+      ukernel_config, n, /*target_panels_per_thread=*/1);
 
+  auto packed_weight_data_size =
+      torchao::ops::PackedWeightsHeader::size() +
+      get_packed_weight_data_size(
+          ukernel_config, n, k, group_size, has_weight_zeros, has_bias);
   Tensor packed_weights = torch::empty(
       {static_cast<int64_t>(packed_weight_data_size)}, torch::kInt8);
   packed_weights_header.write(packed_weights.mutable_data_ptr<int8_t>());
 
-  torchao::ops::linear_8bit_act_xbit_weight::pack_weights_operator(
-      uk,
+  // TODO: support passing in bias in future
+  pack_weight_data_operator(
+      ukernel_config,
+      pack_weight_tiling_params,
       packed_weights.mutable_data_ptr<int8_t>() +
           torchao::ops::PackedWeightsHeader::size(),
       n,
@@ -124,26 +122,18 @@ Tensor pack_weights_meta(
   int n = weight_qvals.size(0);
   int k = weight_qvals.size(1);
 
-  auto packed_weights_format =
-      torchao::ops::linear_8bit_act_xbit_weight::select_packed_weights_format<
-          weight_nbit>(target, has_weight_zeros, has_bias);
-  auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<
-      weight_nbit>(packed_weights_format);
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
-  auto packed_weight_data_size = torchao::ops::PackedWeightsHeader::size() +
-      uk.packed_weights_size(
-          n,
-          k,
-          group_size,
-          weight_nbit,
-          has_weight_zeros,
-          has_bias,
-          uk.nr,
-          uk.kr,
-          uk.sr);
+  auto packed_weights_format = select_packed_weights_format<weight_nbit>(
+      target, has_weight_zeros, has_bias);
+  auto ukernel_config =
+      select_ukernel_config<weight_nbit>(packed_weights_format);
 
-  auto options =
-      torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
+  auto packed_weight_data_size =
+      torchao::ops::PackedWeightsHeader::size() +
+      get_packed_weight_data_size(
+          ukernel_config, n, k, group_size, has_weight_zeros, has_bias);
+  auto options = torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
   return torch::empty({static_cast<int64_t>(packed_weight_data_size)}, options);
 }
 #endif // USE_ATEN
@@ -179,6 +169,8 @@ Tensor linear_out_cpu(
   // Explicit cast from int64_t to int is required for Executorch
   TORCHAO_RESIZE_TENSOR(out, {(int)m, (int)n});
 
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
+
   TORCHAO_CHECK(packed_weights.dim() == 1, "packed_weights must be 1D");
 #ifdef USE_ATEN
   TORCHAO_CHECK(
@@ -190,12 +182,36 @@ Tensor linear_out_cpu(
   auto header =
       torchao::ops::PackedWeightsHeader::read(packed_weights.const_data_ptr());
 
-  auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<
-      weight_nbit>(header);
+  auto format = torchao::ops::linear_8bit_act_xbit_weight::PackedWeightsFormat::
+      from_packed_weights_header(header);
 
-  torchao::ops::linear_8bit_act_xbit_weight::linear_operator(
-      uk,
-      std::nullopt,
+  auto ukernel_config = select_ukernel_config<weight_nbit>(header);
+
+  auto linear_tiling_params = get_default_linear_tiling_params(
+      ukernel_config,
+      m,
+      n,
+      /*target_tiles_per_thread=*/5);
+
+  auto linear_scheduling_policy =
+      LinearTileSchedulingPolicy::single_mc_parallel_nc;
+
+  auto activation_data_buffer_size = get_activation_data_buffer_size(
+      ukernel_config,
+      linear_tiling_params,
+      linear_scheduling_policy,
+      m,
+      k,
+      group_size,
+      format.has_weight_zeros);
+
+  std::vector<char> activation_data_buffer(activation_data_buffer_size);
+
+  linear_operator(
+      ukernel_config,
+      linear_tiling_params,
+      linear_scheduling_policy,
+      activation_data_buffer.data(),
       out.mutable_data_ptr<float>(),
       m,
       n,
@@ -204,9 +220,13 @@ Tensor linear_out_cpu(
       packed_weights.const_data_ptr<int8_t>() +
           torchao::ops::PackedWeightsHeader::size(),
       activations.const_data_ptr<float>(),
-      /*has_clamp=*/false,
+      // Clamp parameters are ignored because config is created from
+      // has_clamp = false
       /*clamp_min=*/0.0,
-      /*clamp_max=*/0.0);
+      /*clamp_max=*/0.0,
+      format.has_weight_zeros,
+      format.has_bias,
+      /*has_clamp*/ false);
 
   return out;
 }

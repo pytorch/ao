@@ -539,48 +539,36 @@ def group_quantize_tensor_symmetric(
     return w_int8, scales, zeros
 
 
-def per_token_dynamic_quant(
-    input: torch.Tensor,
-    scale_dtype: torch.dtype = torch.float32,
-    zero_point_dtype: torch.dtype = torch.float32,
-) -> torch.Tensor:
-    mapping_type = MappingType.ASYMMETRIC
-    block_size = _get_per_token_block_size(input)
+def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
+    orig_dtype = input.dtype
+    # TODO: we may need to make the choose_qparams op configurable
+    from torchao._executorch_ops import (
+        _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper,
+    )
+
+    (
+        scales,
+        zero_points,
+    ) = _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
+        input, torch.int8
+    )
+
+    # TODO: get these from torch.int8
     quant_min = -128
     quant_max = 127
-    quant_dtype = torch.int8
-    output_dtype = input.dtype
+    from torchao._executorch_ops import _quantized_decomposed_quantize_per_token_wrapper
 
-    scales, zero_points = choose_qparams_affine(
-        input,
-        mapping_type,
-        block_size,
-        quant_dtype,
-        quant_min,
-        quant_max,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
+    input = _quantized_decomposed_quantize_per_token_wrapper(
+        input, scales, zero_points, quant_min, quant_max, torch.int8
     )
-    q = quantize_affine(
-        input,
-        block_size,
-        scales,
-        zero_points,
-        quant_dtype,
-        quant_min,
-        quant_max,
+    from torchao._executorch_ops import (
+        _quantized_decomposed_dequantize_per_token_wrapper,
     )
-    dq = dequantize_affine(
-        q,
-        block_size,
-        scales,
-        zero_points,
-        quant_dtype,
-        quant_min,
-        quant_max,
-        output_dtype=output_dtype,
+
+    input = _quantized_decomposed_dequantize_per_token_wrapper(
+        input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
     )
-    return dq
+    return input.to(orig_dtype)
 
 
 def recommended_inductor_config_setter():
