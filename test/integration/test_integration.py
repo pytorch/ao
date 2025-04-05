@@ -1588,8 +1588,8 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest(f"run on {device} but cuda is not available")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
