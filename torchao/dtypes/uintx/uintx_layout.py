@@ -228,6 +228,15 @@ class UintxLayout(Layout):
     dtype: torch.dtype
     pack_dim: int = -1
 
+    def post_process(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return to_uintx(input, self.dtype, self.pack_dim), scale, zero_point
+
 
 @register_layout(UintxLayout)
 class UintxAQTTensorImpl(PlainAQTTensorImpl):
