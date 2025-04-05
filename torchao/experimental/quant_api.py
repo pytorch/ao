@@ -14,9 +14,9 @@ from torch.ao.quantization.fx._decomposed import (
     dequantize_per_channel_group,
     quantize_per_channel_group,
 )
-from torch.ao.quantization.quant_api import ZeroPointDomain
 
 from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.quant_api import ZeroPointDomain
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
