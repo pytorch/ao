@@ -14,6 +14,7 @@ from torch.ao.quantization.fx._decomposed import (
     dequantize_per_channel_group,
     quantize_per_channel_group,
 )
+from torch.ao.quantization.quant_api import ZeroPointDomain
 
 from torchao.quantization.granularity import PerGroup, PerRow
 
@@ -616,15 +617,9 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
-    int8_dynamic_activation_intx_weight,
+    MappingType,
+    quantize_,
 )
-
-__all__ = [
-    "int8_dynamic_activation_intx_weight",
-    "Int8DynamicActivationIntxWeightConfig",
-]
-
-from torchao.quantization.quant_api import quantize_
 
 
 def _get_fqns_with_filter(
@@ -785,9 +780,11 @@ class SharedEmbeddingQuantizer:
             model,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=self.weight_dtype,
-                granularity=self.granularity,
-                has_weight_zeros=self.has_weight_zeros,
-                round_weight_scale_to_bf16=False,
+                weight_granularity=self.granularity,
+                weight_zero_point_domain=ZeroPointDomain.INT
+                if self.has_weight_zeros
+                else ZeroPointDomain.NONE,
+                weight_mapping_type=MappingType.ASYMMETRIC,
                 # Only universal layout is supported for shared embedding
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"

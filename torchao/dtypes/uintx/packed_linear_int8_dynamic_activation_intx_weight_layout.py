@@ -360,21 +360,33 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
 
     # Check scale
     assert scale.device == torch.device("cpu")
-    assert scale.dtype == torch.float32
+    if scale.dtype != torch.float32:
+        logging.info(f"scale has dtype {scale.dtype}, converting to torch.float32")
+        scale = scale.to(torch.float32)
+
     assert scale.min().item() > 0
     n_, groups_per_k = scale.shape
     assert n_ == n
     assert k % groups_per_k == 0
     group_size = k // groups_per_k
 
-    # Some targets require scales be rounded to bfloat16
+    # Some targets round scales to bfloat16
     scale_is_rounded_to_bf16 = torch.allclose(
         scale, scale.to(torch.bfloat16).to(torch.float32)
     )
+
     if layout.target == Target.ATEN and (group_size < k):
-        assert scale_is_rounded_to_bf16, "When using Target.ATEN, scale must be rounded to bfloat16 when group_size < k"
+        if not scale_is_rounded_to_bf16:
+            logging.warning(
+                "When using Target.ATEN with group_size < k, scales are rounded to bfloat16"
+            )
+            scale = scale.to(torch.bfloat16).to(torch.float32)
     if layout.target in [Target.AUTO, Target.KLEIDIAI]:
-        assert scale_is_rounded_to_bf16, "When using target [Target.AUTO, Target.KLEIDIAI], scale must be rounded to bfloat16"
+        if not scale_is_rounded_to_bf16:
+            logging.warning(
+                "When using [Target.AUTO, Target.KLEIDIAI], scales are rounded to bfloat16"
+            )
+            scale = scale.to(torch.bfloat16).to(torch.float32)
 
     # Check zero_point
     has_weight_zeros = zero_point is not None
@@ -389,7 +401,9 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     has_bias = bias is not None
     if has_bias:
         assert bias.device == torch.device("cpu")
-        assert bias.dtype == torch.float32
+        if bias.dtype != torch.float32:
+            logging.info(f"bias has dtype {bias.dtype}, converting to torch.float32")
+            bias = bias.to(torch.float32)
         assert bias.shape == (n,)
 
     has_weight_zeros = zero_point is not None

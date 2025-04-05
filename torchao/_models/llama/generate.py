@@ -567,6 +567,7 @@ def main(
             from torchao.quantization.granularity import PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
+                ZeroPointDomain,
             )
 
             # Quantize model
@@ -578,8 +579,12 @@ def main(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
+                    weight_granularity=granularity,
+                    weight_zero_point_domain=ZeroPointDomain.INT
+                    if has_weight_zeros
+                    else ZeroPointDomain.NONE,
+                    weight_mapping_type=MappingType.ASYMMETRIC,
+                    weight_scale_dtype=torch.bfloat16,
                 ),
             )
         elif "float8wo" in quantization:
