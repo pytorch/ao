@@ -431,7 +431,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
         scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed, scale, _ = _layout.post_process(floatx_unpacked, scale, None)
+        floatx_packed, scale, _ = _layout.post_process(
+            floatx_unpacked, scale, None, block_size
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
