@@ -273,19 +273,35 @@ def nf4_slice(aten_op, args, kwargs=None):
         aten.view.default,
     ]
 )
-@expect_args_len_at_k(1, CompareOp.EQ, 1, "aten.view(NF4Tensor) with len(size)=")
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.view(NF4Tensor) with len(size)=")
 def nf4_view(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     size = args[1]
-    if size[0] != -1:
-        raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
-    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
-    updated_attrs.update(
-        {
-            "size": [nf4tensor.numel()],
-            "stride": (1,),
-        }
-    )
+    if len(size) == 1:
+        if size[0] != -1:
+            raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
+        else:
+            updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
+            updated_attrs.update(
+                {
+                    "size": [nf4tensor.numel()],
+                    "stride": (1,),
+                }
+            )
+    else:
+        updated_attrs = {}
+        if nf4tensor.numel() != nf4tensor.size()[0] * nf4tensor.size()[1]:
+            raise NotImplementedError("NF4Tensor size does not match numel.")
+        for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+            attr_size = [getattr(nf4tensor, attr).size()]
+            updated_attrs[attr] = aten_op(
+                getattr(nf4tensor, attr), *attr_size, **kwargs
+            )
+            updated_attrs.update(
+                {
+                    "stride": (nf4tensor.size()[1], 1),
+                }
+            )
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 
@@ -455,6 +471,69 @@ def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
 
     tensors = aten_op(ts, *remaining_args, **kwargs)
     return tensors
+
+
+@implements(
+    [
+        torch.ops._c10d_functional.all_gather_into_tensor.default,
+    ]
+)
+def all_gather_into_tensor(func, *args, **kwargs):
+    nf4tensor = args[0][0]
+    group_size = args[0][1]
+    name = args[0][2]
+    updated_attrs = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        updated_attrs[attr] = func(getattr(nf4tensor, attr), group_size, name)
+    updated_attrs.update(
+        {
+            "size": torch.Size((nf4tensor.size()[0] * group_size, nf4tensor.size()[1])),
+        }
+    )
+    updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+    return updatedNF4Tensor
+
+
+@implements(
+    [
+        torch.ops._c10d_functional.wait_tensor.default,
+    ]
+)
+def wait_tensor(func, *args, **kwargs):
+    nf4tensor = args[0][0]
+    updated_attrs = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        updated_attrs[attr] = func(getattr(nf4tensor, attr))
+    updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+    return updatedNF4Tensor
+
+
+@implements([torch.ops.c10d.scatter_.default])
+def scatter_nf4tensor(func, *args, **kwargs):
+    output_tensor = args[0][0][0]
+    input_tensors = args[0][1]
+    process_group = args[0][2]
+    src = args[0][3]
+    asyncOp = args[0][4]
+    timeout = args[0][5]
+    new_attr, update_work = [], []
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        input_attrs = []
+        if input_tensors:
+            for input_tensor in input_tensors[0]:
+                if hasattr(input_tensor, attr):
+                    input_attrs.append(getattr(input_tensor, attr))
+            input_attrs = [input_attrs]
+        new_attr, update_work = func(
+            [getattr(output_tensor, attr)],
+            input_attrs,
+            process_group,
+            src,
+            asyncOp,
+            timeout,
+        )
+    # there are 3 works, return one of them, same as the tensor to fit the required output format
+    return new_attr, update_work
 
 
 @dataclass(frozen=True)
