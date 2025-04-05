@@ -733,12 +733,17 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             self.layout, (PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout)
         ), f"layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got {self.layout}"
 
-        # If weight_scale_dtype is not specified, set it to torch.bfloat16
-        # when using PackedLinearInt8DynamicActivationIntxWeightLayout on Target.AUTO
-        # This suppresses warnings about rounding scales to torch.bfloat16
         if isinstance(self.layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            if self.layout.target == Target.AUTO and self.weight_scale_dtype is None:
-                self.weight_scale_dtype = torch.bfloat16
+            if self.layout.target in [Target.AUTO, Target.KLEIDIAI, Target.ATEN]:
+                if (self.weight_scale_dtype) is None or (
+                    self.weight_scale_dtype != torch.bfloat16
+                ):
+                    logging.warning(
+                        f"When using layout PackedLinearInt8DynamicActivationIntxWeightLayout with target {self.layout.target}, "
+                        f"the weight scale may be cast to bfloat16 by the kernel, but weight_scale_dtype is set to {self.weight_scale_dtype}. "
+                        "Explicitly set weight_scale_dtype to torch.bfloat16 to suppress this warning. "
+                        "If you need weight_scale_dtype = torch.float32, use target=Target.UNIVERSAL instead."
+                    )
 
 
 @register_quantize_module_handler(Int8DynamicActivationIntxWeightConfig)
@@ -767,10 +772,6 @@ def _int8_dynamic_activation_intx_weight_transform(
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
 
     # We quantize with QDQLayout, and then construct the packed weight tensor later
-    quantization_layout = layout
-    if isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-        quantization_layout = QDQLayout()
-
     has_weight_zeros = weight_zero_point_domain == ZeroPointDomain.INT
     weight = to_affine_quantized_intx(
         input_float=weight,
@@ -785,7 +786,7 @@ def _int8_dynamic_activation_intx_weight_transform(
         preserve_zero=has_weight_zeros
         or (weight_mapping_type == MappingType.SYMMETRIC),
         zero_point_domain=weight_zero_point_domain,
-        _layout=quantization_layout,
+        _layout=QDQLayout(),
     )
     if isinstance(layout, QDQLayout):
         # TODO: _int8_asymm_per_token_quant uses scale_dtype=torch.float64, zero_point_dtype=torch.int64,
@@ -811,9 +812,15 @@ def _int8_dynamic_activation_intx_weight_transform(
         if zero_point is not None:
             zero_point = zero_point.reshape(-1, groups_per_row)
         weight = make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
-            data, scale, zero_point, bias, weight_dtype, layout.target
+            data,
+            scale,
+            zero_point,
+            bias,
+            weight_dtype,
+            layout.target,
+            validate_inputs=False,
         )
-        # bias is packed with weights
+        # bias is packed with weights if present
         bias = None
 
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
