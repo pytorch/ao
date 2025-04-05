@@ -245,8 +245,8 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
                     group_size,
                 )
                 quantized_embedding.weight = q_weight
-                quantized_embedding.scales = s
-                quantized_embedding.zeros = zp
+                quantized_embedding.scale = s.to(scale_precision)
+                quantized_embedding.zero_point = zp.to(zero_point_precision)
             else:
                 self._convert_helper(child)
 
