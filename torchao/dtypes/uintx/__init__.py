@@ -17,7 +17,6 @@ from .marlin_sparse_layout import (
 )
 from .packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
-    to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight,
 )
 from .q_dq_layout import (
     QDQLayout,
@@ -43,7 +42,6 @@ __all__ = [
     "MarlinQQQTensor",
     "to_marlinqqq_quantized_intx",
     "CutlassInt4PackedLayout",
-    "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
 ]
