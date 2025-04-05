@@ -72,7 +72,6 @@ class MarlinQQQTensor(AffineQuantizedTensor):
         data, s_group, s_channel, _ = choose_qparams_and_quantize_affine_qqq(
             input_float, nbits, group_size
         )
-        data = _layout.post_process(data)
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, s_group, s_channel, _layout)
         return cls(
