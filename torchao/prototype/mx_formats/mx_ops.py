@@ -203,3 +203,17 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         args[0]._pack_fp6,
     )
     return res
+
+@implements([aten.linear.default])
+def mx_linear(aten_op, args, kwargs=None):
+    a = args[0]
+    b = args[1]
+    if len(args) > 2:
+        c = args[2]
+    else:
+        c = None
+    assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
+    a_hp = a.to_dtype(a._orig_dtype)
+    b_hp = b.to_dtype(b._orig_dtype)
+    res = aten_op(a_hp, b_hp, c)
+    return res
