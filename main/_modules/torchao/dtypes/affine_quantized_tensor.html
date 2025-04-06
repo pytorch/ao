@@ -693,7 +693,9 @@
             <span class="p">)</span>
             <span class="c1"># Note: output will be uint8 tensor for sub byte tensors for now</span>
 
-        <span class="n">data</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">block_size</span>
+        <span class="p">)</span>
         <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
         <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
@@ -744,7 +746,7 @@
             <span class="n">zero_point_domain</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="n">int_data</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
+        <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">)</span>
 
         <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
         <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
@@ -838,7 +840,9 @@
         <span class="c1"># Note: these ops are hardcoded to have per axis quantization (axis=1) right now</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">choose_qparams_affine_floatx</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
         <span class="n">floatx_unpacked</span> <span class="o">=</span> <span class="n">quantize_affine_floatx</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
-        <span class="n">floatx_packed</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">floatx_unpacked</span><span class="p">)</span>
+        <span class="n">floatx_packed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+            <span class="n">floatx_unpacked</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">block_size</span>
+        <span class="p">)</span>
 
         <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
         <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">floatx_packed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
