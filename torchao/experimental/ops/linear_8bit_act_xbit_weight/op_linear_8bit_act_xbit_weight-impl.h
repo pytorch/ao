@@ -227,4 +227,139 @@ Tensor linear_cpu(
 }
 #endif // USE_ATEN
 
+#ifdef USE_ATEN
+template <int weight_nbit>
+Tensor pack_weights_with_lut_cpu(
+    const Tensor& weight_qval_idxs,
+    const Tensor& luts,
+    const Tensor& weight_scales,
+    int64_t group_size,
+    const std::optional<Tensor>& bias,
+    const std::optional<std::string>& target) {
+  bool has_bias = bias.has_value();
+  bool has_weight_zeros = false;
+
+  TORCHAO_CHECK(
+      weight_qval_idxs.dtype() == torch::kInt8, "weight_qval_idxs must be int8");
+  TORCHAO_CHECK(weight_qval_idxs.dim() == 2, "weight_qval_idxs must be 2D");
+
+  int n = weight_qval_idxs.size(0);
+  int k = weight_qval_idxs.size(1);
+
+  TORCHAO_CHECK(
+      weight_scales.dtype() == torch::kFloat32,
+      "weight_scales must be float32");
+  TORCHAO_CHECK(weight_scales.dim() == 1, "weight_scales must be 1D");
+  TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
+  TORCHAO_CHECK(
+      weight_scales.size(0) == ((n * k) / group_size),
+      "expected 1 scale per group");
+
+    TORCHAO_CHECK(
+        luts.dtype() == torch::kInt8, "luts must be int8");
+    TORCHAO_CHECK(luts.dim() == 2, "luts must be 2D");
+    int n_luts = luts.size(0);
+    TORCHAO_CHECK(
+        n % n_luts == 0,
+        "the number of luts must divide n");
+    int lut_channel_group_size = n / n_luts;
+    TORCHAO_CHECK(
+        luts.size(1) == (1 << weight_nbit),
+        "luts must have 1 entry per quantization level");
+
+  const float* bias_ptr = nullptr;
+  if (has_bias) {
+    TORCHAO_CHECK(
+        bias.value().dtype() == torch::kFloat32, "bias must be float32");
+    TORCHAO_CHECK(bias.value().dim() == 1, "bias must be 1D");
+    TORCHAO_CHECK(bias.value().size(0) == n, "expected 1 bias per row");
+    bias_ptr = bias.value().const_data_ptr<float>();
+  }
+
+  TORCHAO_CHECK(
+    !target.has_value(),
+    "target is not currently supported in pack_weights_with_lut_cpu"
+  );
+
+  auto packed_weights_format = torchao::ops::linear_8bit_act_xbit_weight::select_packed_weights_with_lut_format<
+          weight_nbit>(target, has_weight_zeros, has_bias);
+  TORCHAO_CHECK(packed_weights_format.nr == 8, "nr must be 8");
+  TORCHAO_CHECK(
+        lut_channel_group_size % 8 == 0,
+        "the lut_channel_group_size must be a multiple of nr (8)");
+
+  auto packed_weights_header = packed_weights_format.to_packed_weights_header();
+  auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<
+      weight_nbit>(packed_weights_header);
+  auto packed_weight_data_size = torchao::ops::PackedWeightsHeader::size() +
+      uk.packed_weights_size(
+          n,
+          k,
+          group_size,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          uk.nr,
+          uk.kr,
+          uk.sr);
+
+  Tensor packed_weights = torch::empty(
+      {static_cast<int64_t>(packed_weight_data_size)}, torch::kInt8);
+  packed_weights_header.write(packed_weights.mutable_data_ptr<int8_t>());
+
+  torchao::ops::linear_8bit_act_xbit_weight::pack_weights_with_lut_operator(
+      uk,
+      packed_weights.mutable_data_ptr<int8_t>() +
+          torchao::ops::PackedWeightsHeader::size(),
+      n,
+      k,
+      group_size,
+      weight_qval_idxs.const_data_ptr<int8_t>(),
+      n_luts,
+      luts.const_data_ptr<int8_t>(),
+      weight_scales.const_data_ptr<float>(),
+      /*weight_zeros*/nullptr,
+      bias_ptr);
+
+  return packed_weights;
+}
+#endif // USE_ATEN
+
+#ifdef USE_ATEN
+template <int weight_nbit>
+Tensor pack_weights_with_lut_meta(
+    const Tensor& weight_qval_idxs,
+    const Tensor& luts,
+    const Tensor& weight_scales,
+    int64_t group_size,
+    const std::optional<Tensor>& bias,
+    const std::optional<std::string>& target) {
+  bool has_bias = bias.has_value();
+  bool has_weight_zeros = false;
+  int n = weight_qval_idxs.size(0);
+  int k = weight_qval_idxs.size(1);
+  auto packed_weights_format = torchao::ops::linear_8bit_act_xbit_weight::select_packed_weights_with_lut_format<
+          weight_nbit>(target, has_weight_zeros, has_bias);
+
+  auto uk = torchao::ops::linear_8bit_act_xbit_weight::select_ukernel_config<
+      weight_nbit>(packed_weights_format);
+
+  auto packed_weight_data_size = torchao::ops::PackedWeightsHeader::size() +
+      uk.packed_weights_size(
+          n,
+          k,
+          group_size,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          uk.nr,
+          uk.kr,
+          uk.sr);
+
+  auto options =
+      torch::TensorOptions().device(c10::DeviceType::Meta).dtype(torch::kInt8);
+  return torch::empty({static_cast<int64_t>(packed_weight_data_size)}, options);
+}
+#endif // USE_ATEN
+
 } // namespace
