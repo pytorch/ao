@@ -1,11 +1,9 @@
 from .gguf_quantized_tensor import (
     GGUFQuantizedTensor,
-    GGUFWeightOnlyConfig,
-    choose_qparams_gguf,
 )
+from .api import GGUFWeightOnlyConfig
 
 __all__ = [
     "GGUFQuantizedTensor",
-    "choose_qparams_gguf",
     "GGUFWeightOnlyConfig",
 ]

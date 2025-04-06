@@ -4,28 +4,23 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass
 from typing import Optional
 
 import torch
 
-from torchao.core.config import AOBaseConfig
 from torchao.quantization.quant_primitives import (
     choose_qparams_gguf,
     dequantize_gguf,
     quantize_gguf,
 )
-from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import TorchAOBaseTensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 _QK_K = 256
+aten = torch.ops.aten
 
 __all__ = [
     "GGUFQuantizedTensor",
-    "choose_qparams_gguf",
-    "quantize_gguf",
-    "dequantize_gguf",
-    "GGUFWeightOnlyConfig",
 ]
 
 
@@ -126,6 +121,9 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        if output_dtype is None:
+            output_dtype = self.dtype
+
         block_size = tuple(
             [1] * (self.int_data.ndim - 1) + [_QK_K // self.n_blocks_per_superblock]
         )
@@ -137,19 +135,20 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             self.super_block_min_scale,
             self.quantized_block_scale,
             self.quantized_block_min,
+            output_dtype=output_dtype,
         )
 
-    def detach(self):
+    def _apply_fn_to_data(self, fn):
         """
         Returns a new `CodebookQuantizedTensor`.
         """
         return self.__class__(
             self.n_blocks_per_superblock,
-            self.super_block_scale_scale.detach(),
-            self.super_block_min_scale.detach(),
-            self.quantized_block_scale.detach(),
-            self.quantized_block_min.detach(),
-            self.int_data.detach(),
+            fn(self.super_block_scale_scale),
+            fn(self.super_block_min_scale),
+            fn(self.quantized_block_scale),
+            fn(self.quantized_block_min),
+            fn(self.int_data),
             self.shape,
             dtype=self.dtype,
         )
@@ -201,39 +200,32 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             quantized_block_min,
             int_data,
             input_float.shape,
-            dtype=torch.float16,
         )
 
 
-@dataclass
-class GGUFWeightOnlyConfig(AOBaseConfig):
-    dtype: torch.dtype = torch.uint4
-    n_blocks_per_superblock: int = 8
+implements = GGUFQuantizedTensor.implements
 
-
-@register_quantize_module_handler(GGUFWeightOnlyConfig)
-def _gguf_weight_only_transform(
-    module: torch.nn.Module,
-    config: GGUFWeightOnlyConfig,
-):
-    """
-    Applies gguf weight-only quantization to linear layers.
-
-    Args:
-        dtype: torch.uint1 to torch.uint8, torch.int32 supported.
-        n_blocks_per_superblock: the number of super blocks in a 256 element block for gguf, e.g. when it is 8
-            it means we have blocks of 32 and 8 blocks in a superblock of 256 elements.
-    Returns:
-        Callable for quantization transformation.
-    """
-    weight = module.weight
-    if (weight.ndim != 2) or (weight.shape[-1] % 256 != 0):
-        return module
-
-    quantized_weight = GGUFQuantizedTensor.from_float(
-        weight,
-        n_blocks_per_superblock=config.n_blocks_per_superblock,
-        target_dtype=config.dtype,
+@implements([aten.detach.default, aten.alias.default])
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    return module
+
+
+@implements([torch.nn.functional.linear, aten.linear.default])
+def _(func, types, args, kwargs):
+    input_tensor, weight_tensor, bias = (
+        args[0],
+        args[1],
+        args[2] if len(args) > 2 else None,
+    )
+    if not input_tensor.is_floating_point():
+        raise NotImplementedError(
+            f"{func} is not implemented for non floating point input"
+        )
+
+    dtype = input_tensor.dtype
+    if hasattr(weight_tensor, "dequantize"):
+        weight_tensor = weight_tensor.dequantize(output_dtype=dtype)
+
+    return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
