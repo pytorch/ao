@@ -284,7 +284,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data = _layout.post_process(data)
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -335,7 +337,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
         )
 
-        int_data = _layout.post_process(int_data)
+        int_data, scale, zero_point = _layout.post_process(int_data, scale, zero_point)
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
@@ -429,7 +431,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
         scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
+        floatx_packed, scale, _ = _layout.post_process(
+            floatx_unpacked, scale, None, block_size
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)

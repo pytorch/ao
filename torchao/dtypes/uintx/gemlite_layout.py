@@ -297,16 +297,9 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
-                int_data, scale, zero_point = self.get_plain()
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                int_data = self._layout.post_process(int_data)
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return return_and_correct_aliasing(func, args, kwargs, sliced)
-            elif dim == 1:
-                int_data, scale, zero_point = self.get_plain()
                 assert step == 1, "Only step == 1 is supported in slicing right now"
+                int_data, scale, zero_point = self.get_plain()
                 data_len = int_data.shape[dim]
-                # scale and zero_point are transposed compared to int_data
                 param_dim = 1 - dim
                 scale_len = scale.shape[param_dim]
                 ratio = data_len / scale_len
@@ -314,7 +307,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 end_scale = int(end / ratio)
 
                 int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                # this is to handle padding
                 scale = aten.slice.Tensor(
                     scale, param_dim, start_scale, end_scale, step
                 )
@@ -324,9 +316,32 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                     )
                 else:
                     zero_point = None
-                # import fbvscode; fbvscode.set_trace()
+
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return sliced
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
+            elif dim == 1:
+                assert step == 1, "Only step == 1 is supported in slicing right now"
+                int_data, scale, zero_point = self.get_plain()
+                data_len = int_data.shape[dim]
+                # scale and zero_point are transposed compared to int_data
+                param_dim = 1 - dim
+                scale_len = scale.shape[param_dim]
+                ratio = data_len / scale_len
+                start_scale = int(start / ratio)
+                end_scale = int(end / ratio)
+
+                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+                scale = aten.slice.Tensor(
+                    scale, param_dim, start_scale, end_scale, step
+                )
+                if zero_point is not None and zero_point.numel() > 0:
+                    zero_point = aten.slice.Tensor(
+                        zero_point, param_dim, start_scale, end_scale, step
+                    )
+                else:
+                    zero_point = None
+                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
                     f"GemliteAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
