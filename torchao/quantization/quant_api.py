@@ -693,7 +693,8 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         layout: The layout to use for the packed weight tensor:
             - PackedLinearInt8DynamicActivationIntxWeightLayout: this layout is optimized for CPU performance.
-            - QDQLayout: this layout is designed for export to ExecuTorch.
+            - QDQLayout: this layout represents the quantization with Q/DQ quant primitives, and is intended for
+                export applications like ExecuTorch.
     """
 
     weight_dtype: torch.dtype = torch.int8
