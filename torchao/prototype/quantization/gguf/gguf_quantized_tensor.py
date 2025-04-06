@@ -7,6 +7,7 @@
 from typing import Optional
 
 import torch
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
     choose_qparams_gguf,
@@ -14,7 +15,6 @@ from torchao.quantization.quant_primitives import (
     quantize_gguf,
 )
 from torchao.utils import TorchAOBaseTensor
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
 _QK_K = 256
 aten = torch.ops.aten
@@ -205,6 +205,7 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
 
 implements = GGUFQuantizedTensor.implements
 
+
 @implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -225,6 +226,7 @@ def _(func, types, args, kwargs):
         )
 
     dtype = input_tensor.dtype
+
     if hasattr(weight_tensor, "dequantize"):
         weight_tensor = weight_tensor.dequantize(output_dtype=dtype)
 
