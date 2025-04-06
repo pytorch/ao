@@ -416,6 +416,18 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             actual = model2(activations)
             self.assertTrue(torch.allclose(expected, actual))
 
+    def test_moved_error(self):
+        from torchao.experimental.quant_api import Int8DynamicActivationIntxWeightConfig
+
+        with self.assertRaisesRegex(
+            NotImplementedError,
+            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api",
+        ):
+            config = Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                granularity=PerGroup(64),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

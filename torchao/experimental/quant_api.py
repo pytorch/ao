@@ -608,6 +608,9 @@ class EmbeddingQuantizer:
         return model
 
 
+from dataclasses import dataclass
+
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
 )
@@ -616,10 +619,33 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     Target,
 )
 from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
+    Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
+)
+from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+
+
+@dataclass
+class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
+    weight_dtype: torch.dtype = torch.int4
+    granularity: Union[PerRow, PerGroup] = PerRow()
+    has_weight_zeros: bool = False
+    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
+    act_mapping_type: MappingType = MappingType.ASYMMETRIC
+    round_weight_scale_to_bf16: bool = True
+    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
+
+    def __post_init__(self):
+        raise NotImplementedError(
+            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
+            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
+            "* granularity -> weight_granularity\n"
+            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
+            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
+            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16"
+        )
 
 
 def _get_fqns_with_filter(
@@ -778,7 +804,7 @@ class SharedEmbeddingQuantizer:
         # Quantize unembeddings
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig(
+            Int8DynamicActivationIntxWeightConfig_NonExperimental(
                 weight_dtype=self.weight_dtype,
                 weight_granularity=self.granularity,
                 weight_zero_point_domain=ZeroPointDomain.INT
