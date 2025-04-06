@@ -68,7 +68,7 @@ class TestQuantPasses(unittest.TestCase):
 
         eager_results = model(activations)
         exported = torch.export.export(model, (activations,), strict=True)
-        exported = replace_q_dq_patterns_with_quantized_linear_ops_pass(exported)
+        exported = replace_q_dq_patterns_with_quantized_linear_ops_pass(exported, target="universal")
 
         # We should not find pack op because it gets constant folded
         FileCheck().check_not("torch.ops.torchao._pack_8bit_act").run(
