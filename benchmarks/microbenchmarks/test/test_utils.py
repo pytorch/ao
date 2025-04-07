@@ -17,8 +17,11 @@ from benchmarks.microbenchmarks.utils import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Int4WeightOnlyConfig,
     LNLinearSigmoid,
+    RMSNorm,
+    RMSNormLinearActivation,
     SemiSparseWeightConfig,
     ToyLinearModel,
+    TransformerBlock,
     clean_caches,
     create_model_and_input,
     generate_results_csv,
@@ -162,6 +165,61 @@ class TestUtils(unittest.TestCase):
             torch.all((out >= 0) & (out <= 1))
         )  # Check sigmoid output range
 
+    def test_rms_norm(self):
+        # Test RMSNorm
+        rms_norm = RMSNorm(dim=64)
+        x = torch.randn(16, 64)
+        out = rms_norm(x)
+        self.assertEqual(out.shape, (16, 64))
+        
+        # Test with different eps
+        rms_norm = RMSNorm(dim=64, eps=1e-5)
+        out = rms_norm(x)
+        self.assertEqual(out.shape, (16, 64))
+
+    def test_rms_norm_linear_activation(self):
+        # Test with default GELU activation
+        model = RMSNormLinearActivation(fc_dim1=64, fc_dim2=32, dtype=torch.float32)
+        x = torch.randn(16, 64)
+        out = model(x)
+        self.assertEqual(out.shape, (16, 32))
+        self.assertEqual(out.dtype, torch.float32)
+        
+        # Test with ReLU activation
+        model = RMSNormLinearActivation(fc_dim1=64, fc_dim2=32, dtype=torch.float32, activation="relu")
+        out = model(x)
+        self.assertEqual(out.shape, (16, 32))
+        self.assertTrue(torch.all(out >= 0))  # Check ReLU output range
+        
+        # Test with SiLU activation
+        model = RMSNormLinearActivation(fc_dim1=64, fc_dim2=32, dtype=torch.float32, activation="silu")
+        out = model(x)
+        self.assertEqual(out.shape, (16, 32))
+        
+        # Test with invalid activation
+        with self.assertRaises(ValueError):
+            RMSNormLinearActivation(fc_dim1=64, fc_dim2=32, dtype=torch.float32, activation="invalid")
+
+    def test_transformer_block(self):
+        # Test with default parameters
+        model = TransformerBlock(hidden_dim=64, num_heads=8, mlp_ratio=4, dtype=torch.float32)
+        x = torch.randn(16, 16, 64)  # [batch_size, seq_len, hidden_dim]
+        out = model(x)
+        self.assertEqual(out.shape, (16, 16, 64))
+        self.assertEqual(out.dtype, torch.float32)
+        
+        # Test with different parameters
+        model = TransformerBlock(hidden_dim=128, num_heads=4, mlp_ratio=2, dtype=torch.float32)
+        x = torch.randn(8, 32, 128)
+        out = model(x)
+        self.assertEqual(out.shape, (8, 32, 128))
+        
+        # Test with different head dimensions
+        model = TransformerBlock(hidden_dim=96, num_heads=6, mlp_ratio=3, dtype=torch.float32)
+        x = torch.randn(4, 8, 96)
+        out = model(x)
+        self.assertEqual(out.shape, (4, 8, 96))
+
     def test_create_model_and_input(self):
         m, k, n = 16, 64, 32
         model, input_data = create_model_and_input(
@@ -185,6 +243,63 @@ class TestUtils(unittest.TestCase):
         )
         self.assertIsInstance(model, LNLinearSigmoid)
         self.assertEqual(input_data.shape, (m, k))
+
+        # Test RMSNormLinearActivation
+        model, input_data = create_model_and_input(
+            model_type="rms_norm_linear_activation",
+            m=m,
+            k=k,
+            n=n,
+            high_precision_dtype=torch.float32,
+            device="cpu",
+        )
+        self.assertIsInstance(model, RMSNormLinearActivation)
+        self.assertEqual(input_data.shape, (m, k))
+        
+        # Test TransformerBlock
+        model, input_data = create_model_and_input(
+            model_type="transformer_block",
+            m=m,
+            k=k,
+            n=n,  # n is not used for transformer_block
+            high_precision_dtype=torch.float32,
+            device="cpu",
+        )
+        self.assertIsInstance(model, TransformerBlock)
+        self.assertEqual(input_data.shape, (m, 16, k))  # [batch_size, seq_len, hidden_dim]
+
+    def test_quantization_on_models(self):
+        # Test quantization on RMSNormLinearActivation
+        model = RMSNormLinearActivation(fc_dim1=64, fc_dim2=32, dtype=torch.float32)
+        x = torch.randn(16, 64)
+        
+        # Test with Int8WeightOnlyConfig
+        config = string_to_config(quantization="int8wo", sparsity=None)
+        if config is not None:
+            # Skip quantization test if torchao.quantization.quantize is not available
+            try:
+                from torchao.quantization import quantize
+                quantized_model = quantize(model, config)
+                out = quantized_model(x)
+                self.assertEqual(out.shape, (16, 32))
+            except ImportError:
+                print("Skipping quantization test: torchao.quantization.quantize not available")
+        
+        # Test quantization on TransformerBlock
+        model = TransformerBlock(hidden_dim=64, num_heads=8, mlp_ratio=4, dtype=torch.float32)
+        x = torch.randn(16, 16, 64)
+        
+        # Test with Int8WeightOnlyConfig
+        config = string_to_config(quantization="int8wo", sparsity=None)
+        if config is not None:
+            # Skip quantization test if torchao.quantization.quantize is not available
+            try:
+                from torchao.quantization import quantize
+                quantized_model = quantize(model, config)
+                out = quantized_model(x)
+                self.assertEqual(out.shape, (16, 16, 64))
+            except ImportError:
+                print("Skipping quantization test: torchao.quantization.quantize not available")
 
     def test_generate_results_csv(self):
         results = [
