@@ -2,27 +2,29 @@
 benchmark_mode: "inference"
 quantization_config_recipe_names:
   # Will run a baseline inference for model by default, without quantization for comparison
-  # - "int4wo-32"
+  - "int4wo-32"
   # - "marlin"
   - "int8wo"
+  - "int8dq"
+  - "float8dq"
 # sparsity_config_recipe_names:
   # Will run a baseline inference for model by default, without sparsity for comparison
   # - "semi-sparse"
   # - "block"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
-  # - name: "small_bf16_linear"
-  #   matrix_shapes:
-  #     - name: "custom"
-  #       shapes: [
-  #         [1024, 1024, 1024],  # [m, k, n]
-  #       ]
-  #   high_precision_dtype: "torch.bfloat16"
-  #   use_torch_compile: true
-  #   torch_compile_mode: "max-autotune"
-  #   device: "cuda"
-  #   model_type: "linear"
-  #   enable_profiler: true  # Enable profiling for this model
+  - name: "small_bf16_linear"
+    matrix_shapes:
+      - name: "custom"
+        shapes: [
+          [1024, 1024, 1024],  # [m, k, n]
+        ]
+    high_precision_dtype: "torch.bfloat16"
+    use_torch_compile: true
+    torch_compile_mode: "max-autotune"
+    device: "cuda"
+    model_type: "linear"
+    enable_profiler: true  # Enable profiling for this model
 
   - name: "large_bf16_ln_linear"
     matrix_shapes:
@@ -31,6 +33,20 @@ model_params:
           [2048, 4096, 1024],
           # [4096, 4096, 1024]
         ]
+      # Example of using LLaMa shapes
+      - name: "llama"
+      # Example of using power of 2 shapes
+      - name: "pow2"
+        min_power: 10  # 1024
+        max_power: 12  # 4096
+      # Example of using extended power of 2 shapes
+      - name: "pow2_extended"
+        min_power: 10  # 1024
+        max_power: 11  # 2048
+      # Example of using sweep shapes (commented out as it generates many shapes)
+      # - name: "sweep"
+      #   min_power: 8   # 256
+      #   max_power: 9   # 512
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
@@ -51,30 +67,30 @@ model_params:
   #   model_type: "linear"
   #   enable_profiler: true  # Enable profiling for this model
 
-  - name: "bf16_rms_norm_linear_activation"
-    matrix_shapes:
-      - name: "custom"
-        shapes: [
-          [2048, 4096, 1024],
-        ]
-    high_precision_dtype: "torch.bfloat16"
-    use_torch_compile: true
-    torch_compile_mode: "max-autotune"
-    device: "cuda"
-    model_type: "rms_norm_linear_activation"
-    enable_profiler: true
-    enable_memory_profile: true
+  # - name: "bf16_rms_norm_linear_activation"
+  #   matrix_shapes:
+  #     - name: "custom"
+  #       shapes: [
+  #         [2048, 4096, 1024],
+  #       ]
+  #   high_precision_dtype: "torch.bfloat16"
+  #   use_torch_compile: true
+  #   torch_compile_mode: "max-autotune"
+  #   device: "cuda"
+  #   model_type: "rms_norm_linear_activation"
+  #   enable_profiler: true
+  #   enable_memory_profile: true
 
-  - name: "bf16_transformer_block"
-    matrix_shapes:
-      - name: "custom"
-        shapes: [
-          [2048, 4096, 1024],  # For transformer_block, k is the hidden dimension
-        ]
-    high_precision_dtype: "torch.bfloat16"
-    use_torch_compile: true
-    torch_compile_mode: "max-autotune"
-    device: "cuda"
-    model_type: "transformer_block"
-    enable_profiler: true
-    enable_memory_profile: true
+  # - name: "bf16_transformer_block"
+  #   matrix_shapes:
+  #     - name: "custom"
+  #       shapes: [
+  #         [2048, 4096, 1024],  # For transformer_block, k is the hidden dimension
+  #       ]
+  #   high_precision_dtype: "torch.bfloat16"
+  #   use_torch_compile: true
+  #   torch_compile_mode: "max-autotune"
+  #   device: "cuda"
+  #   model_type: "transformer_block" # TODO: Add a custom model (Figure out how to do this, maybe pass a .py file with model definition)
+  #   enable_profiler: true
+  #   enable_memory_profile: true

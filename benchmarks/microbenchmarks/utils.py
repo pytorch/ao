@@ -359,6 +359,8 @@ class BenchmarkResult:
         return result_dict
 
 
+# TODO: MOE block (Maybe)
+# TODO: Move stuff to torchao/testing
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, k=64, n=32, dtype=torch.bfloat16):
         super().__init__()
@@ -369,12 +371,14 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+# TODO: Maybe we can specify a diy for activation function and use it in the model
+# TODO: MLP block
 class LNLinearSigmoid(torch.nn.Module):
     def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
         super().__init__()
         self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
         self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
+        self.sigmoid = torch.nn.Sigmoid()  # TODO: Find a way to make it configurable
 
     def forward(self, x):
         x = self.ln(x)
@@ -383,6 +387,7 @@ class LNLinearSigmoid(torch.nn.Module):
         return x
 
 
+# TODO: We might not need it, need to figure of it's relevant in any technique
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim, eps=1e-6, dtype=torch.bfloat16):
         super().__init__()
@@ -399,7 +404,7 @@ class RMSNormLinearActivation(torch.nn.Module):
         super().__init__()
         self.rms_norm = RMSNorm(fc_dim1, dtype=dtype)
         self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        
+
         if activation == "gelu":
             self.activation = torch.nn.GELU()
         elif activation == "relu":
@@ -422,58 +427,64 @@ class TransformerBlock(torch.nn.Module):
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
-        
+
         # Self-attention
         self.qkv = torch.nn.Linear(hidden_dim, 3 * hidden_dim, bias=False).to(dtype)
         self.proj = torch.nn.Linear(hidden_dim, hidden_dim, bias=False).to(dtype)
-        
+
         # MLP
         self.mlp_ratio = mlp_ratio
         self.mlp_hidden_dim = int(hidden_dim * mlp_ratio)
-        self.mlp_fc1 = torch.nn.Linear(hidden_dim, self.mlp_hidden_dim, bias=False).to(dtype)
-        self.mlp_fc2 = torch.nn.Linear(self.mlp_hidden_dim, hidden_dim, bias=False).to(dtype)
-        
+        self.mlp_fc1 = torch.nn.Linear(hidden_dim, self.mlp_hidden_dim, bias=False).to(
+            dtype
+        )
+        self.mlp_fc2 = torch.nn.Linear(self.mlp_hidden_dim, hidden_dim, bias=False).to(
+            dtype
+        )
+
         # Layer norms
         self.norm1 = RMSNorm(hidden_dim, dtype=dtype)
         self.norm2 = RMSNorm(hidden_dim, dtype=dtype)
-        
+
         # Activation
         self.activation = torch.nn.GELU()
 
     def forward(self, x):
         batch_size, seq_len, _ = x.shape
-        
+
         # Self-attention
         residual = x
         x = self.norm1(x)
-        
+
         # Reshape qkv projection for better memory layout
         qkv = self.qkv(x)  # [batch_size, seq_len, 3 * hidden_dim]
         qkv = qkv.reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, batch_size, num_heads, seq_len, head_dim]
+        qkv = qkv.permute(
+            2, 0, 3, 1, 4
+        )  # [3, batch_size, num_heads, seq_len, head_dim]
         q, k, v = qkv  # Each has shape [batch_size, num_heads, seq_len, head_dim]
-        
+
         # Scaled dot-product attention with proper reshaping
         # Reshape for better memory layout and avoid broadcasting issues
         q = q.reshape(batch_size * self.num_heads, seq_len, self.head_dim)
         k = k.reshape(batch_size * self.num_heads, seq_len, self.head_dim)
         v = v.reshape(batch_size * self.num_heads, seq_len, self.head_dim)
-        
+
         # Compute attention scores
-        attn = (q @ k.transpose(-2, -1)) * (1.0 / (self.head_dim ** 0.5))
+        attn = (q @ k.transpose(-2, -1)) * (1.0 / (self.head_dim**0.5))
         attn = torch.softmax(attn, dim=-1)
-        
+
         # Apply attention to values
         x = attn @ v  # [batch_size * num_heads, seq_len, head_dim]
-        
+
         # Reshape back to original dimensions
         x = x.reshape(batch_size, self.num_heads, seq_len, self.head_dim)
         x = x.transpose(1, 2).reshape(batch_size, seq_len, self.hidden_dim)
-        
+
         # Project back to hidden dimension
         x = self.proj(x)
         x = residual + x
-        
+
         # MLP
         residual = x
         x = self.norm2(x)
@@ -481,7 +492,7 @@ class TransformerBlock(torch.nn.Module):
         x = self.activation(x)
         x = self.mlp_fc2(x)
         x = residual + x
-        
+
         return x
 
 
@@ -683,7 +694,9 @@ def create_model_and_input(
         input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
     elif model_type == "transformer_block":
         # For transformer block, k is the hidden dimension
-        model = TransformerBlock(k, num_heads=8, mlp_ratio=4, dtype=high_precision_dtype).to(device)
+        model = TransformerBlock(
+            k, num_heads=8, mlp_ratio=4, dtype=high_precision_dtype
+        ).to(device)
         # Input shape for transformer is [batch_size, seq_len, hidden_dim]
         input_data = torch.randn(m, 16, k, device=device, dtype=high_precision_dtype)
     else:
@@ -753,6 +766,7 @@ def print_results(results: List[BenchmarkResult]):
             result.config.name,
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
+            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
             f"{result.model_inference_time_in_ms:.2f}",
             str(result.config.enable_profiler),
             str(result.config.enable_memory_profile),
@@ -774,6 +788,7 @@ def print_results(results: List[BenchmarkResult]):
         "Name",
         "Quantization",
         "Sparsity",
+        "Shape",
         "Inference Time (ms)",
         "Profiler Enabled",
         "Memory Profiling Enabled",
