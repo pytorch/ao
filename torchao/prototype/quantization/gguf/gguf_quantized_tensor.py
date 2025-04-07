@@ -14,7 +14,10 @@ from torchao.quantization.quant_primitives import (
     dequantize_gguf,
     quantize_gguf,
 )
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
 _QK_K = 256
 aten = torch.ops.aten
@@ -138,6 +141,20 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
             output_dtype=output_dtype,
         )
 
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        return self.__class__(
+            self.n_blocks_per_superblock,
+            self.super_block_scale_scale.to(device),
+            self.super_block_min_scale.to(device),
+            self.quantized_block_scale.to(device),
+            self.quantized_block_min.to(device),
+            self.int_data.to(device),
+            self.shape,
+            **kwargs,
+        )
+
     def _apply_fn_to_data(self, fn):
         """
         Returns a new `CodebookQuantizedTensor`.
@@ -212,6 +229,21 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
+@implements(aten.clone.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
+
+
+@implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+    )
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
@@ -231,3 +263,7 @@ def _(func, types, args, kwargs):
         weight_tensor = weight_tensor.dequantize(output_dtype=dtype)
 
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # Allow a model with GGUFQuantizedTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([GGUFQuantizedTensor])

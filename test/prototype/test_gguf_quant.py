@@ -5,10 +5,10 @@ import torch
 from torchao.prototype.quantization.gguf import (
     GGUFQuantizedTensor,
     GGUFWeightOnlyConfig,
-    choose_qparams_gguf,
 )
-from torchao.quantization import quantize_
+from torchao.quantization.quant_primitives import choose_qparams_gguf
 from torchao.quantization.utils import compute_error
+from torchao.quantization import quantize_
 
 
 class TestGGUFQuantization(unittest.TestCase):
