@@ -19,7 +19,7 @@ if (TORCHAO_BUILD_CPU_AARCH64)
     # intelligence (AI) workloads tailored for Arm® CPUs.
     FetchContent_Declare(kleidiai
           GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
-          GIT_TAG v1.2.0)
+          GIT_TAG v1.5.0)
     FetchContent_MakeAvailable(kleidiai)
 
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)

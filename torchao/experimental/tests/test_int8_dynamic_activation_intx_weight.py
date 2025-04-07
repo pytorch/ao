@@ -105,6 +105,58 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             expected_result = quantized_model_reference(activations)
         self._assert_close(result, expected_result)
 
+    def test_accuracy_kleidiai(self):
+        n = 1071
+        k = 2048
+        model = torch.nn.Sequential(
+            *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
+        )
+        weight_dtype = torch.int4
+        granularity = PerGroup(128)
+        has_weight_zeros = False
+
+        # We set round_weight_scale_to_bf16 to True for accuracy testing because
+        # some KleidiAI kernels do this internally
+        round_weight_scale_to_bf16 = True
+
+        quantized_model = copy.deepcopy(model)
+        quantize_(
+            quantized_model,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
+                    target="kleidiai"
+                ),
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
+            ),
+        )
+
+        quantized_model_reference = copy.deepcopy(model)
+        quantize_(
+            quantized_model_reference,
+            int8_dynamic_activation_intx_weight(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                has_weight_zeros=has_weight_zeros,
+                layout=self._reference_layout(),
+                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
+            ),
+        )
+
+        with torch.no_grad():
+            for m in [1, 3, 5, 9, 13]:
+                activations = torch.randn(m, k)
+                result = quantized_model(activations)
+                expected_result = quantized_model_reference(activations)
+
+                # KleidiAI kernels require much higher tolerance when comparing to reference,
+                # especially for GEMM kernels
+                self._assert_close(
+                    result, expected_result, mse_tol=1e-2, atol=1e-2, rtol=1
+                )
+
     def test_accuracy_aten(self):
         m = 3
         n = 1024
@@ -151,9 +203,21 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         self._assert_close(result, expected_result)
 
-    def _assert_close(self, result, expected_result):
-        self.assertTrue(torch.nn.functional.mse_loss(result, expected_result) <= 1e-6)
-        self.assertTrue(torch.allclose(result, expected_result, atol=1e-2))
+    def _assert_close(
+        self, result, expected_result, mse_tol=1e-6, atol=1e-2, rtol=1e-5
+    ):
+        mse_loss = torch.nn.functional.mse_loss(result, expected_result)
+        self.assertTrue(
+            mse_loss <= mse_tol,
+            f"Got mse_loss={mse_loss}, above mse tolerance {mse_tol}",
+        )
+
+        n_rand_idxs = 5
+        rand_idxs = torch.randint(0, result.numel(), (n_rand_idxs,))
+        self.assertTrue(
+            torch.allclose(result, expected_result, atol=atol, rtol=rtol),
+            f"Failed allclose at atol={atol}, rtol={rtol}.  On {n_rand_idxs} random indices, we have result={result.reshape(-1)[rand_idxs]} vs expected_result={expected_result.reshape(-1)[rand_idxs]}.",
+        )
 
     def _reference_layout(self):
         return PlainLayout()

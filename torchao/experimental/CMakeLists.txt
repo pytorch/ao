@@ -40,6 +40,7 @@ include_directories(${TORCHAO_INCLUDE_DIRS})
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
+    add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)

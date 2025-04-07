@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from torchao.float8.config import Float8LinearConfig
-from torchao.float8.float8_linear import manual_float8_matmul_with_args_in_hp
+from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_tensor import LinearMMConfig, ScaledMMConfig
 from torchao.prototype.float8nocompile.float8nocompile_linear import (
     matmul_with_args_in_hp,
@@ -72,7 +72,7 @@ def test_matmul_with_args_in_hp(input_shape: tuple[int, int]):
     )
 
     # prod forward. expects transposed weight.
-    out_prod = manual_float8_matmul_with_args_in_hp.apply(
+    out_prod = matmul_with_hp_or_float8_args.apply(
         prod_input_bf16, prod_weight_bf16.t(), linear_mm_config, config
     )
 

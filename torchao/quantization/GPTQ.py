@@ -24,7 +24,10 @@ from torchao.utils import (
     find_multiple,
 )
 
-from .quant_primitives import MappingType
+from .quant_primitives import (
+    MappingType,
+    dequantize_affine,
+)
 from .unified import Quantizer
 from .utils import (
     _MultiInput,
@@ -940,19 +943,17 @@ def linear_forward_8da4w(
     n_bit = 4
     quant_min = -(2 ** (n_bit - 1))
     quant_max = 2 ** (n_bit - 1) - 1
-    from torchao._executorch_ops import (
-        _quantized_decomposed_dequantize_per_channel_group_wrapper,
-    )
+    block_size = (1, groupsize)
 
-    w_dq = _quantized_decomposed_dequantize_per_channel_group_wrapper(
+    w_dq = dequantize_affine(
         weight_int8,
+        block_size,
         scales,
         zeros,
+        torch.int8,
         quant_min,
         quant_max,
-        torch.int8,
-        groupsize,
-        precision,
+        output_dtype=precision,
     )
 
     # x = x.to(torch.float16)
