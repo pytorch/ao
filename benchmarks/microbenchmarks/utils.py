@@ -359,6 +359,8 @@ class BenchmarkResult:
         return result_dict
 
 
+# TODO: MOE block (Maybe)
+# TODO: Move stuff to torchao/testing
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, k=64, n=32, dtype=torch.bfloat16):
         super().__init__()
@@ -369,12 +371,14 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+# TODO: Maybe we can specify a diy for activation function and use it in the model
+# TODO: MLP block
 class LNLinearSigmoid(torch.nn.Module):
     def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
         super().__init__()
         self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
         self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
+        self.sigmoid = torch.nn.Sigmoid()  # TODO: Find a way to make it configurable
 
     def forward(self, x):
         x = self.ln(x)
@@ -383,6 +387,7 @@ class LNLinearSigmoid(torch.nn.Module):
         return x
 
 
+# TODO: We might not need it, need to figure of it's relevant in any technique
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim, eps=1e-6, dtype=torch.bfloat16):
         super().__init__()
