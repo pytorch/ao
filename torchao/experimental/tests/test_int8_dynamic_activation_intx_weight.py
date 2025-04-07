@@ -423,7 +423,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             NotImplementedError,
             "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api",
         ):
-            config = Int8DynamicActivationIntxWeightConfig(
+            config = Int8DynamicActivationIntxWeightConfig(  # noqa: F841
                 weight_dtype=torch.int4,
                 granularity=PerGroup(64),
             )
