@@ -215,3 +215,101 @@ def replace_q_dq_patterns_with_quantized_linear_ops_pass(
 
     # Re-export
     return torch.export.export(gm, *ep.example_inputs)
+
+
+def _get_q_dq_embedding_patterns_replacements_and_filters(
+    weight_bit_width,
+):
+    w_quant_min = -(1 << (weight_bit_width - 1))
+    w_quant_max = (1 << (weight_bit_width - 1)) - 1
+    w_target_dtype = torch.int8
+
+    def pattern(
+        indices,
+        w_int_data,
+        w_block_size,
+        w_scale,
+        w_zero_point,
+    ):
+        dq_w = torch.ops.quant.dequantize_affine.default(
+            w_int_data,
+            w_block_size,
+            w_scale,
+            w_zero_point,
+            w_target_dtype,
+            w_quant_min,
+            w_quant_max,
+        )
+        return torch.ops.aten.embedding.default(dq_w, indices)
+
+    def replacement(
+        indices,
+        w_int_data,
+        w_block_size,
+        w_scale,
+        w_zero_point,
+    ):
+        num_embeddings, embedding_dim = w_int_data.size()
+        packed_weight_qvals = getattr(
+            torch.ops.torchao, f"_pack_embedding_{weight_bit_width}bit"
+        )(w_int_data)
+        out_shape = indices.shape + (embedding_dim,)
+        group_size = w_block_size[-1]
+        n_groups = embedding_dim // group_size
+        w_scale = w_scale.reshape(-1, n_groups)
+        w_zero_point = w_zero_point.reshape(-1, n_groups)
+        return getattr(torch.ops.torchao, f"_embedding_{weight_bit_width}bit")(
+            packed_weight_qvals,
+            num_embeddings,
+            embedding_dim,
+            w_scale,
+            w_zero_point,
+            indices.reshape(-1),
+        ).reshape(out_shape)
+
+    def match_filter(match, x, y):
+        def get_val(name):
+            node = [n for n in match.nodes_map if n.name == name][0]
+            return match.nodes_map[node]
+
+        # We only want w_block_size with shape [1, group_size]
+        w_block_size = get_val("w_block_size")
+        if len(w_block_size) != 2 or w_block_size[0] != 1:
+            return False
+
+        return True
+
+    return pattern, replacement, match_filter
+
+
+def replace_q_dq_patterns_with_quantized_embedding_ops_pass(
+    ep: torch.export.ExportedProgram,
+) -> torch.export.ExportedProgram:
+    """
+    This replaces Q/DQ patterns with torchao quantized embedding ops.
+    It is intended for converting Q/DQ nodes exported with QDQLayout to using
+    the lowbit quantized embedding ops.
+    """
+    # TODO: figure out how to do this with dynamic_shapes (not saved on EP for easy re-export)
+    # See https://fb.workplace.com/groups/1028545332188949/permalink/1185289956514485/
+    assert (
+        len(ep.range_constraints) == 0
+    ), "ExportedProgram with range constraints are not supported"
+
+    # ep.module() unlifts the weight inputs, which we need for constant folding
+    gm = ep.module()
+    for weight_bit_width in range(1, 9):
+        pattern, replacement, match_filter = (
+            _get_q_dq_embedding_patterns_replacements_and_filters(
+                weight_bit_width,
+            )
+        )
+        subgraph_rewriter.replace_pattern_with_filters(
+            gm, pattern, replacement, match_filters=[match_filter]
+        )
+
+    # Constant fold evaluates and removes the packing ops
+    constant_fold(gm)
+
+    # Re-export
+    return torch.export.export(gm, *ep.example_inputs)
