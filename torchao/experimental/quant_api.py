@@ -15,7 +15,7 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import ZeroPointDomain
 
 logger = logging.getLogger(__name__)
@@ -739,7 +739,7 @@ class SharedEmbeddingQuantizer:
     def __init__(
         self,
         weight_dtype: torch.dtype = torch.int4,
-        granularity: Union[PerRow, PerGroup] = PerRow(),
+        granularity: Granularity = PerAxis(0),
         has_weight_zeros: bool = True,
     ):
         self.weight_dtype = weight_dtype

@@ -160,7 +160,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=PerRow(),
+            granularity=PerAxis(0),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model)
 
