@@ -451,6 +451,9 @@
     <span class="s2">&quot;choose_qparams_affine_float8&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize_affine_float8&quot;</span><span class="p">,</span>
     <span class="s2">&quot;dequantize_affine_float8&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;choose_qparams_gguf&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantize_gguf&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dequantize_gguf&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -603,6 +606,8 @@
 <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="p">)</span>
 <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="p">)</span>
 <span class="k">assert</span> <span class="n">_DTYPE_TO_BIT_WIDTH</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="o">==</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+
+<span class="n">_GGUF_QK_K</span> <span class="o">=</span> <span class="mi">256</span>
 
 <span class="n">_ONES_TABLE</span> <span class="o">=</span> <span class="p">[</span><span class="n">_n_ones</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">)]</span>
 
@@ -1446,6 +1451,214 @@
         <span class="n">s_channel</span> <span class="o">=</span> <span class="n">s_channel</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">size_n</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">q_w</span><span class="p">,</span> <span class="n">s_group</span><span class="p">,</span> <span class="n">s_channel</span><span class="p">,</span> <span class="n">w_ref</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">choose_qparams_gguf</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    There are two sets of qparams: quantized_block_scale, quantized_block_min and super_block_scale_scale and super_block_min_scale</span>
+<span class="sd">    the relationship is the following:</span>
+<span class="sd">    block_scale = quantized_block_scale * super_block_sclae</span>
+<span class="sd">    block_min = quantized_block_min * super_block_min</span>
+<span class="sd">    quantized_val = (float_val - block_min) / block_scale + quant_min</span>
+<span class="sd">    first we calculate block_scale and block_min</span>
+<span class="sd">    then we calculate super_block_scale_scale and super_block_min_scale</span>
+<span class="sd">    after that we can calculate quantized_block_scale and quantized_min_scale</span>
+<span class="sd">    the returned values are: super_block_scale_scale, super_block_min_scale, quantized_block_scale</span>
+<span class="sd">    and quantized_min_scale</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span>
+
+    <span class="c1"># 1. get block_scale block_min</span>
+    <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_for_reduction</span><span class="p">)</span>
+    <span class="n">min_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
+    <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="c1"># asymmetric quant to fully utilize the range</span>
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">max_val</span> <span class="o">/</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_val</span> <span class="o">-</span> <span class="n">min_val</span><span class="p">)</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">min_val</span>
+
+    <span class="c1"># 2. get super_block_scale_scale and super_block_min_scale</span>
+    <span class="k">assert</span> <span class="n">_GGUF_QK_K</span> <span class="o">%</span> <span class="n">block_size</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="n">super_block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">_GGUF_QK_K</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">super_block_size</span><span class="p">,</span> <span class="n">block_scale</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_for_reduction</span><span class="p">)</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_for_reduction</span><span class="p">)</span>
+
+    <span class="n">shape_after_reduction</span> <span class="o">=</span> <span class="n">shape_for_reduction</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">reduction_dims</span><span class="p">:</span>
+        <span class="n">shape_after_reduction</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="n">block_scale_absmax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">block_scale</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">)</span>
+    <span class="n">block_min_absmax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">block_min</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">)</span>
+
+    <span class="c1"># 2. get super_block_scale_scale and super_block_min_scale</span>
+    <span class="c1"># TODO: make this configurable</span>
+    <span class="c1"># we also quantize the quantization parameters (scale and min) for each block to 6 bit</span>
+    <span class="c1"># for Q4_K</span>
+    <span class="n">qparam_quant_max</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">qparam_quant_min</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">super_block_scale_scale</span> <span class="o">=</span> <span class="n">block_scale_absmax</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
+        <span class="n">qparam_quant_max</span> <span class="o">-</span> <span class="n">qparam_quant_min</span>
+    <span class="p">)</span>
+    <span class="n">super_block_min_scale</span> <span class="o">=</span> <span class="n">block_min_absmax</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
+        <span class="n">qparam_quant_max</span> <span class="o">-</span> <span class="n">qparam_quant_min</span>
+    <span class="p">)</span>
+    <span class="n">super_block_scale_scale_view</span> <span class="o">=</span> <span class="n">super_block_scale_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_after_reduction</span><span class="p">)</span>
+    <span class="n">super_block_min_scale_view</span> <span class="o">=</span> <span class="n">super_block_min_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_after_reduction</span><span class="p">)</span>
+
+    <span class="c1"># 3. quantize block scale and min are stored in 6 bits using super_block_scale_scale and super_block_min_scale</span>
+    <span class="n">quantized_block_scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span>
+        <span class="n">block_scale</span> <span class="o">/</span> <span class="n">super_block_scale_scale_view</span><span class="p">,</span> <span class="n">qparam_quant_min</span><span class="p">,</span> <span class="n">qparam_quant_max</span>
+    <span class="p">)</span>
+    <span class="n">quantized_block_min</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span>
+        <span class="n">block_min</span> <span class="o">/</span> <span class="n">super_block_min_scale_view</span><span class="p">,</span> <span class="n">qparam_quant_min</span><span class="p">,</span> <span class="n">qparam_quant_max</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">super_block_scale_scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">),</span>
+        <span class="n">super_block_min_scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">),</span>
+        <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">),</span>
+        <span class="n">quantized_block_min</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">quantize_gguf</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="n">super_block_scale_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">super_block_min_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_block_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_block_min</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">assert</span> <span class="n">target_dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint4</span>
+
+    <span class="c1"># step 1: first order quantization</span>
+    <span class="c1"># just going through shape calculation for block_scale and block_min to get the correct shape</span>
+    <span class="n">input_shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">block_qparam_shape_after_reduction</span> <span class="o">=</span> <span class="n">input_shape_for_reduction</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">reduction_dims</span><span class="p">:</span>
+        <span class="n">block_qparam_shape_after_reduction</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">original_shape</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">input_shape_for_reduction</span><span class="p">)</span>
+    <span class="n">quantized_block_scale</span> <span class="o">=</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+    <span class="n">quantized_block_min</span> <span class="o">=</span> <span class="n">quantized_block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+
+    <span class="c1"># step 2: second order quantization, recover unquantized block_scale and block_min</span>
+    <span class="n">super_block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">_GGUF_QK_K</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">super_block_input_shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">super_block_size</span><span class="p">,</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">super_block_qparam_shape_after_reduction</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">reduction_dims</span><span class="p">:</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="n">quantized_block_scale</span> <span class="o">=</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span>
+    <span class="p">)</span>
+    <span class="n">quantized_block_min</span> <span class="o">=</span> <span class="n">quantized_block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span>
+    <span class="p">)</span>
+    <span class="n">super_block_scale_scale</span> <span class="o">=</span> <span class="n">super_block_scale_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+    <span class="n">super_block_min_scale</span> <span class="o">=</span> <span class="n">super_block_min_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">super_block_scale_scale</span> <span class="o">*</span> <span class="n">quantized_block_scale</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">super_block_min_scale</span> <span class="o">*</span> <span class="n">quantized_block_min</span>
+
+    <span class="c1"># step 3: quantization with the unquantized block_scale and block_min</span>
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+    <span class="n">int_data</span> <span class="o">=</span> <span class="p">(</span><span class="nb">input</span> <span class="o">-</span> <span class="n">block_min</span><span class="p">)</span> <span class="o">/</span> <span class="n">block_scale</span>
+    <span class="n">int_data</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">original_shape</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">int_data</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">dequantize_gguf</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="n">super_block_scale_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">super_block_min_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_block_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_block_min</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">output_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="c1"># step 1. reshape input and quantized block scale and min to the shape</span>
+    <span class="c1"># after first quantization</span>
+    <span class="n">input_shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">block_qparam_shape_after_reduction</span> <span class="o">=</span> <span class="n">input_shape_for_reduction</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">reduction_dims</span><span class="p">:</span>
+        <span class="n">block_qparam_shape_after_reduction</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="n">original_shape</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">input_shape_for_reduction</span><span class="p">)</span>
+    <span class="n">quantized_block_scale</span> <span class="o">=</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+    <span class="n">quantized_block_min</span> <span class="o">=</span> <span class="n">quantized_block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+
+    <span class="c1"># step 2. calculate and reshape block_qparams for second quantization step</span>
+    <span class="n">super_block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">_GGUF_QK_K</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">super_block_input_shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+        <span class="n">super_block_size</span><span class="p">,</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="n">super_block_qparam_shape_after_reduction</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">reduction_dims</span><span class="p">:</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">quantized_block_scale</span> <span class="o">=</span> <span class="n">quantized_block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span>
+    <span class="p">)</span>
+    <span class="n">quantized_block_min</span> <span class="o">=</span> <span class="n">quantized_block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_input_shape_for_reduction</span>
+    <span class="p">)</span>
+    <span class="n">super_block_scale_scale</span> <span class="o">=</span> <span class="n">super_block_scale_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+    <span class="n">super_block_min_scale</span> <span class="o">=</span> <span class="n">super_block_min_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+        <span class="n">super_block_qparam_shape_after_reduction</span>
+    <span class="p">)</span>
+
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">super_block_scale_scale</span> <span class="o">*</span> <span class="n">quantized_block_scale</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">super_block_min_scale</span> <span class="o">*</span> <span class="n">quantized_block_min</span>
+
+    <span class="c1"># step 3. dequantize with block_scale and block_min</span>
+    <span class="n">block_scale</span> <span class="o">=</span> <span class="n">block_scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+    <span class="n">block_min</span> <span class="o">=</span> <span class="n">block_min</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">block_qparam_shape_after_reduction</span><span class="p">)</span>
+    <span class="n">dequant</span> <span class="o">=</span> <span class="nb">input</span> <span class="o">*</span> <span class="n">block_scale</span> <span class="o">+</span> <span class="n">block_min</span>
+    <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">original_shape</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">dequant</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">dequantize_affine_qqq</span><span class="p">(</span>
