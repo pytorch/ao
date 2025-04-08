@@ -76,17 +76,18 @@ def _get_q_dq_linear_patterns_replacements_and_filters(
     glbs["target"] = target
     glbs["w_quant_min"] = -(1 << (weight_bit_width - 1))
     glbs["w_quant_max"] = (1 << (weight_bit_width - 1)) - 1
-    glbs["a_quant_min"] = -128
-    glbs["a_quant_max"] = 127
+    glbs["a_target_dtype"] = torch.int8
+    glbs["a_quant_min"] = None
+    glbs["a_quant_max"] = None
     glbs["a_mapping_type"] = "ASYMMETRIC"
-    glbs["a_scale_dtype"] = torch.float32
+    glbs["a_scale_dtype"] = torch.float64
     glbs["a_eps"] = None
 
     lcls = {}
 
     pattern_str = f"""
 def pattern(
-    a, a_block_size, a_target_dtype, a_zero_point_dtype,
+    a, a_block_size, a_zero_point_dtype,
     w_int_data, w_block_size, w_scale, w_zero_point, w_target_dtype,
     bias):
     a_scale, a_zero_point = torch.ops.quant.choose_qparams_affine.default(
@@ -123,7 +124,7 @@ def pattern(
 
     replacement_str = f"""
 def replacement(
-    a, a_block_size, a_target_dtype, a_zero_point_dtype,
+    a, a_block_size, a_zero_point_dtype,
     w_int_data, w_block_size, w_scale, w_zero_point, w_target_dtype,
     bias,):
     n = w_int_data.size(0)
@@ -155,10 +156,6 @@ def replacement(
             return match.nodes_map[node]
 
         int_types = [torch.int8, torch.int16, torch.int32, torch.int64]
-
-        a_target_dtype = get_val("a_target_dtype")
-        if a_target_dtype not in int_types:
-            return False
 
         a_zero_point_dtype = get_val("a_zero_point_dtype")
         if a_zero_point_dtype not in int_types:

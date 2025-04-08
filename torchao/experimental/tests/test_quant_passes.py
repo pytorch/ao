@@ -4,22 +4,21 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
 import unittest
 
 import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-)
+from torchao.dtypes import QDQLayout
 from torchao.experimental.quant_passes import (
     replace_q_dq_patterns_with_quantized_embedding_ops_pass,
     replace_q_dq_patterns_with_quantized_linear_ops_pass,
 )
-from torchao.quantization.granularity import PerAxis, PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     MappingType,
     ZeroPointDomain,
@@ -31,25 +30,45 @@ class TestQuantPasses(unittest.TestCase):
     def test_replace_q_dq_patterns_with_quantized_linear_ops_pass(self):
         layers = []
         layer_to_weight_dtype = {}
-        layer_to_has_weight_zeros = {}
-        for weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]:
-            for has_weight_zeros in [True, False]:
-                for has_bias in [True, False]:
-                    idx = len(layers)
-                    layer_to_weight_dtype[idx] = weight_dtype
-                    layer_to_has_weight_zeros[idx] = has_weight_zeros
-                    layers.append(torch.nn.Linear(64, 64, bias=has_bias))
-        activations = torch.randn(2, 1, 64, dtype=torch.float32)
+        layer_to_weight_mapping_type = {}
+        layer_to_weight_zero_point_domain = {}
+        layer_to_weight_granularity = {}
+        for (
+            weight_dtype,
+            weight_mapping_type,
+            weight_zero_point_domain,
+            weight_granularity,
+            has_bias,
+        ) in itertools.product(
+            [getattr(torch, f"int{i}") for i in range(1, 9)],
+            [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+            [ZeroPointDomain.INT, ZeroPointDomain.NONE],
+            [PerAxis(0), PerGroup(32)],
+            [True, False],
+        ):
+            if (
+                weight_mapping_type == MappingType.SYMMETRIC
+                and weight_zero_point_domain == ZeroPointDomain.INT
+            ):
+                continue
 
+            idx = len(layers)
+            layer_to_weight_dtype[idx] = weight_dtype
+            layer_to_weight_mapping_type[idx] = weight_mapping_type
+            layer_to_weight_zero_point_domain[idx] = weight_zero_point_domain
+            layer_to_weight_granularity[idx] = weight_granularity
+            layers.append(torch.nn.Linear(64, 64, bias=has_bias))
+
+        activations = torch.randn(2, 1, 64, dtype=torch.float32)
         model = torch.nn.Sequential(*layers)
         for idx in range(len(layers)):
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=layer_to_weight_dtype[idx],
-                    # Test out different granularities
-                    granularity=PerGroup(32) if idx % 2 == 0 else PerRow(),
-                    has_weight_zeros=layer_to_has_weight_zeros[idx],
+                    weight_mapping_type=layer_to_weight_mapping_type[idx],
+                    weight_zero_point_domain=layer_to_weight_zero_point_domain[idx],
+                    weight_granularity=layer_to_weight_granularity[idx],
                     layout=QDQLayout(),
                 ),
                 lambda m, fqn: fqn == str(idx),
@@ -57,7 +76,9 @@ class TestQuantPasses(unittest.TestCase):
 
         eager_results = model(activations)
         exported = torch.export.export(model, (activations,), strict=True)
-        exported = replace_q_dq_patterns_with_quantized_linear_ops_pass(exported)
+        exported = replace_q_dq_patterns_with_quantized_linear_ops_pass(
+            exported, target="universal"
+        )
 
         # We should not find pack op because it gets constant folded
         FileCheck().check_not("torch.ops.torchao._pack_8bit_act").run(
