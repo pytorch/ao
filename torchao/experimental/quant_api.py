@@ -591,7 +591,8 @@ class EmbeddingQuantizer:
 
         if isinstance(granularity, PerGroup):
             group_size = granularity.group_size
-        elif isinstance(granularity, PerRow):
+        elif isinstance(granularity, PerAxis):
+            assert granularity.axis == 0
             group_size = -1
         else:
             raise ValueError(f"Unsupported granularity: {granularity}")

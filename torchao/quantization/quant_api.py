@@ -1637,12 +1637,18 @@ def _intx_weight_only_transform(
     scale_dtype = config.scale_dtype
     layout = config.layout
 
+    assert (
+        weight.dim() == 2
+    ), f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
     if isinstance(granularity, PerGroup):
         group_size = granularity.group_size
-    elif isinstance(granularity, PerRow):
+    elif isinstance(granularity, PerAxis):
+        assert (
+            granularity.axis == 0
+        ), f"axis must be 0 with PerAxis, but got {granularity.axis}"
         group_size = weight.shape[-1]
     else:
-        raise ValueError(f"granularity must be PerGroup or PerRow, got {granularity}")
+        raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
 
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
     has_weight_zeros = zero_point_domain == ZeroPointDomain.INT
