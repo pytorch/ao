@@ -252,7 +252,7 @@ class EmbeddingQuantizer:
         use_fallback: bool = False,
     ):
         assert weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]
-        bit_width = _DTYPE_TO_BIT_WIDTH(weight_dtype)
+        bit_width = _DTYPE_TO_BIT_WIDTH[weight_dtype]
 
         if isinstance(granularity, PerGroup):
             group_size = granularity.group_size
