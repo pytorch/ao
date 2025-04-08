@@ -444,6 +444,7 @@
     <span class="n">Int4CPULayout</span><span class="p">,</span>
     <span class="n">MarlinQQQLayout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
+    <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">,</span>
     <span class="n">PlainLayout</span><span class="p">,</span>
     <span class="n">QDQLayout</span><span class="p">,</span>
     <span class="n">SemiSparseLayout</span><span class="p">,</span>
@@ -453,6 +454,10 @@
     <span class="n">to_affine_quantized_floatx_static</span><span class="p">,</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
     <span class="n">to_marlinqqq_quantized_intx</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Target</span><span class="p">,</span>
+    <span class="n">make_packed_linear_int8_dynamic_activation_intx_weight_tensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Layout</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
@@ -1074,6 +1079,169 @@
         <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
     <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">module</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationIntxWeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 &lt;= x &lt;= 8.</span>
+<span class="sd">    More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros.</span>
+<span class="sd">    Weights are quantized with scales and optionally zeros (controlled by weight_zero_point_domain) in a groupwise or</span>
+<span class="sd">    channelwise manner using the number of bits specified by weight_dtype.</span>
+
+<span class="sd">    args:</span>
+<span class="sd">        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</span>
+<span class="sd">            torch.intx with x &lt; 8 requires TORCH_VERSION_AT_LEAST_2_6</span>
+<span class="sd">        weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).</span>
+<span class="sd">        weight_zero_point_domain: The domain to use for weight quantization.</span>
+<span class="sd">            Must be ZeroPointDomain.INT (if quantized weights have zeros) or ZeroPointDomain.NONE (if quantized weights do not have zeros).</span>
+<span class="sd">        weight_mapping_type: The type of mapping to use for the weight quantization.</span>
+<span class="sd">            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE</span>
+<span class="sd">        weight_scale_dtype: The dtype to use for the weight scale.</span>
+<span class="sd">        act_mapping_type: The type of mapping to use for the activation quantization.</span>
+<span class="sd">            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.</span>
+<span class="sd">        layout: The layout to use for the packed weight tensor:</span>
+<span class="sd">            - PackedLinearInt8DynamicActivationIntxWeightLayout: this layout is optimized for CPU performance.</span>
+<span class="sd">            - QDQLayout: this layout represents the quantization with Q/DQ quant primitives, and is intended for</span>
+<span class="sd">                export applications like ExecuTorch.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+    <span class="n">weight_granularity</span><span class="p">:</span> <span class="n">Granularity</span> <span class="o">=</span> <span class="n">PerGroup</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>
+    <span class="n">weight_zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
+    <span class="n">weight_mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+    <span class="c1"># TODO: add weight_scale_dtype to Int8DynamicActivationInt4WeightConfig</span>
+    <span class="n">weight_scale_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">MappingType</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+    <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
+        <span class="p">),</span> <span class="s2">&quot;Int8DynamicActivationIntxWeightConfig requires torch 2.6+&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;axis must be 0, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_zero_point_domain</span> <span class="ow">in</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_zero_point_domain must be ZeroPointDomain.INT or ZeroPointDomain.NONE, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_zero_point_domain</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">weight_zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_zero_point_domain must be ZeroPointDomain.NONE when weight_mapping_type is MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_zero_point_domain</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">]</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="p">,</span> <span class="p">(</span><span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">,</span> <span class="n">QDQLayout</span><span class="p">)</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="p">,</span> <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="o">.</span><span class="n">target</span> <span class="ow">in</span> <span class="p">[</span><span class="n">Target</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span> <span class="n">Target</span><span class="o">.</span><span class="n">KLEIDIAI</span><span class="p">,</span> <span class="n">Target</span><span class="o">.</span><span class="n">ATEN</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">weight_scale_dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+                <span class="p">):</span>
+                    <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;When using layout PackedLinearInt8DynamicActivationIntxWeightLayout with target </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="o">.</span><span class="n">target</span><span class="si">}</span><span class="s2">, &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;the weight scale may be cast to bfloat16 by the kernel, but weight_scale_dtype is set to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="si">}</span><span class="s2">. &quot;</span>
+                        <span class="s2">&quot;Explicitly set weight_scale_dtype to torch.bfloat16 to suppress this warning. &quot;</span>
+                        <span class="s2">&quot;If you need weight_scale_dtype = torch.float32, use target=Target.UNIVERSAL instead.&quot;</span>
+                    <span class="p">)</span>
+
+
+<span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_intx_weight_transform</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
+    <span class="n">bias</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span>
+    <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
+    <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_granularity</span>
+    <span class="n">weight_zero_point_domain</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_zero_point_domain</span>
+    <span class="n">weight_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_mapping_type</span>
+    <span class="n">weight_scale_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_scale_dtype</span>
+    <span class="n">act_mapping_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">act_mapping_type</span>
+    <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
+
+    <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;weight must be 2D, but got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
+        <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">group_size</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;axis must be 0&quot;</span>
+        <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">weight_dtype</span><span class="p">]</span>
+
+    <span class="c1"># We quantize with QDQLayout, and then construct the packed weight tensor later</span>
+    <span class="n">has_weight_zeros</span> <span class="o">=</span> <span class="n">weight_zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
+        <span class="n">input_float</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">),</span>
+        <span class="n">target_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+        <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span>
+        <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span>
+        <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
+        <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="k">if</span> <span class="n">has_weight_zeros</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">preserve_zero</span><span class="o">=</span><span class="n">has_weight_zeros</span>
+        <span class="ow">or</span> <span class="p">(</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">),</span>
+        <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">weight_zero_point_domain</span><span class="p">,</span>
+        <span class="n">_layout</span><span class="o">=</span><span class="n">QDQLayout</span><span class="p">(),</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">QDQLayout</span><span class="p">):</span>
+        <span class="c1"># TODO: _int8_asymm_per_token_quant uses scale_dtype=torch.float64, zero_point_dtype=torch.int64,</span>
+        <span class="c1"># which is not great for export with QDQLayout.  It is also not consistent with _int8_symm_per_token_quant,</span>
+        <span class="c1"># which uses scale_dtype=torch.float32, zero_point_dtype=torch.int32.</span>
+        <span class="c1"># Maybe introduce new fp32/int32 versions of _int8_asymm_per_token_quant?</span>
+        <span class="k">if</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">:</span>
+            <span class="n">activation_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
+        <span class="k">elif</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">:</span>
+            <span class="n">activation_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_quant</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unsupported activation mapping type: </span><span class="si">{</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">activation_quant_func</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">):</span>
+        <span class="c1"># PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization</span>
+        <span class="c1"># fused with the kernel and it should not be applied separately</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+        <span class="p">),</span> <span class="s2">&quot;PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC&quot;</span>
+        <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
+        <span class="n">groups_per_row</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="n">group_size</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">groups_per_row</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="n">zero_point</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">groups_per_row</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">make_packed_linear_int8_dynamic_activation_intx_weight_tensor</span><span class="p">(</span>
+            <span class="n">data</span><span class="p">,</span>
+            <span class="n">scale</span><span class="p">,</span>
+            <span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">bias</span><span class="p">,</span>
+            <span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">layout</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
+            <span class="n">validate_inputs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># bias is packed with weights if present</span>
+        <span class="n">bias</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">bias</span>
     <span class="n">module</span><span class="o">.</span><span class="n">extra_repr</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">(</span><span class="n">_linear_extra_repr</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">module</span>
 
@@ -2140,6 +2308,7 @@
             <span class="n">_int8_symm_cutlass_quant</span><span class="p">,</span>
             <span class="n">_float8_cutlass_quant</span><span class="p">,</span>
             <span class="n">_float8_cutlass_quant_sparse</span><span class="p">,</span>
+            <span class="n">Target</span><span class="p">,</span>
         <span class="p">]</span>
     <span class="p">)</span>
 </pre></div>
