@@ -229,6 +229,7 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
+
 @implements(aten.clone.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -244,6 +245,7 @@ def _(func, types, args, kwargs):
         kwargs,
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
     )
+
 
 @implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
@@ -263,6 +265,7 @@ def _(func, types, args, kwargs):
         weight_tensor = weight_tensor.dequantize(output_dtype=dtype)
 
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with GGUFQuantizedTensor weights to be loaded with `weights_only=True`

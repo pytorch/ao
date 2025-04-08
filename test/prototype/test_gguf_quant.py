@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import torch
@@ -6,9 +12,9 @@ from torchao.prototype.quantization.gguf import (
     GGUFQuantizedTensor,
     GGUFWeightOnlyConfig,
 )
+from torchao.quantization import quantize_
 from torchao.quantization.quant_primitives import choose_qparams_gguf
 from torchao.quantization.utils import compute_error
-from torchao.quantization import quantize_
 
 
 class TestGGUFQuantization(unittest.TestCase):
