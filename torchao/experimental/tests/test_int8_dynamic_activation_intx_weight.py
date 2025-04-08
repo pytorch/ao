@@ -12,15 +12,14 @@ import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
 
-from torchao.dtypes import PlainLayout
-from torchao.experimental.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
+from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
+from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
+    MappingType,
+    ZeroPointDomain,
+    quantize_,
 )
-from torchao.experimental.q_dq_layout import QDQLayout
-from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
-from torchao.quantization.granularity import PerGroup, PerRow
-from torchao.quantization.quant_api import quantize_
-from torchao.utils import unwrap_tensor_subclass
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -28,13 +27,12 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         param(
             layout=layout,
             weight_dtype=weight_dtype,
-            has_weight_zeros=has_weight_zeros,
-            granularity=granularity,
+            weight_zero_point_domain=weight_zero_point_domain,
+            weight_granularity=weight_granularity,
         )
         for layout in [
             PackedLinearInt8DynamicActivationIntxWeightLayout(),
             PackedLinearInt8DynamicActivationIntxWeightLayout(target="universal"),
-            QDQLayout(),
         ]
         for weight_dtype in [
             torch.int1,
@@ -46,13 +44,13 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             torch.int7,
             torch.int8,
         ]
-        for has_weight_zeros in [
-            True,
-            False,
+        for weight_zero_point_domain in [
+            ZeroPointDomain.NONE,
+            ZeroPointDomain.INT,
         ]
-        for granularity in [
+        for weight_granularity in [
             PerGroup(128),
-            PerRow(),
+            PerAxis(0),
         ]
     ]
 
@@ -60,9 +58,11 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         TEST_ACCURACY_CASES,
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_accuracy(self, layout, weight_dtype, has_weight_zeros, granularity):
+    def test_accuracy(
+        self, layout, weight_dtype, weight_zero_point_domain, weight_granularity
+    ):
         """
-        Checks the accuracy of different layouts by comparing the results to PlainLayout()
+        Checks the accuracy of packed layouts
         """
         m = 3
         n = 1071
@@ -71,32 +71,36 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = torch.nn.Sequential(
             *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
         )
+        weight_mapping_type = MappingType.ASYMMETRIC
 
-        # We set round_weight_scale_to_bf16 to True for accuracy testing because
+        # We set round weights to bf16 and set scale dtype to bf16 because
         # some kernels do this internally (e.g., KleidiAI kernels)
-        round_weight_scale_to_bf16 = True
+        model = model.to(torch.bfloat16).to(torch.float32)
+        weight_scale_dtype = torch.bfloat16
 
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=layout,
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -112,36 +116,39 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
         )
         weight_dtype = torch.int4
-        granularity = PerGroup(128)
-        has_weight_zeros = False
+        weight_granularity = PerGroup(128)
+        weight_mapping_type = MappingType.ASYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
-        # We set round_weight_scale_to_bf16 to True for accuracy testing because
-        # some KleidiAI kernels do this internally
-        round_weight_scale_to_bf16 = True
+        # KleidiAI kernels round scales to bf16 internally
+        model = model.to(torch.bfloat16).to(torch.float32)
+        weight_scale_dtype = torch.bfloat16
 
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="kleidiai"
                 ),
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -166,34 +173,38 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
         )
         weight_dtype = torch.int4
-        granularity = PerGroup(128)
-        has_weight_zeros = False
+        weight_granularity = PerGroup(128)
+        weight_mapping_type = MappingType.ASYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.NONE
 
         # We set round_weight_scale_to_bf16 to True for accuracy testing because
         # some KleidiAI kernels do this internally
-        round_weight_scale_to_bf16 = True
+        model = model.to(torch.bfloat16).to(torch.float32)
+        weight_scale_dtype = torch.bfloat16
 
         quantized_model = copy.deepcopy(model)
         quantize_(
             quantized_model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
         quantized_model_reference = copy.deepcopy(model)
         quantize_(
             quantized_model_reference,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
-                round_weight_scale_to_bf16=round_weight_scale_to_bf16,
             ),
         )
 
@@ -220,7 +231,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
 
     def _reference_layout(self):
-        return PlainLayout()
+        return QDQLayout()
 
     def test_export_compile_aoti_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
@@ -229,35 +240,35 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         Checks that models quantized with PackedLinearInt8DynamicActivationIntxWeightLayout() work with
         torch.export.export, torch.compile, and AOTI.
         """
-        granularity = PerRow()
         m = 3
         k0 = 512
         k1 = 256
         k2 = 128
         k3 = 1024
         weight_dtype = torch.int4
-        has_weight_zeros = True
+        weight_granularity = PerAxis(0)
+        weight_mapping_type = MappingType.ASYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.INT
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, k2, bias=True),
             torch.nn.Linear(k2, k3, bias=False),
         ]
         model = torch.nn.Sequential(*layers)
-        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
+        activations = torch.randn(2, 1, m, k0)
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
             ),
         )
         eager_results = model(activations)
-
-        unwrapped_model = copy.deepcopy(model)
-        unwrap_tensor_subclass(model)
 
         # Export
         exported = torch.export.export(model, (activations,), strict=True)
@@ -265,7 +276,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         # Compile
-        compiled = torch.compile(unwrapped_model)
+        compiled = torch.compile(model)
         with torch.no_grad():
             compiled_results = compiled(activations)
         self.assertTrue(torch.allclose(eager_results, compiled_results))
@@ -283,14 +294,16 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     def test_export_dynamic_shape_PackedLinearInt8DynamicActivationIntxWeightLayout(
         self,
     ):
-        granularity = PerRow()
         m = 3
         k0 = 512
         k1 = 256
         k2 = 128
         k3 = 1024
         weight_dtype = torch.int4
-        has_weight_zeros = True
+        weight_granularity = PerAxis(0)
+        weight_mapping_type = MappingType.ASYMMETRIC
+        weight_zero_point_domain = ZeroPointDomain.INT
+
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, k2, bias=True),
@@ -309,16 +322,16 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
+            Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+                weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
+                weight_zero_point_domain=weight_zero_point_domain,
+                weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
             ),
         )
         eager_results = model(activations)
-
-        unwrap_tensor_subclass(model)
 
         # Export
         exported = torch.export.export(
@@ -331,9 +344,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         """
         Checks that models quantized with TestQDQLayout() export as expected
         """
-        granularity = PerGroup(64)
-        weight_dtype = torch.int4
-        has_weight_zeros = False
         layers = [
             torch.nn.Linear(512, 256, bias=False),
         ]
@@ -342,30 +352,80 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_intx_weight(
-                weight_dtype=weight_dtype,
-                granularity=granularity,
-                has_weight_zeros=has_weight_zeros,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                weight_zero_point_domain=ZeroPointDomain.NONE,
                 layout=QDQLayout(),
             ),
         )
         eager_results = model(activations)
 
-        unwrap_tensor_subclass(model)
         exported = torch.export.export(model, (activations,), strict=True)
         exported_results = exported.module()(activations)
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         expected_lines = [
-            "torch.ops.quant.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int32, -128, 127, None, torch.float32, torch.int32)",
-            "torch.ops.quant.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int32, -128, 127)",
-            "torch.ops.quant.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int32, -128, 127)",
-            "torch.ops.quant.dequantize_affine.default(p_fn_0_parametrizations_weight_original0, [1, 64], p_fn_0_parametrizations_weight_original1, None, torch.int32, -8, 7, 'NONE')",
+            "torch.ops.quant.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
+            "torch.ops.quant.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
+            "torch.ops.quant.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
+            "torch.ops.quant.dequantize_affine.default(access_subclass_inner_tensor_default_72, [1, 64], access_subclass_inner_tensor_default_73, None, torch.int8, -8, 7, 'NONE')",
             "torch.ops.aten.linear.default(dequantize_affine, dequantize_affine_1)",
         ]
         for line in expected_lines:
             FileCheck().check_count(line, 1, exactly=True).run(
                 exported.graph_module.code
+            )
+
+    @parameterized.expand(
+        [
+            param(layout=layout)
+            for layout in [
+                PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                QDQLayout(),
+            ]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_serialization(self, layout):
+        layers = [
+            torch.nn.Linear(512, 256),
+        ]
+        model = torch.nn.Sequential(*layers)
+        model2 = torch.nn.Sequential(*layers)
+        activations = torch.randn(1, 512, dtype=torch.float32)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(64),
+                layout=layout,
+            ),
+        )
+        expected = model(activations)
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            torch.save(model.state_dict(), f"{tmpdirname}/model.pt")
+            state_dict = torch.load(
+                f"{tmpdirname}/model.pt", map_location="cpu", weights_only=True
+            )
+
+            # Load deserialized weights into model2 and check result
+            model2.load_state_dict(state_dict, assign=True)
+            actual = model2(activations)
+            self.assertTrue(torch.allclose(expected, actual))
+
+    def test_moved_error(self):
+        from torchao.experimental.quant_api import Int8DynamicActivationIntxWeightConfig
+
+        with self.assertRaisesRegex(
+            NotImplementedError,
+            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api",
+        ):
+            config = Int8DynamicActivationIntxWeightConfig(  # noqa: F841
+                weight_dtype=torch.int4,
+                granularity=PerGroup(64),
             )
 
 

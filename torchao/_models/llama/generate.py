@@ -20,7 +20,11 @@ from torchao._models.utils import (
     write_json_result_ossci,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, get_model_size_in_bytes
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+    get_model_size_in_bytes,
+)
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 torch.backends.cuda.enable_cudnn_sdp(True)
@@ -553,26 +557,37 @@ def main(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         elif "int8_dynamic_activation_intx_weight" in quantization:
-            from torchao.experimental.quant_api import (
-                int8_dynamic_activation_intx_weight,
-            )
-            from torchao.quantization.granularity import PerGroup
-
+            assert (
+                TORCH_VERSION_AT_LEAST_2_6
+            ), "int8_dynamic_activation_intx_weight requires torch2.6+"
             assert (
                 precision == torch.float32
             ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
 
+            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
+            from torchao.quantization.granularity import PerAxis, PerGroup
+            from torchao.quantization.quant_api import (
+                Int8DynamicActivationIntxWeightConfig,
+                ZeroPointDomain,
+            )
+
             # Quantize model
             _quant_args = quantization.split("-")
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
-            granularity = PerGroup(int(_quant_args[2]))
+            group_size = int(_quant_args[2])
+            granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
-                int8_dynamic_activation_intx_weight(
+                Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=weight_dtype,
-                    granularity=granularity,
-                    has_weight_zeros=has_weight_zeros,
+                    weight_granularity=granularity,
+                    weight_zero_point_domain=ZeroPointDomain.INT
+                    if has_weight_zeros
+                    else ZeroPointDomain.NONE,
+                    weight_mapping_type=MappingType.ASYMMETRIC,
+                    weight_scale_dtype=torch.bfloat16,
+                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
                 ),
             )
         elif "float8wo" in quantization:
