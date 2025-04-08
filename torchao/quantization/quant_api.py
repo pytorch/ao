@@ -36,6 +36,7 @@ from torchao.dtypes import (
     MarlinQQQLayout,
     MarlinSparseLayout,
     PlainLayout,
+    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
@@ -75,6 +76,9 @@ from .GPTQ import (
     Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
+    Granularity,
+    PerAxis,
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -86,6 +90,7 @@ from .qat import (
     intx_quantization_aware_training,
 )
 from .quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
 )
@@ -1566,6 +1571,102 @@ def _uintx_weight_only_transform(
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class IntxWeightOnlyConfig(AOBaseConfig):
+    """
+    Configuration for quantizing weights to torch.intx, with 1 <= x <= 8.
+    Weights are quantized with scales and optionally zeros (controlled by zero_point_domain) in a groupwise or channelwise
+    manner using the number of bits specified by weight_dtype.
+    args:
+        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
+            torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
+        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
+        zero_point_domain: The zero point domain to use for weight quantization.
+            Must be ZeroPointDomain.INT (if quantized weights have zeros) or ZeroPointDomain.NONE (if quantized weights do not have zeros).
+        mapping_type: The type of mapping to use for the weight quantization.
+            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
+        scale_dtype: The dtype to use for the weight scale.
+        layout: The layout to use for the packed weight tensor:
+            - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
+                and is intended for export applications like ExecuTorch.
+    """
+
+    weight_dtype: torch.dtype = torch.int8
+    granularity: Granularity = PerAxis(0)
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.NONE
+    mapping_type: MappingType = MappingType.SYMMETRIC
+    scale_dtype: Optional[torch.dtype] = None
+    layout: Layout = QDQLayout()
+
+    def __post_init__(self):
+        assert TORCH_VERSION_AT_LEAST_2_6, "IntxWeightOnlyConfig requires torch 2.6+"
+        assert (
+            self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)]
+        ), f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
+        assert isinstance(
+            self.granularity, (PerAxis, PerGroup)
+        ), f"granularity must be PerAxis or PerGroup, but got {self.granularity}"
+        if isinstance(self.granularity, PerAxis):
+            assert (
+                self.granularity.axis == 0
+            ), f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
+        assert (
+            self.zero_point_domain in [ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        ), f"zero_point_domain must be ZeroPointDomain.INT or ZeroPointDomain.NONE, but got {self.zero_point_domain}"
+        assert (
+            self.mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
+        ), f"mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.mapping_type}"
+        if self.mapping_type == MappingType.SYMMETRIC:
+            assert (
+                self.zero_point_domain == ZeroPointDomain.NONE
+            ), f"zero_point_domain must be ZeroPointDomain.NONE when mapping_type is MappingType.SYMMETRIC, but got {self.zero_point_domain}"
+
+
+@register_quantize_module_handler(IntxWeightOnlyConfig)
+def _intx_weight_only_transform(
+    module: torch.nn.Module, config: IntxWeightOnlyConfig
+) -> torch.nn.Module:
+    weight = module.weight
+    weight_dtype = config.weight_dtype
+    granularity = config.granularity
+    zero_point_domain = config.zero_point_domain
+    mapping_type = config.mapping_type
+    scale_dtype = config.scale_dtype
+    layout = config.layout
+
+    assert (
+        weight.dim() == 2
+    ), f"IntxWeightOnlyConfig only works for 2-d Tensor, got: {weight.dim()}"
+    if isinstance(granularity, PerGroup):
+        group_size = granularity.group_size
+    elif isinstance(granularity, PerAxis):
+        assert (
+            granularity.axis == 0
+        ), f"axis must be 0 with PerAxis, but got {granularity.axis}"
+        group_size = weight.shape[-1]
+    else:
+        raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
+
+    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
+    has_weight_zeros = zero_point_domain == ZeroPointDomain.INT
+    weight = to_affine_quantized_intx(
+        input_float=weight,
+        mapping_type=mapping_type,
+        block_size=(1, group_size),
+        target_dtype=torch.int8,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        eps=torch.finfo(torch.float32).eps,
+        scale_dtype=scale_dtype,
+        zero_point_dtype=torch.int8 if has_weight_zeros else None,
+        preserve_zero=has_weight_zeros or (mapping_type == MappingType.SYMMETRIC),
+        zero_point_domain=zero_point_domain,
+        _layout=layout,
+    )
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
     return module
 
 

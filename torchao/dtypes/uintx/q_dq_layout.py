@@ -50,3 +50,16 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     if isinstance(weight_tensor, AffineQuantizedTensor):
         weight_tensor = weight_tensor.dequantize()
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+
+
+def _embedding_check(args, kwargs):
+    _, weight_tensor = args
+    layout = weight_tensor.tensor_impl.get_layout()
+    return isinstance(layout, QDQLayout)
+
+
+def _embedding_impl(args, kwargs):
+    input_tensor, weight_tensor = args
+    if isinstance(weight_tensor, AffineQuantizedTensor):
+        weight_tensor = weight_tensor.dequantize()
+    return torch.nn.functional.embedding(input_tensor, weight_tensor, **kwargs)
