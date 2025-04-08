@@ -2029,7 +2029,9 @@ class TestExport(unittest.TestCase):
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
         if TORCH_VERSION_AT_LEAST_2_5:
-            model = torch.export.export_for_training(model, example_inputs).module()
+            model = torch.export.export_for_training(
+                model, example_inputs, strict=True
+            ).module()
         else:
             model = torch._export.capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
