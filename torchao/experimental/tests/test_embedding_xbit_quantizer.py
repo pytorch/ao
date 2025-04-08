@@ -113,7 +113,6 @@ class TestEmbeddingQuantizer(unittest.TestCase):
 
     def test_shared_embedding(self):
         weight_dtype = torch.int4
-        granularity = PerRow()
         has_weight_zeros = True
         embedding_dim = 4096
         num_embeddings = 131
@@ -134,14 +133,14 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         EmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=granularity,
+            granularity=PerAxis(0),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model_reference)
         quantize_(
             quantized_model_reference,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=granularity,
+                granularity=PerRow(),
                 has_weight_zeros=has_weight_zeros,
                 round_weight_scale_to_bf16=False,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
@@ -155,7 +154,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=granularity,
+            granularity=PerRow(),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model)
 
