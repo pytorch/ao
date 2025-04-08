@@ -19,7 +19,7 @@ from torchao.experimental.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     SharedEmbeddingQuantizer,
 )
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import quantize_
 
 
@@ -68,7 +68,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
 
     def test_export_compile_aoti(self):
         weight_dtype = torch.int4
-        granularity = PerRow()
+        granularity = PerAxis(0)
         embedding_dim = 4096
         num_embeddings = 131
         model = torch.nn.Sequential(

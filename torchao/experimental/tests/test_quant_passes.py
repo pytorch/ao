@@ -18,7 +18,7 @@ from torchao.experimental.quant_passes import (
     replace_q_dq_patterns_with_quantized_embedding_ops_pass,
     replace_q_dq_patterns_with_quantized_linear_ops_pass,
 )
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
     MappingType,
@@ -88,7 +88,7 @@ class TestQuantPasses(unittest.TestCase):
         [
             param(weight_dtype=weight_dtype, granularity=granularity)
             for weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]
-            for granularity in [PerRow(), PerGroup(32)]
+            for granularity in [PerAxis(0), PerGroup(32)]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )

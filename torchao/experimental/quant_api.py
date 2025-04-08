@@ -15,7 +15,7 @@ from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
 )
 
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
@@ -377,7 +377,7 @@ class QuantizedEmbedding(nn.Module):
             embedding,
             IntxWeightOnlyConfig(
                 weight_dtype=getattr(torch, f"int{self.bit_width}"),
-                granularity=PerGroup(group_size) if group_size > 0 else PerRow(),
+                granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
                 zero_point_domain=ZeroPointDomain.INT
                 if has_weight_zeros
                 else ZeroPointDomain.NONE,
@@ -428,7 +428,7 @@ class QuantizedEmbeddingFallback(nn.Module):
             self.embedding,
             IntxWeightOnlyConfig(
                 weight_dtype=getattr(torch, f"int{self.bit_width}"),
-                granularity=PerGroup(group_size) if group_size > 0 else PerRow(),
+                granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
                 zero_point_domain=ZeroPointDomain.INT
                 if has_weight_zeros
                 else ZeroPointDomain.NONE,
@@ -583,7 +583,7 @@ class EmbeddingQuantizer:
     def __init__(
         self,
         weight_dtype: torch.dtype = torch.int4,
-        granularity: Union[PerRow, PerGroup] = PerRow(),
+        granularity: Granularity = PerAxis(0),
         has_weight_zeros: bool = True,
         use_fallback: bool = False,
     ):

@@ -76,6 +76,8 @@ from .GPTQ import (
     Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
+    Granularity,
+    PerAxis,
     PerGroup,
     PerRow,
     PerTensor,
@@ -1581,7 +1583,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
             torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
-        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
+        granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
         zero_point_domain: The zero point domain to use for weight quantization.
             Must be ZeroPointDomain.INT (if quantized weights have zeros) or ZeroPointDomain.NONE (if quantized weights do not have zeros).
         mapping_type: The type of mapping to use for the weight quantization.
@@ -1593,7 +1595,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     """
 
     weight_dtype: torch.dtype = torch.int8
-    granularity: Union[PerRow, PerGroup] = PerRow()
+    granularity: Granularity = PerAxis(0)
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.NONE
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
@@ -1605,8 +1607,12 @@ class IntxWeightOnlyConfig(AOBaseConfig):
             self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)]
         ), f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         assert isinstance(
-            self.granularity, (PerRow, PerGroup)
-        ), f"granularity must be PerRow or PerGroup, but got {self.granularity}"
+            self.granularity, (PerAxis, PerGroup)
+        ), f"granularity must be PerAxis or PerGroup, but got {self.granularity}"
+        if isinstance(self.granularity, PerAxis):
+            assert (
+                self.granularity.axis == 0
+            ), f"axis must be 0 with PerAxis, but got {self.granularity.axis}"
         assert (
             self.zero_point_domain in [ZeroPointDomain.INT, ZeroPointDomain.NONE]
         ), f"zero_point_domain must be ZeroPointDomain.INT or ZeroPointDomain.NONE, but got {self.zero_point_domain}"
