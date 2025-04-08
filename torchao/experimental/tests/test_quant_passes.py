@@ -7,6 +7,7 @@
 import unittest
 
 import torch
+from parameterized import param, parameterized
 from torch.testing import FileCheck
 
 from torchao.experimental.q_dq_layout import QDQLayout
@@ -14,10 +15,16 @@ from torchao.experimental.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
 )
 from torchao.experimental.quant_passes import (
+    replace_q_dq_patterns_with_quantized_embedding_ops_pass,
     replace_q_dq_patterns_with_quantized_linear_ops_pass,
 )
-from torchao.quantization.granularity import PerGroup, PerRow
-from torchao.quantization.quant_api import quantize_
+from torchao.quantization.granularity import PerAxis, PerGroup, PerRow
+from torchao.quantization.quant_api import (
+    IntxWeightOnlyConfig,
+    MappingType,
+    ZeroPointDomain,
+    quantize_,
+)
 
 
 class TestQuantPasses(unittest.TestCase):
@@ -75,6 +82,65 @@ class TestQuantPasses(unittest.TestCase):
 
         # Numerics should match
         exported_results = exported.module()(activations)
+        self.assertTrue(torch.allclose(exported_results, eager_results))
+
+    @parameterized.expand(
+        [
+            param(weight_dtype=weight_dtype, granularity=granularity)
+            for weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]
+            for granularity in [PerAxis(0), PerGroup(32)]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_replace_q_dq_patterns_with_quantized_embedding_ops_pass(
+        self, weight_dtype, granularity
+    ):
+        # Calling torch.export many times in a parametrized test causes
+        # torch._dynamo.exc.FailOnRecompileLimitHit: recompile_limit reached error
+        # Setting cache_size_limit to a large number to avoid this error
+        torch._dynamo.config.cache_size_limit = 10000
+
+        mapping_type = MappingType.ASYMMETRIC
+        zero_point_domain = ZeroPointDomain.INT
+
+        model = torch.nn.Sequential(
+            *[torch.nn.Embedding(5000, 512), torch.nn.Linear(512, 512)]
+        )
+        indices = torch.randint(0, 5000, (4, 5, 17), dtype=torch.int32)
+
+        quantize_(
+            model,
+            IntxWeightOnlyConfig(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                zero_point_domain=zero_point_domain,
+                mapping_type=mapping_type,
+                layout=QDQLayout(),
+            ),
+            lambda m, fqn: isinstance(m, torch.nn.Embedding),
+        )
+        eager_results = model(indices)
+
+        exported = torch.export.export(model, (indices,), strict=True)
+        exported = replace_q_dq_patterns_with_quantized_embedding_ops_pass(exported)
+
+        # We should not find pack op because it gets constant folded
+        FileCheck().check_not("torch.ops.torchao._pack_embedding").run(
+            exported.graph_module.code
+        )
+
+        # We should find
+        FileCheck().check_count(
+            "torch.ops.torchao._embedding", count=1, exactly=True
+        ).run(exported.graph_module.code)
+
+        # We should not find Q/DQ ops
+        FileCheck().check_not("torch.ops.quant.dequantize_affine.default").run(
+            exported.graph_module.code
+        )
+
+        # Numerics should match
+        exported_results = exported.module()(indices)
         self.assertTrue(torch.allclose(exported_results, eager_results))
 
 
