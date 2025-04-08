@@ -72,7 +72,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
 
     def test_export_compile_aoti(self):
         weight_dtype = torch.int4
-        granularity = PerRow()
+        granularity = PerAxis(0)
         embedding_dim = 4096
         num_embeddings = 131
         model = torch.nn.Sequential(
@@ -137,18 +137,16 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model_reference = copy.deepcopy(model)
         EmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=PerRow(),
+            granularity=PerAxis(0),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model_reference)
         quantize_(
             quantized_model_reference,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                weight_granularity=PerAxis(0),
-                weight_zero_point_domain=ZeroPointDomain.INT
-                if has_weight_zeros
-                else ZeroPointDomain.NONE,
-                weight_mapping_type=MappingType.ASYMMETRIC,
+                granularity=PerRow(),
+                has_weight_zeros=has_weight_zeros,
+                round_weight_scale_to_bf16=False,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"
                 ),
@@ -160,7 +158,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=PerAxis(0),
+            granularity=PerRow(),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model)
 

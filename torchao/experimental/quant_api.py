@@ -17,6 +17,7 @@ from torch.ao.quantization.fx._decomposed import (
 
 from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import ZeroPointDomain
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -357,32 +358,44 @@ class QuantizedEmbedding(nn.Module):
     ):
         super().__init__()
         self.bit_width = bit_width
-        self.pack_weights_op = getattr(
-            torch.ops.torchao, f"_pack_embedding_{bit_width}bit"
-        )
-        self.embedding_op = getattr(torch.ops.torchao, f"_embedding_{bit_width}bit")
 
     def quantize_and_pack_weights(self, weights, group_size, has_weight_zeros):
         assert has_weight_zeros, "has_weight_zeros must be True for QuantizedEmbedding"
         num_embeddings, embedding_dim = weights.shape
-        if group_size == -1:
-            group_size = embedding_dim
-        self.group_size = group_size
 
-        weight_qvals, weight_scales, weight_zeros = _quantize(
-            weights, self.group_size, self.bit_width, has_weight_zeros=True
+        embedding = torch.nn.Embedding(num_embeddings, embedding_dim)
+        embedding.weight = weights
+        quantize_(
+            embedding,
+            IntxWeightOnlyConfig(
+                weight_dtype=getattr(torch, f"int{self.bit_width}"),
+                granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
+                zero_point_domain=ZeroPointDomain.INT
+                if has_weight_zeros
+                else ZeroPointDomain.NONE,
+                mapping_type=MappingType.ASYMMETRIC,
+            ),
+            lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
+        weight_qvals, weight_scales, weight_zeros = (
+            embedding.weight.tensor_impl.get_plain()
+        )
+        weight_scales = weight_scales.reshape(num_embeddings, -1)
+        weight_zeros = weight_zeros.reshape(num_embeddings, -1).to(torch.int8)
         self.register_buffer(
-            "packed_weight_qvals", self.pack_weights_op(weight_qvals.to(torch.int8))
+            "packed_weight_qvals",
+            getattr(torch.ops.torchao, f"_pack_embedding_{self.bit_width}bit")(
+                weight_qvals.to(torch.int8)
+            ),
         )
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.register_buffer("weight_scales", weight_scales)
-        self.register_buffer("weight_zeros", weight_zeros.to(torch.int8))
+        self.register_buffer("weight_zeros", weight_zeros)
 
     def forward(self, x):
         shape = x.shape
-        return self.embedding_op(
+        return getattr(torch.ops.torchao, f"_embedding_{self.bit_width}bit")(
             self.packed_weight_qvals,
             self.num_embeddings,
             self.embedding_dim,
@@ -401,38 +414,23 @@ class QuantizedEmbeddingFallback(nn.Module):
         self.bit_width = bit_width
 
     def quantize_and_pack_weights(self, weights, group_size, has_weight_zeros):
-        assert (
-            has_weight_zeros
-        ), "has_weight_zeros must be True for QuantizedEmbeddingFallback"
-        num_embeddings, embedding_dim = weights.shape
-        if group_size == -1:
-            group_size = embedding_dim
-        self.group_size = group_size
-
-        weight_qvals, weight_scales, weight_zeros = _quantize(
-            weights, self.group_size, self.bit_width, has_weight_zeros=True
+        self.embedding = torch.nn.Embedding(*weights.shape)
+        self.embedding.weight = weights
+        quantize_(
+            self.embedding,
+            IntxWeightOnlyConfig(
+                weight_dtype=getattr(torch, f"int{self.bit_width}"),
+                granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
+                zero_point_domain=ZeroPointDomain.INT
+                if has_weight_zeros
+                else ZeroPointDomain.NONE,
+                mapping_type=MappingType.ASYMMETRIC,
+            ),
+            lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
-        self.weight_qvals = weight_qvals.to(torch.int32)
-        self.weight_scales = weight_scales
-        self.weight_zeros = weight_zeros.to(torch.int32)
 
     def forward(self, x):
-        shape = x.shape
-        res = []
-        for i in x:
-            res.append(
-                dequantize_per_channel_group(
-                    w_int8=self.weight_qvals[i, :].reshape(1, -1),
-                    scales=self.weight_scales[i, :].reshape(1, -1),
-                    zero_points=self.weight_zeros[i, :].reshape(1, -1),
-                    quant_min=None,  # TODO: why is this an arg for this function
-                    quant_max=None,  # TODO: why is this an arg for this function
-                    dtype=None,  # TODO: why is this an arg for this function
-                    group_size=self.group_size,
-                    output_dtype=torch.float32,
-                ).reshape(-1)
-            )
-        return torch.stack(res).reshape(*shape, -1)
+        return self.embedding(x)
 
 
 class QuantizedSharedEmbedding(nn.Module):
@@ -577,7 +575,7 @@ class EmbeddingQuantizer:
     def __init__(
         self,
         weight_dtype: torch.dtype = torch.int4,
-        granularity: Union[PerRow, PerGroup] = PerRow(),
+        granularity: Granularity = PerAxis(0),
         has_weight_zeros: bool = True,
         use_fallback: bool = False,
     ):
@@ -585,7 +583,8 @@ class EmbeddingQuantizer:
 
         if isinstance(granularity, PerGroup):
             group_size = granularity.group_size
-        elif isinstance(granularity, PerRow):
+        elif isinstance(granularity, PerAxis):
+            assert granularity.axis == 0
             group_size = -1
         else:
             raise ValueError(f"Unsupported granularity: {granularity}")
@@ -622,6 +621,7 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
 )
 from torchao.quantization.quant_api import (
+    IntxWeightOnlyConfig,
     MappingType,
     quantize_,
 )

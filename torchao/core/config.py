@@ -171,7 +171,11 @@ def config_to_dict(config: AOBaseConfig) -> Dict[str, Any]:
     return json.loads(json.dumps(config, cls=ConfigJSONEncoder))
 
 
-ALLOWED_AO_MODULES = {"torchao.quantization", "torchao.sparsity.sparse_api"}
+ALLOWED_AO_MODULES = {
+    "torchao.quantization",
+    "torchao.sparsity.sparse_api",
+    "torchao.prototype.quantization",
+}
 
 
 def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
