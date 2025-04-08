@@ -13,7 +13,7 @@ from torchao.dtypes import QDQLayout
 from torchao.experimental.quant_passes import (
     replace_q_dq_patterns_with_quantized_linear_ops_pass,
 )
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
@@ -40,7 +40,7 @@ class TestQuantPasses(unittest.TestCase):
                         and weight_zero_point_domain == ZeroPointDomain.INT
                     ):
                         continue
-                    for weight_granularity in [PerRow(), PerGroup(32)]:
+                    for weight_granularity in [PerAxis(0), PerGroup(32)]:
                         for has_bias in [True, False]:
                             idx = len(layers)
                             layer_to_weight_dtype[idx] = weight_dtype
