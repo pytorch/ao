@@ -17,11 +17,11 @@ from torchao.experimental.quant_passes import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     MappingType,
     ZeroPointDomain,
     quantize_,
-    Int8DynamicActivationIntxWeightConfig,
 )
 
 

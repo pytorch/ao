@@ -17,7 +17,6 @@ from torch.ao.quantization.fx._decomposed import (
 
 from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
 from torchao.quantization.quant_api import ZeroPointDomain
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -647,6 +646,10 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
             "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
         )
+
+
+# For BC
+int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 def _get_fqns_with_filter(

@@ -18,7 +18,7 @@ from torchao.experimental.quant_api import (
     EmbeddingQuantizer,
     SharedEmbeddingQuantizer,
 )
-from torchao.quantization.granularity import PerAxis, PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
@@ -144,9 +144,11 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             quantized_model_reference,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
-                granularity=PerRow(),
-                has_weight_zeros=has_weight_zeros,
-                round_weight_scale_to_bf16=False,
+                weight_granularity=PerAxis(0),
+                weight_zero_point_domain=ZeroPointDomain.INT
+                if has_weight_zeros
+                else ZeroPointDomain.NONE,
+                weight_mapping_type=MappingType.ASYMMETRIC,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"
                 ),
@@ -158,7 +160,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantized_model = copy.deepcopy(model)
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
-            granularity=PerRow(),
+            granularity=PerAxis(0),
             has_weight_zeros=has_weight_zeros,
         ).quantize(quantized_model)
 
