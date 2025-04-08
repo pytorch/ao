@@ -182,7 +182,6 @@ def choose_qparams_codebook(
     Returns:
         torch.Tensor: The codebook tensor, shape (codebook_size, *block_size).
     """
-    breakpoint()
     if code_dtype == torch.int32:
         codebook_size = 2**16
     else:

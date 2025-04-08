@@ -9,18 +9,19 @@ import torch
 
 from torchao.prototype.quantization.codebook import (
     CodebookQuantizedTensor,
+    CodebookWeightOnlyConfig,
     choose_qparams_codebook,
-    codebook_weight_only,
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_no_cuda
 
 
 class TestCodebookQuantization(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.input = torch.randn(100, 256, dtype=torch.float32)
-        self.block_size = (2, 2)
+        self.block_size = (1, 1)
         self.scale_block_size = 64
         self.code_dtype = torch.uint8
         self.chunk_size = 1024
@@ -71,16 +72,14 @@ class TestCodebookQuantization(unittest.TestCase):
 
     def test_quantize_api(self):
         m = torch.nn.Sequential(torch.nn.Linear(64, 64))
-        quantize_(m, codebook_weight_only())
+        quantize_(m, CodebookWeightOnlyConfig())
         assert type(m[0].weight) == CodebookQuantizedTensor
 
+    @skip_if_no_cuda()
     def test_export(self):
-        m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(
-            dtype=torch.bfloat16, device="cuda"
-        )
-        quantize_(m, codebook_weight_only())
-        # quantize_(m, int4_weight_only(group_size=16))
-        example_inputs = (torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"),)
+        m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(dtype=torch.bfloat16)
+        quantize_(m, CodebookWeightOnlyConfig())
+        example_inputs = (torch.randn(1, 128, dtype=torch.bfloat16),)
         print("m:", m)
         # torchao.utils.unwrap_tensor_subclass(m)
         m = torch.export.export_for_training(m, example_inputs).module()
