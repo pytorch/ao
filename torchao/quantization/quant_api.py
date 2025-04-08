@@ -81,6 +81,8 @@ from .GPTQ import (
     Int8DynActInt4WeightQuantizer,
 )
 from .granularity import (
+    Granularity,
+    PerAxis,
     PerGroup,
     PerRow,
     PerTensor,
@@ -683,7 +685,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
             torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
-        weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerRow.
+        weight_granularity: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
         weight_zero_point_domain: The domain to use for weight quantization.
             Must be ZeroPointDomain.INT (if quantized weights have zeros) or ZeroPointDomain.NONE (if quantized weights do not have zeros).
         weight_mapping_type: The type of mapping to use for the weight quantization.
@@ -698,14 +700,13 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     """
 
     weight_dtype: torch.dtype = torch.int8
-    weight_granularity: Union[PerRow, PerGroup] = PerGroup(32)
+    weight_granularity: Granularity = PerGroup(32)
     weight_zero_point_domain: ZeroPointDomain = ZeroPointDomain.NONE
     weight_mapping_type: MappingType = MappingType.SYMMETRIC
+    # TODO: add weight_scale_dtype to Int8DynamicActivationInt4WeightConfig
     weight_scale_dtype: Optional[torch.dtype] = None
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    layout: Layout = PackedLinearInt8DynamicActivationIntxWeightLayout(
-        target=Target.AUTO
-    )
+    layout: Layout = QDQLayout()
 
     def __post_init__(self):
         assert (
@@ -715,8 +716,12 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)]
         ), f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         assert isinstance(
-            self.weight_granularity, (PerRow, PerGroup)
-        ), f"weight_granularity must be PerRow or PerGroup, but got {self.weight_granularity}"
+            self.weight_granularity, (PerAxis, PerGroup)
+        ), f"weight_granularity must be PerAxis or PerGroup, but got {self.weight_granularity}"
+        if isinstance(self.weight_granularity, PerAxis):
+            assert (
+                self.weight_granularity.axis == 0
+            ), f"axis must be 0, but got {self.weight_granularity.axis}"
         assert (
             self.weight_zero_point_domain in [ZeroPointDomain.INT, ZeroPointDomain.NONE]
         ), f"weight_zero_point_domain must be ZeroPointDomain.INT or ZeroPointDomain.NONE, but got {self.weight_zero_point_domain}"
@@ -761,13 +766,15 @@ def _int8_dynamic_activation_intx_weight_transform(
     act_mapping_type = config.act_mapping_type
     layout = config.layout
 
+    assert weight.dim() == 2, f"weight must be 2D, but got {weight.dim()}D"
     if isinstance(weight_granularity, PerGroup):
         group_size = weight_granularity.group_size
-    elif isinstance(weight_granularity, PerRow):
+    elif isinstance(weight_granularity, PerAxis):
+        assert weight_granularity.axis == 0, "axis must be 0"
         group_size = weight.shape[-1]
     else:
         raise ValueError(
-            f"weight_granularity must be PerGroup or PerRow, got {weight_granularity}"
+            f"weight_granularity must be PerGroup or PerAxis, got {weight_granularity}"
         )
 
     quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]

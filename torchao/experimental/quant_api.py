@@ -644,7 +644,8 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             "* granularity -> weight_granularity\n"
             "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
             "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
-            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16"
+            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
+            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
         )
 
 

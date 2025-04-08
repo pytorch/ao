@@ -564,7 +564,8 @@ def main(
                 precision == torch.float32
             ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
 
-            from torchao.quantization.granularity import PerGroup
+            from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
+            from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
                 ZeroPointDomain,
@@ -573,7 +574,8 @@ def main(
             # Quantize model
             _quant_args = quantization.split("-")
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
-            granularity = PerGroup(int(_quant_args[2]))
+            group_size = int(_quant_args[2])
+            granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
             has_weight_zeros = bool(_quant_args[3])
             quantize_(
                 model,
@@ -585,6 +587,7 @@ def main(
                     else ZeroPointDomain.NONE,
                     weight_mapping_type=MappingType.ASYMMETRIC,
                     weight_scale_dtype=torch.bfloat16,
+                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
                 ),
             )
         elif "float8wo" in quantization:

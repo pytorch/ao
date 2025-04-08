@@ -13,7 +13,7 @@ from parameterized import param, parameterized
 from torch.testing import FileCheck
 
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
-from torchao.quantization.granularity import PerGroup, PerRow
+from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
@@ -50,7 +50,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         ]
         for weight_granularity in [
             PerGroup(128),
-            PerRow(),
+            PerAxis(0),
         ]
     ]
 
@@ -246,7 +246,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         k2 = 128
         k3 = 1024
         weight_dtype = torch.int4
-        weight_granularity = PerRow()
+        weight_granularity = PerAxis(0)
         weight_mapping_type = MappingType.ASYMMETRIC
         weight_zero_point_domain = ZeroPointDomain.INT
         layers = [
@@ -300,7 +300,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         k2 = 128
         k3 = 1024
         weight_dtype = torch.int4
-        weight_granularity = PerRow()
+        weight_granularity = PerAxis(0)
         weight_mapping_type = MappingType.ASYMMETRIC
         weight_zero_point_domain = ZeroPointDomain.INT
 
