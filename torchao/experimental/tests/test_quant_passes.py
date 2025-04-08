@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
 import unittest
 
 import torch
@@ -32,27 +33,31 @@ class TestQuantPasses(unittest.TestCase):
         layer_to_weight_mapping_type = {}
         layer_to_weight_zero_point_domain = {}
         layer_to_weight_granularity = {}
-        for weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]:
-            for weight_mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]:
-                for weight_zero_point_domain in [
-                    ZeroPointDomain.INT,
-                    ZeroPointDomain.NONE,
-                ]:
-                    if (
-                        weight_mapping_type == MappingType.SYMMETRIC
-                        and weight_zero_point_domain == ZeroPointDomain.INT
-                    ):
-                        continue
-                    for weight_granularity in [PerAxis(0), PerGroup(32)]:
-                        for has_bias in [True, False]:
-                            idx = len(layers)
-                            layer_to_weight_dtype[idx] = weight_dtype
-                            layer_to_weight_mapping_type[idx] = weight_mapping_type
-                            layer_to_weight_zero_point_domain[idx] = (
-                                weight_zero_point_domain
-                            )
-                            layer_to_weight_granularity[idx] = weight_granularity
-                            layers.append(torch.nn.Linear(64, 64, bias=has_bias))
+        for (
+            weight_dtype,
+            weight_mapping_type,
+            weight_zero_point_domain,
+            weight_granularity,
+            has_bias,
+        ) in itertools.product(
+            [getattr(torch, f"int{i}") for i in range(1, 9)],
+            [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+            [ZeroPointDomain.INT, ZeroPointDomain.NONE],
+            [PerAxis(0), PerGroup(32)],
+            [True, False],
+        ):
+            if (
+                weight_mapping_type == MappingType.SYMMETRIC
+                and weight_zero_point_domain == ZeroPointDomain.INT
+            ):
+                continue
+
+            idx = len(layers)
+            layer_to_weight_dtype[idx] = weight_dtype
+            layer_to_weight_mapping_type[idx] = weight_mapping_type
+            layer_to_weight_zero_point_domain[idx] = weight_zero_point_domain
+            layer_to_weight_granularity[idx] = weight_granularity
+            layers.append(torch.nn.Linear(64, 64, bias=has_bias))
 
         activations = torch.randn(2, 1, 64, dtype=torch.float32)
         model = torch.nn.Sequential(*layers)
