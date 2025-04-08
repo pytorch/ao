@@ -47,6 +47,32 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 
 
+@dataclass
+class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
+    weight_dtype: torch.dtype = torch.int4
+    granularity: Union[PerRow, PerGroup] = PerRow()
+    has_weight_zeros: bool = False
+    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
+    act_mapping_type: MappingType = MappingType.ASYMMETRIC
+    round_weight_scale_to_bf16: bool = True
+    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
+
+    def __post_init__(self):
+        raise NotImplementedError(
+            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
+            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
+            "* granularity -> weight_granularity\n"
+            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
+            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
+            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
+            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
+        )
+
+
+# For BC
+int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
+
+
 class QuantizedEmbedding(nn.Module):
     def __init__(
         self,
@@ -252,32 +278,6 @@ class EmbeddingQuantizer:
             },
         )
         return model
-
-
-@dataclass
-class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
-    weight_dtype: torch.dtype = torch.int4
-    granularity: Union[PerRow, PerGroup] = PerRow()
-    has_weight_zeros: bool = False
-    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
-    act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    round_weight_scale_to_bf16: bool = True
-    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
-
-    def __post_init__(self):
-        raise NotImplementedError(
-            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
-            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
-            "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
-            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
-            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
-        )
-
-
-# For BC
-int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 def _get_fqns_with_filter(
