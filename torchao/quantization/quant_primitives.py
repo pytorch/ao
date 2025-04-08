@@ -1148,21 +1148,28 @@ def quantize_gguf(
         block_qparam_shape_after_reduction[i] = 1
     original_shape = input.shape
     input = input.view(input_shape_for_reduction)
-    quantized_block_scale = quantized_block_scale.view(block_qparam_shape_after_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        block_qparam_shape_after_reduction
+    )
     quantized_block_min = quantized_block_min.view(block_qparam_shape_after_reduction)
-
 
     # step 2: second order quantization, recover unquantized block_scale and block_min
     super_block_size = (1, _GGUF_QK_K // block_size[-1], 1)
     super_block_input_shape_for_reduction, reduction_dims = _get_reduction_params(
         super_block_size, quantized_block_scale.size()
     )
-    super_block_qparam_shape_after_reduction = super_block_input_shape_for_reduction.copy()
+    super_block_qparam_shape_after_reduction = (
+        super_block_input_shape_for_reduction.copy()
+    )
     for i in reduction_dims:
         super_block_qparam_shape_after_reduction[i] = 1
 
-    quantized_block_scale = quantized_block_scale.view(super_block_input_shape_for_reduction)
-    quantized_block_min = quantized_block_min.view(super_block_input_shape_for_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        super_block_input_shape_for_reduction
+    )
+    quantized_block_min = quantized_block_min.view(
+        super_block_input_shape_for_reduction
+    )
     super_block_scale_scale = super_block_scale_scale.view(
         super_block_qparam_shape_after_reduction
     )
@@ -1203,7 +1210,9 @@ def dequantize_gguf(
 
     original_shape = input.shape
     input = input.view(input_shape_for_reduction)
-    quantized_block_scale = quantized_block_scale.view(block_qparam_shape_after_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        block_qparam_shape_after_reduction
+    )
     quantized_block_min = quantized_block_min.view(block_qparam_shape_after_reduction)
 
     # step 2. calculate and reshape block_qparams for second quantization step
@@ -1211,11 +1220,17 @@ def dequantize_gguf(
     super_block_input_shape_for_reduction, reduction_dims = _get_reduction_params(
         super_block_size, quantized_block_scale.size()
     )
-    super_block_qparam_shape_after_reduction = super_block_input_shape_for_reduction.copy()
+    super_block_qparam_shape_after_reduction = (
+        super_block_input_shape_for_reduction.copy()
+    )
     for i in reduction_dims:
         super_block_qparam_shape_after_reduction[i] = 1
-    quantized_block_scale = quantized_block_scale.view(super_block_input_shape_for_reduction)
-    quantized_block_min = quantized_block_min.view(super_block_input_shape_for_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        super_block_input_shape_for_reduction
+    )
+    quantized_block_min = quantized_block_min.view(
+        super_block_input_shape_for_reduction
+    )
     super_block_scale_scale = super_block_scale_scale.view(
         super_block_qparam_shape_after_reduction
     )
