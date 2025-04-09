@@ -83,6 +83,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
+    TORCH_VERSION_AT_LEAST_2_8,
     benchmark_model,
     is_fbcode,
     is_sm_at_least_90,
@@ -159,7 +160,7 @@ def _int4wo_api(mod, use_hqq=False):
         unwrap_tensor_subclass(mod)
     elif (
         is_device(next(mod.parameters()).device.type, "xpu")
-        and TORCH_VERSION_AT_LEAST_2_7
+        and TORCH_VERSION_AT_LEAST_2_8
     ):
         quantize_(
             mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
@@ -1139,7 +1140,7 @@ class TestSubclass(unittest.TestCase):
         layout_list = []
         if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
             layout_list.append(Int4CPULayout())
-        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_7:
+        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_8:
             layout_list.append(Int4XPULayout())
         else:
             for inner_k_tiles in [4, 2]:

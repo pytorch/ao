@@ -23,7 +23,7 @@ from torchao.quantization.quant_primitives import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_7,
+    TORCH_VERSION_AT_LEAST_2_8,
 )
 
 __all__ = [
@@ -434,7 +434,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         if (
             not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
         ) and (
-            not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)
+            not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8)
         ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
@@ -455,7 +455,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
         TORCH_VERSION_AT_LEAST_2_5
         and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
         and not (is_device(w_int4x8.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
-        and not (is_device(w_int4x8.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_7)
+        and not (is_device(w_int4x8.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
