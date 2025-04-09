@@ -779,6 +779,7 @@ def choose_qparams_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+
     return _choose_qparams_affine(
         input,
         mapping_type.name,
@@ -875,8 +876,6 @@ def _choose_qparams_affine(
     if input is not None:
         if scale_dtype is None:
             scale_dtype = input.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = input.dtype
         if eps is None:
             eps = torch.finfo(input.dtype).eps
 
@@ -900,8 +899,6 @@ def _choose_qparams_affine(
 
         if scale_dtype is None:
             scale_dtype = min_val.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = min_val.dtype
         if eps is None:
             eps = torch.finfo(min_val.dtype).eps
 
@@ -958,16 +955,8 @@ def _choose_qparams_affine(
         elif zero_point_domain == ZeroPointDomain.INT.name:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            assert (
-                zero_point_dtype
-                in [
-                    torch.int8,
-                    torch.uint8,
-                    torch.int16,
-                    torch.int32,
-                    torch.int64,
-                ]
-            ), "zero_point_dtype must be int8/uint8/int16/int32/int64 if ZeroPointDomain.INT"
+            if zero_point_dtype is None:
+                zero_point_dtype = torch.int32
         else:
             assert (
                 zero_point_domain == ZeroPointDomain.FLOAT.name

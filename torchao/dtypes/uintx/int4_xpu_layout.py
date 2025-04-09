@@ -256,7 +256,7 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
                 int_data, zero_point.dtype != scale.dtype
             )
         else:
-            assert False, "INT4 not supported on XPU until 2.7"
+            assert False, "INT4 not supported on XPU until 2.8"
 
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)

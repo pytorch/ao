@@ -69,6 +69,7 @@ def _get_groupwise_affine_qparams(
     groupsize=128,
     dtype=torch.bfloat16,
     zero_point_domain=ZeroPointDomain.FLOAT,
+    zero_point_dtype=torch.bfloat16,
 ):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -87,11 +88,11 @@ def _get_groupwise_affine_qparams(
     scales = (max_val - min_val).clamp(min=1e-6) / max_int
     if zero_point_domain == ZeroPointDomain.FLOAT:
         zeros = min_val + scales * (2 ** (n_bit - 1))
-        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+        zeros = zeros.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
     else:
         zeros = quant_min - torch.round(min_val / scales)
         zeros = torch.clamp(zeros, quant_min, quant_max)
-        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+        zeros = zeros.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
     scales = scales.to(dtype=dtype).reshape(w.shape[0], -1)
     return scales, zeros
 
@@ -683,6 +684,7 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
 
         zero_point_domains = [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
+        zero_point_dtypes = [torch.bfloat16, torch.int32]
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 128)
@@ -690,8 +692,9 @@ class TestQuantPrimitives(unittest.TestCase):
         quant_max = 2**n_bit - 1
         eps = 1e-6
         scale_dtype = torch.bfloat16
-        zero_point_dtype = torch.bfloat16
-        for zero_point_domain in zero_point_domains:
+        for zero_point_domain, zero_point_dtype in zip(
+            zero_point_domains, zero_point_dtypes
+        ):
             scale_ref, zero_point_ref = _get_groupwise_affine_qparams(
                 input,
                 n_bit=n_bit,
