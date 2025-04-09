@@ -91,6 +91,20 @@ class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
         return (gy,)
 
 
+class _Round(torch.autograd.Function):
+    """
+    Implementation of generic round operation with backward STE.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        return torch.round(x)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
+        return gy
+
+
 def _fake_quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
