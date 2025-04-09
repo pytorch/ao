@@ -15,6 +15,7 @@ from torchao.prototype.quantization.codebook import (
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_no_cuda
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 class TestCodebookQuantization(unittest.TestCase):
@@ -76,6 +77,7 @@ class TestCodebookQuantization(unittest.TestCase):
         assert type(m[0].weight) == CodebookQuantizedTensor
 
     @skip_if_no_cuda()
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
     def test_export(self):
         m = torch.nn.Sequential(torch.nn.Linear(128, 64)).to(dtype=torch.bfloat16)
         quantize_(m, CodebookWeightOnlyConfig())
