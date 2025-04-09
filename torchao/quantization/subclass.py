@@ -8,7 +8,6 @@
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import is_device
 from torchao.quantization.utils import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
@@ -17,8 +16,8 @@ from torchao.quantization.utils import (
     unpack_tinygemm_scales_and_zeros,
 )
 from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
+    check_cpu_version,
+    check_xpu_version,
     find_multiple,
 )
 
@@ -473,14 +472,14 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
-        if is_device(act_mat.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(act_mat.device):
             y = aten._weight_int4pack_mm_for_cpu(
                 act_mat.contiguous(),
                 w_qtensor.int_data,
                 w_qtensor.groupsize,
                 w_qtensor.scales_and_zeros,
             )
-        elif is_device(act_mat.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8:
+        elif check_xpu_version(act_mat.device):
             if not w_qtensor.zero_point_domain == ZeroPointDomain.INT:
                 y = aten._weight_int4pack_mm(
                     act_mat.contiguous(),
@@ -694,11 +693,11 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             zero_point_domain=zero_point_domain,
             preserve_zero=preserve_zero,
         )
-        if is_device(input_float.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(input_float.device):
             int_data = aten._convert_weight_to_int4pack_for_cpu(
                 input_int4x8, inner_k_tiles
             )
-        if is_device(input_float.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8:
+        if check_xpu_version(input_float.device):
             from torchao.quantization.utils import convert_weight_to_int4pack_xpu
 
             int_data = convert_weight_to_int4pack_xpu(

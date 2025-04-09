@@ -11,7 +11,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from torchao.dtypes.utils import is_device
 from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -38,7 +37,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
 )
 
@@ -136,9 +136,7 @@ def _groupwise_affine_quantize_tensor_from_qparams(
         )
 
     if TORCH_VERSION_AT_LEAST_2_5:
-        if (not (is_device(w.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)) and (
-            not (is_device(w.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8)
-        ):
+        if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
             w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
 
     return w_int4x8
@@ -747,16 +745,8 @@ class TestQuantPrimitives(unittest.TestCase):
                 zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
             if TORCH_VERSION_AT_LEAST_2_5:
                 input_tmp = input
-                if (
-                    not (
-                        is_device(input.device.type, "cpu")
-                        and TORCH_VERSION_AT_LEAST_2_6
-                    )
-                ) and (
-                    not (
-                        is_device(input.device.type, "xpu")
-                        and TORCH_VERSION_AT_LEAST_2_8
-                    )
+                if (not (check_cpu_version(input.device))) and (
+                    not (check_xpu_version(input.device))
                 ):
                     input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
                 w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(

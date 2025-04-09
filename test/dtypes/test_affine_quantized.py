@@ -36,8 +36,8 @@ from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.testing.utils import skip_if_no_cuda, skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
@@ -58,11 +58,11 @@ def get_quantization_functions(
         int8_dynamic_activation_int8_weight(act_mapping_type=MappingType.ASYMMETRIC),
     ]
     if do_int4:
-        if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(device):
             base_functions.append(
                 int4_weight_only(group_size=32, layout=Int4CPULayout())
             )
-        elif device == "xpu" and TORCH_VERSION_AT_LEAST_2_8:
+        elif check_xpu_version(device):
             base_functions.append(
                 int4_weight_only(group_size=32, layout=Int4XPULayout())
             )

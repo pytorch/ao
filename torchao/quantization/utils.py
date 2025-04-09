@@ -9,7 +9,6 @@ from typing import Dict, List, Optional
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from torchao.dtypes.utils import is_device
 from torchao.kernel import (
     int_scaled_matmul,
 )
@@ -22,8 +21,8 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_6,
-    TORCH_VERSION_AT_LEAST_2_8,
+    check_cpu_version,
+    check_xpu_version,
 )
 
 __all__ = [
@@ -431,10 +430,8 @@ def groupwise_affine_quantize_tensor_from_qparams(
         zero_point_domain=zero_point_domain,
     )
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
-        if (
-            not (is_device(int_data.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
-        ) and (
-            not (is_device(int_data.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8)
+        if (not (check_cpu_version(int_data.device))) and (
+            not (check_xpu_version(int_data.device))
         ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
@@ -454,8 +451,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     if (
         TORCH_VERSION_AT_LEAST_2_5
         and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
-        and not (is_device(w_int4x8.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6)
-        and not (is_device(w_int4x8.device.type, "xpu") and TORCH_VERSION_AT_LEAST_2_8)
+        and not (check_cpu_version(w_int4x8.device))
+        and not (check_xpu_version(w_int4x8.device))
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4

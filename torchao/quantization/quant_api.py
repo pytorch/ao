@@ -1039,6 +1039,9 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
+    if zero_point_domain == ZeroPointDomain.INT and isinstance(layout, Int4XPULayout):
+        zero_point_dtype = torch.int32
+
     preserve_zero = (
         config.preserve_zero
         if config.preserve_zero is not None

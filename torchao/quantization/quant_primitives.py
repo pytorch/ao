@@ -958,7 +958,16 @@ def _choose_qparams_affine(
         elif zero_point_domain == ZeroPointDomain.INT.name:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            zero_point_dtype = torch.int32
+            assert (
+                zero_point_dtype
+                in [
+                    torch.int8,
+                    torch.uint8,
+                    torch.int16,
+                    torch.int32,
+                    torch.int64,
+                ]
+            ), "zero_point_dtype must be int8/uint8/int16/int32/int64 if ZeroPointDomain.INT"
         else:
             assert (
                 zero_point_domain == ZeroPointDomain.FLOAT.name
