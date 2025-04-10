@@ -442,6 +442,7 @@
     <span class="n">CutlassSemiSparseLayout</span><span class="p">,</span>
     <span class="n">Float8Layout</span><span class="p">,</span>
     <span class="n">Int4CPULayout</span><span class="p">,</span>
+    <span class="n">Int4XPULayout</span><span class="p">,</span>
     <span class="n">MarlinQQQLayout</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">,</span>
     <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">,</span>
@@ -549,12 +550,14 @@
     <span class="n">TensorCoreTiledLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span>
     <span class="n">MarlinSparseLayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">],</span>
     <span class="n">Int4CPULayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span>
+    <span class="n">Int4XPULayout</span><span class="p">:</span> <span class="p">[</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">,</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">],</span>
 <span class="p">}</span>
 
 <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">TensorCoreTiledLayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">MarlinSparseLayout</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">Int4CPULayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">Int4XPULayout</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">}</span>
 
 
@@ -612,7 +615,12 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">change_linear_weights_to_int4_woqtensors</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+    <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">,</span>
+    <span class="n">preserve_zero</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the</span>
@@ -623,6 +631,11 @@
 <span class="sd">        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller</span>
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
+<span class="sd">        `filter_fn`: function that takes a nn.Module instance and fully qualified name of the module, \</span>
+<span class="sd">            returns True if we want to run `config` on</span>
+<span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, \</span>
+<span class="sd">            ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
+<span class="sd">        `preserve_zero`: whether to preserve zero, default is False</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
@@ -639,6 +652,8 @@
             <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="n">groupsize</span><span class="o">=</span><span class="n">groupsize</span><span class="p">,</span>
             <span class="n">inner_k_tiles</span><span class="o">=</span><span class="n">inner_k_tiles</span><span class="p">,</span>
+            <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
+            <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
         <span class="p">),</span>
         <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1372,6 +1387,7 @@
 <span class="sd">        `use_hqq`: whether to use hqq or default quantization mode, default is False</span>
 <span class="sd">        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]</span>
 <span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.</span>
+<span class="sd">        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
@@ -1379,6 +1395,7 @@
     <span class="n">use_hqq</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">preserve_zero</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 
 
 <span class="c1"># for BC</span>
@@ -1415,7 +1432,6 @@
     <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
     <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
-    <span class="n">preserve_zero</span> <span class="o">=</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
     <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="p">(</span>
         <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4CPULayout</span><span class="p">)</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
     <span class="p">)</span>
@@ -1432,6 +1448,14 @@
             <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
         <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
 
+    <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4XPULayout</span><span class="p">):</span>
+        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+
+    <span class="n">preserve_zero</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">preserve_zero</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">preserve_zero</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">else</span> <span class="n">LAYOUT_TO_PRESERVE_ZEROS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
+    <span class="p">)</span>
     <span class="c1"># Sparse Marlin only supports symmetric quantization.</span>
     <span class="c1"># NOTE: If we start having lots of layouts that require different configurations,</span>
     <span class="c1"># we should consider moving this logic somewhere else.</span>

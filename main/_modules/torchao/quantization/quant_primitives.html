@@ -1188,6 +1188,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+
     <span class="k">return</span> <span class="n">_choose_qparams_affine</span><span class="p">(</span>
         <span class="nb">input</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
@@ -1284,8 +1285,6 @@
     <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">scale_dtype</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">if</span> <span class="n">zero_point_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span>
         <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
 
@@ -1309,8 +1308,6 @@
 
         <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">scale_dtype</span> <span class="o">=</span> <span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">if</span> <span class="n">zero_point_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span>
         <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
 
@@ -1364,19 +1361,20 @@
         <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
             <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="n">quant_min</span> <span class="o">-</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">min_val_neg</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">zero_point</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">zero_point_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">preserve_zero</span><span class="p">:</span>
-                <span class="n">zero_point</span> <span class="o">=</span> <span class="n">quant_min</span> <span class="o">-</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">min_val_neg</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)</span>
-                <span class="n">zero_point</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">zero_point</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">assert</span> <span class="p">(</span>
-                    <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
-                <span class="p">),</span> <span class="s2">&quot;if not preserve_zero, zero_point must be in FLOAT domain&quot;</span>
-                <span class="n">mid_point</span> <span class="o">=</span> <span class="p">(</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
-                <span class="c1"># this is not preserving zero_point, this is converting to TensorCoreTiledFormat</span>
-                <span class="c1"># TODO move the conversion of zero_point out of quant_primitives</span>
-                <span class="c1"># and into TensorCoreTiledLayout.from_plain</span>
-                <span class="n">zero_point</span> <span class="o">=</span> <span class="n">min_val_neg</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">mid_point</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
+            <span class="p">),</span> <span class="s2">&quot;zero_point must be in FLOAT/INT/None domain for asymmetric quantization&quot;</span>
+            <span class="n">mid_point</span> <span class="o">=</span> <span class="p">(</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="c1"># this is not preserving zero_point, this is converting to TensorCoreTiledFormat</span>
+            <span class="c1"># TODO move the conversion of zero_point out of quant_primitives</span>
+            <span class="c1"># and into TensorCoreTiledLayout.from_plain</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="n">min_val_neg</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">mid_point</span>
 
     <span class="k">if</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">zero_point</span> <span class="o">=</span> <span class="n">zero_point</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>

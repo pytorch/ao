@@ -417,7 +417,7 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_2</span><span class="p">,</span> <span class="n">check_cpu_version</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">NullHandler</span><span class="p">())</span>
@@ -563,7 +563,7 @@
     <span class="n">scales1</span> <span class="o">=</span> <span class="n">scales1</span><span class="o">.</span><span class="n">expand</span><span class="p">((</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">))</span>
     <span class="k">assert</span> <span class="n">scales1</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
 
-    <span class="k">if</span> <span class="n">scales1</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">and</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">check_cpu_version</span><span class="p">(</span><span class="n">scales1</span><span class="o">.</span><span class="n">device</span><span class="p">):</span>
         <span class="c1"># CPU prefers decomposed version of int_scaled_matmul</span>
         <span class="c1"># to leverage the fusion capability of Inductor</span>
         <span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_int_mm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
