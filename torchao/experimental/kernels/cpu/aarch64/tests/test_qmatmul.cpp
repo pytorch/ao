@@ -569,7 +569,7 @@ static void test_fp32_attn_scores_at_v_matmul_attention(
           b, s_attn, s_v, h, d, transpose_v);
 
   using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
-      fp32_a_input_channelwise_8bit_b_1x16x4_f32;
+      fp32_a_input_channelwise_8bit_b_f32;
 
   size_t attn_b_stride = test_case.b_attn_stride;
   size_t attn_h_stride = test_case.h_attn_stride;
@@ -642,6 +642,16 @@ TEST(
 
 TEST(test_fp32_attn_scores_at_v_matmul_attention, PrimeSequenceDimNoTranspose) {
   test_fp32_attn_scores_at_v_matmul_attention(1, 7, 9, 7, 33, false);
+}
+
+TEST(test_fp32_attn_scores_at_v_matmul_attention, BasicNoTranspose2) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 13, 20, 8, 16, false);
+}
+
+TEST(
+    test_fp32_attn_scores_at_v_matmul_attention,
+    PrimeSequenceDimNoTranspose2) {
+  test_fp32_attn_scores_at_v_matmul_attention(1, 7, 17, 7, 33, false);
 }
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
