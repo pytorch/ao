@@ -167,10 +167,7 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
             if result is not None:  # Only add successful results
                 results.append(result)
         except Exception as e:
-            import traceback
-
             print(f"Error running benchmark {config.name} with error: {e}")
-            print(traceback.format_exc())
             continue
 
     # Add results to csv if there are any

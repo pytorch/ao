@@ -97,13 +97,10 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                 result.profiler_json_path, result.perfetto_url = generate_model_profile(
                     m_copy, input_data, config.profiler_file_name
                 )
-            except Exception as e:
-                print(f"Error running profiler: {e}")
+            except Exception:
+                print(f"Error running profiler for {config.name}")
 
         return result
     except Exception as e:
-        print(f"Error in benchmark run: {e}")
-        import traceback
-
-        print(traceback.format_exc())
+        print(f"Error in benchmark run: {config.name} with error: {e}")
         return None

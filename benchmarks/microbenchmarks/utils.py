@@ -77,7 +77,7 @@ def generate_model_profile(model, input_data, profile_file_path):
         record_shapes=True,
         with_stack=True,
         profile_memory=True,
-        with_flops=True,  # Excperiemntal; might be unreliable for some layers
+        with_flops=True,  # Experimental; might be unreliable for some layers
     )
 
     # Warm up
