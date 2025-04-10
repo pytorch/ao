@@ -21,9 +21,7 @@ class ToyLinearModel(torch.nn.Module):
 
 
 class LNLinearActivationModel(nn.Module):
-    def __init__(
-        self, fc_dim1, fc_dim2, dtype=torch.bfloat16, activation="sigmoid", device=None
-    ):
+    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16, activation="sigmoid"):
         super().__init__()
 
         activation = activation.lower()
@@ -41,13 +39,27 @@ class LNLinearActivationModel(nn.Module):
             raise ValueError(f"Unsupported activation: {activation}")
 
         self.ln = nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype=dtype, device=device)
+        self.fc = nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype=dtype)
         self.activation = activation_map[activation]
 
     def forward(self, x):
         x = self.ln(x)
         x = self.fc(x)
         return self.activation(x)
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
 
 
 class TransformerBlock(torch.nn.Module):
@@ -72,8 +84,8 @@ class TransformerBlock(torch.nn.Module):
         )
 
         # Layer norms
-        self.norm1 = nn.RMSNorm(hidden_dim, dtype=dtype)
-        self.norm2 = nn.RMSNorm(hidden_dim, dtype=dtype)
+        self.norm1 = RMSNorm(hidden_dim).to(dtype)
+        self.norm2 = RMSNorm(hidden_dim).to(dtype)
 
         # Activation
         self.activation = torch.nn.GELU()
