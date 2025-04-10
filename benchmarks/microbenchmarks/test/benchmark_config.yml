@@ -8,8 +8,8 @@ quantization_config_recipe_names:
   - "float8wo"
 # sparsity_config_recipe_names:
   # Will run a baseline inference for model by default, without sparsity for comparison
-  - "semi-sparse"
-  - "block"
+  # - "semi-sparse"
+  # - "block"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
