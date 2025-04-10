@@ -228,7 +228,8 @@ TEST(
           /*m=*/4, /*k=*/37, /*n=*/19);
 }
 
-class FP32A_QuantizedB_FP32C_Test : public ::testing::TestWithParam<bool> {
+class FP32A_QuantizedB_FP32C_Test
+    : public ::testing::TestWithParam<std::pair<bool, float>> {
  public:
   int m;
   int k;
@@ -321,7 +322,11 @@ class FP32A_QuantizedB_FP32C_Test : public ::testing::TestWithParam<bool> {
   }
 
   float beta() const {
-    return GetParam();
+    return std::get<1>(GetParam());
+  }
+
+  bool use_gemm_kernel() const {
+    return std::get<0>(GetParam());
   }
 };
 
@@ -334,11 +339,34 @@ static void test_fp32_a_input_channelwise_8bit_b(
     int stride = 1) {
   test_case.execute(beta);
 
-  using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
-      fp32_a_input_channelwise_8bit_b_1x16x4_f32;
+  using kernel_fn_type = void (*)(
+      int,
+      int,
+      int,
+      const float*,
+      int,
+      const int8_t*,
+      int,
+      float*,
+      int,
+      const int8_t*,
+      const float*,
+      const float,
+      const int);
+
+  kernel_fn_type kernel_fn = nullptr;
+  if (test_case.use_gemm_kernel() && (m % 4 == 0)) {
+    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+        fp32_a_input_channelwise_8bit_b_4x16x4_f32;
+    kernel_fn = kernel<true, false, false>;
+  } else {
+    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+        fp32_a_input_channelwise_8bit_b_1x16x4_f32;
+    kernel_fn = kernel<true, false, false>;
+  }
 
   std::vector<float> output(test_case.init_output);
-  kernel<true, false, false>(
+  kernel_fn(
       m,
       n,
       k,
@@ -388,6 +416,12 @@ TEST_P(FP32A_QuantizedB_FP32C_Test, BTranposedWithZeroPointsOddSizes3) {
       /*m=*/4, /*k=*/27, /*n=*/21, beta(), *this);
 }
 
+TEST_P(FP32A_QuantizedB_FP32C_Test, BTranposedWithZeroPointsOddSizes4) {
+  generate(12, 27, 33, true, false, false);
+  test_fp32_a_input_channelwise_8bit_b(
+      /*m=*/12, /*k=*/27, /*n=*/33, beta(), *this);
+}
+
 TEST_P(FP32A_QuantizedB_FP32C_Test, BTranposedWithZeroPointsAlpha) {
   generate(1, 128, 16, true, false, false);
   test_fp32_a_input_channelwise_8bit_b(
@@ -408,10 +442,23 @@ TEST_P(FP32A_QuantizedB_FP32C_Test, BTranposedWithZeroPointsOddSizes2Strides) {
       /*m=*/7, /*k=*/37, /*n=*/19, beta(), *this, stride);
 }
 
+TEST_P(FP32A_QuantizedB_FP32C_Test, BTranposedWithZeroPointsOddSizes2Strides2) {
+  stride = 11;
+  generate(8, 37, 19, true, false, false, stride);
+  test_fp32_a_input_channelwise_8bit_b(
+      /*m=*/8, /*k=*/37, /*n=*/19, beta(), *this, stride);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     F32AInt8BFP32CTest,
     FP32A_QuantizedB_FP32C_Test,
-    ::testing::Values(0.0, 1.0, 2.69));
+    ::testing::Values(
+        std::pair<bool, float>(false, 0.0),
+        std::pair<bool, float>(false, 1.0),
+        std::pair<bool, float>(false, 2.69),
+        std::pair<bool, float>(true, 0.0),
+        std::pair<bool, float>(true, 1.0),
+        std::pair<bool, float>(true, 2.69)));
 
 static void test_8bit_per_token_q_at_k_matmul_attention(
     int b,

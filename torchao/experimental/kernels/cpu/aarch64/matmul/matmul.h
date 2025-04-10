@@ -86,10 +86,31 @@ void kernel(
     const int rhs_qparams_stride);
 
 } // namespace fp32_a_input_channelwise_8bit_b_1x16x4_f32
+
+namespace fp32_a_input_channelwise_8bit_b_4x16x4_f32 {
+
+template <bool b_has_zeros, bool a_transposed, bool b_tranposed>
+void kernel(
+    int m,
+    int n,
+    int k,
+    const float* lhs,
+    int lhs_stride_m,
+    const int8_t* rhs,
+    int rhs_stride_n,
+    float32_t* output,
+    int out_stride_m,
+    const int8_t* rhs_zero_points,
+    const float* rhs_scales,
+    const float beta,
+    const int rhs_qparams_stride);
+
+} // namespace fp32_a_input_channelwise_8bit_b_4x16x4_f32
 } // namespace torchao::kernels::cpu::aarch64::quantized_matmul
 
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/fp32_a_input_channelwise_8bit_b_1x16x4_f32_impl.h>
+#include <torchao/experimental/kernels/cpu/aarch64/matmul/fp32_a_input_channelwise_8bit_b_4x16x4_f32_impl.h>
 
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
