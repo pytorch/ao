@@ -60,7 +60,7 @@ def generate_model_profile(model, input_data, profile_file_path):
         profile_file_path: Path to save the profiler output
 
     Returns:
-        Tuple of (profile_file_path, perfetto_url)
+        profile_file_path
     """
     # Create parent directory if it doesn't exist
     os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
@@ -187,30 +187,6 @@ class BenchmarkResult:
             "profiler_json_path": self.profiler_json_path,
         }
         return result_dict
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        return x
-
-
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
 
 
 def string_to_config(
@@ -383,34 +359,6 @@ def model_inference_time_in_ms(model, input_data):
     return res * 1e6
 
 
-def create_model_and_input(
-    model_type: str,
-    m: int,
-    k: int,
-    n: int,
-    high_precision_dtype: torch.dtype = torch.bfloat16,
-    device: str = get_default_device(),
-):
-    """Create a model and input data for benchmarking.
-
-    Args:
-        model_type (str): type of the model to be created
-        batch_size (int): batch size of the input data
-        device (str): device to run the model on
-        high_precision_dtype (torch.dtype): data type of the model
-        m, k, n (int): dimensions of the model and input data
-    """
-    if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    elif model_type == "ln_linear_sigmoid":
-        model = LNLinearSigmoid(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-    return model, input_data
-
-
 def clean_caches():
     import gc
 
@@ -473,7 +421,7 @@ def print_results(results: List[BenchmarkResult]):
             result.config.name,
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
-            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})"
+            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
             f"{result.model_inference_time_in_ms:.2f}",
             str(result.config.enable_profiler),
         ]
@@ -485,6 +433,7 @@ def print_results(results: List[BenchmarkResult]):
         "Name",
         "Quantization",
         "Sparsity",
+        "Shape",
         "Inference Time (ms)",
         "Profiler Enabled",
     ]

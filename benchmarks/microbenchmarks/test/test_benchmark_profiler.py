@@ -12,9 +12,9 @@ import torch
 
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
-    ToyLinearModel,
     generate_model_profile,
 )
+from torchao.testing.model_architectures import ToyLinearModel
 
 
 class TestBenchmarkProfiler(unittest.TestCase):

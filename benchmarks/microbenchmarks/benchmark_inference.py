@@ -19,13 +19,15 @@ from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     clean_caches,
-    create_model_and_input,
     generate_model_profile,
     model_inference_time_in_ms,
     string_to_config,
 )
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
+from torchao.testing.model_architectures import (
+    create_model_and_input_data,
+)
 
 
 def run(config: BenchmarkConfig) -> BenchmarkResult:
@@ -36,7 +38,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         # Create output directory if it doesn't exist
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        base_model, input_data = create_model_and_input(
+        base_model, input_data = create_model_and_input_data(
             config.model_type,
             config.m,
             config.k,
@@ -94,16 +96,12 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_profiler:
             print("Running profiler...")
             try:
-                result.profiler_json_path, result.perfetto_url = generate_model_profile(
+                result.profiler_json_path = generate_model_profile(
                     m_copy, input_data, config.profiler_file_name
                 )
-            except Exception as e:
-                print(f"Error running profiler: {e}")
-
+            except Exception:
+                print(f"Error running profiler for {config.name}")
         return result
-    except Exception as e:
-        print(f"Error in benchmark run: {e}")
-        import traceback
-
-        print(traceback.format_exc())
-        return None
+    except Exception:
+        print(f"Error in benchmark run: {config.name}")
+        return
