@@ -8,7 +8,6 @@ import re
 
 import torch
 import torch.nn as nn
-from torch.nn import RMSNorm
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -73,8 +72,8 @@ class TransformerBlock(torch.nn.Module):
         )
 
         # Layer norms
-        self.norm1 = RMSNorm(hidden_dim, dtype=dtype)
-        self.norm2 = RMSNorm(hidden_dim, dtype=dtype)
+        self.norm1 = nn.RMSNorm(hidden_dim, dtype=dtype)
+        self.norm2 = nn.RMSNorm(hidden_dim, dtype=dtype)
 
         # Activation
         self.activation = torch.nn.GELU()
