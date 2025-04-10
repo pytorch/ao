@@ -5,7 +5,8 @@ quantization_config_recipe_names:
   - "int8wo"
   - "int8dq"
   - "float8dq"
-sparsity_config_recipe_names:
+  - "float8wo"
+# sparsity_config_recipe_names:
   # Will run a baseline inference for model by default, without sparsity for comparison
   - "semi-sparse"
   - "block"
