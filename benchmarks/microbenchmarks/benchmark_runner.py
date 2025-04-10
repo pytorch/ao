@@ -164,16 +164,19 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
                 f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
             )
             result = run_inference(config)  # Pass the config object directly
-            results.append(result)
-        except Exception:
-            print(f"Error running benchmark {config.name}")
+            if result is not None:  # Only add successful results
+                results.append(result)
+        except Exception as e:
+            print(f"Error running benchmark {config.name} with error: {e}")
             continue
 
-    # Add results to csv
-    generate_results_csv(results, configs[0].output_dir)
-
-    # Print results
-    print_results(results)
+    # Add results to csv if there are any
+    if results:
+        generate_results_csv(results, configs[0].output_dir)
+        # Print results
+        print_results(results)
+    else:
+        print("No benchmark results were collected. All benchmarks failed.")
 
     # TODO: Process results: Speedups:
     # 1. For different shapes for same model and quantization
