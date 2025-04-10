@@ -94,11 +94,11 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_profiler:
             print("Running profiler...")
             try:
-                result.profiler_json_path, result.perfetto_url = generate_model_profile(
+                result.profiler_json_path = generate_model_profile(
                     m_copy, input_data, config.profiler_file_name
                 )
-            except Exception:
-                print(f"Error running profiler for {config.name}")
+            except Exception as e:
+                print(f"Error running profiler for {config.name} with error: {e}")
 
         return result
     except Exception as e:

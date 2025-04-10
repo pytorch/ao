@@ -473,7 +473,7 @@ def print_results(results: List[BenchmarkResult]):
             result.config.name,
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
-            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})"
+            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
             f"{result.model_inference_time_in_ms:.2f}",
             str(result.config.enable_profiler),
         ]
@@ -485,6 +485,7 @@ def print_results(results: List[BenchmarkResult]):
         "Name",
         "Quantization",
         "Sparsity",
+        "Shape",
         "Inference Time (ms)",
         "Profiler Enabled",
     ]
