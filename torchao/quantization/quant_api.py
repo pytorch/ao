@@ -33,6 +33,7 @@ from torchao.dtypes import (
     CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
+    Int4XPULayout,
     MarlinQQQLayout,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
@@ -140,12 +141,14 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
+    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     MarlinSparseLayout: True,
     Int4CPULayout: False,
+    Int4XPULayout: False,
 }
 
 
@@ -203,7 +206,12 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
 
 
 def change_linear_weights_to_int4_woqtensors(
-    model, groupsize=128, inner_k_tiles=8, filter_fn=None
+    model,
+    groupsize=128,
+    inner_k_tiles=8,
+    filter_fn=None,
+    zero_point_domain=ZeroPointDomain.FLOAT,
+    preserve_zero=False,
 ):
     """
     Converts all linear weight tensors to the
@@ -214,6 +222,11 @@ def change_linear_weights_to_int4_woqtensors(
         `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+        `filter_fn`: function that takes a nn.Module instance and fully qualified name of the module, \
+            returns True if we want to run `config` on
+        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, \
+            ZeroPointDomain.INT, ZeroPointDomain.NONE]
+        `preserve_zero`: whether to preserve zero, default is False
     """
     if TORCH_VERSION_AT_LEAST_2_4:
         raise ImportError(
@@ -230,6 +243,8 @@ def change_linear_weights_to_int4_woqtensors(
             enable_parametrization=False,
             groupsize=groupsize,
             inner_k_tiles=inner_k_tiles,
+            zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
         ),
         filter_fn,
     )
@@ -963,6 +978,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `use_hqq`: whether to use hqq or default quantization mode, default is False
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
+        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
     """
 
     group_size: int = 128
@@ -970,6 +986,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     use_hqq: bool = False
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
+    preserve_zero: Optional[bool] = None
 
 
 # for BC
@@ -1006,7 +1023,6 @@ def _int4_weight_only_transform(
     quant_min = 0
     quant_max = 15
     eps = 1e-6
-    preserve_zero = LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     zero_point_dtype = (
         weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
     )
@@ -1023,6 +1039,14 @@ def _int4_weight_only_transform(
             zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)]
         ), f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
 
+    if zero_point_domain == ZeroPointDomain.INT and isinstance(layout, Int4XPULayout):
+        zero_point_dtype = torch.int32
+
+    preserve_zero = (
+        config.preserve_zero
+        if config.preserve_zero is not None
+        else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
+    )
     # Sparse Marlin only supports symmetric quantization.
     # NOTE: If we start having lots of layouts that require different configurations,
     # we should consider moving this logic somewhere else.
