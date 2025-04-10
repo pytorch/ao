@@ -12,9 +12,7 @@
 #include <torchao/experimental/kernels/cpu/fallback/matmul/fp32_a_channelwise_8bit_b_fp32_c.h>
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
-#include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal-impl.h>
-#include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot-impl.h>
-#include <torchao/experimental/kernels/cpu/aarch64/matmul/fp32_a_input_channelwise_8bit_b_1x16x4_f32_impl.h>
+#include <torchao/experimental/kernels/cpu/aarch64/matmul/matmul.h>
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
 
 namespace torchao::kernels::cpu::quantized_matmul {
@@ -138,8 +136,8 @@ get_fp32_a_input_channelwise_8bit_b_f32_c_matmul(
   if (!a_transposed && !b_transposed && n >= 16) {
     a_stride_m = k;
     b_stride_n = n;
-    return aarch64::quantized_matmul::
-        fp32_a_input_channelwise_8bit_b_1x16x4_f32::kernel<true, false, false>;
+    return aarch64::quantized_matmul::fp32_a_input_channelwise_8bit_b_f32::
+        kernel<true, false, false>;
   }
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
   assert(!a_transposed);
