@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <cassert>
 #if defined(__aarch64__) && defined(__ARM_NEON)
 
 #include <arm_neon.h>
@@ -106,6 +107,83 @@ void kernel(
     const int rhs_qparams_stride);
 
 } // namespace fp32_a_input_channelwise_8bit_b_4x16x4_f32
+
+namespace fp32_a_input_channelwise_8bit_b_f32 {
+
+template <bool b_has_zeros, bool a_transposed, bool b_tranposed>
+void kernel(
+    int m,
+    int n,
+    int k,
+    const float* lhs,
+    int lhs_stride_m,
+    const int8_t* rhs,
+    int rhs_stride_n,
+    float32_t* output,
+    int out_stride_m,
+    const int8_t* rhs_zero_points,
+    const float* rhs_scales,
+    const float beta,
+    const int rhs_qparams_stride);
+
+template <bool b_has_zeros, bool a_transposed, bool b_tranposed>
+void kernel(
+    int m,
+    int n,
+    int k,
+    const float* lhs,
+    int lhs_stride_m,
+    const int8_t* rhs,
+    int rhs_stride_n,
+    float32_t* output,
+    int out_stride_m,
+    const int8_t* rhs_zero_points,
+    const float* rhs_scales,
+    const float beta,
+    const int rhs_qparams_stride) {
+  assert(n >= 16);
+  if (m > 16) {
+    auto remaining_m = m % 16;
+    auto m_for_gemm_kernel = m - remaining_m;
+    fp32_a_input_channelwise_8bit_b_4x16x4_f32::
+        kernel<b_has_zeros, a_transposed, b_tranposed>(
+            m_for_gemm_kernel,
+            n,
+            k,
+            lhs,
+            lhs_stride_m,
+            rhs,
+            rhs_stride_n,
+            output,
+            out_stride_m,
+            rhs_zero_points,
+            rhs_scales,
+            beta,
+            rhs_qparams_stride);
+    output += m_for_gemm_kernel * out_stride_m;
+    lhs += m_for_gemm_kernel * lhs_stride_m;
+    m = remaining_m;
+  }
+  if (m > 0) {
+    fp32_a_input_channelwise_8bit_b_1x16x4_f32::
+        kernel<b_has_zeros, a_transposed, b_tranposed>(
+            m,
+            n,
+            k,
+            lhs,
+            lhs_stride_m,
+            rhs,
+            rhs_stride_n,
+            output,
+            out_stride_m,
+            rhs_zero_points,
+            rhs_scales,
+            beta,
+            rhs_qparams_stride);
+  }
+}
+
+} // namespace fp32_a_input_channelwise_8bit_b_f32
 } // namespace torchao::kernels::cpu::aarch64::quantized_matmul
 
 #include <torchao/experimental/kernels/cpu/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal-impl.h>
