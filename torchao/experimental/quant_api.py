@@ -11,12 +11,8 @@ from typing import Callable, List, Mapping, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
-    dequantize_per_channel_group,
     quantize_per_channel_group,
 )
-
-from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
-from torchao.quantization.quant_api import ZeroPointDomain
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -27,327 +23,54 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+from dataclasses import dataclass
+
+from torchao.core.config import AOBaseConfig
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+    Target,
+)
 from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
+from torchao.quantization.granularity import Granularity, PerAxis, PerGroup, PerRow
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
+)
+from torchao.quantization.quant_api import (
+    IntxWeightOnlyConfig,
+    MappingType,
+    ZeroPointDomain,
+    quantize_,
+)
+from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
 
 
-def _dtype_to_bit_width(dtype: torch.dtype) -> int:
-    dtype_to_bit_width = {
-        torch.int1: 1,
-        torch.int2: 2,
-        torch.int3: 3,
-        torch.int4: 4,
-        torch.int5: 5,
-        torch.int6: 6,
-        torch.int7: 7,
-        torch.int8: 8,
-    }
-    if dtype not in dtype_to_bit_width:
-        raise ValueError(
-            f"dtype must be one of {list(dtype_to_bit_width.keys())}, got {dtype}"
-        )
-    return dtype_to_bit_width[dtype]
+@dataclass
+class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
+    weight_dtype: torch.dtype = torch.int4
+    granularity: Union[PerRow, PerGroup] = PerRow()
+    has_weight_zeros: bool = False
+    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
+    act_mapping_type: MappingType = MappingType.ASYMMETRIC
+    round_weight_scale_to_bf16: bool = True
+    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
 
-
-def _quantize(
-    vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True
-):
-    assert nbit >= 1 and nbit <= 8
-    if signed:
-        qmin = -(1 << (nbit - 1))
-        qmax = (1 << (nbit - 1)) - 1
-    else:
-        qmin = 0
-        qmax = (1 << nbit) - 1
-
-    n, k = vals.shape
-    vals = vals.reshape(-1, group_size)
-    vmins, _ = torch.min(vals, axis=1)
-    vmaxs, _ = torch.max(vals, axis=1)
-    group_scales = (vmaxs - vmins) / (qmax - qmin)
-
-    if not has_weight_zeros:
-        group_zeros = torch.zeros_like(group_scales)
-    else:
-        group_zeros = qmin - torch.round(vmins / group_scales)
-
-    vals = vals.reshape(n, k)
-    group_scales = group_scales.reshape(n, -1)
-    group_zeros = group_zeros.reshape(n, -1)
-
-    group_qvals = quantize_per_channel_group(
-        input=vals,
-        scales=group_scales,
-        zero_points=group_zeros,
-        quant_min=qmin,
-        quant_max=qmax,
-        dtype=torch.int8 if signed else torch.uint8,
-        group_size=group_size,
-    )
-
-    if not has_weight_zeros:
-        group_zeros = None
-
-    return group_qvals, group_scales, group_zeros
-
-
-class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
-    def __init__(
-        self,
-        pack_weight_op,
-        linear_op,
-    ):
-        super().__init__()
-        self._pack_weights_op = pack_weight_op
-        self._linear_op = linear_op
-
-    def quantize_and_pack_weights(self, weights, nbit, group_size, has_weight_zeros):
-        self.nbit = nbit
-        self.group_size = group_size
-        self.has_weight_zeros = has_weight_zeros
-
-        n, k = weights.shape
-
-        # TODO(T200095131): convert self.n, self.k, self.group_size to
-        # int when supported by AOTI
-        # AOTI does not allow a tensor of size (n, 0), so we do (0, n)
-        self._n = torch.empty(0, n, dtype=torch.int8)
-        self._k = torch.empty(0, k, dtype=torch.int8)
-        self._group_size = torch.empty(0, group_size, dtype=torch.int8)
-
-        weight_qvals, weight_scales, weight_zeros = _quantize(
-            weights, self.group_size, self.nbit, self.has_weight_zeros
-        )
-        if self.has_weight_zeros:
-            self.packed_weights = self._pack_weights_op(
-                weight_qvals,
-                weight_scales.reshape(-1),
-                weight_zeros.to(torch.int8).reshape(-1),
-                self._group_size,
-            )
-        else:
-            self.packed_weights = self._pack_weights_op(
-                weight_qvals, weight_scales.reshape(-1), self._group_size
-            )
-
-    def forward(self, x):
-        assert x.dim() >= 2
-        if x.dim() == 2:
-            return self._linear_op(
-                x,
-                self.packed_weights,
-                self._group_size,
-                self._n,
-                self._k,
-            )
-
-        assert x.dim() >= 3
-        lead_shape = x.shape[0:-2]
-        m, k = x.shape[-2], x.shape[-1]
-        n = self._n.shape[1]
-        res = self._linear_op(
-            x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k
-        )
-        res = res.reshape(*lead_shape, m, n)
-        return res
-
-
-# Python-based reference implementation of Int8DynActLowbitWeightQuantizedLinear
-# It is arithmetically equivalent to Int8DynActLowbitWeightQuantizedLinear
-# This is used to test Int8DynActLowbitWeightQuantizedLinear, and as a fallback when
-# Int8DynActLowbitWeightQuantizedLinear is not available
-class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def quantize_and_pack_weights(self, weights, nbit, group_size, has_weight_zeros):
-        self.nbit = nbit
-        self.group_size = group_size
-        self.has_weight_zeros = has_weight_zeros
-
-        self._n, self._k = weights.shape
-        assert self._k % group_size == 0, "group_size must divide k"
-
-        self.weight_qvals, self.weight_scales, self.weight_zeros = _quantize(
-            weights, self.group_size, self.nbit, self.has_weight_zeros
+    def __post_init__(self):
+        raise NotImplementedError(
+            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
+            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
+            "* granularity -> weight_granularity\n"
+            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
+            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
+            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
+            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
         )
 
-    def _forward_2d(self, x):
-        assert x.dim() == 2
 
-        _, k = self._n, self._k
-        m, k_ = x.shape
-        assert k_ == k
-
-        weights_dequantized = dequantize_per_channel_group(
-            w_int8=self.weight_qvals,
-            scales=self.weight_scales,
-            zero_points=(
-                self.weight_zeros
-                if self.has_weight_zeros
-                else torch.zeros_like(self.weight_scales)
-            ),
-            quant_min=None,  # TODO: why is this an arg for this function
-            quant_max=None,  # TODO: why is this an arg for this function
-            dtype=None,  # TODO: why is this an arg for this function
-            group_size=self.group_size,
-            output_dtype=torch.float32,
-        )
-
-        activation_qvals, activation_scales, activation_zeros = _quantize(
-            x, group_size=k, nbit=8, has_weight_zeros=True
-        )
-        activations_dequantized = dequantize_per_channel_group(
-            w_int8=activation_qvals,
-            scales=activation_scales,
-            zero_points=activation_zeros,
-            quant_min=None,  # TODO: why is this an arg for this function
-            quant_max=None,  # TODO: why is this an arg for this function
-            dtype=None,  # TODO: why is this an arg for this function
-            group_size=k,
-            output_dtype=torch.float32,
-        )
-
-        res = torch.matmul(activations_dequantized, weights_dequantized.transpose(1, 0))
-        return res
-
-    def forward(self, x):
-        assert x.dim() >= 2
-        if x.dim() == 2:
-            return self._forward_2d(x)
-
-        assert x.dim() >= 3
-        lead_shape = x.shape[0:-2]
-        m, k = x.shape[-2], x.shape[-1]
-        n = self._n
-        x = x.reshape(-1, m, k)
-
-        res = [self._forward_2d(x[i, :, :]) for i in range(x.shape[0])]
-        res = torch.stack(res)
-        res = res.reshape(*lead_shape, m, n)
-        return res
-
-
-def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
-    try:
-        if nbit in [1, 2, 3, 4, 5, 6, 7, 8]:
-            wzp_suffix = "" if has_weight_zeros else "0zp"
-            return _Int8DynActIntxWeightQuantizedLinearNative(
-                pack_weight_op=getattr(
-                    torch.ops.torchao,
-                    f"_pack_8bit_act_{nbit}bit{wzp_suffix}_weight",
-                ),
-                linear_op=getattr(
-                    torch.ops.torchao, f"_linear_8bit_act_{nbit}bit{wzp_suffix}_weight"
-                ),
-            )
-        else:
-            logger.warning(
-                f"_Int8DynActIntxWeightQuantizedLinearNative does not support: nbit={nbit}, has_weight_zeros={has_weight_zeros}."
-            )
-    except Exception as e:
-        logger.warning(
-            f"_Int8DynActIntxWeightQuantizedLinearNative raised an exception during initialization: {e}"
-        )
-
-    logger.warning(
-        "Falling back to **slow** implementation _Int8DynActIntxWeightQuantizedLinearFallback."
-    )
-    return _Int8DynActIntxWeightQuantizedLinearFallback()
-
-
-def _replace_linear_with_quantized_linear(module: nn.Module, kwargs={}):
-    group_size = kwargs["group_size"]
-    nbit = kwargs["nbit"]
-    has_weight_zeros = kwargs["has_weight_zeros"]
-
-    assert not isinstance(module, nn.Linear)
-    assert nbit >= 1 and nbit <= 8
-
-    for name, child in module.named_children():
-        if not isinstance(child, nn.Linear):
-            _replace_linear_with_quantized_linear(child, kwargs)
-        else:
-            assert child.bias is None
-            qlinear = _maybe_get_quantized_linear_native(
-                nbit=nbit, has_weight_zeros=has_weight_zeros
-            )
-            try:
-                # The packing function may raise some error from the C++ layer (e.g., if group_size is unsupported)
-                # so calling quantize_and_pack_weights can fail.  In this case, we still switch to fallback
-                # implementation
-                setattr(module, name, qlinear)
-                getattr(module, name).quantize_and_pack_weights(
-                    child.weight, nbit, group_size, has_weight_zeros
-                )
-            except Exception as e:
-                if not isinstance(qlinear, _Int8DynActIntxWeightQuantizedLinearNative):
-                    raise e
-                logger.warning(
-                    f"_Int8DynActIntxWeightQuantizedLinearNative raised an exception during quantize_and_pack_weights: {e}\n"
-                    + "Falling back to **slow** implementation _Int8DynActIntxWeightQuantizedLinearFallback."
-                )
-                qlinear = _Int8DynActIntxWeightQuantizedLinearFallback()
-                setattr(module, name, qlinear)
-                getattr(module, name).quantize_and_pack_weights(
-                    child.weight, nbit, group_size, has_weight_zeros
-                )
-
-
-class Int8DynActIntxWeightLinearQuantizer:
-    def __init__(
-        self,
-        device,
-        precision,
-        *,
-        bitwidth: Optional[int] = None,
-        groupsize: Optional[int] = None,
-        has_weight_zeros: Optional[bool] = None,
-    ):
-        if device != "cpu":
-            raise NotImplementedError(
-                "Only device=cpu is currently supported in Int8DynActIntxWeightLinearQuantizer"
-            )
-        else:
-            self.device = device
-
-        if precision != torch.float32:
-            raise NotImplementedError(
-                "Only precision=torch.float32 is currently supported in Int8DynActIntxWeightLinearQuantizer"
-            )
-        else:
-            self.precision = precision
-
-        if bitwidth is None:
-            self.bitwidth = 4
-            logger.warning(f"bitwidth not specified, defaulting to {self.bitwidth}.")
-        else:
-            self.bitwidth = bitwidth
-
-        if groupsize is None:
-            self.groupsize = 128
-            logger.warning(f"groupsize not specified, defaulting to {self.groupsize}.")
-        else:
-            self.groupsize = groupsize
-
-        if has_weight_zeros is None:
-            self.has_weight_zeros = False
-            logger.warning(
-                f"has_weight_zeros not specified, defaulting to {self.has_weight_zeros}."
-            )
-        else:
-            self.has_weight_zeros = has_weight_zeros
-
-    def quantize(self, model: nn.Module) -> nn.Module:
-        model = model.to(self.device).to(self.precision)
-        _replace_linear_with_quantized_linear(
-            model,
-            kwargs={
-                "group_size": self.groupsize,
-                "nbit": self.bitwidth,
-                "has_weight_zeros": self.has_weight_zeros,
-            },
-        )
-        return model
+# For BC
+int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 class QuantizedEmbedding(nn.Module):
@@ -520,56 +243,6 @@ def _replace_embedding_with_quantized_embedding(
                     setattr(module, name, qembedding)
 
 
-# TODO: remove this (needed for BC)
-class IntxWeightEmbeddingQuantizer:
-    def __init__(
-        self,
-        device,
-        precision,
-        *,
-        bitwidth: Optional[int] = None,
-        groupsize: Optional[int] = None,
-    ):
-        if device != "cpu":
-            raise NotImplementedError(
-                "Only device=cpu is currently supported in IntxWeightEmbeddingQuantizer"
-            )
-        else:
-            self.device = device
-
-        if precision != torch.float32:
-            raise NotImplementedError(
-                "Only precision=torch.float32 is currently supported in IntxWeightEmbeddingQuantizer"
-            )
-        else:
-            self.precision = precision
-
-        if bitwidth is None:
-            self.bitwidth = 4
-            logger.warning(f"bitwidth not specified, defaulting to {self.bitwidth}.")
-        else:
-            self.bitwidth = bitwidth
-
-        if groupsize is None:
-            self.groupsize = 128
-            logger.warning(f"groupsize not specified, defaulting to {self.groupsize}.")
-        else:
-            self.groupsize = groupsize
-
-    def quantize(self, model: nn.Module) -> nn.Module:
-        model = model.to(self.device).to(self.precision)
-        _replace_embedding_with_quantized_embedding(
-            model,
-            kwargs={
-                "group_size": self.groupsize,
-                "bit_width": self.bitwidth,
-                "use_fallback": False,
-                "has_weight_zeros": True,
-            },
-        )
-        return model
-
-
 class EmbeddingQuantizer:
     def __init__(
         self,
@@ -578,7 +251,8 @@ class EmbeddingQuantizer:
         has_weight_zeros: bool = True,
         use_fallback: bool = False,
     ):
-        bit_width = _dtype_to_bit_width(weight_dtype)
+        assert weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]
+        bit_width = _DTYPE_TO_BIT_WIDTH[weight_dtype]
 
         if isinstance(granularity, PerGroup):
             group_size = granularity.group_size
@@ -604,52 +278,6 @@ class EmbeddingQuantizer:
             },
         )
         return model
-
-
-from dataclasses import dataclass
-
-from torchao.core.config import AOBaseConfig
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-)
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
-    Target,
-)
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig as Int8DynamicActivationIntxWeightConfig_NonExperimental,
-)
-from torchao.quantization.quant_api import (
-    IntxWeightOnlyConfig,
-    MappingType,
-    quantize_,
-)
-
-
-@dataclass
-class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
-    weight_dtype: torch.dtype = torch.int4
-    granularity: Union[PerRow, PerGroup] = PerRow()
-    has_weight_zeros: bool = False
-    weight_mapping_type: MappingType = MappingType.ASYMMETRIC
-    act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    round_weight_scale_to_bf16: bool = True
-    layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=Target.AUTO)
-
-    def __post_init__(self):
-        raise NotImplementedError(
-            "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
-            "Please migrate to using the new version.  The following args are renamed in the new version:\n"
-            "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
-            "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
-            "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
-        )
-
-
-# For BC
-int8_dynamic_activation_intx_weight = Int8DynamicActivationIntxWeightConfig
 
 
 def _get_fqns_with_filter(
@@ -843,6 +471,48 @@ class SharedEmbeddingQuantizer:
         # Remove subclasses.  Otherwise there are two packed_weight objects in exported model,
         # even though they have the same id in eager mode
         replace_linear_tensor_subclass_with_module(model)
+
+
+def _quantize(
+    vals: torch.Tensor, group_size: int, nbit: int, has_weight_zeros: bool, signed=True
+):
+    assert nbit >= 1 and nbit <= 8
+    if signed:
+        qmin = -(1 << (nbit - 1))
+        qmax = (1 << (nbit - 1)) - 1
+    else:
+        qmin = 0
+        qmax = (1 << nbit) - 1
+
+    n, k = vals.shape
+    vals = vals.reshape(-1, group_size)
+    vmins, _ = torch.min(vals, axis=1)
+    vmaxs, _ = torch.max(vals, axis=1)
+    group_scales = (vmaxs - vmins) / (qmax - qmin)
+
+    if not has_weight_zeros:
+        group_zeros = torch.zeros_like(group_scales)
+    else:
+        group_zeros = qmin - torch.round(vmins / group_scales)
+
+    vals = vals.reshape(n, k)
+    group_scales = group_scales.reshape(n, -1)
+    group_zeros = group_zeros.reshape(n, -1)
+
+    group_qvals = quantize_per_channel_group(
+        input=vals,
+        scales=group_scales,
+        zero_points=group_zeros,
+        quant_min=qmin,
+        quant_max=qmax,
+        dtype=torch.int8 if signed else torch.uint8,
+        group_size=group_size,
+    )
+
+    if not has_weight_zeros:
+        group_zeros = None
+
+    return group_qvals, group_scales, group_zeros
 
 
 class UIntxWeightOnlyQuantizedLinear(nn.Module):
