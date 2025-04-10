@@ -164,6 +164,70 @@ void register_ukernel_config_universal(
   }
 }
 
+template <int weight_nbit>
+void register_ukernel_config_lut(
+    UKernelConfigRegistrationTable& table,
+    PackedWeightsFormat format,
+    cpuinfo_uarch uarch) {
+    if (!cpuinfo_initialize()) {
+      throw std::runtime_error("Failed to initialize cpuinfo!");
+    }
+    check_format(
+      format,
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut,
+      weight_nbit
+    );
+    constexpr bool has_lut = true;
+    int preferred_alignment = 16;
+
+    #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    namespace kernel = torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight;
+
+    if (cpuinfo_has_arm_neon_dot()) {
+      return;
+    }
+    if (format.has_weight_zeros) {
+      return;
+    }
+    constexpr bool has_weight_zeros = false;
+    if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
+      log_registration(format, "lut: kernel_1x8x16_f32_neondot");
+      constexpr int n_step = 8;
+      constexpr int nr = 8;
+      constexpr int kr = 16;
+      constexpr int sr = 2;
+      constexpr int mr = 1;
+      constexpr int m_step = 1;
+      auto uk = UKernelConfig::make_with_lut(
+          preferred_alignment,
+          n_step,
+          nr,
+          kr,
+          sr,
+          weight_nbit,
+          format.has_weight_zeros,
+          format.has_bias,
+          &kernel::packed_weights_with_lut_size,
+          &kernel::packed_weights_with_lut_offset,
+          &kernel::pack_weights_with_lut<weight_nbit, nr, kr, sr>,
+          /*linear_configs*/ {});
+       uk.linear_configs[0] = UKernelConfig::linear_config_type(
+            {m_step,
+             mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations<mr, kr, sr>,
+             &kernel::kernel_1x8x16_f32_neondot<
+                 weight_nbit,
+                 has_weight_zeros,
+                 has_lut>});
+        table.register_ukernel_config(format, uarch, std::move(uk));
+        return;
+    }
+   #endif // TORCHAO_ENABLE_ARM_NEON_DOT
+}
+
 #if defined(TORCHAO_ENABLE_KLEIDI)
 template <typename kernel_struct>
 UKernelConfig::linear_config_type
@@ -285,6 +349,14 @@ void register_ukernel_config(
 #endif // TORCHAO_ENABLE_KLEIDI
       break;
     }
+    case torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut: {
+      // LUT kernels static assert on weight_nbit <= 4
+      // This is needed to avoid compilation error
+      if constexpr (weight_nbit <= 4) {
+        register_ukernel_config_lut<weight_nbit>(table, format, uarch);
+      }
+      break;
+    }
     default:
       throw std::runtime_error(
           "No registration available for packed_weights_type=" +
@@ -374,6 +446,26 @@ PackedWeightsFormat select_packed_weights_format(
 #endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
   }
 
+  throw std::runtime_error("No packed_weights_format was selected");
+}
+
+template <int weight_nbit>
+PackedWeightsFormat select_packed_weights_with_lut_format(
+    std::optional<std::string> target,
+    bool has_weight_zeros,
+    bool has_bias) {
+  if (!target) {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    return PackedWeightsFormat(
+        torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut,
+        weight_nbit,
+        has_weight_zeros,
+        has_bias,
+        /*nr*/ 8,
+        /*kr*/ 16,
+        /*sr*/ 2);
+#endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+  }
   throw std::runtime_error("No packed_weights_format was selected");
 }
 

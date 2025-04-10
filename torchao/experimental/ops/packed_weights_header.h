@@ -16,7 +16,8 @@ enum class PackedWeightsType : uint32_t {
   unknown = 0,
   linear_8bit_act_xbit_weight_universal = 1,
   embedding_xbit_universal = 2,
-  kleidi_ai = 3
+  kleidi_ai = 3,
+  linear_8bit_act_xbit_weight_lut = 4,
 };
 
 class PackedWeightsHeader {
