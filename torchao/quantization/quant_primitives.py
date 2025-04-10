@@ -779,6 +779,7 @@ def choose_qparams_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+
     return _choose_qparams_affine(
         input,
         mapping_type.name,
@@ -875,8 +876,6 @@ def _choose_qparams_affine(
     if input is not None:
         if scale_dtype is None:
             scale_dtype = input.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = input.dtype
         if eps is None:
             eps = torch.finfo(input.dtype).eps
 
@@ -900,8 +899,6 @@ def _choose_qparams_affine(
 
         if scale_dtype is None:
             scale_dtype = min_val.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = min_val.dtype
         if eps is None:
             eps = torch.finfo(min_val.dtype).eps
 
@@ -955,19 +952,20 @@ def _choose_qparams_affine(
         scale = torch.clamp(scale, min=eps)
         if zero_point_domain == ZeroPointDomain.NONE.name:
             zero_point = None
+        elif zero_point_domain == ZeroPointDomain.INT.name:
+            zero_point = quant_min - torch.round(min_val_neg / scale)
+            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+            if zero_point_dtype is None:
+                zero_point_dtype = torch.int32
         else:
-            if preserve_zero:
-                zero_point = quant_min - torch.round(min_val_neg / scale)
-                zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            else:
-                assert (
-                    zero_point_domain == ZeroPointDomain.FLOAT.name
-                ), "if not preserve_zero, zero_point must be in FLOAT domain"
-                mid_point = (quant_max + quant_min + 1) / 2
-                # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
-                # TODO move the conversion of zero_point out of quant_primitives
-                # and into TensorCoreTiledLayout.from_plain
-                zero_point = min_val_neg + scale * mid_point
+            assert (
+                zero_point_domain == ZeroPointDomain.FLOAT.name
+            ), "zero_point must be in FLOAT/INT/None domain for asymmetric quantization"
+            mid_point = (quant_max + quant_min + 1) / 2
+            # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+            # TODO move the conversion of zero_point out of quant_primitives
+            # and into TensorCoreTiledLayout.from_plain
+            zero_point = min_val_neg + scale * mid_point
 
     if zero_point is not None:
         zero_point = zero_point.to(dtype=zero_point_dtype)
