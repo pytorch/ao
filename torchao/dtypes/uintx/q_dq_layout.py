@@ -171,25 +171,25 @@ class QDQTensorImpl(AQTTensorImpl):
 
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim == 0:
-                return return_and_correct_aliasing(
-                    func,
-                    args,
-                    kwargs,
-                    args[0]._apply_fn_to_data(
-                        lambda x: aten.slice.Tensor(x, dim, start, end, step)
-                    ),
+            if dim in [0, 1]:
+                int_data, scale, zero_point = self.get_plain()
+                data_len = int_data.shape[dim]
+                scale_len = scale.shape[dim]
+                ratio = data_len / scale_len
+                start_scale = int(start / ratio)
+                end_scale = int(end / ratio)
+
+                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+                scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
+                zero_point = aten.slice.Tensor(
+                    zero_point, dim, start_scale, end_scale, step
                 )
-            elif dim == 1:
-                assert (
-                    len(self.scale.shape) == 1
-                ), f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return QDQTensorImpl(
-                    aten.slice.Tensor(self.int_data, dim, start, end, step),
-                    self.scale.view(-1),
-                    self.zero_point.view(-1) if self.zero_point is not None else None,
-                    self._layout,
+                # this is to handle padding
+                int_data, scale, zero_point = self._layout.post_process(
+                    int_data, scale, zero_point, self.block_size
                 )
+                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
                     f"QDQTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
