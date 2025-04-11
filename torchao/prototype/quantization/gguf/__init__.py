@@ -1,4 +1,4 @@
-from .api import GGUFWeightOnlyConfig
+from .api import ARGGUFWeightOnlyConfig, GGUFWeightOnlyConfig
 from .gguf_quantized_tensor import (
     GGUFQuantizedTensor,
 )
@@ -6,4 +6,5 @@ from .gguf_quantized_tensor import (
 __all__ = [
     "GGUFQuantizedTensor",
     "GGUFWeightOnlyConfig",
+    "ARGGUFWeightOnlyConfig",
 ]
