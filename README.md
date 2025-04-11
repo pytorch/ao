@@ -21,13 +21,15 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao).
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao). You can either use torchao native APIs as shown below, or
 
 For inference, we have the option of
 1. Quantize only the weights: works best for memory bound models
 2. Quantize the weights and activations: works best for compute bound models
 2. Quantize the activations and weights and sparsify the weight
 
+
+#### Quantizing for inference with torchao APIs
 ```python
 from torchao.quantization.quant_api import (
     quantize_,
@@ -36,6 +38,25 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig
 )
 quantize_(m, Int4WeightOnlyConfig())
+```
+
+#### Quantizing for inference with huggingface configs
+```python
+import torch
+from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
+from torchao.quantization import Int4WeightOnlyConfig
+
+# Using AOBaseConfig instance (torchao >= 0.10.0)
+quant_config = Int4WeightOnlyConfig(group_size=128)
+quantization_config = TorchAoConfig(quant_type=quant_config)
+
+# Load and quantize the model
+quantized_model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Meta-Llama-3-8B",
+    torch_dtype="auto",
+    device_map="auto",
+    quantization_config=quantization_config
+)
 ```
 
 For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
