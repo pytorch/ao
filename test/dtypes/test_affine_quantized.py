@@ -19,7 +19,9 @@ from torchao.dtypes import (
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
+    PlainLayout,
     SemiSparseLayout,
+    to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
     Int4WeightOnlyConfig,
@@ -279,6 +281,16 @@ class TestAffineQuantized(TestCase):
             ValueError, "Not supported args for copy_ due to metadata mistach:"
         ):
             ql2.weight.copy_(ql.weight)
+
+    def test_to_affine_quantized_intx_static(self):
+        to_affine_quantized_intx_static(
+            torch.randn(2, 3),
+            scale=torch.randn(1),
+            zero_point=torch.zeros(1),
+            block_size=(2, 3),
+            target_dtype=torch.int8,
+            _layout=PlainLayout(),
+        )
 
 
 class TestAffineQuantizedBasic(TestCase):
