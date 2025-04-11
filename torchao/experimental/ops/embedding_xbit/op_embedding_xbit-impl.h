@@ -253,9 +253,11 @@ Tensor shared_embedding_out_cpu(
       torchao::ops::PackedWeightsHeader::read(packed_weights.const_data_ptr());
   auto format = torchao::ops::linear_8bit_act_xbit_weight::PackedWeightsFormat::
       from_packed_weights_header(header);
-  torchao::ops::linear_8bit_act_xbit_weight::check_format<weight_nbit>(
+
+  torchao::ops::linear_8bit_act_xbit_weight::check_format(
       format,
-      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
+      weight_nbit);
   constexpr int nr = 8;
   constexpr int kr = 16;
   constexpr int sr = 2;
@@ -316,12 +318,7 @@ Tensor shared_embedding_cpu(
     const Tensor& indices) {
   Tensor output_tensor = torch::empty({}, torch::kFloat32);
   shared_embedding_out_cpu<weight_nbit>(
-      packed_weights,
-      group_size,
-      n,
-      k,
-      indices,
-      output_tensor);
+      packed_weights, group_size, n, k, indices, output_tensor);
   return output_tensor;
 }
 #endif // USE_ATEN

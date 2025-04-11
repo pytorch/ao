@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 import math
 from functools import partial
 from typing import Optional
@@ -23,14 +24,16 @@ def amp_custom_fwd(cast_inputs: Optional[torch.types._dtype] = None):
         return partial(torch.cuda.amp.custom_fwd, cast_inputs=cast_inputs)
 
 
-def normalized_mirror_sigmoid(t: float, t1: float, t2: float, s: float) -> float:
+def normalized_mirror_sigmoid(
+    t: float, t1: float, t2: float, s: float, c: float
+) -> float:
     """Sigmoid-like function decreasing from 1 to 0 over interval [t1, t2).
     s is steepness of the sigmoid-like function, almost linear for s < 1.
     'mirror' means decreasing instead of increasing as true sigmoid,
     'normalized' means value 1 at starting point t1 and 0 at end point t2."""
     assert t >= t1 and t < t2, "Normalized sigmoid: ensure t1 <= t < t2"
     ft = (t - t1) / (t2 - t1)  # fraction of progress from t1 to t2
-    st = 1 / (1 + math.exp(s * (ft - 0.5)))  # scaled and shifted mirror sigmoid
+    st = 1 / (1 + math.exp(s * (ft - c)))  # scaled and shifted mirror sigmoid
     s1 = 1 / (1 + math.exp(-0.5 * s))  # st value when t = t1 -> ft = 0
     s2 = 1 / (1 + math.exp(0.5 * s))  # st value when t = t2 -> ft = 1
     return (st - s2) / (s1 - s2)  # shift and scale to range (0, 1]
@@ -38,13 +41,18 @@ def normalized_mirror_sigmoid(t: float, t1: float, t2: float, s: float) -> float
 
 class ProxPARQ(ProxMap):
     def __init__(
-        self, anneal_start: int, anneal_end: int, steepness: float = 10
+        self,
+        anneal_start: int,
+        anneal_end: int,
+        steepness: float = 10,
+        anneal_center: float = 0.5,
     ) -> None:
         assert anneal_start < anneal_end, "PARQ annealing: start before end."
         assert steepness > 0, "PARQ annealing steepness should be positive."
         self.anneal_start = anneal_start
         self.anneal_end = anneal_end
         self.steepness = steepness
+        self.anneal_center = anneal_center
 
     @torch.no_grad()
     @amp_custom_fwd(cast_inputs=torch.float32)
@@ -72,8 +80,13 @@ class ProxPARQ(ProxMap):
             p.copy_(q)
         else:
             inv_slope = normalized_mirror_sigmoid(
-                step_count, self.anneal_start, self.anneal_end, self.steepness
+                step_count,
+                self.anneal_start,
+                self.anneal_end,
+                self.steepness,
+                self.anneal_center,
             )
+            inv_slope = max(torch.finfo(p.dtype).tiny, inv_slope)
             # it is important to clamp idx-1 and then clamping idx itself
             # idx_1[k] == idx[k] iff p[k] > Q.max() or p[k] <= Q.min()
             if dim is None:
