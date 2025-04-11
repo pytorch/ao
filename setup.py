@@ -308,6 +308,7 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
+    hip_sparse_marlin_supported = True
     if use_hip:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
@@ -333,6 +334,10 @@ def get_extensions():
         else:
             print("hipblaslt does not have vec ext")
 
+        # sparse_marlin depends on features in ROCm 6.4, __builtin_amdgcn_global_load_lds
+        ROCM_VERSION = tuple(int(v) for v in torch.version.hip.split('.')[:2])
+        hip_sparse_marlin_supported = ROCM_VERSION >= (6, 4)
+
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(curdir, "torchao", "csrc")
@@ -353,10 +358,11 @@ def get_extensions():
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
-    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
-    hip_sources += list(
-        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-    )
+    if hip_sparse_marlin_supported:
+        extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
+        hip_sources += list(
+            glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
+        )
     extensions_hip_dir = os.path.join(extensions_dir, "rocm")
     hip_sources += list(
         glob.glob(os.path.join(extensions_hip_dir, "**/*.hip"), recursive=True)
