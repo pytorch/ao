@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 from tabulate import tabulate
+from torch.profiler import ProfilerActivity
 from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
@@ -50,6 +51,57 @@ def get_default_device(device: str = "cuda") -> str:
         return "cpu"
 
 
+def generate_model_profile(model, input_data, profile_file_path):
+    """Function to benchmark model evaluation with profiling.
+
+    Args:
+        model: The model to profile
+        input_data: Input data for the model
+        profile_file_path: Path to save the profiler output
+
+    Returns:
+        profile_file_path
+    """
+    # Create parent directory if it doesn't exist
+    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
+
+    # Set up profiler activities based on device
+    activities = [ProfilerActivity.CPU]
+    device = next(model.parameters()).device
+    if device.type == "cuda" and torch.cuda.is_available():
+        activities.append(ProfilerActivity.CUDA)
+
+    # Run profiler with minimal settings to ensure compatibility
+    prof = torch.profiler.profile(
+        activities=activities,
+        record_shapes=True,
+        with_stack=True,
+        profile_memory=True,
+        with_flops=True,  # Experimental; might be unreliable for some layers
+    )
+
+    # Warm up
+    with torch.no_grad():
+        for _ in range(3):
+            _ = model(input_data)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
+    # Profile
+    with prof:
+        with torch.no_grad():
+            for _ in range(3):
+                _ = model(input_data)
+                if device.type == "cuda":
+                    torch.cuda.synchronize()
+
+    # Save profiling details
+    prof.export_chrome_trace(profile_file_path)
+    print(f"Profile saved to: {profile_file_path}")
+
+    return profile_file_path
+
+
 class BenchmarkConfig:
     def __init__(
         self,
@@ -84,6 +136,14 @@ class BenchmarkConfig:
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
+        self.enable_profiler = bool(params.get("enable_profiler", False))
+        # Create profiler directory path without leading slash
+        profiler_dir = os.path.join(self.output_dir, "profiler")
+        os.makedirs(profiler_dir, exist_ok=True)
+        file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
+        self.profiler_file_name = os.path.join(
+            profiler_dir, f"{file_name}_profile.json"
+        )
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -105,6 +165,7 @@ class BenchmarkConfig:
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
+            "enable_profiler": self.enable_profiler,
         }
 
 
@@ -116,37 +177,16 @@ class BenchmarkResult:
         self.config = config
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
+        self.profiler_json_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
-        return {
+        result_dict = {
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
+            "profiler_json_path": self.profiler_json_path,
         }
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        return x
-
-
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
+        return result_dict
 
 
 def string_to_config(
@@ -319,34 +359,6 @@ def model_inference_time_in_ms(model, input_data):
     return res * 1e6
 
 
-def create_model_and_input(
-    model_type: str,
-    m: int,
-    k: int,
-    n: int,
-    high_precision_dtype: torch.dtype = torch.bfloat16,
-    device: str = get_default_device(),
-):
-    """Create a model and input data for benchmarking.
-
-    Args:
-        model_type (str): type of the model to be created
-        batch_size (int): batch size of the input data
-        device (str): device to run the model on
-        high_precision_dtype (torch.dtype): data type of the model
-        m, k, n (int): dimensions of the model and input data
-    """
-    if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    elif model_type == "ln_linear_sigmoid":
-        model = LNLinearSigmoid(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-    return model, input_data
-
-
 def clean_caches():
     import gc
 
@@ -373,6 +385,11 @@ def generate_results_csv(
         output_dir (str): Directory to save the CSV file.
         file_name (str, optional): Name of the CSV file. Defaults to "results.csv".
     """
+    # Check if results list is empty
+    if len(results) == 0:
+        print("No results to save to CSV.")
+        return
+
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, file_name)
@@ -390,68 +407,39 @@ def generate_results_csv(
 
 
 def print_results(results: List[BenchmarkResult]):
-    """Print benchmark results in a formatted table.
-
-    Args:
-        results (List[BenchmarkResult]): List of benchmark results
-    """
+    """Print results in a table format"""
     if not results:
         print("No results to display")
         return
 
-    # Extract relevant columns for display
-    display_columns = [
-        "quantization",
-        "sparsity",
-        "model_type",
-        "m",
-        "k",
-        "n",
-        "model_inference_time_in_ms",
-        "use_torch_compile",
-    ]
-
-    # Format data for tabulate
-    headers = {
-        "quantization": "Quantization",
-        "sparsity": "Sparsity",
-        "model_type": "Model Type",
-        "m": "M",
-        "k": "K",
-        "n": "N",
-        "model_inference_time_in_ms": "Time (μs)",
-        "use_torch_compile": "Compile Mode",
-    }
-
-    # Extract and format data
     table_data = []
     for result in results:
-        result_dict = result.to_dict()
-        row = []
-        for col in display_columns:
-            value = result_dict.get(col, "N/A")
-            if value is None:
-                value = "N/A"
-            if col == "model_inference_time_in_ms":
-                value = f"{value:.2f}" if isinstance(value, (int, float)) else value
-            elif col == "use_torch_compile":
-                # Show compile mode if compile is True, otherwise show False
-                value = (
-                    result_dict.get("torch_compile_mode", "default")
-                    if result_dict.get("use_torch_compile")
-                    else "False"
-                )
-            row.append(value)
+        if result is None:
+            continue
+
+        row = [
+            result.config.name,
+            result.config.quantization or "baseline",
+            result.config.sparsity or "none",
+            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
+            f"{result.model_inference_time_in_ms:.2f}",
+            str(result.config.enable_profiler),
+        ]
+
         table_data.append(row)
 
-    # Print formatted table
-    print("\nBenchmark Results:")
-    print(
-        tabulate(
-            table_data,
-            headers=[headers[col] for col in display_columns],
-            tablefmt="grid",
-            floatfmt=".2f",
-        )
-    )
-    print()
+    # Define headers
+    headers = [
+        "Name",
+        "Quantization",
+        "Sparsity",
+        "Shape",
+        "Inference Time (ms)",
+        "Profiler Enabled",
+    ]
+
+    if table_data:
+        print("\nBenchmark Results:")
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    else:
+        print("\nNo valid results to display")
