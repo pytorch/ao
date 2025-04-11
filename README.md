@@ -21,13 +21,11 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao). You can either use torchao native APIs as shown below, or
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao).
 
-For inference, we have the option of
-1. Quantize only the weights: works best for memory bound models
-2. Quantize the weights and activations: works best for compute bound models
-2. Quantize the activations and weights and sparsify the weight
-
+There are 2 methods of post-training quantization, shown in the code snippets below:
+1. Using torchao APIs directly
+2. Loading a huggingface model with a quantization config.
 
 #### Quantizing for inference with torchao APIs
 ```python
@@ -41,6 +39,9 @@ quantize_(m, Int4WeightOnlyConfig())
 ```
 
 #### Quantizing for inference with huggingface configs
+
+Note this example is for torchao 0.10.0+. Prior versions use a string identifier for the config.
+
 ```python
 import torch
 from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -58,6 +59,11 @@ quantized_model = AutoModelForCausalLM.from_pretrained(
     quantization_config=quantization_config
 )
 ```
+
+For inference, we have the option of
+1. Quantize only the weights: works best for memory bound models
+2. Quantize the weights and activations: works best for compute bound models
+2. Quantize the activations and weights and sparsify the weight
 
 For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
 
