@@ -7,9 +7,11 @@
 import torch
 from torch.utils._pytree import tree_map
 
+
 # copied from float8_utils.py
 def _get_min_alignment(size: int, alignment_value: int) -> int:
     return (1 + ((size - 1) // alignment_value)) * alignment_value
+
 
 class SwizzleTensor(torch.Tensor):
     """
@@ -30,7 +32,7 @@ class SwizzleTensor(torch.Tensor):
     def __init__(self, original, shallow=False):
         if shallow:
             return
-        #assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
+        # assert original.ndim == 2 or original.ndim == 3  # (M, K) or (B, M, K)
         assert original.ndim == 2, "SwizzleTensor only supports ndim 2"
         assert original.itemsize == 1 or original.itemsize == 2
         kdiv = 32 if original.itemsize == 2 else 64
@@ -46,10 +48,10 @@ class SwizzleTensor(torch.Tensor):
         paddedK = alignedK - K
         x = torch.nn.functional.pad(original, (0, paddedK, 0, paddedM), "constant", 0)
         if original.ndim == 2:
-            x = x.view(alignedM//16, 16, alignedK//kdiv, 4, lastdim)
+            x = x.view(alignedM // 16, 16, alignedK // kdiv, 4, lastdim)
             x = x.permute(0, 2, 3, 1, 4)
         if original.ndim == 3:
-            x = x.view(B, alignedM//16, 16, alignedK//kdiv, 4, lastdim)
+            x = x.view(B, alignedM // 16, 16, alignedK // kdiv, 4, lastdim)
             x = x.permute(0, 1, 3, 4, 2, 5)
         self.x = x.contiguous()
         self.B = B
@@ -70,14 +72,14 @@ class SwizzleTensor(torch.Tensor):
         if self.original_ndim == 2:
             undone = self.x.permute(0, 3, 1, 2, 4).contiguous()
             undone = undone.reshape(self.alignedM, self.alignedK)
-            undone = undone[0:self.M, 0:self.K]
+            undone = undone[0 : self.M, 0 : self.K]
             undone = undone.reshape(self.M, self.K)
             if self.is_transposed:
                 undone = undone.T
         if self.original_ndim == 3:
             undone = self.x.permute(0, 1, 4, 2, 3, 5).contiguous()
             undone = undone.reshape(self.B, self.alignedM, self.alignedK)
-            undone = undone[0:self.B, 0:self.M, 0:self.K]
+            undone = undone[0 : self.B, 0 : self.M, 0 : self.K]
             undone = undone.reshape(self.B, self.M, self.K)
         return undone
 
@@ -95,10 +97,13 @@ class SwizzleTensor(torch.Tensor):
             return tmp
 
     def shallow_transpose(self):
-        shape = (self.M, self.K) if self.original_ndim == 2 else (self.B, self.M, self.K),
+        shape = (
+            (self.M, self.K) if self.original_ndim == 2 else (self.B, self.M, self.K),
+        )
         new_obj = SwizzleTensor(
-                torch.empty(*shape, dtype=self.dtype, layout=self.layout, device="meta"),
-                True)
+            torch.empty(*shape, dtype=self.dtype, layout=self.layout, device="meta"),
+            True,
+        )
         new_obj.x = self.x
         new_obj.B = self.B
         new_obj.M = self.M
@@ -122,6 +127,7 @@ class SwizzleTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         # Lazy import to avoid circular dependency
         from torchao.swizzle.swizzle_ops import SWIZZLE_OPS_TABLE
+
         if func in SWIZZLE_OPS_TABLE:
             return SWIZZLE_OPS_TABLE[func](func, args, kwargs)
 

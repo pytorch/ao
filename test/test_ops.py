@@ -629,8 +629,8 @@ def test_swizzle_mm():
     if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
 
-    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16,32), device="cuda")
-    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32,16), device="cuda")
+    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16, 32), device="cuda")
+    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32, 16), device="cuda")
 
     opcheck(
         torch.ops.torchao.swizzle_mm,

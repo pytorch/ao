@@ -81,7 +81,6 @@ from torch.utils.cpp_extension import (
 )
 
 
-
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
@@ -262,30 +261,30 @@ def get_extensions():
         )
     if ROCM_HOME is None and torch.cuda.is_available() and torch.version.hip:
         print("ROCm is not available. Skipping compilation of ROCm extensions")
-        print(
-            "If you'd like to compile ROCm extensions locally please install ROCm"
-        )
+        print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = torch.cuda.is_available() and torch.version.cuda and CUDA_HOME is not None
+    use_cuda = (
+        torch.cuda.is_available() and torch.version.cuda and CUDA_HOME is not None
+    )
     use_hip = torch.cuda.is_available() and torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_hip) else CppExtension
 
     nvcc_args = [
-            "-DNDEBUG" if not debug_mode else "-DDEBUG",
-            "-O3" if not debug_mode else "-O0",
-            "-t=0",
-            "-std=c++17",
-        ]
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-t=0",
+        "-std=c++17",
+    ]
     hip_args = [
-            "-DNDEBUG" if not debug_mode else "-DDEBUG",
-            "-O3" if not debug_mode else "-O0",
-            "-std=c++17",
-        ]
+        "-DNDEBUG" if not debug_mode else "-DDEBUG",
+        "-O3" if not debug_mode else "-O0",
+        "-std=c++17",
+    ]
 
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": nvcc_args if use_cuda else hip_args
+        "nvcc": nvcc_args if use_cuda else hip_args,
     }
 
     if not IS_WINDOWS:
@@ -314,7 +313,9 @@ def get_extensions():
         found_col16 = False
         found_vec_ext = False
         print("ROCM_HOME", ROCM_HOME)
-        hipblaslt_headers = list(glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h")))
+        hipblaslt_headers = list(
+            glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
+        )
         print("hipblaslt_headers", hipblaslt_headers)
         for header in hipblaslt_headers:
             with open(header) as f:
@@ -335,7 +336,7 @@ def get_extensions():
             print("hipblaslt does not have vec ext")
 
         # sparse_marlin depends on features in ROCm 6.4, __builtin_amdgcn_global_load_lds
-        ROCM_VERSION = tuple(int(v) for v in torch.version.hip.split('.')[:2])
+        ROCM_VERSION = tuple(int(v) for v in torch.version.hip.split(".")[:2])
         hip_sparse_marlin_supported = ROCM_VERSION >= (6, 4)
 
     # Get base directory and source paths

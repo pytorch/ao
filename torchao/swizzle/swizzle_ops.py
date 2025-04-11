@@ -85,7 +85,18 @@ def swizzle_scaled_mm(aten_op, args, kwargs=None):
     if isinstance(b, SwizzleTensor):
         b = b.as_tensor()
         b_is_swizzled = True
-    return torchao.ops.swizzle_scaled_mm(a, b, a_is_swizzled, b_is_swizzled, scale_a, scale_b, bias, scale_result, out_dtype, **kwargs)
+    return torchao.ops.swizzle_scaled_mm(
+        a,
+        b,
+        a_is_swizzled,
+        b_is_swizzled,
+        scale_a,
+        scale_b,
+        bias,
+        scale_result,
+        out_dtype,
+        **kwargs,
+    )
 
 
 @implements([aten.permute.default])
