@@ -11,8 +11,13 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     _SUB_BYTE_UINT_BOUNDS,
 )
+from torchao.utils import _register_custom_op
+
+quant_lib = torch.library.Library("quant", "FRAGMENT")
+register_custom_op = _register_custom_op(quant_lib)
 
 
+@register_custom_op
 def quantize_codebook(
     input: torch.Tensor,
     codebook: torch.Tensor,
@@ -25,7 +30,8 @@ def quantize_codebook(
 
     Args:
         input (torch.Tensor): Input tensor to quantize, shape (d1, d2, ..., dN).
-        codebook (torch.Tensor): Codebook tensor for quantization, shape (k, b1, b2, ..., bN) where b_i are block sizes.
+        codebook (torch.Tensor): Codebook tensor for quantization, shape (k, b1, b2, ..., bN) where b_i are block sizes and k is the codebook_size, e.g. for uint4 (4 bit), codebook size is 2**4
+            one corresponding dequantized vector of (b1, b2, .., bN) dimension for each of uint4 integer value of 0 to 15
         scales (torch.Tensor): Scales, shape (d1, d2, ..., dN // scale_block_size, 1).
         chunk_size (int): Number of elements to process per chunk to control memory usage.
         code_dtype (torch.dtype): dtype for the codes.
@@ -95,9 +101,11 @@ def quantize_codebook(
     return codes.to(code_dtype)
 
 
+@register_custom_op
 def dequantize_codebook(
     codes: torch.Tensor,
     codebook: torch.Tensor,
+    input_dtype: torch.dtype,
     scales: torch.Tensor,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
@@ -105,10 +113,12 @@ def dequantize_codebook(
     Reconstructs the original tensor from codes and the codebook.
 
     Args:
-        codes (torch.Tensor): Indices of codebook entries for each block,
-                                          shape (d1//b1, d2//b2, ..., dN//bN).
+        codes (torch.Tensor): torch.int32 dtype, indices of codebook entries for each block,
+                              shape (d1//b1, d2//b2, ..., dN//bN).
         codebook (torch.Tensor): Codebook tensor used for quantization,
                                  shape (k, b1, b2, ..., bN) where b_i are block sizes.
+        input_dtype (torch.dtype): Input dtype for `codes`, used for downstream pattern matching
+                             and not enforced in `codes`. can be sub byte dtype like torch.uint4
         scales (torch.Tensor): Scales, shape (d1, d2, ..., dN // scale_block_size, 1).
         output_dtype (torch.dtype): dtype for the output tensor.
 
@@ -142,7 +152,7 @@ def dequantize_codebook(
     dequant = dequant.view(
         *new_shape
     )  # (d1, d2, ..., num_scale_blocks, scale_block_size)
-    dequant.mul_(scales)
+    dequant = dequant * scales
 
     dequant = dequant.view(*original_shape)
 
