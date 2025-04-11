@@ -21,7 +21,7 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao).
 
 For inference, we have the option of
 1. Quantize only the weights: works best for memory bound models
@@ -49,6 +49,9 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 ```
 
 We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
+
+You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
+quantized with post training quantization. Check out the [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) to do this.
 
 ### KV Cache Quantization
 
@@ -99,7 +102,7 @@ from torchao.float8 import convert_to_float8_training
 convert_to_float8_training(m, module_filter_fn=...)
 ```
 
-And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md). 
+And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md).
 
 #### Blog posts about float8 training
 
