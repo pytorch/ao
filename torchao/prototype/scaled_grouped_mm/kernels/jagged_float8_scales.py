@@ -451,89 +451,70 @@ def _to_fp8_col_major_t_and_non_t(
     )
     tl.store(col_major_t_out_ptr + out_offs, fp8_vals.trans(1, 0), mask=out_mask)
 
-
-@triton.autotune(configs=kernel_configs_1D, key=["num_elements"])
+##############
+## START NEW #
+##############
+@triton.autotune(configs=kernel_configs_2D, key=["num_elements"])
 @triton.jit
-def _amax_atomic(
+def _amax_axiswise(
     input_ptr,
     amax_ptr,
-    num_elements,
+    input_stride_row: int,
+    input_stride_col: int,
+    axis: int,
+    num_elements: int,
     input_dtype: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
-    EPS: tl.constexpr,
+    BLOCK_SIZE_ROWS: tl.constexpr,
+    BLOCK_SIZE_COLS: tl.constexpr,
 ):
-    # compute local amax for each block
-    block_id = tl.program_id(axis=0)
-    block_start = block_id * BLOCK_SIZE
-    block_offs = block_start + tl.arange(0, BLOCK_SIZE)
+    # load 2d block of input tensor
+    block_row_id = tl.program_id(axis=0)
+    block_col_id = tl.program_id(axis=1)
+    block_row_start = block_row_id * BLOCK_SIZE_ROWS
+    block_col_start = block_col_id * BLOCK_SIZE_COLS
+    block_row_offs = block_row_start + tl.arange(0, BLOCK_SIZE_ROWS)
+    block_col_offs = block_col_start + tl.arange(0, BLOCK_SIZE_COLS)
+    block_offs = (
+        block_row_offs[:, None] * input_stride_row +
+        block_col_offs[None, :] * input_stride_col
+    )
     block_mask = block_offs < num_elements
     vals = tl.load(input_ptr + block_offs, mask=block_mask).to(input_dtype)
-    block_amax = tl.max(tl.abs(vals))
-    tl.atomic_max(amax_ptr, block_amax)
+
+    # compute amaxes along given axis
+    axiswise_amaxes = tl.max(tl.abs(vals), axis=axis)
+
+    # write amaxes using either row offs or col offs, depending on given axis
+    amax_offs = block_row_offs if axis == 0 else block_col_offs
+    tl.atomic_max(amax_ptr + amax_offs, axiswise_amaxes)
+
 
 
 @triton.jit
-def _scale_atomic(
+def _scale_axiswise(
     amax_ptr,
     scale_out_ptr,
     fp8_dtype_max,
     EPS: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
 ):
-    # load previously computed global amax
-    global_amax = tl.load(amax_ptr).to(tl.float64)
+    # load previously computed global amaxes
+    block_id = tl.program_id(axis=0)
+    amax_offs = block_id + tl.arange(0, BLOCK_SIZE)
+    global_amaxes = tl.load(amax_ptr + amax_offs).to(tl.float64)
 
     # compute scale, must be fp32
-    scale = (fp8_dtype_max / tl.clamp(global_amax, min=EPS, max=float("inf"))).to(
+    scales = (fp8_dtype_max / tl.clamp(global_amaxes, min=EPS, max=float("inf"))).to(
         tl.float32
     )
 
     # store scale for use in Float8Tensor constructor
-    scale_off = tl.arange(0, 1)
-    tl.store(scale_out_ptr + scale_off, scale)
+    scale_offs = tl.arange(0, BLOCK_SIZE)
+    tl.store(scale_out_ptr + scale_offs, scales)
 
-
-@triton.jit
-def _amax_reduction(
-    input_ptr,
-    block_amaxes_ptr,
-    num_elements,
-    input_dtype: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    # compute local amax for each block
-    block_id = tl.program_id(axis=0)
-    block_start = block_id * BLOCK_SIZE
-    block_offs = block_start + tl.arange(0, BLOCK_SIZE)
-    block_mask = block_offs < num_elements
-    vals = tl.load(input_ptr + block_offs, mask=block_mask).to(input_dtype)
-    block_amax = tl.max(tl.abs(vals))
-    tl.store(block_amaxes_ptr + block_id, block_amax)
-
-
-@triton.jit
-def _scale_reduction(
-    block_amaxes_ptr,
-    scale_out_ptr,
-    num_elements,
-    fp8_dtype_max,
-    BLOCK_SIZE: tl.constexpr,
-    EPS: tl.constexpr,
-):
-    # calculate global amax across all blocks
-    global_amax = tl.zeros([1], dtype=tl.float64)
-    num_blocks = tl.cdiv(num_elements, BLOCK_SIZE)
-    for i in range(num_blocks):
-        block_max = tl.load(block_amaxes_ptr + i)
-        global_amax = tl.maximum(global_amax, block_max)
-
-    # compute scale, must be fp32
-    scale = (fp8_dtype_max / tl.clamp(global_amax, min=EPS, max=float("inf"))).to(
-        tl.float32
-    )
-    scale_off = tl.arange(0, 1)
-    tl.store(scale_out_ptr + scale_off, scale)
-
+############
+## END NEW #
+############
 
 def hp_to_fp8_row_major(
     hp_tensor: torch.Tensor,
