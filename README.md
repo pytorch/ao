@@ -21,7 +21,7 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao).
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model.
 
 There are 2 methods of post-training quantization, shown in the code snippets below:
 1. Using torchao APIs directly.
@@ -38,27 +38,11 @@ from torchao.quantization.quant_api import (
 quantize_(m, Int4WeightOnlyConfig())
 ```
 
+You can find a more comprehensive usage instructions for quantization [here](torchao/quantization/) and for sparsity [here](/torchao/_models/sam/README.md).
+
 #### Quantizing for inference with huggingface configs
 
-Note this example is for torchao 0.10.0+. Prior versions use a string identifier for the config.
-
-```python
-import torch
-from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
-from torchao.quantization import Int4WeightOnlyConfig
-
-# Using AOBaseConfig instance (torchao >= 0.10.0)
-quant_config = Int4WeightOnlyConfig(group_size=128)
-quantization_config = TorchAoConfig(quant_type=quant_config)
-
-# Load and quantize the model
-quantized_model = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Meta-Llama-3-8B",
-    torch_dtype="auto",
-    device_map="auto",
-    quantization_config=quantization_config
-)
-```
+See [docs](https://huggingface.co/docs/transformers/main/en/quantization/torchao) for more details.
 
 For inference, we have the option of
 1. Quantize only the weights: works best for memory bound models
@@ -83,7 +67,7 @@ You can also use the EleutherAI [LM evaluation harness](https://github.com/Eleut
 quantized with post training quantization, by following these steps:
 
 1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
-2. Upload your quantized model to huggingface ([instructions](https://huggingface.co/docs/hub/en/models-uploading)).
+2. Serialize your quantized model and save to disk ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
 3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
 4. Run an evaluation. Example:
 
