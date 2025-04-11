@@ -50,6 +50,8 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 
 We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
 
+### Evaluation
+
 You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
 quantized with post training quantization, by following these steps:
 
