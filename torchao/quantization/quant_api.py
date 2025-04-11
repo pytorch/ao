@@ -300,7 +300,7 @@ def _replace_with_custom_fn_if_matches_filter(
                 device,
                 extra_args,
             )
-            if new_child is not child:
+            if new_child is not child and new_child is not None:
                 setattr(model, name, new_child)
         if device is not None:
             model.to(device=device)  # move parent module to device

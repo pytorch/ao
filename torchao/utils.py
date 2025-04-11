@@ -422,7 +422,8 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     with torch._C.DisableTorchFunctionSubclass():
-        return func(*args, **kwargs)
+        out = func(*args, **kwargs)
+        return out
 
 
 def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
@@ -441,6 +442,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
     arg_types = tuple(type(arg) for arg in args)
     kwarg_types = {k: type(arg) for k, arg in kwargs.items()}
+    # import fbvscode; fbvscode.set_trace()
     raise NotImplementedError(
         f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}"
     )
