@@ -51,7 +51,18 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
 
 You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
-quantized with post training quantization. Check out the [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) to do this.
+quantized with post training quantization, by following these steps:
+
+1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
+2. Upload your quantized model to huggingface ([instructions](https://huggingface.co/docs/hub/en/models-uploading)).
+3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
+4. Run an evaluation. Example:
+
+```bash
+lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
+```
+
+Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
 
 ### KV Cache Quantization
 
