@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import torch
 
@@ -48,7 +48,7 @@ def swizzle_mm(aten_op, args, kwargs=None):
 
 
 @implements([aten.bmm.default])
-def swizzle_mm(aten_op, args, kwargs=None):
+def swizzle_bmm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 

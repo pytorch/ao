@@ -71,7 +71,6 @@ def use_debug_mode():
 import torch
 from torch.utils.cpp_extension import (
     CUDA_HOME,
-    ROCM_HOME,
     IS_WINDOWS,
     ROCM_HOME,
     BuildExtension,

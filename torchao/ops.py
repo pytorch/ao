@@ -7,7 +7,7 @@ import functools
 from typing import Optional
 
 import torch
-from torch import dtype, Tensor
+from torch import Tensor, dtype
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
