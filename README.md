@@ -24,7 +24,7 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#torchao).
 
 There are 2 methods of post-training quantization, shown in the code snippets below:
-1. Using torchao APIs directly
+1. Using torchao APIs directly.
 2. Loading a huggingface model with a quantization config.
 
 #### Quantizing for inference with torchao APIs
