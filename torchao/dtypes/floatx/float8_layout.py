@@ -159,6 +159,13 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
+        elif func in [aten.select.int, func is aten.index.Tensor]:
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
+            )
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
