@@ -746,7 +746,12 @@
             <span class="n">zero_point_domain</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">)</span>
+        <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+            <span class="n">int_data</span><span class="p">,</span>
+            <span class="n">scale</span><span class="p">,</span>
+            <span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+        <span class="p">)</span>
 
         <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
         <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
