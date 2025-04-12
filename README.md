@@ -67,7 +67,7 @@ You can also use the EleutherAI [LM evaluation harness](https://github.com/Eleut
 quantized with post training quantization, by following these steps:
 
 1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
-2. Serialize your quantized model and save to disk ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
+2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
 3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
 4. Run an evaluation. Example:
 
