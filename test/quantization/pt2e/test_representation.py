@@ -19,6 +19,7 @@ from torch.testing._internal.common_quantization import (
     TestHelperModules,
     skipIfNoQNNPACK,
 )
+from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer import Quantizer
@@ -320,3 +321,7 @@ class TestPT2ERepresentation(QuantizationTestCase):
             ref_node_occurrence,
             non_ref_node_occurrence,
         )
+
+
+if __name__ == "__main__":
+    run_tests()

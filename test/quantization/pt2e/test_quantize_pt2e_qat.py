@@ -28,6 +28,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
+from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.pt2e import (
     FusedMovingAvgObsFakeQuantize,
@@ -1170,3 +1171,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
         self.checkGraphModuleNodes(
             exported_model.graph_module, expected_node_occurrence=node_occurrence
         )
+
+
+if __name__ == "__main__":
+    run_tests()

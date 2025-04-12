@@ -12,7 +12,7 @@ import torch
 import torch._export
 from torch.fx import Node
 from torch.testing._internal.common_quantization import QuantizationTestCase
-from torch.testing._internal.common_utils import IS_WINDOWS, skipIfCrossRef
+from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer import QuantizationAnnotation, Quantizer
@@ -144,8 +144,6 @@ class TestMetaDataPorting(QuantizationTestCase):
             self.assertEqual(v, node_tags[k])
         return m
 
-    @skipIfCrossRef  # mlazos: retracing FX graph with torch function mode doesn't propagate metadata, because the stack
-    # trace of the mode torch function impl doesn't match the traced graph stored lineno.
     def test_simple_metadata_porting(self):
         """
         Model under test
@@ -522,3 +520,7 @@ class TestMetaDataPorting(QuantizationTestCase):
             BackendAQuantizer(),
             node_tags,
         )
+
+
+if __name__ == "__main__":
+    run_tests()

@@ -139,9 +139,6 @@ def _get_reduction_params(block_size, input_size):
     return shape_for_reduction, reduction_dims
 
 
-quant_lib = torch.library.Library("pt2e_quant", "FRAGMENT")  # noqa: TOR901
-
-
 def choose_qparams_affine_with_min_max(
     min_val: torch.Tensor,
     max_val: torch.Tensor,

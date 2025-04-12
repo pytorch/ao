@@ -33,6 +33,7 @@ from torch.testing._internal.common_utils import (
     TemporaryFileName,
     instantiate_parametrized_tests,
     parametrize,
+    run_tests,
     skipIfHpu,
 )
 
@@ -2669,6 +2670,8 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
         import operator
 
         from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
+
+        # TODO: merge into torchao observer
         from torchao.quantization.pt2e.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
@@ -2758,3 +2761,6 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
 
 
 instantiate_parametrized_tests(TestQuantizePT2E)
+
+if __name__ == "__main__":
+    run_tests()

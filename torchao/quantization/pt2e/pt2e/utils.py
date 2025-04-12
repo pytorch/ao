@@ -19,7 +19,6 @@ from torch.fx import GraphModule, Node
 from torch.nn.utils.fusion import fuse_conv_bn_weights
 from torch.utils._pytree import LeafSpec
 
-import torchao.quantization.pt2e.pt2e._affine_quantization  # noqa: F401
 from torchao.quantization.pt2e.quantizer import QuantizationAnnotation
 
 __all__ = [

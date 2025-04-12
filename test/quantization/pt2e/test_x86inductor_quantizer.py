@@ -21,7 +21,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoX86,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
-from torch.testing._internal.common_utils import skipIfTorchDynamo
+from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e import ObserverBase
@@ -2872,3 +2872,7 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
                 node_list,
                 lower=True,
             )
+
+
+if __name__ == "__main__":
+    run_tests()

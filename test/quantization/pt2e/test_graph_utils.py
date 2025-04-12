@@ -10,7 +10,7 @@ import unittest
 
 import torch
 import torch._dynamo as torchdynamo
-from torch.testing._internal.common_utils import IS_WINDOWS, TestCase
+from torch.testing._internal.common_utils import IS_WINDOWS, TestCase, run_tests
 
 from torchao.quantization.pt2e.pt2e.graph_utils import (
     find_sequential_partitions,
@@ -128,3 +128,7 @@ class TestGraphUtils(TestCase):
             [torch.nn.Conv2d, torch.nn.ReLU6],
         )
         self.assertEqual(len(fused_partitions), 1)
+
+
+if __name__ == "__main__":
+    run_tests()

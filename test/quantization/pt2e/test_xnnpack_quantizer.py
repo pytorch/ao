@@ -39,6 +39,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
+from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
@@ -1036,6 +1037,7 @@ class TestXNNPACKQuantizer(PT2EQuantizationTestCase):
 
 
 # TODO: express this using self._test_quantizer, add test for inception_v4
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
 class TestXNNPACKQuantizerModels(PT2EQuantizationTestCase):
     @skip_if_no_torchvision
     @skipIfNoQNNPACK
@@ -1093,3 +1095,7 @@ class TestXNNPACKQuantizerModels(PT2EQuantizationTestCase):
             self.assertTrue(
                 compute_sqnr(after_quant_result, after_quant_result_fx) > 35
             )
+
+
+if __name__ == "__main__":
+    run_tests()
