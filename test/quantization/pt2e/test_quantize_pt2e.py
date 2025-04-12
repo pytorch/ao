@@ -29,7 +29,6 @@ from torch.testing._internal.common_quantization import (
 )
 from torch.testing._internal.common_utils import (
     TEST_CUDA,
-    TEST_HPU,
     TemporaryFileName,
     instantiate_parametrized_tests,
     parametrize,
@@ -72,6 +71,9 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.export import export_for_training
+
+if TORCH_VERSION_AT_LEAST_2_7:
+    from torch.testing._internal.common_utils import TEST_HPU
 
 
 @skipIfNoQNNPACK

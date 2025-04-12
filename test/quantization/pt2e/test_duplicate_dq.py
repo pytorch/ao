@@ -11,7 +11,6 @@ import unittest
 from typing import Any
 
 import torch
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import QuantizationTestCase
 from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 
@@ -34,6 +33,10 @@ from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.export import export_for_training
 
 
 class TestHelperModules:
@@ -97,6 +100,7 @@ _DEQUANTIZE_OPS = [
 
 
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
 class TestDuplicateDQPass(QuantizationTestCase):
     def _test_duplicate_dq(
         self,
