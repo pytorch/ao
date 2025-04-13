@@ -12,13 +12,13 @@ import torch
 from torch._export.error import InternalError
 from torch.fx.passes.infra.pass_base import PassBase, PassResult
 
-import torchao.quantization.quant_primitives  # noqa: F401
 from torchao.quantization.pt2e.pt2e.utils import (
     _filter_sym_size_users,
     _find_q_dq_node_for_user,
     _is_valid_annotation,
 )
 from torchao.quantization.pt2e.quantizer import QuantizationSpecBase
+from torchao.quantization.quant_primitives import quant_lib  # noqa: F401
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)

@@ -11,7 +11,6 @@ import unittest
 from collections import Counter
 
 import torch
-from torch.export import export_for_training
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import IS_WINDOWS, TestCase, run_tests
 
@@ -30,6 +29,9 @@ from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
+if TORCH_VERSION_AT_LEAST_2_7:
+    from torch.export import export_for_training
 
 
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")

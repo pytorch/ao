@@ -33,7 +33,6 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
-    skipIfHpu,
 )
 
 import torchao
@@ -72,8 +71,16 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.export import export_for_training
 
+
+DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else [])
+
 if TORCH_VERSION_AT_LEAST_2_7:
-    from torch.testing._internal.common_utils import TEST_HPU
+    from torch.testing._internal.common_utils import (
+        TEST_HPU,
+        skipIfHpu,
+    )
+
+    DEVICE_LIST += ["hpu"] if TEST_HPU else []
 
 
 @skipIfNoQNNPACK
@@ -1871,10 +1878,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             torch.ops.aten.batch_norm.default,
         )
 
-    @parametrize(
-        "device",
-        ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["hpu"] if TEST_HPU else []),
-    )
+    @parametrize("device", DEVICE_LIST)
     def test_move_exported_model_bn(self, device):
         """
         Test switching batch_norm behavior between train and eval modes using
