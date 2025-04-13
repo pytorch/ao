@@ -21,11 +21,6 @@ from torch.utils._pytree import LeafSpec
 
 from torchao.quantization.pt2e.quantizer import QuantizationAnnotation
 
-__all__ = [
-    "fold_bn_weights_into_conv_node",
-    "remove_tensor_overload_for_qdq_ops",
-]
-
 _QUANTIZE_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,

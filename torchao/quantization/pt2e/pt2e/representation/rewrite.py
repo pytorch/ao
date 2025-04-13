@@ -13,16 +13,16 @@ from typing import Any, Callable, Optional
 import torch
 from torch._higher_order_ops.out_dtype import out_dtype
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
-from torch.ao.quantization.pt2e.export_utils import _WrapperModule
-from torch.ao.quantization.pt2e.utils import (
+from torch.fx import GraphModule
+from torch.fx.subgraph_rewriter import replace_pattern
+
+from torchao.quantization.pt2e.pt2e.export_utils import _WrapperModule
+from torchao.quantization.pt2e.pt2e.utils import (
     _get_aten_graph_module_for_pattern,
     _replace_literals_with_existing_placeholders,
     _replace_literals_with_new_placeholders,
     remove_tensor_overload_for_qdq_ops,
 )
-from torch.fx import GraphModule
-from torch.fx.subgraph_rewriter import replace_pattern
-
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_7:
