@@ -77,7 +77,6 @@ DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else [])
 if TORCH_VERSION_AT_LEAST_2_7:
     from torch.testing._internal.common_utils import (
         TEST_HPU,
-        skipIfHpu,
     )
 
     DEVICE_LIST += ["hpu"] if TEST_HPU else []
@@ -1191,10 +1190,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertIsNot(observers[0], observers[2])
         self.assertIsNot(observers[1], observers[2])
 
-    @skipIfHpu
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))
     def test_quantization_dtype(self, dtype, quant_dtype):
+        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+            unittest.SkipTest("test doesn't currently work with HPU")
+
         class DtypeActQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                 info_fun = torch.iinfo if quant_dtype == torch.int16 else torch.finfo
@@ -1953,8 +1954,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with self.assertRaises(NotImplementedError):
             m.train()
 
-    @skipIfHpu
     def test_allow_exported_model_train_eval(self):
+        if TORCH_VERSION_AT_LEAST_2_7 and TEST_HPU:
+            unittest.SkipTest("test doesn't currently work with HPU")
+
         class M(torch.nn.Module):
             def __init__(self) -> None:
                 super().__init__()
