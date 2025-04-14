@@ -23,10 +23,11 @@ from torchao.quantization.pt2e.pt2e.utils import (
     _replace_literals_with_new_placeholders,
     remove_tensor_overload_for_qdq_ops,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
-if TORCH_VERSION_AT_LEAST_2_7:
+try:
     from torch._export.utils import _disable_aten_to_metadata_assertions
+except:
+    _disable_aten_to_metadata_assertions = contextlib.nullcontext
 
 
 __all__ = [
@@ -810,12 +811,7 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
 
     remove_tensor_overload_for_qdq_ops(model)
 
-    context = (
-        _disable_aten_to_metadata_assertions
-        if TORCH_VERSION_AT_LEAST_2_7
-        else contextlib.nullcontext
-    )
-    with context():
+    with _disable_aten_to_metadata_assertions():
         for rewrite_info in _REWRITE_INFO_LIST:
             example_inputs = rewrite_info.example_inputs
             pattern = rewrite_info.pattern

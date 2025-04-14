@@ -6,7 +6,7 @@
 """
 This tutorial shows how to preserve higher level operators in the model in order to be used in executorch
 
-Specifically we define and preserved `torch.ops.quant.embedding_byte` op that works with quantized weights
+Specifically we define and preserved `torch.ops.torchao_quant.embedding_byte` op that works with quantized weights
 through `torch.export.export`, we can follow Executorch tutorials: https://pytorch.org/executorch/stable/tutorials/export-to-executorch-tutorial.html#lowering-to-edge-dialect to lower the model to executorch
 or rely on https://github.com/pytorch/executorch/tree/main/examples/models/llama and https://github.com/pytorch/torchchat libraries to export to target device.
 
@@ -38,7 +38,7 @@ aten = torch.ops.aten
 
 # NOTE: the op must start with `_`
 # NOTE: typing must be compatible with infer_schema (https://github.com/pytorch/pytorch/blob/main/torch/_library/infer_schema.py)
-# This will register a torch.ops.quant.embedding
+# This will register a torch.ops.torchao_quant.embedding
 @register_custom_op
 def _embedding_byte(
     int_data: torch.Tensor,
@@ -63,7 +63,7 @@ def _(func, types, args, kwargs):
     tensor_impl = weight.tensor_impl
     int_data, scale = tensor_impl.get_plain()
     block_size = (1, int_data.shape[-1])
-    return torch.ops.quant.embedding_byte(int_data, block_size, scale, indices)
+    return torch.ops.torchao_quant.embedding_byte(int_data, block_size, scale, indices)
 
 
 def main():
@@ -88,7 +88,7 @@ def main():
     assert torch.equal(y_ref, y_q_exported)
     ops = [n.target for n in m_exported.graph.nodes]
     print(m_exported)
-    assert torch.ops.quant.embedding_byte.default in ops
+    assert torch.ops.torchao_quant.embedding_byte.default in ops
 
 
 if __name__ == "__main__":
