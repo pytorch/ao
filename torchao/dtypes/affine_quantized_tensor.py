@@ -19,7 +19,10 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
+    choose_qparams_affine_asymmetric,
     choose_qparams_affine_floatx,
+    choose_qparams_affine_symmetric,
+    choose_qparams_affine_tensorcore,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_floatx,
@@ -256,19 +259,59 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             data = data.to(target_dtype)
         else:
-            scale, zero_point = choose_qparams_affine(
-                input_float,
-                mapping_type,
-                block_size,
-                target_dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype,
-                zero_point_dtype,
-                preserve_zero,
-                zero_point_domain,
-            )
+            # Use specialized choose_qparams_affine functions based on parameters
+            if zero_point_domain == ZeroPointDomain.FLOAT and preserve_zero == False:
+                # TensorCore optimized quantization
+                scale, zero_point = choose_qparams_affine_tensorcore(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
+            elif mapping_type == MappingType.SYMMETRIC:
+                # Symmetric quantization
+                scale, zero_point = choose_qparams_affine_symmetric(
+                    input_float,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                    zero_point_domain,
+                )
+            elif mapping_type == MappingType.ASYMMETRIC:
+                # Asymmetric quantization
+                scale, zero_point = choose_qparams_affine_asymmetric(
+                    input_float,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                    zero_point_domain,
+                    preserve_zero,
+                )
+            else:
+                # Fallback to generic function for other cases (e.g., SYMMETRIC_NO_CLIPPING_ERR)
+                scale, zero_point = choose_qparams_affine(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None
