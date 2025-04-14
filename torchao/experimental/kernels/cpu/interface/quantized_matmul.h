@@ -70,7 +70,7 @@ get_int8_a_int8_b_channelwise_qmatmul(
     a_stride_m = k;
     b_stride_n = k;
     return aarch64::quantized_matmul::
-        channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot::
+        channelwise_8bit_a_channelwise_8bit_b_f32::
             kernel<true, true, false, true>;
   }
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
