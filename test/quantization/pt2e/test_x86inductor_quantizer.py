@@ -2845,6 +2845,7 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
                 )
 
     @skipIfNoX86
+    # @skip("Not sure why this failed")
     def test_lowering_to_x86(self):
         with override_quantized_engine("x86"), torch.no_grad():
             m = TestHelperModules.MiniResNet().eval()
@@ -2852,6 +2853,7 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
             quantizer = X86InductorQuantizer().set_global(
                 xiq.get_default_x86_inductor_quantization_config()
             )
+            print("onednn namespace:", dir(torch.ops.onednn))
             node_occurrence = {
                 torch.ops.quantized_decomposed.quantize_per_tensor.default: 3,
                 torch.ops.onednn.qconv_pointwise.default: 6,
