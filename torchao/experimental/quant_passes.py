@@ -15,7 +15,7 @@ import torch
 # should be removed after removing dep on `torch._export.passes.constant_folding`
 import torch.ao.quantization.pt2e._affine_quantization  # noqa: F401
 
-# TODO: remove ConstantFolder
+# TODO: remove dependency on ConstantFolder
 from torch._export.passes.constant_folding import (
     ConstantFolder,
     replace_node_with_constant,
