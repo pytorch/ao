@@ -92,19 +92,20 @@ def test_packed_fp8():
                           [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
                           [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
     packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-    packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
+    packed, packed_meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
     
     torch.testing.assert_close(packed.to(torch.float16), packed_reference.to(torch.float16))
 
 
 def test_meta_fp8_fixed():
-    # W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
-    W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
-                          [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-                          [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-                          [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
+    torch.manual_seed(123)
+    W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
+    # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
+    #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
+    #                       [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
+    #                       [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
     packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-    packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
+    packed, packed_meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
     vc_mine = torch.unique(packed_meta, return_counts=True)
     vc_ref = torch.unique(meta_reference, return_counts=True)

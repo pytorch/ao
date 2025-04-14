@@ -21,9 +21,7 @@ struct MetadataCutlass {
   // 32x32 dense tile (1024 bits). Then these tiles are
   // stored in a Column-Major fashion
   ElementInputE *_meta;
-  ElementInputE *_meta_trans;
   int64_t _meta_reordered_sy;
-  int64_t _meta_trans_reordered_sx;
 
   // Define create_compressed_representation
   static std::tuple<at::Tensor, // return value of the function
@@ -43,17 +41,17 @@ struct MetadataCutlass {
 
     // hard code this for now to 16
     at::Tensor packed_meta =
-        at::zeros({roundedx, 16}, like.options().dtype(at::ScalarType::Byte));
+        at::empty({roundedx, cutlass::ceil_div(roundedy, 8)},
+                  like.options().dtype(at::ScalarType::Byte));
     return std::make_tuple(packed, packed, packed_meta);
   }
 
   // define get_meta_offset
-  MetadataCutlass(at::Tensor metaN, at::Tensor metaT, int rows, int cols) {
+  MetadataCutlass(at::Tensor metaN, int rows, int cols) {
     _meta = (ElementInputE *)metaN.data_ptr();
     _meta_reordered_sy = metaN.stride(0);
-    _meta_trans = (ElementInputE *)metaT.data_ptr();
-    _meta_trans_reordered_sx = metaT.stride(0);
   }
+
   CUTLASS_HOST_DEVICE
   int64_t _get_meta_offset(int warp_row, int thread_row, int warp_col,
                            int thread_col, int64_t total_rows) const {
@@ -95,7 +93,7 @@ __global__ void __launch_bounds__(32 /* num_threads */, 20)
 }
 
 template <typename Element, typename MetadataFormat>
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor>
 sparse_semi_structured_tile_typed(const at::Tensor input,
                                   std::string algorithm) {
 
@@ -115,8 +113,6 @@ sparse_semi_structured_tile_typed(const at::Tensor input,
 
   auto [compressed, packed, packed_meta_reordered] =
       MetadataFormat::create_compressed_representation(rows, cols, input);
-  auto [compressed_trans, packed_trans, packed_trans_meta_reordered] =
-      MetadataFormat::create_compressed_representation(cols, rows, input);
   TORCH_CHECK(input.size(1) % 32 == 0,
               "Number of cols should be multiple of 32");
 
@@ -128,16 +124,8 @@ sparse_semi_structured_tile_typed(const at::Tensor input,
 
   p.packed = (Element *)packed.data_ptr();
   p.packed_stride = packed.stride(0);
-  p.packed_trans = (Element *)packed_trans.data_ptr();
-  p.packed_trans_stride = packed_trans.stride(0);
 
-  MetadataFormat metadata = MetadataFormat(
-      packed_meta_reordered, packed_trans_meta_reordered, rows, cols);
-  at::Tensor threads_masks = at::empty(
-      {p.getBlocksGrid().x * p.getThreadsGrid().x,
-       p.getBlocksGrid().y * p.getThreadsGrid().y, sizeof(p.threads_masks[0])},
-      input.options().dtype(at::ScalarType::Byte));
-  p.threads_masks = (uint64_t *)threads_masks.data_ptr();
+  MetadataFormat metadata = MetadataFormat(packed_meta_reordered, rows, cols);
 
   printf("launching kernel ... \n");
   bool kernel_launched = false;
@@ -156,13 +144,11 @@ sparse_semi_structured_tile_typed(const at::Tensor input,
   named_algorithms(launchKernel);
   TORCH_CHECK(kernel_launched, "Unknown algorithm \"", algorithm, "\"");
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-  return std::make_tuple(compressed, packed_meta_reordered, compressed_trans,
-                         packed_trans_meta_reordered, threads_masks);
+  return std::make_tuple(compressed, packed_meta_reordered);
 }
 
-// <packed, packed_meta_reordered, packed_trans, packed_trans_meta_reorderd,
-// threads_masks>
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+// <packed, packed_meta_reordered>
+std::tuple<at::Tensor, at::Tensor>
 _sparse_semi_structured_tile(const at::Tensor &input,
                              std::string_view algorithm, bool use_cutlass) {
   std::string algo(algorithm.data(), algorithm.size());

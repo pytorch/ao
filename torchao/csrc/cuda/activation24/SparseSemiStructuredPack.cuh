@@ -25,87 +25,10 @@ constexpr int kThreadY = 16;
 // eg: indices & (1 << col))
 using Indices1x16 = uint16_t;
 
-struct Tile2x16Masks {
-  Indices1x16 a, b;
-  CUTLASS_DEVICE Tile2x16Masks() { a = b = 0; }
+struct Tile1x16Masks {
+  Indices1x16 a;
+  CUTLASS_DEVICE Tile1x16Masks() { a = 0; }
 };
-
-static_assert(sizeof(Tile2x16Masks) == 4, "should be exactly uint32_t");
-
-// Each thread has data for an 1x16 area of the input tensor
-// 32 consecutive bits will live in a single thread
-// of the metadata tensor will live in 4 different threads.
-// This functions does the required warp shuffling to send data to the
-// right threads.
-// This took some time to write (and get right), hopefully these slides
-// can help
-// https://docs.google.com/presentation/d/1DtmKThv8S5QAyBktuLRYzZhRzCvS1qSkBbrqNCjMPeA/edit#slide=id.g249eb2e2f2e_0_28
-
-// We want to write 64 bits at a time for the metadata
-// 16 elements at 2 bits an element yields 32 bits -> so we write warp shuffle
-// once and write for two threads.
-// T0 T1 T2 T3 T4 T5 T6 T7
-// T8
-CUTLASS_DEVICE uint32_t warp_shuffle_meta(uint32_t meta_ab,
-                                          bool transposed = false) {
-  // FP8 format is different:
-  // ['a[ 0,  0: 8]', 'a[ 0,  8:16]', 'a[ 0, 16:24]', 'a[ 0, 24:32]'] < T0
-  // ['a[ 0, 32:40]', 'a[ 0, 40:48]', 'a[ 0, 48:56]', 'a[ 0, 56:64]']
-  // ['a[ 1,  0: 8]', 'a[ 1,  8:16]', 'a[ 1, 16:24]', 'a[ 1, 24:32]']
-  // ['a[ 1, 32:40]', 'a[ 1, 40:48]', 'a[ 1, 48:56]', 'a[ 1, 56:64]']
-  // ['a[ 2,  0: 8]', 'a[ 2,  8:16]', 'a[ 2, 16:24]', 'a[ 2, 24:32]'] < T8
-  // ['a[ 2, 32:40]', 'a[ 2, 40:48]', 'a[ 2, 48:56]', 'a[ 2, 56:64]']
-  // ['a[ 3,  0: 8]', 'a[ 3,  8:16]', 'a[ 3, 16:24]', 'a[ 3, 24:32]']
-  // ['a[ 3, 32:40]', 'a[ 3, 40:48]', 'a[ 3, 48:56]', 'a[ 3, 56:64]']
-
-  // Use warp-shuffles to send data around threads
-  // bool thread_bottom = threadIdx.x % 2;
-  // For rowwise, the pattern is much simpler - we only need to ensure
-  // the metadata for each row is arranged correctly across threads
-
-  // // Get thread position within warp
-  // int lane_id = threadIdx.x % 32;
-  // int warp_row = lane_id / 8; // Which row this thread handles in the warp
-
-  // // Exchange metadata with appropriate threads
-  // // For rowwise pattern, we can simplify to just exchange between adjacent
-  // // threads
-  // uint32_t shuffled_meta = __shfl_xor_sync(0xffffffff, meta_ab, 8);
-
-  // // Select which parts to keep based on thread position
-  // bool is_even_lane = (lane_id % 2) == 0;
-  // uint16_t my_part = uint16_t(meta_ab & 0xFFFF);
-  // uint16_t neighbor_part = uint16_t(shuffled_meta & 0xFFFF);
-
-  // // Reconstruct final metadata
-  // uint32_t final_metadata;
-  // if (is_even_lane) {
-  //   final_metadata = uint32_t(my_part) | (uint32_t(neighbor_part) << 16);
-  // } else {
-  //   final_metadata = uint32_t(neighbor_part) | (uint32_t(my_part) << 16);
-  // }
-  // if (threadIdx.x == 0 && threadIdx.y == 2) {
-  //   // Build binary string for metadata.meta_a
-  //   char meta_a[33] = {0};
-  //   for (int bit = 31; bit >= 0; bit--) {
-  //     meta_a[31 - bit] = (final_metadata & (1 << bit)) ? '1' : '0';
-  //   }
-  //   printf("final_metadata: %s \n", meta_a);
-  // }
-
-  return meta_ab;
-}
-
-CUTLASS_DEVICE void warp_shuffle_and_write_meta(ElementInputE *metadata_duo,
-                                                uint16_t meta_ab,
-                                                bool transposed = false) {
-  bool thread_left = threadIdx.y % 2;
-
-  uint16_t final_metadata = warp_shuffle_meta(meta_ab, transposed);
-
-  int index = (2 * thread_left) * 4;
-  ((uint16_t *)metadata_duo)[0] = final_metadata;
-}
 
 template <typename Element_> struct KernelTypes {
   using Element = Element_;
@@ -124,11 +47,6 @@ template <typename Element_> struct KernelTypes {
     Element *packed;
     int64_t packed_stride;
 
-    Element *packed_trans;
-    int64_t packed_trans_stride;
-
-    uint64_t *threads_masks;
-
     __host__ dim3 getBlocksGrid() const {
       return dim3(cutlass::ceil_div(input_dim0, kWarpX),
                   cutlass::ceil_div(input_dim1, kWarpY), 1);
@@ -136,15 +54,6 @@ template <typename Element_> struct KernelTypes {
 
     static CUTLASS_HOST_DEVICE dim3 getThreadsGrid() {
       return dim3(kWarpX / kThreadX, kWarpY / kThreadY, 1);
-    }
-
-    CUTLASS_DEVICE Tile2x16Masks *getCurrentThreadIndices() const {
-      Tile2x16Masks *gmem_threads_masks = (Tile2x16Masks *)threads_masks;
-      gmem_threads_masks += blockIdx.y * getThreadsGrid().y + threadIdx.y;
-      int64_t strideX = gridDim.y * getThreadsGrid().y;
-      gmem_threads_masks +=
-          (blockIdx.x * getThreadsGrid().x + threadIdx.x) * strideX;
-      return gmem_threads_masks;
     }
   };
 
@@ -168,11 +77,10 @@ template <typename Element_> struct KernelTypes {
     }
   };
 
-  struct Tile2x16Meta {
-    uint16_t meta_ab;
-    uint16_t meta_ab_trans;
+  struct Tile1x16Meta {
+    uint16_t meta;
 
-    CUTLASS_DEVICE Tile2x16Meta() { meta_ab = meta_ab_trans = 0; }
+    CUTLASS_DEVICE Tile1x16Meta() { meta = 0; }
   };
 
   CUTLASS_DEVICE static void writePacked(Element *ptr, Strip1x16Packed packed) {
@@ -204,10 +112,8 @@ template <typename Element_> struct KernelTypes {
     }
   };
 
-  CUTLASS_DEVICE static Strip1x16Packed pack_1x16(Indices1x16 indices,
-                                                  Tile1x16Accessor tile,
-                                                  uint16_t &meta,
-                                                  int meta_pos) {
+  CUTLASS_DEVICE static Strip1x16Packed
+  pack_1x16(Indices1x16 indices, Tile1x16Accessor tile, uint16_t &meta) {
     Strip1x16Packed packed;
     CUTLASS_PRAGMA_UNROLL
     for (int strip = 0; strip < 4; ++strip) {
@@ -246,13 +152,13 @@ template <typename Element_> struct KernelTypes {
       if (isSelected(2) && isSelected(3)) {
         packValue(0, 2);
       }
-      int add_mask = (col0_from | (col1_from << 2)) << (meta_pos + 4 * strip);
+      int add_mask = (col0_from | (col1_from << 2)) << (4 * strip);
       meta |= add_mask;
     }
     return packed;
   }
 
-  // this kernel is for a single thread
+  // Every thread runs this kernel
   template <typename Algorithm, typename MetadataStore>
   CUTLASS_DEVICE static void
   sparse_semi_structured_tile_kernel(Params p, MetadataStore metadata_gmem,
@@ -279,8 +185,8 @@ template <typename Element_> struct KernelTypes {
     Element *packed = p.packed + x * p.packed_stride + (y / 2);
     Fragment lines[1]; // Contains all values from the 1x16 tile
 
-    Tile2x16Meta metadata;
-    Tile2x16Masks indices;
+    Tile1x16Meta metadata;
+    Tile1x16Masks indices;
 
     // Load/process tiles `A` and `B`
     Element fillValue = Algorithm::template outOfBoundsFillValue<Element>();
@@ -289,54 +195,19 @@ template <typename Element_> struct KernelTypes {
                                                            x < p.input_dim0);
 
     indices.a = compute_tile_indices(Tile1x16Accessor(lines, 0, 0));
-    // indices.b = compute_tile_indices(Tile1x16Accessor(lines, 1, 0));
 
-    Strip1x16Packed packed_a = pack_1x16(
-        indices.a, Tile1x16Accessor(lines, 0, 0), metadata.meta_ab, 0);
-    // Strip1x16Packed packed_b = pack_1x16(
-    //     indices.b, Tile1x16Accessor(lines, 1, 0), metadata.meta_ab, 16);
+    Strip1x16Packed packed_a =
+        pack_1x16(indices.a, Tile1x16Accessor(lines, 0, 0), metadata.meta);
     writePacked(packed, packed_a);
 
-    *p.getCurrentThreadIndices() = indices;
-    // Writing meta non-transposed
+    // *p.getCurrentThreadIndices() = indices;
+
+    // Writing non-transposed metadata
     {
       ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
           warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);
-      warp_shuffle_and_write_meta(packed_meta_reordered, metadata.meta_ab);
+      ((uint16_t *)packed_meta_reordered)[0] = metadata.meta;
     }
-    // if (warp_x == 0 && warp_y == 0) {
-    //   uint16_t meta = metadata.meta_ab;
-    //   uint8_t byte0 = meta & 0xFF;        // Extract least significant byte
-    //   uint8_t byte1 = (meta >> 8) & 0xFF; // Extract second byte
-    //   // uint8_t byte2 = (meta >> 16) & 0xFF; // Extract third byte
-    //   // uint8_t byte3 = (meta >> 24) & 0xFF; // Extract most significant
-    //   byte
-
-    //   // for (int i = 0; i < 2; i++) {
-    //   //   printf(
-    //   //       "warp_x: %d, warp_y: %d, x: %d, y: %d metadata_ab: %u %u %u
-    //   %u\n"
-    //   //       "lines[%d]: %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f
-    //   %f\n",
-    //   //       warp_x, warp_y, x, y, byte0, byte1, byte2, byte3, i,
-    //   //       static_cast<float>(lines[i][0]),
-    //   static_cast<float>(lines[i][1]),
-    //   //       static_cast<float>(lines[i][2]),
-    //   static_cast<float>(lines[i][3]),
-    //   //       static_cast<float>(lines[i][4]),
-    //   static_cast<float>(lines[i][5]),
-    //   //       static_cast<float>(lines[i][6]),
-    //   static_cast<float>(lines[i][7]),
-    //   //       static_cast<float>(lines[i][8]),
-    //   static_cast<float>(lines[i][9]),
-    //   //       static_cast<float>(lines[i][10]),
-    //   //       static_cast<float>(lines[i][11]),
-    //   //       static_cast<float>(lines[i][12]),
-    //   //       static_cast<float>(lines[i][13]),
-    //   //       static_cast<float>(lines[i][14]),
-    //   //       static_cast<float>(lines[i][15]));
-    //   // }
-    // }
   }
 };
 
