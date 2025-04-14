@@ -2156,10 +2156,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 
         test_lib = Library("test_int4", "DEF")  # noqa: TOR901
         test_lib.define(
-            "quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor"
+            "quantize_per_tensor_int4.default(Tensor input, float scale, int zero_point) -> Tensor"
         )
 
-        @impl(test_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
+        @impl(test_lib, "quantize_per_tensor_int4.default", "CompositeExplicitAutograd")
         def quantize_per_tensor_int4(
             input: torch.Tensor,
             scale: float,
@@ -2173,10 +2173,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             )
 
         test_lib.define(
-            "dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor"
+            "dequantize_per_tensor_int4.default(Tensor input, float scale, int zero_point) -> Tensor"
         )
 
-        @impl(test_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
+        @impl(
+            test_lib, "dequantize_per_tensor_int4.default", "CompositeExplicitAutograd"
+        )
         def dequantize_per_tensor_int4(
             input: torch.Tensor,
             scale: float,
