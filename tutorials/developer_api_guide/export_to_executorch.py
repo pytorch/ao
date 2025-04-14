@@ -19,11 +19,7 @@ import torch
 from my_dtype_tensor_subclass import MyDTypeTensor
 
 import torchao
-from torchao.quantization.quant_primitives import dequantize_affine
-from torchao.utils import _register_custom_op
-
-quant_lib = torch.library.Library("quant", "FRAGMENT")
-register_custom_op = _register_custom_op(quant_lib)
+from torchao.quantization.quant_primitives import dequantize_affine, register_custom_op
 
 
 class MyDTypeTensorExtended(MyDTypeTensor):

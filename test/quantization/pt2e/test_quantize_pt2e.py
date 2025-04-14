@@ -2152,14 +2152,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         m(*example_inputs)
 
     def test_observer_callback(self):
-        from torch.library import Library, impl
+        from torch.library import custom_op
 
-        test_lib = Library("test_int4", "DEF")  # noqa: TOR901
-        test_lib.define(
-            "quantize_per_tensor_int4.default(Tensor input, float scale, int zero_point) -> Tensor"
-        )
-
-        @impl(test_lib, "quantize_per_tensor_int4.default", "CompositeExplicitAutograd")
+        @custom_op("test_int4::quantize_per_tensor_int4", mutates_args=())
         def quantize_per_tensor_int4(
             input: torch.Tensor,
             scale: float,
@@ -2172,13 +2167,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 .view(torch.bits8)
             )
 
-        test_lib.define(
-            "dequantize_per_tensor_int4.default(Tensor input, float scale, int zero_point) -> Tensor"
-        )
-
-        @impl(
-            test_lib, "dequantize_per_tensor_int4.default", "CompositeExplicitAutograd"
-        )
+        @custom_op("test_int4::dequantize_per_tensor_int4", mutates_args=())
         def dequantize_per_tensor_int4(
             input: torch.Tensor,
             scale: float,
