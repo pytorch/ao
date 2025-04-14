@@ -15,12 +15,14 @@ from pathlib import Path
 
 import torch
 
+from benchmarks.microbenchmarks.profiler import (
+    generate_model_profile,
+)
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     clean_caches,
     create_model_and_input,
-    generate_model_profile,
     model_inference_time_in_ms,
     string_to_config,
 )

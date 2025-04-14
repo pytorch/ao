@@ -10,10 +10,12 @@ import unittest
 
 import torch
 
+from benchmarks.microbenchmarks.profiler import (
+    generate_model_profile,
+)
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     ToyLinearModel,
-    generate_model_profile,
 )
 
 
