@@ -349,6 +349,18 @@ TEST(test_channelwise_8bit_channelwise_8bit_b, TranposeBWithZeroPointsLargeM) {
 
 TEST(
     test_channelwise_8bit_channelwise_8bit_b,
+    TranposeBWithZeroPointsLargeMWithGemmGemvMix) {
+  test_channelwise_8bit_channelwise_8bit_b<
+      true /*a_has_zeros*/,
+      true /*b_has_zeros*/,
+      false /*a_transposed*/,
+      true /*b_transposed*/>::
+      Run(
+          /*m=*/11, /*k=*/128, /*n=*/16);
+}
+
+TEST(
+    test_channelwise_8bit_channelwise_8bit_b,
     TranposedBWithZeroPointsOddSizes) {
   test_channelwise_8bit_channelwise_8bit_b<
       true /*a_has_zeros*/,
