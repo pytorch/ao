@@ -288,7 +288,7 @@ struct KernelImpl<true, true, false, true> {
     constexpr int nr = 8;
     constexpr int kr = 8;
     assert(m % mr == 0);
-    assert(k % kr == 0);
+    assert(k % 16 == 0);
     assert(n >= nr);
     std::vector<int8_t> rhs_packed(n * k);
     // Since we are casting int8_t to float32_t in order to tranpose matrix in a
