@@ -289,7 +289,7 @@ struct KernelImpl<true, true, false, true> {
     constexpr int kr = 8;
     assert(m % mr == 0);
     assert(k % 16 == 0);
-    assert(n >= nr);
+    assert(n % nr == 0);
     std::vector<int8_t> rhs_packed(n * k);
     // Since we are casting int8_t to float32_t in order to tranpose matrix in a
     // way to keep 4 of the k values to gether, we must adjust stride as well as
@@ -307,17 +307,6 @@ struct KernelImpl<true, true, false, true> {
 
     for (int m_idx = 0; m_idx < m; m_idx += mr) {
       for (int n_idx = 0; n_idx < n; n_idx += nr) {
-        // If remaining is < nr, that must mean that (nr - remaining) items
-        // dont need to be computed.
-        // In order to avoid out-of-bounds access, we need to rewind n_indx a
-        // bit
-        // |-------------------|-------------------|
-        // 0-------------------8-------------------16
-        // 0-------------------8-----10
-        // If n = 10 and nr = 8 then at n_idx = 8, we need to rewind n_idx to
-        // 8 - (8 - 10) = 2
-        int remaining = std::min(n - n_idx, nr);
-        n_idx = n_idx - (nr - remaining);
         // Set activation_ptr to start of activation qvals for row m_idx
         const int8_t* lhs_ptr = (const int8_t*)lhs + m_idx * lhs_stride_m;
         const int8_t* rhs_ptr = (const int8_t*)rhs_packed.data() +
