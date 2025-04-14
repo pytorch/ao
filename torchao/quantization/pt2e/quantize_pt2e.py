@@ -214,7 +214,7 @@ _QUANT_OPS = [
 # ops are only registered after 2.5
 if TORCH_VERSION_AT_LEAST_2_5:
     _QUANT_OPS += [
-        torch.ops.torchao_quant.quantize_affine,
+        torch.ops.torchao.quantize_affine,
     ]
 
 

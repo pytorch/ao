@@ -51,9 +51,9 @@ _CHOOSE_QPARAMS_OPS = [
 
 # ops are only registered after 2.5
 if TORCH_VERSION_AT_LEAST_2_5:
-    _QUANTIZE_OPS += [torch.ops.torchao_quant.quantize_affine]
-    _DEQUANTIZE_OPS += [torch.ops.torchao_quant.dequantize_affine]
-    _CHOOSE_QPARAMS_OPS += [torch.ops.torchao_quant.choose_qparams_affine]
+    _QUANTIZE_OPS += [torch.ops.torchao.quantize_affine]
+    _DEQUANTIZE_OPS += [torch.ops.torchao.dequantize_affine]
+    _CHOOSE_QPARAMS_OPS += [torch.ops.torchao.choose_qparams_affine]
 
 
 def _add_metadata(to_node: torch.fx.Node, from_node: torch.fx.Node) -> None:

@@ -1891,7 +1891,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             ), "Expecting original_dtype to be populated"
             if hasattr(self, "is_dynamic") and self.is_dynamic:
                 choose_qparams_affine = model.graph.call_function(
-                    torch.ops.torchao_quant.choose_qparams_affine,
+                    torch.ops.torchao.choose_qparams_affine,
                     (
                         observer_node.args[0],
                         self.mapping_type.name,
@@ -1922,7 +1922,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                 )
 
             q_node = model.graph.call_function(
-                torch.ops.torchao_quant.quantize_affine,
+                torch.ops.torchao.quantize_affine,
                 (
                     observer_node.args[0],
                     self.block_size,
@@ -1936,7 +1936,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                 {},
             )
             dq_node = model.graph.call_function(
-                torch.ops.torchao_quant.dequantize_affine,
+                torch.ops.torchao.dequantize_affine,
                 (
                     q_node,
                     self.block_size,
