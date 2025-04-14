@@ -40,37 +40,40 @@ struct MetadataCutlass {
     // NB: Writing to `packed` tensors in transposed manner
     at::Tensor packed =
         at::empty({roundedx, cutlass::ceil_div(roundedy, 2)}, like.options());
+
+    // hard code this for now to 16
     at::Tensor packed_meta =
-        at::empty({roundedx * roundedy / 16},
-                  like.options().dtype(at::ScalarType::Byte))
-            .view({roundedy / 32, roundedx, 2})
-            .permute({1, 2, 0});
+        at::zeros({roundedx, 16}, like.options().dtype(at::ScalarType::Byte));
     return std::make_tuple(packed, packed, packed_meta);
   }
 
   // define get_meta_offset
   MetadataCutlass(at::Tensor metaN, at::Tensor metaT, int rows, int cols) {
     _meta = (ElementInputE *)metaN.data_ptr();
-    _meta_reordered_sy = metaN.stride(2);
+    _meta_reordered_sy = metaN.stride(0);
     _meta_trans = (ElementInputE *)metaT.data_ptr();
-    _meta_trans_reordered_sx = metaT.stride(2);
+    _meta_trans_reordered_sx = metaT.stride(0);
   }
   CUTLASS_HOST_DEVICE
   int64_t _get_meta_offset(int warp_row, int thread_row, int warp_col,
-                           int thread_col, int64_t stride) const {
+                           int thread_col, int64_t total_rows) const {
     int64_t offset = 0;
 
+    // warp handles a 4x128 chunk, so find the appropriate one
+    offset += (warp_row / 4) * (total_rows) * 2;
+
     // Base offset for the warp's starting position
-    offset += warp_row * 4;              // Each warp handles 4 rows
-    offset += (warp_col / 128) * stride; // Column offset for warps
+    // offset += warp_row * 4; // Each warp handles 4 rows
+    // offset += (warp_col / 128) * stride; // Column offset for warps
 
-    // Thread position within the warp
-    // offset += thread_row * 128; // Each thread handles 1 row
-    offset += 128 * (thread_row / 32);
+    // // Thread position within the warp
+    offset += thread_row * (total_rows / 2); // Each thread handles 1 row
+    // offset += 128 * (thread_row / 4);
 
-    // Column offset within the warp
-    // Each thread handles 16 columns, and we're packing 2:4 sparsity
-    offset += (thread_col / 16) * stride;
+    // // Column offset within the warp
+    // // Each thread handles 16 columns, and we're packing 2:4 sparsity
+    offset += ((thread_col % 128) / 16) * 2;
+    // offset += (thread_col / 32) * 4;
 
     return offset;
   }
@@ -81,12 +84,6 @@ struct MetadataCutlass {
                            int thread_col) const {
     return _meta + _get_meta_offset(warp_row, thread_row, warp_col, thread_col,
                                     _meta_reordered_sy);
-  }
-  CUTLASS_HOST_DEVICE
-  ElementInputE *get_metaT(int warp_row, int thread_row, int warp_col,
-                           int thread_col) const {
-    return _meta_trans + _get_meta_offset(warp_col, thread_col, warp_row,
-                                          thread_row, _meta_trans_reordered_sx);
   }
 };
 
