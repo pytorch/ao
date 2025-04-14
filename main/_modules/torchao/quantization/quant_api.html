@@ -1106,6 +1106,9 @@
 <span class="sd">    Weights are quantized with scales and optionally zeros (controlled by weight_zero_point_domain) in a groupwise or</span>
 <span class="sd">    channelwise manner using the number of bits specified by weight_dtype.</span>
 
+<span class="sd">    This layout is identical to Int8DynamicActivationInt4WeightConfig when weight_dtype = torch.int4 and other args</span>
+<span class="sd">    are the same.  However, this layout is more general and supports other weight dtypes.</span>
+
 <span class="sd">    args:</span>
 <span class="sd">        weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</span>
 <span class="sd">            torch.intx with x &lt; 8 requires TORCH_VERSION_AT_LEAST_2_6</span>
@@ -1205,6 +1208,9 @@
 
     <span class="c1"># We quantize with QDQLayout, and then construct the packed weight tensor later</span>
     <span class="n">has_weight_zeros</span> <span class="o">=</span> <span class="n">weight_zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
+    <span class="n">preserve_zero</span> <span class="o">=</span> <span class="p">(</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
+        <span class="n">weight_zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span>
+    <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">input_float</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
@@ -1215,8 +1221,7 @@
         <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
         <span class="n">scale_dtype</span><span class="o">=</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
         <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="k">if</span> <span class="n">has_weight_zeros</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">preserve_zero</span><span class="o">=</span><span class="n">has_weight_zeros</span>
-        <span class="ow">or</span> <span class="p">(</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">),</span>
+        <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span>
         <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">weight_zero_point_domain</span><span class="p">,</span>
         <span class="n">_layout</span><span class="o">=</span><span class="n">QDQLayout</span><span class="p">(),</span>
     <span class="p">)</span>
