@@ -697,6 +697,9 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     Weights are quantized with scales and optionally zeros (controlled by weight_zero_point_domain) in a groupwise or
     channelwise manner using the number of bits specified by weight_dtype.
 
+    This layout is identical to Int8DynamicActivationInt4WeightConfig when weight_dtype = torch.int4 and other args
+    are the same.  However, this layout is more general and supports other weight dtypes.
+
     args:
         weight_dtype: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
             torch.intx with x < 8 requires TORCH_VERSION_AT_LEAST_2_6
@@ -796,6 +799,9 @@ def _int8_dynamic_activation_intx_weight_transform(
 
     # We quantize with QDQLayout, and then construct the packed weight tensor later
     has_weight_zeros = weight_zero_point_domain == ZeroPointDomain.INT
+    preserve_zero = (weight_mapping_type == MappingType.SYMMETRIC) or (
+        weight_zero_point_domain == ZeroPointDomain.NONE
+    )
     weight = to_affine_quantized_intx(
         input_float=weight,
         mapping_type=weight_mapping_type,
@@ -806,8 +812,7 @@ def _int8_dynamic_activation_intx_weight_transform(
         eps=torch.finfo(torch.float32).eps,
         scale_dtype=weight_scale_dtype,
         zero_point_dtype=torch.int8 if has_weight_zeros else None,
-        preserve_zero=has_weight_zeros
-        or (weight_mapping_type == MappingType.SYMMETRIC),
+        preserve_zero=preserve_zero,
         zero_point_domain=weight_zero_point_domain,
         _layout=QDQLayout(),
     )
