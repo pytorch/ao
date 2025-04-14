@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import csv
+import datetime
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -137,6 +139,7 @@ class BenchmarkConfig:
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
@@ -166,6 +169,7 @@ class BenchmarkConfig:
             "model_type": self.model_type,
             "output_dir": self.output_dir,
             "enable_profiler": self.enable_profiler,
+            "enable_memory_profiler": self.enable_memory_profiler,
         }
 
 
@@ -443,3 +447,98 @@ def print_results(results: List[BenchmarkResult]):
         print(tabulate(table_data, headers=headers, tablefmt="grid"))
     else:
         print("\nNo valid results to display")
+
+
+def generate_memory_profile(model, input_data, profile_file_path):
+    """Function to generate CUDA memory profile using torch.cuda.memory._snapshot().
+
+    Args:
+        model: The model to profile
+        input_data: Input data for the model
+        profile_file_path: Path to save the memory profile
+
+    Returns:
+        profile_file_path
+    """
+    if not torch.cuda.is_available():
+        print("Warning: CUDA is not available. Memory profiling requires CUDA.")
+        return None
+
+    # Create parent directory if it doesn't exist
+    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
+
+    # Warm up
+    with torch.no_grad():
+        for _ in range(3):
+            _ = model(input_data)
+            torch.cuda.synchronize()
+
+    # Take memory snapshot before inference
+    before_snapshot = torch.cuda.memory._snapshot()
+
+    # Run inference
+    with torch.no_grad():
+        _ = model(input_data)
+        torch.cuda.synchronize()
+
+    # Take memory snapshot after inference
+    after_snapshot = torch.cuda.memory._snapshot()
+
+    # Save snapshots to file
+    profile_data = {
+        "before_snapshot": before_snapshot,
+        "after_snapshot": after_snapshot,
+        "timestamp": str(datetime.datetime.now()),
+        "model_info": {
+            "name": model.__class__.__name__,
+            "device": str(next(model.parameters()).device),
+            "num_parameters": sum(p.numel() for p in model.parameters()),
+        },
+    }
+
+    with open(profile_file_path, "w") as f:
+        json.dump(profile_data, f, indent=2)
+
+    print(f"Memory profile saved to: {profile_file_path}")
+    return profile_file_path
+
+
+def visualize_memory_profile(profile_file_path):
+    """Visualize memory profile using matplotlib.
+
+    Args:
+        profile_file_path: Path to the memory profile file
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("Warning: matplotlib is required for memory profile visualization")
+        return
+
+    with open(profile_file_path, "r") as f:
+        profile_data = json.load(f)
+
+    before_snapshot = profile_data["before_snapshot"]
+    after_snapshot = profile_data["after_snapshot"]
+
+    # Extract memory usage data
+    before_memory = sum(block["size"] for block in before_snapshot["blocks"])
+    after_memory = sum(block["size"] for block in after_snapshot["blocks"])
+
+    # Create visualization
+    plt.figure(figsize=(10, 6))
+    plt.bar(
+        ["Before Inference", "After Inference"],
+        [before_memory / (1024**2), after_memory / (1024**2)],
+    )
+    plt.ylabel("Memory Usage (MB)")
+    plt.title("CUDA Memory Usage Comparison")
+    plt.grid(True)
+
+    # Save visualization
+    viz_path = profile_file_path.replace(".json", "_viz.png")
+    plt.savefig(viz_path)
+    plt.close()
+
+    print(f"Memory profile visualization saved to: {viz_path}")
+    return viz_path
