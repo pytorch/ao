@@ -1,3 +1,6 @@
+// setup.py glob includes all *.cpp files
+// but only build this for ROCm
+#ifdef USE_ROCM
 #include <hip/hip_runtime.h>
 #include <hipblaslt/hipblaslt-ext.hpp>
 
@@ -905,3 +908,4 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::swizzle_mm", &swizzle_mm);
   m.impl("torchao::swizzle_scaled_mm", &swizzle_scaled_mm);
 }
+#endif // USE_ROCM
