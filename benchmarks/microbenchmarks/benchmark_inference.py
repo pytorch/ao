@@ -24,7 +24,6 @@ from benchmarks.microbenchmarks.utils import (
     generate_model_profile,
     model_inference_time_in_ms,
     string_to_config,
-    visualize_memory_profile,
 )
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
@@ -114,7 +113,8 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_memory_profiler:
             print("Running memory profiler...")
             try:
-                memory_profile_path = generate_memory_profile(
+                # memory_profile_path = generate_memory_profile(
+                generate_memory_profile(
                     model=m_copy,
                     input_data=input_data,
                     profile_file_path=os.path.join(
@@ -123,10 +123,13 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                         f"{config.name}_memory_profile.json",
                     ),
                 )
-                if memory_profile_path:
-                    visualize_memory_profile(memory_profile_path)
+                # if memory_profile_path:
+                #     visualize_memory_profile(memory_profile_path)
             except Exception as e:
                 print(f"Error running memory profiler: {e}")
+                import traceback
+
+                traceback.print_exc()
 
         return result
     except Exception as e:

@@ -509,36 +509,41 @@ def visualize_memory_profile(profile_file_path):
     Args:
         profile_file_path: Path to the memory profile file
     """
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("Warning: matplotlib is required for memory profile visualization")
-        return
+    #     try:
+    #         import matplotlib.pyplot as plt
+    #     except ImportError:
+    #         print("Warning: matplotlib is required for memory profile visualization")
+    #         return
 
-    with open(profile_file_path, "r") as f:
-        profile_data = json.load(f)
+    #     with open(profile_file_path, "r") as f:
+    #         profile_data = json.load(f)
 
-    before_snapshot = profile_data["before_snapshot"]
-    after_snapshot = profile_data["after_snapshot"]
+    #     before_snapshot = profile_data["before_snapshot"]
+    #     after_snapshot = profile_data["after_snapshot"]
 
-    # Extract memory usage data
-    before_memory = sum(block["size"] for block in before_snapshot["blocks"])
-    after_memory = sum(block["size"] for block in after_snapshot["blocks"])
+    #     print(f"Visualizing memory profile... {after_snapshot['segments']['blocks']}")
 
-    # Create visualization
-    plt.figure(figsize=(10, 6))
-    plt.bar(
-        ["Before Inference", "After Inference"],
-        [before_memory / (1024**2), after_memory / (1024**2)],
-    )
-    plt.ylabel("Memory Usage (MB)")
-    plt.title("CUDA Memory Usage Comparison")
-    plt.grid(True)
+    #     # Extract memory usage data
+    #     before_memory = sum(
+    #         block["size"] for block in before_snapshot["segments"]["blocks"]
+    #     )
+    #     after_memory = sum(block["size"] for block in after_snapshot["segments"]["blocks"])
 
-    # Save visualization
-    viz_path = profile_file_path.replace(".json", "_viz.png")
-    plt.savefig(viz_path)
-    plt.close()
+    #     # Create visualization
+    #     plt.figure(figsize=(10, 6))
+    #     plt.bar(
+    #         ["Before Inference", "After Inference"],
+    #         [before_memory / (1024**2), after_memory / (1024**2)],
+    #     )
+    #     plt.ylabel("Memory Usage (MB)")
+    #     plt.title("CUDA Memory Usage Comparison")
+    #     plt.grid(True)
 
-    print(f"Memory profile visualization saved to: {viz_path}")
-    return viz_path
+    #     # Save visualization
+    #     viz_path = profile_file_path.replace(".json", "_viz.png")
+    #     plt.savefig(viz_path)
+    #     plt.close()
+
+    #     print(f"Memory profile visualization saved to: {viz_path}")
+    #     return viz_path
+    pass
