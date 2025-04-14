@@ -82,33 +82,6 @@ TORCHAO_ALWAYS_INLINE void block_mul_4x16x1(
   partial_sums[3][3] = vfmaq_n_f32(partial_sums[3][3], b_vec_high_high, a[3]);
 }
 
-TORCHAO_ALWAYS_INLINE void transpose_4x4(
-    const float32_t* a,
-    const size_t lda,
-    float32x4_t (&tranposed)[4]) {
-  float32x4_t a_vec_0 = vld1q_f32(a + 0 * lda);
-  float32x4_t a_vec_1 = vld1q_f32(a + lda);
-  float32x4_t a_vec_2 = vld1q_f32(a + 2 * lda);
-  float32x4_t a_vec_3 = vld1q_f32(a + 3 * lda);
-  // Transpose the 4x4 matrix formed by a_vec_0, a_vec_1, a_vec_2, a_vec_3
-  float32x4x2_t a01 = vtrnq_f32(a_vec_0, a_vec_1);
-  float32x4x2_t a23 = vtrnq_f32(a_vec_2, a_vec_3);
-
-  float32x4_t a_vec_0_t =
-      vcombine_f32(vget_low_f32(a01.val[0]), vget_low_f32(a23.val[0]));
-  float32x4_t a_vec_1_t =
-      vcombine_f32(vget_low_f32(a01.val[1]), vget_low_f32(a23.val[1]));
-  float32x4_t a_vec_2_t =
-      vcombine_f32(vget_high_f32(a01.val[0]), vget_high_f32(a23.val[0]));
-  float32x4_t a_vec_3_t =
-      vcombine_f32(vget_high_f32(a01.val[1]), vget_high_f32(a23.val[1]));
-
-  tranposed[0] = a_vec_0_t;
-  tranposed[1] = a_vec_1_t;
-  tranposed[2] = a_vec_2_t;
-  tranposed[3] = a_vec_3_t;
-}
-
 TORCHAO_ALWAYS_INLINE void block_mul_4x16x4(
     const float32_t* a,
     const size_t lda,
@@ -118,7 +91,7 @@ TORCHAO_ALWAYS_INLINE void block_mul_4x16x4(
     const float* b_scale,
     float32x4_t (&partial_sums)[4][4]) {
   float32x4_t a_vec[4];
-  transpose_4x4(a, lda, a_vec);
+  utils::transpose_4x4(a, lda, a_vec);
 
   int8x16_t b_vec = vld1q_s8(b + 0 * ldb);
   block_mul_4x16x1(a_vec[0], b_vec, b_zero_point[0], b_scale[0], partial_sums);
