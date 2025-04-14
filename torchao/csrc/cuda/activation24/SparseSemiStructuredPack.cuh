@@ -97,14 +97,14 @@ CUTLASS_DEVICE uint32_t warp_shuffle_meta(uint32_t meta_ab,
 }
 
 CUTLASS_DEVICE void warp_shuffle_and_write_meta(ElementInputE *metadata_duo,
-                                                uint32_t meta_ab,
+                                                uint16_t meta_ab,
                                                 bool transposed = false) {
   bool thread_left = threadIdx.y % 2;
 
-  uint32_t final_metadata = warp_shuffle_meta(meta_ab, transposed);
+  uint16_t final_metadata = warp_shuffle_meta(meta_ab, transposed);
 
   int index = (2 * thread_left) * 4;
-  ((uint32_t *)metadata_duo)[0] = final_metadata;
+  ((uint16_t *)metadata_duo)[0] = final_metadata;
 }
 
 template <typename Element_> struct KernelTypes {
@@ -169,8 +169,8 @@ template <typename Element_> struct KernelTypes {
   };
 
   struct Tile2x16Meta {
-    uint32_t meta_ab;
-    uint32_t meta_ab_trans;
+    uint16_t meta_ab;
+    uint16_t meta_ab_trans;
 
     CUTLASS_DEVICE Tile2x16Meta() { meta_ab = meta_ab_trans = 0; }
   };
@@ -191,11 +191,11 @@ template <typename Element_> struct KernelTypes {
   struct Tile1x16Accessor {
     using Element = Element_;
 
-    Fragment (&_lines)[2];
+    Fragment (&_lines)[1];
     int _start_row;
     int _start_col;
 
-    CUTLASS_DEVICE Tile1x16Accessor(Fragment (&lines)[2], int start_row,
+    CUTLASS_DEVICE Tile1x16Accessor(Fragment (&lines)[1], int start_row,
                                     int start_col)
         : _lines(lines), _start_row(start_row), _start_col(start_col) {}
 
@@ -206,7 +206,7 @@ template <typename Element_> struct KernelTypes {
 
   CUTLASS_DEVICE static Strip1x16Packed pack_1x16(Indices1x16 indices,
                                                   Tile1x16Accessor tile,
-                                                  uint32_t &meta,
+                                                  uint16_t &meta,
                                                   int meta_pos) {
     Strip1x16Packed packed;
     CUTLASS_PRAGMA_UNROLL
@@ -277,61 +277,66 @@ template <typename Element_> struct KernelTypes {
 
     Element const *input = p.input + x * p.input_s0 + y;
     Element *packed = p.packed + x * p.packed_stride + (y / 2);
-    Fragment lines[2]; // Contains all values from the 1x32 tile
+    Fragment lines[1]; // Contains all values from the 1x16 tile
 
     Tile2x16Meta metadata;
     Tile2x16Masks indices;
 
     // Load/process tiles `A` and `B`
     Element fillValue = Algorithm::template outOfBoundsFillValue<Element>();
-    CUTLASS_PRAGMA_UNROLL
-    for (int i = 0; i < 2; ++i) {
-      lines[i].fill(fillValue);
-      cutlass::arch::global_load<Fragment, sizeof(Fragment)>(
-          lines[i], input, x + i < p.input_dim0);
-    }
+    lines[0].fill(fillValue);
+    cutlass::arch::global_load<Fragment, sizeof(Fragment)>(lines[0], input,
+                                                           x < p.input_dim0);
 
     indices.a = compute_tile_indices(Tile1x16Accessor(lines, 0, 0));
-    indices.b = compute_tile_indices(Tile1x16Accessor(lines, 1, 0));
+    // indices.b = compute_tile_indices(Tile1x16Accessor(lines, 1, 0));
 
     Strip1x16Packed packed_a = pack_1x16(
         indices.a, Tile1x16Accessor(lines, 0, 0), metadata.meta_ab, 0);
-    Strip1x16Packed packed_b = pack_1x16(
-        indices.b, Tile1x16Accessor(lines, 1, 0), metadata.meta_ab, 16);
+    // Strip1x16Packed packed_b = pack_1x16(
+    //     indices.b, Tile1x16Accessor(lines, 1, 0), metadata.meta_ab, 16);
     writePacked(packed, packed_a);
 
     *p.getCurrentThreadIndices() = indices;
     // Writing meta non-transposed
-    if (warp_x == 0 && warp_y == 0 && x == 0) {
-      {
-        ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
-            warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);
-        warp_shuffle_and_write_meta(packed_meta_reordered, metadata.meta_ab);
-      }
-      uint32_t meta = metadata.meta_ab;
-      uint8_t byte0 = meta & 0xFF;         // Extract least significant byte
-      uint8_t byte1 = (meta >> 8) & 0xFF;  // Extract second byte
-      uint8_t byte2 = (meta >> 16) & 0xFF; // Extract third byte
-      uint8_t byte3 = (meta >> 24) & 0xFF; // Extract most significant byte
-
-      // for (int i = 0; i < 2; i++) {
-      //   printf(
-      //       "warp_x: %d, warp_y: %d, x: %d, y: %d metadata_ab: %u %u %u %u\n"
-      //       "lines[%d]: %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\n",
-      //       warp_x, warp_y, x, y, byte0, byte1, byte2, byte3, i,
-      //       static_cast<float>(lines[i][0]), static_cast<float>(lines[i][1]),
-      //       static_cast<float>(lines[i][2]), static_cast<float>(lines[i][3]),
-      //       static_cast<float>(lines[i][4]), static_cast<float>(lines[i][5]),
-      //       static_cast<float>(lines[i][6]), static_cast<float>(lines[i][7]),
-      //       static_cast<float>(lines[i][8]), static_cast<float>(lines[i][9]),
-      //       static_cast<float>(lines[i][10]),
-      //       static_cast<float>(lines[i][11]),
-      //       static_cast<float>(lines[i][12]),
-      //       static_cast<float>(lines[i][13]),
-      //       static_cast<float>(lines[i][14]),
-      //       static_cast<float>(lines[i][15]));
-      // }
+    {
+      ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
+          warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);
+      warp_shuffle_and_write_meta(packed_meta_reordered, metadata.meta_ab);
     }
+    // if (warp_x == 0 && warp_y == 0) {
+    //   uint16_t meta = metadata.meta_ab;
+    //   uint8_t byte0 = meta & 0xFF;        // Extract least significant byte
+    //   uint8_t byte1 = (meta >> 8) & 0xFF; // Extract second byte
+    //   // uint8_t byte2 = (meta >> 16) & 0xFF; // Extract third byte
+    //   // uint8_t byte3 = (meta >> 24) & 0xFF; // Extract most significant
+    //   byte
+
+    //   // for (int i = 0; i < 2; i++) {
+    //   //   printf(
+    //   //       "warp_x: %d, warp_y: %d, x: %d, y: %d metadata_ab: %u %u %u
+    //   %u\n"
+    //   //       "lines[%d]: %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f
+    //   %f\n",
+    //   //       warp_x, warp_y, x, y, byte0, byte1, byte2, byte3, i,
+    //   //       static_cast<float>(lines[i][0]),
+    //   static_cast<float>(lines[i][1]),
+    //   //       static_cast<float>(lines[i][2]),
+    //   static_cast<float>(lines[i][3]),
+    //   //       static_cast<float>(lines[i][4]),
+    //   static_cast<float>(lines[i][5]),
+    //   //       static_cast<float>(lines[i][6]),
+    //   static_cast<float>(lines[i][7]),
+    //   //       static_cast<float>(lines[i][8]),
+    //   static_cast<float>(lines[i][9]),
+    //   //       static_cast<float>(lines[i][10]),
+    //   //       static_cast<float>(lines[i][11]),
+    //   //       static_cast<float>(lines[i][12]),
+    //   //       static_cast<float>(lines[i][13]),
+    //   //       static_cast<float>(lines[i][14]),
+    //   //       static_cast<float>(lines[i][15]));
+    //   // }
+    // }
   }
 };
 

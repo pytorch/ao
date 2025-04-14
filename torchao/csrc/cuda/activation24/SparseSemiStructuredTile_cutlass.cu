@@ -72,7 +72,7 @@ struct MetadataCutlass {
 
     // // Column offset within the warp
     // // Each thread handles 16 columns, and we're packing 2:4 sparsity
-    offset += ((thread_col % 128) / 16) * 2;
+    offset += (thread_col % 128) / 16;
     // offset += (thread_col / 32) * 4;
 
     return offset;
