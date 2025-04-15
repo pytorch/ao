@@ -561,6 +561,10 @@ def per_token_dynamic_quant(
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
     )
+    #qat_scale = torch.load("/tmp/qat_scale.pt")
+    #qat_zp = torch.load("/tmp/qat_zp.pt")
+    #print("REAL SCALE", scales.flatten()[:20], scales.dtype, "same as qat? ", scales.flatten().equal(qat_scale.flatten()))
+    #print("REAL ZERO POINTS", zero_points.flatten()[:20], zero_points.dtype, "same as qat? ", zero_points.flatten().equal(qat_zp.flatten()))
     q = quantize_affine(
         input,
         block_size,
@@ -570,6 +574,9 @@ def per_token_dynamic_quant(
         quant_min,
         quant_max,
     )
+    #print("REAL QUANT args", block_size, quant_dtype, quant_min, quant_max)
+    #qat_q = torch.load("/tmp/qat_q.pt")
+    #print("REAL QUANT q", q.flatten()[:20], q.dtype, "same as qat? ", q.flatten().equal(qat_q.to(torch.int8).flatten()))
     dq = dequantize_affine(
         q,
         block_size,
@@ -580,6 +587,8 @@ def per_token_dynamic_quant(
         quant_max,
         output_dtype=output_dtype,
     )
+    #qat_dq = torch.load("/tmp/qat_dq.pt")
+    #print("REAL QUANT dq", dq.flatten()[:20], dq.dtype, "same as qat? ", dq.equal(qat_dq))
     return dq
 
 

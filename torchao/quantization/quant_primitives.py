@@ -365,7 +365,8 @@ def _quantize_affine(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
-    return _quantize_affine_no_dtype_cast(
+    #print("REAL QUANT actual args: ", block_size, quant_min, quant_max, output_dtype, zero_point_domain, "output_dtype = ", output_dtype)
+    t = _quantize_affine_no_dtype_cast(
         input,
         block_size,
         scale,
@@ -374,7 +375,10 @@ def _quantize_affine(
         quant_max,
         output_dtype,
         zero_point_domain,
-    ).to(output_dtype)
+    )
+    #qat_q = torch.load("/tmp/qat_q.pt")
+    #print("    * equal? ", t.flatten().equal(qat_q.flatten()))
+    return t.to(output_dtype)
 
 
 def _quantize_affine_no_dtype_cast(
@@ -718,6 +722,9 @@ def _do_fake_quantize_affine(
         quant_dtype,
         zero_point_domain.name,
     )
+    #print("FAKE QUANT quantize args: ", block_size, quant_min, quant_max, quant_dtype, zero_point_domain.name)
+    #print("FAKE QUANT q: ", q.flatten()[:20], q.dtype)
+    #torch.save(q, "/tmp/qat_q.pt")
     dq = _dequantize_affine_no_dtype_check(
         q,
         block_size,
@@ -728,6 +735,8 @@ def _do_fake_quantize_affine(
         zero_point_domain.name,
         output_dtype=input_dtype,
     )
+    #print("FAKE QUANT dq: ", dq.flatten()[:20], dq.dtype)
+    #torch.save(dq, "/tmp/qat_dq.pt")
     return (q, dq)
 
 

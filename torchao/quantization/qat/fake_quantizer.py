@@ -75,6 +75,10 @@ class FakeQuantizer(torch.nn.Module):
                 self.config.scale_precision,
                 self.config.zero_point_precision,
             )
+            #print("FAKE SCALES", self.scale.flatten()[:20], self.scale.dtype)
+            #print("FAKE ZERO POINTS", self.zero_point.flatten()[:20], self.zero_point.dtype)
+            #torch.save(self.scale, "/tmp/qat_scale.pt")
+            #torch.save(self.zero_point, "/tmp/qat_zp.pt")
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
 

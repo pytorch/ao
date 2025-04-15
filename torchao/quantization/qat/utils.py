@@ -126,7 +126,7 @@ def _fake_quantize_per_token(
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
     block_size = _get_per_token_block_size(input)
-    fq_input = input.to(torch.float32)
+    fq_input = input#.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
         fq_input,
         block_size,
@@ -173,15 +173,7 @@ def _choose_qparams_per_token_asymmetric(
     scale = scale.clamp(min=eps)
 
     # zero point
-    descaled_min = min_val_neg / scale
-    descaled_max = max_val_pos / scale
-    zero_point_from_min_error = qmin + descaled_min
-    zero_point_from_max_error = qmax + descaled_max
-    zero_point = torch.where(
-        zero_point_from_min_error + zero_point_from_max_error > 0,
-        qmin - descaled_min,
-        qmax - descaled_max,
-    )
+    zero_point = qmin - torch.round(min_val_neg / scale)
     zero_point = torch.clamp(zero_point, qmin, qmax).round()
 
     return scale.to(scales_precision), zero_point.to(zero_points_precision)

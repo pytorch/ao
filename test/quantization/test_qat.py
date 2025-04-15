@@ -1439,11 +1439,12 @@ class TestQAT(unittest.TestCase):
         from torchao.quantization.utils import per_token_dynamic_quant
 
         torch.manual_seed(self.SEED)
-        x = torch.randn(1, 235, 2048)
-        config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        torch.set_printoptions(precision=8)
+        x = torch.randn(1, 235, 2048).to(torch.bfloat16)
+        config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)#, scale_precision=torch.bfloat16, zero_point_precision=torch.bfloat16)
         fake_quantizer = FakeQuantizer(config)
         fake_quantizer_out = fake_quantizer(x)
-        baseline_out = per_token_dynamic_quant(x)
+        baseline_out = per_token_dynamic_quant(x)#, scale_dtype=torch.bfloat16, zero_point_dtype=torch.bfloat16)
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
 
     @unittest.skipIf(
@@ -1463,9 +1464,9 @@ class TestQAT(unittest.TestCase):
 
         for seed in range(self.SEED, self.SEED + num_trials):
             torch.manual_seed(seed)
-            m = M4()
+            m = M4().to(torch.bfloat16)
             torch.manual_seed(seed)
-            x = m.example_inputs()
+            x = (m.example_inputs()[0].to(torch.bfloat16),)
 
             quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
             prepared = quantizer.prepare(m)
