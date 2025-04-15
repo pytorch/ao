@@ -62,8 +62,8 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
             "Please migrate to using the new version.  The following args are renamed in the new version:\n"
             "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
+            "* has_weight_zeros=True -> weight_mapping_type=torchao.quantization.quant_api.MappingType.ASYMMETRIC\n"
+            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.MappingType.SYMMETRIC\n"
             "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
             "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
         )

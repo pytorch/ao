@@ -568,7 +568,6 @@ def main(
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
-                ZeroPointDomain,
             )
 
             # Quantize model
@@ -576,16 +575,15 @@ def main(
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
-            has_weight_zeros = bool(_quant_args[3])
+            is_asymmetric = bool(_quant_args[3])
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=weight_dtype,
                     weight_granularity=granularity,
-                    weight_zero_point_domain=ZeroPointDomain.INT
-                    if has_weight_zeros
-                    else ZeroPointDomain.NONE,
-                    weight_mapping_type=MappingType.ASYMMETRIC,
+                    weight_mapping_type=MappingType.ASYMMETRIC
+                    if is_asymmetric
+                    else MappingType.SYMMETRIC,
                     weight_scale_dtype=torch.bfloat16,
                     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
                 ),

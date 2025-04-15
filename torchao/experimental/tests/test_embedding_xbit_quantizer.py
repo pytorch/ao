@@ -22,7 +22,6 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 
@@ -145,10 +144,9 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 weight_granularity=PerAxis(0),
-                weight_zero_point_domain=ZeroPointDomain.INT
+                weight_mapping_type=MappingType.ASYMMETRIC
                 if has_weight_zeros
-                else ZeroPointDomain.NONE,
-                weight_mapping_type=MappingType.ASYMMETRIC,
+                else MappingType.SYMMETRIC,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"
                 ),
