@@ -43,7 +43,7 @@ def create_semi_structured_tensor(r, c, dtype):
         .to(torch.int32)
     )
 
-    sparse_weight = torch.rand(r, c).cuda() * mask
+    sparse_weight = mask + (torch.rand(r, c).cuda() * mask)
     return sparse_weight.to(dtype)
 
 

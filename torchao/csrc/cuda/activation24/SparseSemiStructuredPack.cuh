@@ -203,6 +203,7 @@ template <typename Element_> struct KernelTypes {
     // *p.getCurrentThreadIndices() = indices;
 
     // Writing non-transposed metadata
+    // just warpx for now
     {
       ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
           warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);

@@ -21,7 +21,8 @@ struct MetadataCutlass {
   // 32x32 dense tile (1024 bits). Then these tiles are
   // stored in a Column-Major fashion
   ElementInputE *_meta;
-  int64_t _meta_reordered_sy;
+  int64_t _rows;
+  // int64_t _rows;
 
   // Define create_compressed_representation
   static std::tuple<at::Tensor, // return value of the function
@@ -41,7 +42,7 @@ struct MetadataCutlass {
 
     // hard code this for now to 16
     at::Tensor packed_meta =
-        at::empty({roundedx, cutlass::ceil_div(roundedy, 8)},
+        at::zeros({roundedx, cutlass::ceil_div(roundedy, 8)},
                   like.options().dtype(at::ScalarType::Byte));
     return std::make_tuple(packed, packed, packed_meta);
   }
@@ -49,7 +50,7 @@ struct MetadataCutlass {
   // define get_meta_offset
   MetadataCutlass(at::Tensor metaN, int rows, int cols) {
     _meta = (ElementInputE *)metaN.data_ptr();
-    _meta_reordered_sy = metaN.stride(0);
+    _rows = rows;
   }
 
   CUTLASS_HOST_DEVICE
@@ -58,19 +59,20 @@ struct MetadataCutlass {
     int64_t offset = 0;
 
     // warp handles a 4x128 chunk, so find the appropriate one
-    offset += (warp_row / 4) * (total_rows) * 2;
+    offset += (warp_row / 4) * 32;
 
-    // Base offset for the warp's starting position
-    // offset += warp_row * 4; // Each warp handles 4 rows
-    // offset += (warp_col / 128) * stride; // Column offset for warps
+    offset += (warp_col / 128) * 32 * (total_rows / 4);
 
-    // // Thread position within the warp
-    offset += thread_row * (total_rows / 2); // Each thread handles 1 row
+    // Each warp is of size 4x8 threads (handling 4x128 elements).
+    // Incrementing the thread_row should increase the offset by 16 bytes or 8
+    // elements
+    offset += ((warp_row + thread_row) % 4) * 8;
     // offset += 128 * (thread_row / 4);
 
-    // // Column offset within the warp
-    // // Each thread handles 16 columns, and we're packing 2:4 sparsity
-    offset += (thread_col % 128) / 16;
+    // Each thread handles 16 elements, the threads in a row write contiguously
+    // At 2 bits an element -> this is 4 bytes -> so every thread should
+    // increment the offset by 4
+    offset += ((warp_col + thread_col) % 128) / 16;
     // offset += (thread_col / 32) * 4;
 
     return offset;
@@ -80,8 +82,8 @@ struct MetadataCutlass {
   CUTLASS_HOST_DEVICE
   ElementInputE *get_metaN(int warp_row, int thread_row, int warp_col,
                            int thread_col) const {
-    return _meta + _get_meta_offset(warp_row, thread_row, warp_col, thread_col,
-                                    _meta_reordered_sy);
+    return _meta +
+           _get_meta_offset(warp_row, thread_row, warp_col, thread_col, _rows);
   }
 };
 
@@ -97,7 +99,6 @@ std::tuple<at::Tensor, at::Tensor>
 sparse_semi_structured_tile_typed(const at::Tensor input,
                                   std::string algorithm) {
 
-  printf("sparse_semi_structured_tile_typed... \n");
   using KT = KernelTypes<Element>;
   std::optional<at::cuda::CUDAGuard> device_guard;
   if (!input.is_meta()) {
@@ -127,7 +128,6 @@ sparse_semi_structured_tile_typed(const at::Tensor input,
 
   MetadataFormat metadata = MetadataFormat(packed_meta_reordered, rows, cols);
 
-  printf("launching kernel ... \n");
   bool kernel_launched = false;
   auto launchKernel = [&](auto algo, std::string const &algo_name) {
     if (algo_name == algorithm) {
@@ -152,8 +152,6 @@ std::tuple<at::Tensor, at::Tensor>
 _sparse_semi_structured_tile(const at::Tensor &input,
                              std::string_view algorithm, bool use_cutlass) {
   std::string algo(algorithm.data(), algorithm.size());
-
-  printf("Start debugging here ...\n");
 
   auto runTyped = [&](auto type) {
     using ElementT = decltype(type);

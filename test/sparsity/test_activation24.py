@@ -29,37 +29,43 @@ torch.manual_seed(32)
 
 # @common_utils.parametrize("pattern", [[1, 1, 0, 0], [1, 0, 1, 0], [1, 0, 0, 1], [0, 1, 1, 0], [0, 1, 0, 1], [0, 0, 1, 1]])
 def test_correctness():
-    """
-    Tests to see if the metadata packing format has changed between bf16 -> fp8, it looks like it's the same. 
-    """
+    r, c = 128, 512 
     # 238 in binary
-    W_ref_asdf = torch.Tensor([0, 0, 1, 1]).to(device=device, dtype=dtype).tile((32, 64// 4)).contiguous()
-    W_subclass_sparse = to_sparse_semi_structured(W_ref_asdf)
+    W_ref_asdf = torch.Tensor([0, 0, 1, 1]).to(device=device, dtype=torch.float8_e4m3fn).tile((r, c // 4)).contiguous()
+    packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref_asdf)
+    # W_quant_func = _float8_cutlass_quant_sparse
+    # W_aqt = W_quant_func(W_ref_asdf, dtypeq_W)
+    # W_meta = W_aqt.tensor_impl.meta
+    print("INITIAL")
+    print(meta_reference)
+    print(meta_reference.shape, meta_reference.is_contiguous(), meta_reference.dtype)
+    breakpoint()
+    garbanzo_beans = meta_reference.tolist()
 
-    garbanzo_beans = W_subclass_sparse.meta.view(torch.uint8).tolist()
 
     pattern = [1, 1, 0, 0] # 68
-    for i in range(32):
-        for j in range(8):
+    for i in range(r):
+        num_per_tb = 8
+        for j in range(c // num_per_tb):
             W_ref = W_ref_asdf.clone()
-            num_per_tb = 8
             W_ref[i, j*num_per_tb:(j+1)*num_per_tb] = torch.Tensor(pattern).to(device=device, dtype=dtype).tile((1, 2)).contiguous()
-
-            # W_meta = to_sparse_semi_structured(W_ref).meta.view(torch.uint8)
-            W_quant_func = _float8_cutlass_quant_sparse
-            W_aqt = W_quant_func(W_ref, dtypeq_W)
-            W_meta = W_aqt.tensor_impl.meta
-            W_meta = W_meta[:32, :8]
+            _, W_meta = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
 
             indicies = (W_meta == 68).nonzero()
 
-            for (r, c) in indicies:
-                garbanzo_beans[r][c] = f"a[{i:2d}, {j*num_per_tb:2d}:{(j+1)*num_per_tb:2d}]"
+            # print(indicies, i, j, W_meta)
+            # breakpoint()
+
+            for (r_i, c_i) in indicies:
+                garbanzo_beans[r_i][c_i] = f"a[{i:2d}, {j*num_per_tb:2d}:{(j+1)*num_per_tb:2d}]"
 
     # from pprint import pprint
+    print("METADATA FORMAT")
     for line in garbanzo_beans:
-        print(line[:4])
-        print(line[4:])
+        print(line)
+        print()
+        # print(line[:4])
+        # print(line[4:])
 
     assert False
     # torch.testing.assert_close(W_meta, W_subclass_sparse.meta.view(torch.uint8))
@@ -97,41 +103,52 @@ def test_packed_fp8():
     torch.testing.assert_close(packed.to(torch.float16), packed_reference.to(torch.float16))
 
 
-def test_meta_fp8_fixed():
+def test_meta_fp8_fixed_128x256():
+    r, c = 128, 256
     torch.manual_seed(123)
-    W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
-    # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
-    #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-    #                       [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-    #                       [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
+    # W_ref = create_semi_structured_tensor(128, 256, dtype=torch.float8_e4m3fn).to(device)
+    # print(W_ref[:18])
+    # print(W_ref.count_nonzero())
+    # print(W_ref)
+    W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
+                          [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
+                          [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
+                          [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((r // 4, c// 16)).contiguous().to(torch.float8_e4m3fn)
     packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
     packed, packed_meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
-    vc_mine = torch.unique(packed_meta, return_counts=True)
-    vc_ref = torch.unique(meta_reference, return_counts=True)
-    # print(vc_mine)
-    # print(packed_meta[:16, :16])
-    # print(meta_reference[:16, :16])
+    # vc_mine = torch.unique(packed_meta, return_counts=True)
+    # vc_ref = torch.unique(meta_reference, return_counts=True)
+    # # print(vc_mine)
+    print("CUSTOM")
+    print(packed_meta[:16, :32])
+    print("REFERENCE")
+    print(meta_reference[:16, :32])
 
-    # print(packed_meta - meta_reference)
-    # torch.testing.assert_close(packed, packed_reference)
+    # # print(packed_meta - meta_reference)
+    torch.testing.assert_close(packed, packed_reference)
     torch.testing.assert_close(packed_meta, meta_reference)
 
+def test_meta_fp8_fixed_128x128():
+    for r in (64, 128, 256, 512):
+        for c in (128, 256, 512, 1024, 2048):
+            torch.manual_seed(123)
+            W_ref = create_semi_structured_tensor(r, c, dtype=torch.float8_e4m3fn).to(device)
+            # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
+            #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
+            #                       [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
+            #                       [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((r // 4, c// 16)).contiguous().to(torch.float8_e4m3fn)
+            packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
+            packed, packed_meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
-# common_utils.instantiate_parametrized_tests(TestActivation24)
-# 
+            # vc_mine = torch.unique(packed_meta, return_counts=True)
+            # vc_ref = torch.unique(meta_reference, return_counts=True)
+            # # print(vc_mine)
+            print("CUSTOM")
+            print(packed_meta[:, :])
+            print("REFERENCE")
+            print(meta_reference[:, :])
 
-    # pprint(garbanzo_beans)
-
-
-
-    # print(W_meta)
-
-    # breakpoint()
-    # print(W_subclass_sparse.meta.view(torch.uint8) == W_meta)
-    # print("CUTLASS REFERENCE")
-    # print(W_meta)
-    # print(W_meta.shape)
-    # print(packed_meta)
-    # packed, packed_meta, packed_t, packed_t_meta , bitmask = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
-    # print(W_meta)
+            # # print(packed_meta - meta_reference)
+            torch.testing.assert_close(packed, packed_reference)
+            torch.testing.assert_close(packed_meta, meta_reference)
