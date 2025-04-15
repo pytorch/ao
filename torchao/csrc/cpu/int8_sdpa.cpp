@@ -23,7 +23,6 @@
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
 #include <ATen/native/CPUBlas.h>
-#include <ATen/native/transformers/sdp_utils_cpp.h>
 
 namespace torchao {
 
