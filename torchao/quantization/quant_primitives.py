@@ -202,7 +202,7 @@ _GGUF_QK_K = 256
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
-quant_lib = torch.library.Library("quant", "FRAGMENT")
+quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
 register_custom_op = _register_custom_op(quant_lib)
 

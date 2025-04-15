@@ -91,13 +91,13 @@ class TestQuantPasses(unittest.TestCase):
         ).run(exported.graph_module.code)
 
         # We should not find Q/DQ ops
-        FileCheck().check_not("torch.ops.quant.quantize_affine.default").run(
+        FileCheck().check_not("torch.ops.torchao.quantize_affine.default").run(
             exported.graph_module.code
         )
-        FileCheck().check_not("torch.ops.quant.dequantize_affine.default").run(
+        FileCheck().check_not("torch.ops.torchao.dequantize_affine.default").run(
             exported.graph_module.code
         )
-        FileCheck().check_not("torch.ops.quant.choose_qparams_affine.default").run(
+        FileCheck().check_not("torch.ops.torchao.choose_qparams_affine.default").run(
             exported.graph_module.code
         )
 
@@ -156,7 +156,7 @@ class TestQuantPasses(unittest.TestCase):
         ).run(exported.graph_module.code)
 
         # We should not find Q/DQ ops
-        FileCheck().check_not("torch.ops.quant.dequantize_affine.default").run(
+        FileCheck().check_not("torch.ops.torchao.dequantize_affine.default").run(
             exported.graph_module.code
         )
 

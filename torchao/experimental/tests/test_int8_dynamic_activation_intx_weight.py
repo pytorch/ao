@@ -362,14 +362,15 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         eager_results = model(activations)
 
         exported = torch.export.export(model, (activations,), strict=True)
+
         exported_results = exported.module()(activations)
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         expected_lines = [
-            "torch.ops.quant.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
-            "torch.ops.quant.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
-            "torch.ops.quant.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
-            "torch.ops.quant.dequantize_affine.default(access_subclass_inner_tensor_default_72, [1, 64], access_subclass_inner_tensor_default_73, None, torch.int8, -8, 7, 'NONE')",
+            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
+            "torch.ops.torchao.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
+            "torch.ops.torchao.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
+            "torch.ops.torchao.dequantize_affine.default(access_subclass_inner_tensor_default_72, [1, 64], access_subclass_inner_tensor_default_73, None, torch.int8, -8, 7, 'NONE')",
             "torch.ops.aten.linear.default(dequantize_affine, dequantize_affine_1)",
         ]
         for line in expected_lines:
