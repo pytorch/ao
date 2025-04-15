@@ -17,7 +17,6 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 
@@ -27,7 +26,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         param(
             layout=layout,
             weight_dtype=weight_dtype,
-            weight_zero_point_domain=weight_zero_point_domain,
+            weight_mapping_type=weight_mapping_type,
             weight_granularity=weight_granularity,
         )
         for layout in [
@@ -44,9 +43,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             torch.int7,
             torch.int8,
         ]
-        for weight_zero_point_domain in [
-            ZeroPointDomain.NONE,
-            ZeroPointDomain.INT,
+        for weight_mapping_type in [
+            MappingType.SYMMETRIC,
+            MappingType.ASYMMETRIC,
         ]
         for weight_granularity in [
             PerGroup(128),
@@ -59,7 +58,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_accuracy(
-        self, layout, weight_dtype, weight_zero_point_domain, weight_granularity
+        self, layout, weight_dtype, weight_mapping_type, weight_granularity
     ):
         """
         Checks the accuracy of packed layouts
@@ -71,7 +70,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         model = torch.nn.Sequential(
             *[torch.nn.Linear(k, k, bias=False), torch.nn.Linear(k, n, bias=True)]
         )
-        weight_mapping_type = MappingType.ASYMMETRIC
 
         # We set round weights to bf16 and set scale dtype to bf16 because
         # some kernels do this internally (e.g., KleidiAI kernels)
@@ -85,7 +83,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=layout,
             ),
@@ -98,7 +95,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
             ),
@@ -117,8 +113,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         weight_dtype = torch.int4
         weight_granularity = PerGroup(128)
-        weight_mapping_type = MappingType.ASYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.NONE
+        weight_mapping_type = MappingType.SYMMETRIC
 
         # KleidiAI kernels round scales to bf16 internally
         model = model.to(torch.bfloat16).to(torch.float32)
@@ -131,7 +126,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="kleidiai"
@@ -146,7 +140,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
             ),
@@ -174,8 +167,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         )
         weight_dtype = torch.int4
         weight_granularity = PerGroup(128)
-        weight_mapping_type = MappingType.ASYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.NONE
+        weight_mapping_type = MappingType.SYMMETRIC
 
         # We set round_weight_scale_to_bf16 to True for accuracy testing because
         # some KleidiAI kernels do this internally
@@ -189,7 +181,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(target="aten"),
             ),
@@ -202,7 +193,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
             ),
@@ -248,7 +238,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         weight_dtype = torch.int4
         weight_granularity = PerAxis(0)
         weight_mapping_type = MappingType.ASYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.INT
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
             torch.nn.Linear(k1, k2, bias=True),
@@ -263,7 +252,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
             ),
@@ -302,7 +290,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         weight_dtype = torch.int4
         weight_granularity = PerAxis(0)
         weight_mapping_type = MappingType.ASYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.INT
 
         layers = [
             torch.nn.Linear(k0, k1, bias=False),
@@ -326,7 +313,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
                 weight_mapping_type=weight_mapping_type,
-                weight_zero_point_domain=weight_zero_point_domain,
                 weight_scale_dtype=torch.bfloat16,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
             ),
@@ -355,7 +341,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(64),
-                weight_zero_point_domain=ZeroPointDomain.NONE,
+                weight_mapping_type=MappingType.SYMMETRIC,
                 layout=QDQLayout(),
             ),
         )
@@ -370,11 +356,14 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
             "torch.ops.torchao.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
-            "torch.ops.torchao.dequantize_affine.default(access_subclass_inner_tensor_default_72, [1, 64], access_subclass_inner_tensor_default_73, None, torch.int8, -8, 7, 'NONE')",
+            "torch.ops.torchao.dequantize_affine.default",
             "torch.ops.aten.linear.default(dequantize_affine, dequantize_affine_1)",
         ]
         for line in expected_lines:
-            FileCheck().check_count(line, 1, exactly=True).run(
+            count = 1
+            if line == "torch.ops.torchao.dequantize_affine.default":
+                count = 2
+            FileCheck().check_count(line, count, exactly=True).run(
                 exported.graph_module.code
             )
 

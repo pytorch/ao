@@ -255,24 +255,30 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        from torchao.experimental.quant_api import (
-            Int8DynamicActivationIntxWeightConfig,
-        )
-        from torchao.quantization.granularity import PerGroup
-
         assert (
             high_precision_dtype == torch.float32
         ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
 
+        from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
+        from torchao.quantization.granularity import PerAxis, PerGroup
+        from torchao.quantization.quant_api import (
+            Int8DynamicActivationIntxWeightConfig,
+        )
+
         # Quantize model
         _quant_args = quantization.split("-")
         weight_dtype = getattr(torch, f"int{_quant_args[1]}")
-        granularity = PerGroup(int(_quant_args[2]))
-        has_weight_zeros = bool(_quant_args[3])
+        group_size = int(_quant_args[2])
+        granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
+        is_asymmetric = bool(_quant_args[3])
         return Int8DynamicActivationIntxWeightConfig(
             weight_dtype=weight_dtype,
-            granularity=granularity,
-            has_weight_zeros=has_weight_zeros,
+            weight_granularity=granularity,
+            weight_mapping_type=MappingType.ASYMMETRIC
+            if is_asymmetric
+            else MappingType.SYMMETRIC,
+            weight_scale_dtype=torch.bfloat16,
+            layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
         )
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()

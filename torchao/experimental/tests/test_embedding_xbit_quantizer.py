@@ -22,7 +22,6 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 
@@ -37,22 +36,19 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         )
         indices = torch.randint(0, num_embeddings, (7,), dtype=torch.int32)
 
-        for weight_dtype in [
-            torch.int1,
-            torch.int2,
-            torch.int3,
-            torch.int4,
-            torch.int5,
-            torch.int6,
-            torch.int7,
-            torch.int8,
-        ]:
-            print(f"Testing weight_dtype={weight_dtype}")
+        for weight_dtype, granularity, mapping_type in zip(
+            list(getattr(torch, f"int{x}") for x in range(1, 9)),
+            [PerGroup(128), PerAxis(0)],
+            [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+        ):
+            print(
+                f"Testing weight_dtype={weight_dtype}, granularity={granularity}, mapping_type={mapping_type}"
+            )
             quantized_model = copy.deepcopy(model)
             quantizer = EmbeddingQuantizer(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
-                has_weight_zeros=True,
+                mapping_type=mapping_type,
                 use_fallback=False,
             )
             quantized_model = quantizer.quantize(quantized_model)
@@ -61,7 +57,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
                 reference_quantizer = EmbeddingQuantizer(
                     weight_dtype=weight_dtype,
                     granularity=granularity,
-                    has_weight_zeros=True,
+                    mapping_type=mapping_type,
                     use_fallback=True,
                 )
                 reference_model = copy.deepcopy(model)
@@ -73,6 +69,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
     def test_export_compile_aoti(self):
         weight_dtype = torch.int4
         granularity = PerAxis(0)
+        weight_mapping_type = MappingType.ASYMMETRIC
         embedding_dim = 4096
         num_embeddings = 131
         model = torch.nn.Sequential(
@@ -84,7 +81,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         quantizer = EmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=granularity,
-            has_weight_zeros=True,
+            mapping_type=weight_mapping_type,
             use_fallback=False,
         )
         quantized_model = quantizer.quantize(model)
@@ -117,7 +114,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
 
     def test_shared_embedding(self):
         weight_dtype = torch.int4
-        has_weight_zeros = True
+        weight_mapping_type = MappingType.ASYMMETRIC
         embedding_dim = 4096
         num_embeddings = 131
         embedding = torch.nn.Embedding(num_embeddings, embedding_dim)
@@ -138,17 +135,14 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         EmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=PerAxis(0),
-            has_weight_zeros=has_weight_zeros,
+            mapping_type=weight_mapping_type,
         ).quantize(quantized_model_reference)
         quantize_(
             quantized_model_reference,
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 weight_granularity=PerAxis(0),
-                weight_zero_point_domain=ZeroPointDomain.INT
-                if has_weight_zeros
-                else ZeroPointDomain.NONE,
-                weight_mapping_type=MappingType.ASYMMETRIC,
+                weight_mapping_type=weight_mapping_type,
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"
                 ),
@@ -161,7 +155,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=PerAxis(0),
-            has_weight_zeros=has_weight_zeros,
+            mapping_type=weight_mapping_type,
         ).quantize(quantized_model)
 
         # Check results are same and weights share the same id
