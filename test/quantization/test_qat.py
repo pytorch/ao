@@ -133,6 +133,18 @@ class M3(torch.nn.Module):
         return x
 
 
+class M4(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(512, 256, bias=False).to(torch.float)
+
+    def example_inputs(self):
+        return (torch.randn(1, 512).to(torch.float),)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
 class ModelWithLinearBias(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -776,16 +788,42 @@ class TestQAT(unittest.TestCase):
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
     def test_qat_4w_embedding(self):
+        from torchao._executorch_ops import (
+            _quantized_decomposed_quantize_per_channel_group_wrapper,
+        )
         from torchao.quantization.qat import Int4WeightOnlyEmbeddingQATQuantizer
 
+        group_size = 256
         model = M2()
         x = model.example_inputs()
         model(*x)
-        quantizer = Int4WeightOnlyEmbeddingQATQuantizer()
+        quantizer = Int4WeightOnlyEmbeddingQATQuantizer(group_size)
         prepared = quantizer.prepare(model)
+        prepared_embedding_weight = copy.deepcopy(prepared.embedding.weight)
         prepared(*x)
         converted = quantizer.convert(model)
         converted(*x)
+
+        # Assert the scales, zero points, and weights are correct after convert
+        qmin, qmax = -8, 7
+        (s, zp) = get_group_qparams_symmetric(
+            prepared_embedding_weight,
+            4,
+            group_size,
+        )
+        zp = zp.to(torch.int32)
+        q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
+            prepared_embedding_weight,
+            s,
+            zp,
+            qmin,
+            qmax,
+            torch.int8,
+            group_size,
+        )
+        torch.testing.assert_close(converted.embedding.weight, q_weight)
+        torch.testing.assert_close(converted.embedding.scale, s)
+        torch.testing.assert_close(converted.embedding.zero_point, zp)
 
     def test_fake_quantize_config_granularity(self):
         """
@@ -1136,6 +1174,62 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
+    def test_qat_prototype_bc(self):
+        """
+        Just to make sure we can import all the old prototype paths.
+        We will remove this test in the near future when we actually break BC.
+        """
+        from torchao.quantization.prototype.qat import (  # noqa: F401, F811, I001
+            disable_4w_fake_quant,
+            disable_8da4w_fake_quant,
+            enable_4w_fake_quant,
+            enable_8da4w_fake_quant,
+            ComposableQATQuantizer,
+            Int8DynActInt4WeightQATLinear,
+            Int4WeightOnlyEmbeddingQATQuantizer,
+            Int4WeightOnlyQATQuantizer,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+        from torchao.quantization.prototype.qat._module_swap_api import (  # noqa: F401, F811
+            disable_4w_fake_quant_module_swap,
+            enable_4w_fake_quant_module_swap,
+            disable_8da4w_fake_quant_module_swap,
+            enable_8da4w_fake_quant_module_swap,
+            Int4WeightOnlyQATQuantizerModuleSwap,
+            Int8DynActInt4WeightQATQuantizerModuleSwap,
+        )
+        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (  # noqa: F401, F811
+            AffineFakeQuantizedTensor,
+            to_affine_fake_quantized,
+        )
+        from torchao.quantization.prototype.qat.api import (  # noqa: F401, F811
+            ComposableQATQuantizer,
+            FakeQuantizeConfig,
+        )
+        from torchao.quantization.prototype.qat.embedding import (  # noqa: F401, F811
+            FakeQuantizedEmbedding,
+            Int4WeightOnlyEmbeddingQATQuantizer,
+            Int4WeightOnlyEmbedding,
+            Int4WeightOnlyQATEmbedding,
+        )
+        from torchao.quantization.prototype.qat.fake_quantizer import (  # noqa: F401, F811
+            FakeQuantizer,
+        )
+        from torchao.quantization.prototype.qat.linear import (  # noqa: F401, F811
+            disable_4w_fake_quant,
+            disable_8da4w_fake_quant,
+            enable_4w_fake_quant,
+            enable_8da4w_fake_quant,
+            FakeQuantizedLinear,
+            Int4WeightOnlyQATLinear,
+            Int4WeightOnlyQATQuantizer,
+            Int8DynActInt4WeightQATLinear,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
     def test_quantize_api_standalone(self):
         """
         Test that the following:
@@ -1332,6 +1426,65 @@ class TestQAT(unittest.TestCase):
         )
         example_inputs = m.example_inputs()
         m(*example_inputs)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_fake_quantize_per_token_vs_convert(self):
+        """
+        Test that the following produce the exact same numerics:
+          1. FakeQuantizer with asymmetric per_token config
+          2. torchao.quantization.utils.per_token_dynamic_quant
+        """
+        from torchao.quantization.utils import per_token_dynamic_quant
+
+        torch.manual_seed(self.SEED)
+        x = torch.randn(1, 235, 2048)
+        config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        fake_quantizer = FakeQuantizer(config)
+        fake_quantizer_out = fake_quantizer(x)
+        baseline_out = per_token_dynamic_quant(x)
+        torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_8da4w_prepare_vs_convert(self):
+        """
+        Test that the prepare and convert steps of Int8DynActInt4QATQuantizer produces
+        numerics that match exactly over N trials.
+        """
+        from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.quantization.utils import compute_error
+
+        num_trials = 1000
+        group_size = 16
+        non_inf_sqnr = []
+
+        for seed in range(self.SEED, self.SEED + num_trials):
+            torch.manual_seed(seed)
+            m = M4()
+            torch.manual_seed(seed)
+            x = m.example_inputs()
+
+            quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+            prepared = quantizer.prepare(m)
+            prepared_out = prepared(*x)
+            converted = quantizer.convert(prepared)
+            converted_out = converted(*x)
+            sqnr = compute_error(prepared_out, converted_out).item()
+            if sqnr != float("inf"):
+                non_inf_sqnr.append(sqnr)
+
+        avg_sqnr = (
+            sum(non_inf_sqnr) / len(non_inf_sqnr) if len(non_inf_sqnr) > 0 else -1
+        )
+        fail_message = "%s/%s trials did not match exactly, average sqnr = %s" % (
+            len(non_inf_sqnr),
+            num_trials,
+            avg_sqnr,
+        )
+        self.assertEqual(len(non_inf_sqnr), 0, fail_message)
 
 
 if __name__ == "__main__":

@@ -7,4 +7,5 @@ lint.ignore = ["E731"]
 # Exclude third-party modules
 exclude = [
     "third_party/*",
+    "torchao/prototype/paretoq/*",
 ]

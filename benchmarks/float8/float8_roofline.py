@@ -61,8 +61,8 @@ from torchao.float8 import (
     Float8LinearConfig,
     convert_to_float8_training,
 )
-from torchao.prototype.mx_formats.config import MXLinearConfig
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
+from torchao.prototype.mx_formats import MXLinearConfig
+from torchao.quantization import quantize_
 from torchao.testing.float8.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
@@ -391,7 +391,7 @@ def run(
                 assert mx_recipe_name is not None
                 config = MXLinearConfig.from_recipe_name(mx_recipe_name)
                 m_fp8_dyn = copy.deepcopy(m_orig)
-                swap_linear_with_mx_linear(m_fp8_dyn, config=config)
+                quantize_(m_fp8_dyn, config=config)
             m_fp8_dyn = torch.compile(m_fp8_dyn)
             b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, grad_output)
 

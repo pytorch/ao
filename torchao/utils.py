@@ -676,6 +676,18 @@ def is_sm_at_least_100():
     )
 
 
+def check_cpu_version(device, version="2.6.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+
+
+def check_xpu_version(device, version="2.8.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
+
+
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")

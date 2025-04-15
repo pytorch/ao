@@ -43,6 +43,12 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
 )
+from torchao.dtypes.uintx.int4_xpu_layout import (
+    _linear_bf16_act_uint4_weight_float_zero_check,
+    _linear_bf16_act_uint4_weight_float_zero_impl,
+    _linear_bf16_act_uint4_weight_int8_zero_check,
+    _linear_bf16_act_uint4_weight_int8_zero_impl,
+)
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
     _linear_int8_act_int4_weight_marlin_qqq_impl,
@@ -51,12 +57,30 @@ from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
     _linear_fp_act_int4_weight_sparse_marlin_impl,
 )
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_check as _linear_int8_act_intx_weight_packed_check,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_impl as _linear_int8_act_intx_weight_packed_impl,
+)
 from torchao.dtypes.uintx.plain_layout import (
     PlainAQTTensorImpl,
     _linear_fp_act_int8_weight_check,
     _linear_fp_act_int8_weight_impl,
     _linear_int8_act_int8_weight_check,
     _linear_int8_act_int8_weight_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_check as _embedding_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_impl as _embedding_q_dq_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_check as _linear_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_impl as _linear_q_dq_impl,
 )
 from torchao.dtypes.uintx.semi_sparse_layout import (
     _linear_int8_act_int8_weight_semi_structured_sparse_check,
@@ -199,6 +223,22 @@ def _register_aqt_quantized_linear_dispatches():
             _linear_fp_act_uint4_weight_cpu_check,
             _linear_fp_act_uint4_weight_cpu_impl,
         ),
+        (
+            _linear_int8_act_intx_weight_packed_check,
+            _linear_int8_act_intx_weight_packed_impl,
+        ),
+        (
+            _linear_q_dq_check,
+            _linear_q_dq_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_int8_zero_check,
+            _linear_bf16_act_uint4_weight_int8_zero_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_float_zero_check,
+            _linear_bf16_act_uint4_weight_float_zero_impl,
+        ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
@@ -243,6 +283,9 @@ def _(func, types, args, kwargs):
 
 @implements(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
+    if _embedding_q_dq_check(args, kwargs):
+        return _embedding_q_dq_impl(args, kwargs)
+
     # new_arg1 = args[1].dequantize()
     # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
     assert isinstance(
@@ -352,6 +395,13 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[1]._apply_fn_to_data(torch.clone)
     )
 
 
