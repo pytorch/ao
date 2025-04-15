@@ -56,9 +56,9 @@ build_torchao_experimental = (
 )
 
 import torch
+
 use_cpp_avx512 = (
     os.getenv("USE_AVX512", "1") == "1"
-    and torch._C._cpu._is_avx512_supported()
     and platform.system() == "Linux"
 )
 
