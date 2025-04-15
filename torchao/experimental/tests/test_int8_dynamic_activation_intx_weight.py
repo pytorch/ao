@@ -94,6 +94,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             Int8DynamicActivationIntxWeightConfig(
                 weight_dtype=weight_dtype,
                 weight_granularity=weight_granularity,
+                weight_mapping_type=weight_mapping_type,
                 weight_scale_dtype=weight_scale_dtype,
                 layout=self._reference_layout(),
             ),
@@ -359,7 +360,10 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             "torch.ops.aten.linear.default(dequantize_affine, dequantize_affine_1)",
         ]
         for line in expected_lines:
-            FileCheck().check_count(line, 1, exactly=True).run(
+            count = 1
+            if line == "torch.ops.torchao.dequantize_affine.default":
+                count = 2
+            FileCheck().check_count(line, count, exactly=True).run(
                 exported.graph_module.code
             )
 

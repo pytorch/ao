@@ -155,7 +155,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         SharedEmbeddingQuantizer(
             weight_dtype=weight_dtype,
             granularity=PerAxis(0),
-            weight_mapping_type=weight_mapping_type,
+            mapping_type=weight_mapping_type,
         ).quantize(quantized_model)
 
         # Check results are same and weights share the same id
