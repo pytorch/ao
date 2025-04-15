@@ -29,16 +29,6 @@ namespace torchao {
 
 namespace {
 
-template <typename T>
-struct is_reduced_floating_point:
-    std::integral_constant<bool,
-      std::is_same_v<T, at::Half> ||
-      std::is_same_v<T, at::BFloat16>> {
-};
-
-template <typename T>
-constexpr bool is_reduced_floating_point_v = is_reduced_floating_point<T>::value;
-
 inline double calculate_scale(
     const at::Tensor& query,
     double scale) {
@@ -89,13 +79,6 @@ void reshape_attn_mask_to_4d(
 template <typename scalar_t>
 inline void _store(scalar_t* dst, at::vec::Vectorized<scalar_t> src, int size=at::vec::Vectorized<scalar_t>::size()) {
   src.store(dst, size);
-}
-
-template <typename scalar_t>
-inline typename std::enable_if_t<is_reduced_floating_point_v<scalar_t>, void>
-_store(scalar_t* dst, at::vec::Vectorized<float> src, int size=at::vec::Vectorized<float>::size()) {
-  auto res = at::vec::convert_from_float<scalar_t>(src, src);
-  res.store(dst, size);
 }
 
 template <typename scalar_t>
@@ -329,6 +312,10 @@ inline void _sub_exp_sum_div_quant_sum_fusion_kernel(
   }
 }
 
+/*
+1. Softmax: sub max, exp, sum reduce, div sum
+2. quant
+*/
 template <typename scalar_t>
 inline void _sub_exp_sum_div_quant_fusion_kernel(
     const float* in,
@@ -483,6 +470,10 @@ inline void _dequant_quant_fusion_kernel(
   }
 }
 
+/*
+1. dequant
+2. quant
+*/
 template <typename scalar_t>
 inline void _dequant_quant_fusion_kernel(
     const int32_t* in,
@@ -556,6 +547,7 @@ inline void _int_sum_b_contiguous_kernel_helper(
   out[0] = vec_tmp_sum.reduce_add() * scale;
 }
 
+// reduce along dim b for shape [a, b], with sum shape [a]
 template <typename scalar_t>
 inline void _int_sum_b_contiguous_kernel(
     const scalar_t* in,
@@ -569,6 +561,7 @@ inline void _int_sum_b_contiguous_kernel(
   }
 }
 
+// reduce along dim a for shape [a, b], with sum shape [b]
 template <typename scalar_t>
 inline void _int_sum_a_contiguous_kernel(
     const scalar_t* in,
@@ -622,6 +615,7 @@ inline void _int_sum_a_contiguous_kernel(
   }
 }
 
+// do the transpose: [in_rows, in_cols] -> [in_cols, in_rows]
 template <typename scalar_t>
 inline void do_transpose(
     scalar_t* src,
@@ -637,6 +631,7 @@ inline void do_transpose(
   }
 }
 
+// padding with pad_val: [rows, cols] -> [prows, pcols]
 template <typename scalar_t>
 inline void pad_remain_row_col(
     scalar_t* value_ptr,
@@ -675,6 +670,7 @@ inline void pad_remain_row_col(
   }
 }
 
+// copy value_ptr to dst_ptr with padding: [rows, cols] -> [prows, pcols]
 template <typename scalar_t>
 inline void copy_value_with_pad(
     scalar_t* value_ptr,
@@ -739,7 +735,7 @@ sdpa_int8_kernel_one_loop_impl(
     const at::Tensor& v,
     double dropout_p,
     bool is_causal,
-    at::Tensor& attention_mask,
+    std::optional<at::Tensor> attention_mask,
     double scale,
     int32_t q_zp,
     float q_scale,
@@ -779,9 +775,9 @@ sdpa_int8_kernel_one_loop_impl(
   int64_t num_head = query.size(2);
   int64_t headSize = query.size(3);
 
-  bool has_attn_mask = attention_mask.defined() && attention_mask.numel();
+  bool has_attn_mask = attention_mask.has_value() && attention_mask.value().numel();
   if (has_attn_mask) {
-    reshape_attn_mask_to_4d(attention_mask, batchSize, num_head, qSize, kvSize);
+    reshape_attn_mask_to_4d(attention_mask.value(), batchSize, num_head, qSize, kvSize);
   }
 
   // Strides
@@ -798,20 +794,20 @@ sdpa_int8_kernel_one_loop_impl(
   int64_t oStrideM = output.stride(1);
   int64_t oStrideH = output.stride(2);
   int64_t mStrideB =
-      (attention_mask.defined() && attention_mask.size(0) > 1)
-      ? attention_mask.stride(0)
+      (has_attn_mask && attention_mask.value().size(0) > 1)
+      ? attention_mask.value().stride(0)
       : 0;
   int64_t mStrideH =
-      (attention_mask.defined() && attention_mask.size(1) > 1)
-      ? attention_mask.stride(1)
+      (has_attn_mask && attention_mask.value().size(1) > 1)
+      ? attention_mask.value().stride(1)
       : 0;
   int64_t mStrideM =
-      (attention_mask.defined() && attention_mask.size(2) > 1)
-      ? attention_mask.stride(2)
+      (has_attn_mask && attention_mask.value().size(2) > 1)
+      ? attention_mask.value().stride(2)
       : 0;
   int64_t mStrideN =
-      (attention_mask.defined() && attention_mask.size(3) > 1)
-      ? attention_mask.stride(3)
+      (has_attn_mask && attention_mask.value().size(3) > 1)
+      ? attention_mask.value().stride(3)
       : 0;
 
   int64_t qSplitSize = q_split_size > qSize ? qSize : q_split_size;
@@ -828,15 +824,14 @@ sdpa_int8_kernel_one_loop_impl(
 
   bool av_gemm_K_mul4 = kvSplitSize % 4 == 0;
   int av_gemm_K_padding = av_gemm_K_mul4 ? 0 : 4 - kvSplitSize % 4;
-  // // If K of Gemm is not even, use mkl gemm instead of tpp for BF16
   int av_gemm_K = kvSplitSize + av_gemm_K_padding;
 
   // Data ptrs
   scalar_t* q_data = query.data_ptr<scalar_t>();
   scalar_t* k_data = key.data_ptr<scalar_t>();
   scalar_t* v_data = value.data_ptr<scalar_t>();
-  mask_t* mask_data = attention_mask.defined()
-      ? attention_mask.data_ptr<mask_t>()
+  mask_t* mask_data = attention_mask.has_value()
+      ? attention_mask.value().data_ptr<mask_t>()
       : nullptr;
   scalar_t* out_data = output.data_ptr<scalar_t>();
 
@@ -926,7 +921,7 @@ sdpa_int8_kernel_one_loop_impl(
               headSize, kvSize, vStrideN, a_zp);
           }
 
-          // pack
+          // transpose and packing
           for (int64_t n = 0; n < kvSize; n += kvSplitSize) {
             int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
             for (int64_t b = 0; b < kvBlockSize; b += block_64) {
@@ -966,7 +961,7 @@ sdpa_int8_kernel_one_loop_impl(
               at::native::cpublas::pack(
                       av_gemm_K,
                       block_64,
-                      vStrideN, // block_64,
+                      vStrideN,
                       block_64,
                       u8_dt,
                       u8_dt,
@@ -997,7 +992,7 @@ sdpa_int8_kernel_one_loop_impl(
                 qBlockSize,
                 qk_gemm_K,
                 qStrideM);
-
+            // sum q
             if (k_zp != 0) {
               _int_sum_b_contiguous_kernel(q_data + i * qStrideB + j * qStrideH + m * qStrideM,
                     q_sum_ptr, qBlockSize, headSize, qStrideM, k_zp);
@@ -1009,6 +1004,7 @@ sdpa_int8_kernel_one_loop_impl(
             for (int64_t l = 0; l < rkvSlice; l++) {
               int64_t n = l * kvSplitSize;
               int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
+              // Calculate q @ k.T
               for (int64_t b = 0; b < kvBlockSize; b += block_64) {
                 at::native::cpublas::brgemm(
                       qSplitSize, block_64, qk_gemm_K,
@@ -1023,7 +1019,6 @@ sdpa_int8_kernel_one_loop_impl(
               }
 
               // do dequant compensation, add mask, max reduce for softmax, and convert qk from s32 to fp32
-              int64_t rndkvBlockSize = kvBlockSize == kvSplitSize ? rndkvSplitSize : rndkvTail;
               accum_t* qk_block_data = qk_data + l * qSplitSize * rndkvSplitSize;
               if (has_attn_mask) {
                 mask_t* mask_data_offset = mask_data + i * mStrideB + j * mStrideH + m * mStrideM + (mStrideN == 0 ? 0 : n);
@@ -1034,9 +1029,9 @@ sdpa_int8_kernel_one_loop_impl(
                   k_sum_ptr + n, //sum_b_ptr
                   qBlockSize, //M
                   kvBlockSize, //N
-                  rndkvBlockSize, //ldi
+                  rndkvSplitSize, //ldi
                   mStrideM, //ldm
-                  rndkvSplitSize,//kvBlockSize, //ldo
+                  rndkvSplitSize, //ldo
                   q_zp * k_zp * headSize, //zp_a*zp_b*k=beta
                   q_scale * k_scale * scaling_factor, //scale_a*scale_b*scale_sdpa=alpha
                   qk_block_data, //out
@@ -1049,8 +1044,8 @@ sdpa_int8_kernel_one_loop_impl(
                   k_sum_ptr + n, //sum_b_ptr
                   qBlockSize, //M
                   kvBlockSize, //N
-                  rndkvBlockSize, //ldi
-                  rndkvSplitSize,//kvBlockSize, //ldo
+                  rndkvSplitSize, //ldi
+                  rndkvSplitSize, //ldo
                   q_zp * k_zp * headSize, //zp_a*zp_b*k=beta
                   q_scale * k_scale * scaling_factor, //scale_a*scale_b*scale_sdpa=alpha
                   qk_block_data, //out
@@ -1119,19 +1114,33 @@ sdpa_int8_kernel_one_loop_impl(
 
             // After the last gemm,
             // do dequant compensation, quant and convert from s32 to int8
-            _dequant_quant_fusion_kernel(
-              dst_s32_data, //in
-              a_sum_ptr, //sum_a_ptr
-              v_sum_ptr, //sum_b_ptr
-              qBlockSize, //M
-              headSize, //N
-              rndHeadSize, //ldi
-              oStrideM, //ldo
-              a_zp * v_zp * kvSize, //zp_a*zp_b*k=beta1
-              o_zp, //zp_c=beta2
-              a_scale * v_scale / o_scale, //scale_a*scale_b/scale_c=alpha
-              out_data + i * oStrideB + j * oStrideH + m * oStrideM //out
-            );
+            if (a_zp == 0) {
+              _dequant_quant_fusion_kernel(
+                dst_s32_data, //in
+                a_sum_ptr, //sum_a_ptr
+                qBlockSize, //M
+                headSize, //N
+                rndHeadSize, //ldi
+                oStrideM, //ldo
+                o_zp, //zp_c=beta2
+                a_scale * v_scale / o_scale, //scale_a*scale_b/scale_c=alpha
+                out_data + i * oStrideB + j * oStrideH + m * oStrideM //out
+              );
+            } else {
+              _dequant_quant_fusion_kernel(
+                dst_s32_data, //in
+                a_sum_ptr, //sum_a_ptr
+                v_sum_ptr, //sum_b_ptr
+                qBlockSize, //M
+                headSize, //N
+                rndHeadSize, //ldi
+                oStrideM, //ldo
+                a_zp * v_zp * kvSize, //zp_a*zp_b*k=beta1
+                o_zp, //zp_c=beta2
+                a_scale * v_scale / o_scale, //scale_a*scale_b/scale_c=alpha
+                out_data + i * oStrideB + j * oStrideH + m * oStrideM //out
+              );
+            }
           }
           // Move to the next query
           at::native::data_index_step(i, batchSize, j, num_head);
@@ -1151,7 +1160,7 @@ sdpa_int8_kernel_several_loops_impl(
     const at::Tensor& v,
     double dropout_p,
     bool is_causal,
-    at::Tensor& attention_mask,
+    std::optional<at::Tensor> attention_mask,
     double scale,
     int32_t q_zp,
     float q_scale,
@@ -1191,9 +1200,9 @@ sdpa_int8_kernel_several_loops_impl(
   int64_t num_head = query.size(2);
   int64_t headSize = query.size(3);
 
-  bool has_attn_mask = attention_mask.defined() && attention_mask.numel();
+  bool has_attn_mask = attention_mask.has_value() && attention_mask.value().numel();
   if (has_attn_mask) {
-    reshape_attn_mask_to_4d(attention_mask, batchSize, num_head, qSize, kvSize);
+    reshape_attn_mask_to_4d(attention_mask.value(), batchSize, num_head, qSize, kvSize);
   }
 
   // Strides
@@ -1210,20 +1219,20 @@ sdpa_int8_kernel_several_loops_impl(
   int64_t oStrideM = output.stride(1);
   int64_t oStrideH = output.stride(2);
   int64_t mStrideB =
-      (attention_mask.defined() && attention_mask.size(0) > 1)
-      ? attention_mask.stride(0)
+      (has_attn_mask && attention_mask.value().size(0) > 1)
+      ? attention_mask.value().stride(0)
       : 0;
   int64_t mStrideH =
-      (attention_mask.defined() && attention_mask.size(1) > 1)
-      ? attention_mask.stride(1)
+      (has_attn_mask && attention_mask.value().size(1) > 1)
+      ? attention_mask.value().stride(1)
       : 0;
   int64_t mStrideM =
-      (attention_mask.defined() && attention_mask.size(2) > 1)
-      ? attention_mask.stride(2)
+      (has_attn_mask && attention_mask.value().size(2) > 1)
+      ? attention_mask.value().stride(2)
       : 0;
   int64_t mStrideN =
-      (attention_mask.defined() && attention_mask.size(3) > 1)
-      ? attention_mask.stride(3)
+      (has_attn_mask && attention_mask.value().size(3) > 1)
+      ? attention_mask.value().stride(3)
       : 0;
 
   int64_t qSplitSize = q_split_size > qSize ? qSize : q_split_size;
@@ -1246,12 +1255,11 @@ sdpa_int8_kernel_several_loops_impl(
   scalar_t* q_data = query.data_ptr<scalar_t>();
   scalar_t* k_data = key.data_ptr<scalar_t>();
   scalar_t* v_data = value.data_ptr<scalar_t>();
-  mask_t* mask_data = attention_mask.defined()
-      ? attention_mask.data_ptr<mask_t>()
+  mask_t* mask_data = attention_mask.has_value()
+      ? attention_mask.value().data_ptr<mask_t>()
       : nullptr;
   scalar_t* out_data = output.data_ptr<scalar_t>();
 
-  // Create tpp kernels for Query @ Key
   bool headSize_mul64 = headSize % 64 == 0;
   int qk_gemm_K_padding = headSize_mul64 ? 0 : 64 - headSize % 64;
   int qk_gemm_K = headSize + qk_gemm_K_padding;
@@ -1328,7 +1336,7 @@ sdpa_int8_kernel_several_loops_impl(
       }
     });
 
-  // packing
+  // transpose and packing
   at::parallel_for(
     0, batchSize * num_head * kvSlice, 1, [&](int64_t begin, int64_t end) {
       int64_t i = 0, j = 0, l = 0, n = 0;
@@ -1380,7 +1388,7 @@ sdpa_int8_kernel_several_loops_impl(
           at::native::cpublas::pack(
                   av_gemm_K,
                   block_64,
-                  vStrideN, // block_64,
+                  vStrideN,
                   block_64,
                   u8_dt,
                   u8_dt,
@@ -1444,10 +1452,10 @@ sdpa_int8_kernel_several_loops_impl(
               query_t_padding_ptr,
               qBlockSize,
               headSize,
-              qSplitSize, //qSplitSize,
+              qSplitSize,
               qk_gemm_K,
               qStrideM);
-
+          // sum q
           if (k_zp != 0) {
             _int_sum_b_contiguous_kernel(query_t_padding_ptr,
                   q_sum_ptr, qBlockSize, headSize, qk_gemm_K, k_zp);
@@ -1461,7 +1469,7 @@ sdpa_int8_kernel_several_loops_impl(
             int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
             auto k_reorder = key_reorder_ptr + i * num_head * qk_gemm_K * rndkvSize +
                       j * qk_gemm_K * rndkvSize + n * qk_gemm_K;
-            // Calculate sums for dequant compensation item
+            // Calculate q @ k.T
             for (int64_t b = 0; b < kvBlockSize; b += block_64) {
               at::native::cpublas::brgemm(
                     qSplitSize, block_64, qk_gemm_K,
@@ -1487,7 +1495,7 @@ sdpa_int8_kernel_several_loops_impl(
                 kvBlockSize, //N
                 rndkvSplitSize, //ldi
                 mStrideM, //ldm
-                rndkvSplitSize,//kvBlockSize, //ldo
+                rndkvSplitSize, //ldo
                 q_zp * k_zp * headSize, //zp_a*zp_b*k=beta
                 q_scale * k_scale * scaling_factor, //scale_a*scale_b*scale_sdpa=alpha
                 qk_block_data, //out
@@ -1501,7 +1509,7 @@ sdpa_int8_kernel_several_loops_impl(
                 qBlockSize, //M
                 kvBlockSize, //N
                 rndkvSplitSize, //ldi
-                rndkvSplitSize,//kvBlockSize, //ldo
+                rndkvSplitSize, //ldo
                 q_zp * k_zp * headSize, //zp_a*zp_b*k=beta
                 q_scale * k_scale * scaling_factor, //scale_a*scale_b*scale_sdpa=alpha
                 qk_block_data, //out
@@ -1562,7 +1570,7 @@ sdpa_int8_kernel_several_loops_impl(
               at::native::cpublas::brgemm(
                   qSplitSize, block_64, av_gemm_K,
                   av_gemm_K, // lda
-                  rndHeadSize, //block_64, //ldb
+                  rndHeadSize, //ldb
                   rndHeadSize, //ldc
                   s != 0,
                   qk_reduced_data + s * qk_reduce_strideL,
@@ -1630,7 +1638,7 @@ void sdpa_int8_fused_kernel(
     const at::Tensor& value,
     double dropout_p,
     bool is_causal,
-    at::Tensor& attn_mask,
+    std::optional<at::Tensor> attn_mask,
     double scale,
     long q_zp,
     double q_scale,
@@ -1660,7 +1668,7 @@ void sdpa_int8_fused_kernel(
   bool use_one_parallel_loop = (batchSize * num_head > num_thread) &&
       (attn_size > 1.5 * l2_cache_size);
   if (use_one_parallel_loop) {
-    if (!attn_mask.defined()) {
+    if (!attn_mask.has_value()) {
       if (q_split_size == 256) {
         sdpa_int8_kernel_one_loop_impl<unsigned char, float, 256, 64>(
           output, query, key, value,
@@ -1690,7 +1698,7 @@ void sdpa_int8_fused_kernel(
           o_zp, o_scale);
       }
     } else {
-      AT_DISPATCH_MASK_TYPES(attn_mask.scalar_type(), "sdpa_mask", [&]() {
+      AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
         if (q_split_size == 256) {
           sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 256, 64>(
             output, query, key, value,
@@ -1722,7 +1730,7 @@ void sdpa_int8_fused_kernel(
       });
     }
   } else {
-    if (!attn_mask.defined()) {
+    if (!attn_mask.has_value()) {
       if (q_split_size == 256) {
         sdpa_int8_kernel_several_loops_impl<unsigned char, float, 256, 64>(
           output, query, key, value,
@@ -1752,7 +1760,7 @@ void sdpa_int8_fused_kernel(
           o_zp, o_scale);
       }
     } else {
-      AT_DISPATCH_MASK_TYPES(attn_mask.scalar_type(), "sdpa_mask", [&]() {
+      AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
         if (q_split_size == 256) {
           sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 256, 64>(
             output, query, key, value,
@@ -1793,7 +1801,7 @@ at::Tensor sdpa_int8_math_kernel(
     const at::Tensor& value,
     double dropout_p,
     bool is_causal,
-    at::Tensor& attn_mask,
+    std::optional<at::Tensor> attn_mask,
     double scale,
     int32_t q_zp,
     float q_scale,
@@ -1811,8 +1819,8 @@ at::Tensor sdpa_int8_math_kernel(
   auto v = (value.to(at::kFloat) - v_zp) * v_scale;
   const auto scaling_factor = calculate_scale(q, scale);
   auto attn = at::matmul(q, k.transpose(-2, -1)) * scaling_factor;
-  if (attn_mask.defined() && attn_mask.numel()) {
-    attn = attn.add(attn_mask.to(at::kFloat));
+  if (attn_mask.has_value() && attn_mask.value().numel()) {
+    attn = attn.add(attn_mask.value().to(at::kFloat));
   }
   attn = at::softmax(attn, -1);
   // quant attn
@@ -1834,7 +1842,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
     const at::Tensor& query,
     const at::Tensor& key,
     const at::Tensor& value,
-    at::Tensor& attn_mask,
+    std::optional<at::Tensor> attn_mask,
     double dropout_p,
     bool is_causal,
     double scale,
@@ -1861,12 +1869,12 @@ at::Tensor _scaled_dot_product_int8_cpu(
     "_scaled_dot_product_int8_cpu: Currently do not support dropout > 0");
   TORCH_CHECK((query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
     "_scaled_dot_product_int8_cpu: Q/K/V should have the same head size");
-  TORCH_CHECK(!attn_mask.defined() ||
-          attn_mask.scalar_type() == at::kFloat ||
-          attn_mask.scalar_type() == at::kBFloat16,
+  TORCH_CHECK(!attn_mask.has_value() ||
+          attn_mask.value().scalar_type() == at::kFloat ||
+          attn_mask.value().scalar_type() == at::kBFloat16,
     "_scaled_dot_product_int8_cpu: Expected attention mask be float or bf16");
-  TORCH_CHECK(!attn_mask.defined() ||
-          (attn_mask.dim() == 2 || attn_mask.dim() == 4),
+  TORCH_CHECK(!attn_mask.has_value() ||
+          (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
     "_scaled_dot_product_int8_cpu: Attention mask dim in {2, 4}");
 
   #ifdef CPU_CAPABILITY_AVX512
