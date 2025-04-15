@@ -153,7 +153,13 @@ class TensorCoreTiledLayout(Layout):
         zero_point = torch.nn.functional.pad(zero_point, padding_changes)
         return input, scale, zero_point
 
-    def post_process(self, input: torch.Tensor) -> torch.Tensor:
+    def post_process(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         orig_out_features, orig_in_features = input.shape
         in_features = find_multiple(orig_in_features, 1024)
         out_features = find_multiple(orig_out_features, 8)
@@ -161,7 +167,16 @@ class TensorCoreTiledLayout(Layout):
             input,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
-        return input
+        assert (
+            len(block_size) == 2
+        ), f"TensorCoreTiledLayout only supports len(block_size) == 2, got: {block_size}"
+        scale_pad_dim_0 = (out_features - orig_out_features) // block_size[0]
+        scale_pad_dim_1 = (in_features - orig_in_features) // block_size[1]
+        scale = torch.nn.functional.pad(scale, (0, scale_pad_dim_1, 0, scale_pad_dim_0))
+        zero_point = torch.nn.functional.pad(
+            zero_point, (0, scale_pad_dim_1, 0, scale_pad_dim_0)
+        )
+        return input, scale, zero_point
 
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
@@ -335,16 +350,8 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim == 0:
+            if dim in [0, 1]:
                 int_data, scale, zero_point = self.get_plain()
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                # this is to handle padding
-                int_data = self._layout.post_process(int_data)
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return return_and_correct_aliasing(func, args, kwargs, sliced)
-            elif dim == 1:
-                int_data, scale, zero_point = self.get_plain()
-                assert step == 1, "Only step == 1 is supported in slicing right now"
                 data_len = int_data.shape[dim]
                 scale_len = scale.shape[dim]
                 ratio = data_len / scale_len
@@ -352,14 +359,16 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                 end_scale = int(end / ratio)
 
                 int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                # this is to handle padding
-                int_data = self._layout.post_process(int_data)
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
                 zero_point = aten.slice.Tensor(
                     zero_point, dim, start_scale, end_scale, step
                 )
+                # this is to handle padding
+                int_data, scale, zero_point = self._layout.post_process(
+                    int_data, scale, zero_point, self.block_size
+                )
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return sliced
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
                     f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
@@ -370,6 +379,18 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @property
+    def block_size(self):
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+
+        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
+        cur_shape = self.shape
+        assert len(cur_shape) == 4
+        inner_k_tiles = cur_shape[-1] * 2
+        original_shape = (cur_shape[0] * 8, cur_shape[1] * (inner_k_tiles * 16))
+        groupsize = int(original_shape[1] / scale.shape[-2])
+        return (1, groupsize)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
