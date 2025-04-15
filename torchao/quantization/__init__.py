@@ -192,5 +192,4 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
-    "_sfdp_init_int8",
 ]

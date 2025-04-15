@@ -56,8 +56,9 @@ lib.define(
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 lib.define(
-    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor"
+    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor"
 )
+
 
 def register_custom_op(name):
     def decorator(func):
@@ -165,7 +166,7 @@ def scaled_dot_product_int8(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    attn_mask: Tensor = None,
+    attn_mask: Optional[Tensor] = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: float = 0.0,
@@ -231,7 +232,7 @@ def _(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    attn_mask: Tensor = None,
+    attn_mask: Optional[Tensor] = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: float = 0.0,
