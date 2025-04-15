@@ -41,7 +41,6 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
