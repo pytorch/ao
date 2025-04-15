@@ -611,7 +611,7 @@
 
 <span class="n">_ONES_TABLE</span> <span class="o">=</span> <span class="p">[</span><span class="n">_n_ones</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">)]</span>
 
-<span class="n">quant_lib</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">Library</span><span class="p">(</span><span class="s2">&quot;quant&quot;</span><span class="p">,</span> <span class="s2">&quot;FRAGMENT&quot;</span><span class="p">)</span>
+<span class="n">quant_lib</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">Library</span><span class="p">(</span><span class="s2">&quot;torchao&quot;</span><span class="p">,</span> <span class="s2">&quot;FRAGMENT&quot;</span><span class="p">)</span>
 
 <span class="n">register_custom_op</span> <span class="o">=</span> <span class="n">_register_custom_op</span><span class="p">(</span><span class="n">quant_lib</span><span class="p">)</span>
 
