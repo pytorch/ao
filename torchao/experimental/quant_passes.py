@@ -10,6 +10,12 @@ from collections import defaultdict
 from typing import Callable, Optional
 
 import torch
+
+# import this for pt2e_quant.dequantize_affine op definition
+# should be removed after removing dep on `torch._export.passes.constant_folding`
+import torch.ao.quantization.pt2e._affine_quantization  # noqa: F401
+
+# TODO: remove dependency on ConstantFolder
 from torch._export.passes.constant_folding import (
     ConstantFolder,
     replace_node_with_constant,
@@ -26,9 +32,9 @@ def constant_fold(
         # The ConstantFolder has a bug where it throws if dequantize_affine is not defined
         # TODO: fix upstream
         try:
-            getattr(torch.ops.pt2e_quant, "dequantize_affine")
+            getattr(torch.ops.torchao, "dequantize_affine")
         except AttributeError:
-            setattr(torch.ops.pt2e_quant, "dequantize_affine", None)
+            setattr(torch.ops.torchao, "dequantize_affine", None)
 
         cf = ConstantFolder(gm, skip_constructors)
         cf.run()
@@ -90,7 +96,7 @@ def pattern(
     a, a_block_size, a_zero_point_dtype,
     w_int_data, w_block_size, w_scale, w_zero_point, w_target_dtype,
     bias):
-    a_scale, a_zero_point = torch.ops.quant.choose_qparams_affine.default(
+    a_scale, a_zero_point = torch.ops.torchao.choose_qparams_affine.default(
         a,
         a_mapping_type,
         a_block_size,
@@ -101,13 +107,13 @@ def pattern(
         a_scale_dtype,
         a_zero_point_dtype,
     )
-    a_int_data = torch.ops.quant.quantize_affine.default(
-        a, a_block_size, a_scale, a_zero_point, a_target_dtype, a_quant_min, a_quant_max, 
+    a_int_data = torch.ops.torchao.quantize_affine.default(
+        a, a_block_size, a_scale, a_zero_point, a_target_dtype, a_quant_min, a_quant_max,
     )
-    dq_a = torch.ops.quant.dequantize_affine.default(
+    dq_a = torch.ops.torchao.dequantize_affine.default(
         a_int_data, a_block_size, a_scale, a_zero_point, a_target_dtype, a_quant_min, a_quant_max
     )
-    dq_w = torch.ops.quant.dequantize_affine.default(
+    dq_w = torch.ops.torchao.dequantize_affine.default(
         w_int_data,
         w_block_size,
         w_scale,
@@ -228,7 +234,7 @@ def _get_q_dq_embedding_patterns_replacements_and_filters(
         w_scale,
         w_zero_point,
     ):
-        dq_w = torch.ops.quant.dequantize_affine.default(
+        dq_w = torch.ops.torchao.dequantize_affine.default(
             w_int_data,
             w_block_size,
             w_scale,
