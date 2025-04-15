@@ -296,14 +296,15 @@ def get_extensions():
         )
 
         if use_cpp_avx512 and TORCH_VERSION_AT_LEAST_2_7:
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512",
-                    "-march=native",
-                    "-mfma",
-                    "-fopenmp",
-                ]
-            )
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
