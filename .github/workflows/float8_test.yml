@@ -33,7 +33,6 @@ jobs:
             torch-spec: '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
-
     permissions:
       id-token: write
       contents: read
@@ -44,6 +43,7 @@ jobs:
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
+      test-infra-ref: update-nvidia-driver-cuda12.6  # FOR TESTING, TO BE REMOVED
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
