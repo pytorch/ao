@@ -41,7 +41,7 @@ template <typename Element, typename Pointwise> struct TileValueOrderedT {
   union {
     struct {
       Element value;
-      uint2b_t inner_index;
+      int inner_index;
     } parts;
     uint32_t raw;
   };
@@ -77,6 +77,9 @@ template <typename Op = IdentityOp> struct LargestValuesRowwise {
 
     Indices1x16 indices;
     TileValuesFragment values_ordered;
+    // Use a sorting network (aka without branches) to avoid
+    // warp divergence
+    StaticSort<TileValuesFragment::kElements> sorter;
 
     indices = 0;
 
@@ -85,12 +88,9 @@ template <typename Op = IdentityOp> struct LargestValuesRowwise {
       CUTLASS_PRAGMA_UNROLL
       for (int j = 0; j < 4; ++j) {
         TileValueOrdered &v = values_ordered[j];
-        v.parts.value = values[i * 4 + j];
-        v.parts.inner_index = uint2b_t(j);
+        v.parts.value = values[j + 4 * i];
+        v.parts.inner_index = j;
       }
-      // Use a sorting network (aka without branches) to avoid
-      // warp divergence
-      StaticSort<TileValuesFragment::kElements> sorter;
 
       sorter(values_ordered);
 
@@ -176,22 +176,6 @@ template <typename Element_> struct KernelTypes {
     cutlass::arch::global_store<Fragment8, sizeof(Fragment8)>(write, ptr, true);
   }
 
-  // struct Tile1x16Accessor {
-  //   using Element = Element_;
-
-  //   Fragment (&_lines)[1];
-  //   int _start_row;
-  //   int _start_col;
-
-  //   CUTLASS_DEVICE Tile1x16Accessor(Fragment (&lines)[1], int start_row,
-  //                                   int start_col)
-  //       : _lines(lines), _start_row(start_row), _start_col(start_col) {}
-
-  //   CUTLASS_DEVICE typename Fragment::reference at(int r, int c) {
-  //     return _lines[r + _start_row][c + _start_col];
-  //   }
-  // };
-
   CUTLASS_DEVICE static Strip1x16Packed
   pack_1x16(Indices1x16 indices, Fragment &tile, uint16_t &meta) {
     Strip1x16Packed packed;
@@ -263,27 +247,26 @@ template <typename Element_> struct KernelTypes {
 
     Element const *input = p.input + x * p.input_s0 + y;
     Element *packed = p.packed + x * p.packed_stride + (y / 2);
-    Fragment lines[1]; // Contains all values from the 1x16 tile
+    Fragment line; // Contains all values from the 1x16 tile
 
     Tile1x16Meta metadata;
     Tile1x16Masks indices;
 
     // Load/process tiles `A` and `B`
-    Element fillValue = Algorithm::template outOfBoundsFillValue<Element>();
-    lines[0].fill(fillValue);
-    cutlass::arch::global_load<Fragment, sizeof(Fragment)>(lines[0], input,
-                                                           x < p.input_dim0);
+    // Element fillValue = Algorithm::template outOfBoundsFillValue<Element>();
+    // line.fill(fillValue);
+    cutlass::arch::global_load<Fragment, sizeof(Fragment)>(line, input, true);
 
-    indices.a = compute_tile_indices(lines[0]);
+    indices.a = compute_tile_indices(line);
 
-    Strip1x16Packed packed_a = pack_1x16(indices.a, lines[0], metadata.meta);
+    Strip1x16Packed packed_a = pack_1x16(indices.a, line, metadata.meta);
     writePacked(packed, packed_a);
 
     // Writing non-transposed metadata
     // just warpx for now
     {
-      ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
-          warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);
+      ElementInputE *packed_meta_reordered =
+          metadata_gmem.get_metaN(warp_x, x, warp_y, y);
       ((uint16_t *)packed_meta_reordered)[0] = metadata.meta;
       // printf("Thread [%d, %d]: x=%d, y=%d, warp_x=%d, warp_y=%d\n",
       // threadIdx.x,

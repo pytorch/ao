@@ -93,9 +93,12 @@ def benchmark():
     
 def profile():
     torch.manual_seed(123)
-    W_ref = create_semi_structured_tensor(2048, 8192, dtype=torch.float8_e4m3fn).cuda()
-    new_val = torch.zeros(10000, 10000, device="cuda")
+    W_ref = create_semi_structured_tensor(8192, 8192, dtype=torch.float8_e4m3fn).cuda()
 
+    # clear cache
+    new_val = torch.empty(10000, 10000, device="cuda")
+    new_val[:, :] = 0
+    
     packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
 

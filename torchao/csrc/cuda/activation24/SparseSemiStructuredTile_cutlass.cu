@@ -54,7 +54,7 @@ struct MetadataCutlass {
 
   CUTLASS_HOST_DEVICE
   int64_t _get_meta_offset(int warp_row, int thread_row, int warp_col,
-                           int thread_col, int64_t total_rows) const {
+                           int thread_col, int total_rows) const {
     int64_t offset = 0;
 
     // warp handles a 4x128 chunk, so find the appropriate one
@@ -65,13 +65,13 @@ struct MetadataCutlass {
     // Each warp is of size 4x8 threads (handling 4x128 elements).
     // Incrementing the thread_row should increase the offset by 16 bytes or 8
     // elements
-    offset += ((warp_row + thread_row) % 4) * 8;
+    offset += (thread_row % 4) * 8;
     // offset += 128 * (thread_row / 4);
 
     // Each thread handles 16 elements, the threads in a row write contiguously
     // At 2 bits an element -> this is 4 bytes -> so every thread should
     // increment the offset by 4
-    offset += ((warp_col + thread_col) % 128) / 16;
+    offset += (thread_col % 128) / 16;
 
     return offset;
   }
@@ -86,7 +86,8 @@ struct MetadataCutlass {
 };
 
 template <typename KT, typename Metadata, typename Algorithm>
-__global__ void __launch_bounds__(32 /* num_threads */, 20)
+__global__ void __launch_bounds__(32 /* num_threads */,
+                                  20 /* min warps per SM*/)
     sparse_semi_structured_tile_kernel(typename KT::Params p, Metadata metadata,
                                        Algorithm algo) {
   KT::sparse_semi_structured_tile_kernel(p, metadata, algo);
