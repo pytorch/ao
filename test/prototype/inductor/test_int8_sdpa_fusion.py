@@ -190,6 +190,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 export_model = export_for_training(
                     mod,
                     inputs,
+                    strict=True,
                 ).module()
                 prepare_model = prepare_pt2e(export_model, quantizer)
                 prepare_model(*inputs)
