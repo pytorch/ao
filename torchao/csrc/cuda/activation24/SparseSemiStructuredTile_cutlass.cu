@@ -42,7 +42,7 @@ struct MetadataCutlass {
 
     // hard code this for now to 16
     at::Tensor packed_meta =
-        at::zeros({roundedx, cutlass::ceil_div(roundedy, 8)},
+        at::empty({roundedx, cutlass::ceil_div(roundedy, 8)},
                   like.options().dtype(at::ScalarType::Byte));
     return std::make_tuple(packed, packed, packed_meta);
   }

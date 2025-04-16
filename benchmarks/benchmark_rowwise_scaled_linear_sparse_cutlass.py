@@ -93,10 +93,10 @@ def benchmark(m: int, k: int, n: int):
         "m": m,
         "k": k,
         "n": n,
-        "fp16_latency (ms)": fp16_time,
-        "fp8_latency (ms)": fp8_time,
-        "rowwise_scaled_linear_sparse_cutlass_f8f8 latency (ms)": rowwise_scaled_linear_sparse_cutlass_f8f8_time,
-        "cusparselt latency (ms)": cusparselt_time,
+        "fp16_latency (us)": fp16_time,
+        "fp8_latency (us)": fp8_time,
+        "rowwise_scaled_linear_sparse_cutlass_f8f8 latency (us)": rowwise_scaled_linear_sparse_cutlass_f8f8_time,
+        "cusparselt latency (us)": cusparselt_time,
         "f8f8 speedup (d/s)": fp8_time
         / rowwise_scaled_linear_sparse_cutlass_f8f8_time,
     }

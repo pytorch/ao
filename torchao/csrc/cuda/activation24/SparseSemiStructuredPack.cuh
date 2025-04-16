@@ -200,10 +200,7 @@ template <typename Element_> struct KernelTypes {
         pack_1x16(indices.a, Tile1x16Accessor(lines, 0, 0), metadata.meta);
     writePacked(packed, packed_a);
 
-    // *p.getCurrentThreadIndices() = indices;
-
     // Writing non-transposed metadata
-    // just warpx for now
     {
       ElementInputE *packed_meta_reordered = metadata_gmem.get_metaN(
           warp_x, threadIdx.x * kThreadX, warp_y, threadIdx.y * kThreadY);

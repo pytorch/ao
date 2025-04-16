@@ -76,8 +76,9 @@ def get_problem_scaled_mm(m: int, n: int, k: int):
 
 def benchmark():
     torch.manual_seed(123)
-    W_ref = create_semi_structured_tensor(8192, 8192, dtype=torch.float8_e4m3fn).cuda()
+    W_ref = create_semi_structured_tensor(2048, 8192, dtype=torch.float8_e4m3fn).cuda()
 
+    # packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
     cutlass_reference_args = (W_ref, )
     cutlass_custom_args = (W_ref, "", True)
     
@@ -88,20 +89,21 @@ def benchmark():
         "cutlass_reference (ms)": cutlass_reference_compression_time,
         "cutlass_custom (ms)": cutlass_custom_compression_time,
     }
+    
+def profile():
+    torch.manual_seed(123)
+    W_ref = create_semi_structured_tensor(2048, 8192, dtype=torch.float8_e4m3fn).cuda()
+
+    packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
 
 if __name__ == "__main__":
-    # print(W_ref[:18])
-    # print(W_ref.count_nonzero())
-    # print(W_ref)
-    # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
-    #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-    #                       [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-    #                       [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
+    # results = []
+    # results.append(benchmark())
 
-    results = []
-    results.append(benchmark())
+    # df = pd.DataFrame(results)
+    # df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
+    # print(df.to_markdown(index=False))
 
-    df = pd.DataFrame(results)
-    df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
-    print(df.to_markdown(index=False))
+    print("PROFILING")
+    profile()

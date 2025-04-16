@@ -129,10 +129,11 @@ def test_meta_fp8_fixed_128x256():
     torch.testing.assert_close(packed, packed_reference)
     torch.testing.assert_close(packed_meta, meta_reference)
 
-def test_meta_fp8_fixed_128x128():
+def test_meta_packed_fp8():
     for r in (64, 128, 256, 512):
         for c in (128, 256, 512, 1024, 2048):
             torch.manual_seed(123)
+            # random tensor without 0
             W_ref = create_semi_structured_tensor(r, c, dtype=torch.float8_e4m3fn).to(device)
             # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
             #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
@@ -141,14 +142,5 @@ def test_meta_fp8_fixed_128x128():
             packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
             packed, packed_meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 
-            # vc_mine = torch.unique(packed_meta, return_counts=True)
-            # vc_ref = torch.unique(meta_reference, return_counts=True)
-            # # print(vc_mine)
-            print("CUSTOM")
-            print(packed_meta[:, :])
-            print("REFERENCE")
-            print(meta_reference[:, :])
-
-            # # print(packed_meta - meta_reference)
             torch.testing.assert_close(packed, packed_reference)
             torch.testing.assert_close(packed_meta, meta_reference)
