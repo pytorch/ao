@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 from triton.testing import do_bench
+from triton import runtime
 
 from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8, to_sparse_semi_structured_cutlass_sm9x_f8
 from torchao.quantization.quant_api import (
@@ -93,6 +94,7 @@ def benchmark():
 def profile():
     torch.manual_seed(123)
     W_ref = create_semi_structured_tensor(2048, 8192, dtype=torch.float8_e4m3fn).cuda()
+    new_val = torch.zeros(10000, 10000, device="cuda")
 
     packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
 

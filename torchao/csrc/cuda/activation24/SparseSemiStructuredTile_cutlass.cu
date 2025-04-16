@@ -9,7 +9,6 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/library.h>
 
-#include "ComputeSparseTile.cuh"
 #include "SparseSemiStructuredPack.cuh"
 #include <cuda_runtime.h>
 
@@ -73,7 +72,6 @@ struct MetadataCutlass {
     // At 2 bits an element -> this is 4 bytes -> so every thread should
     // increment the offset by 4
     offset += ((warp_col + thread_col) % 128) / 16;
-    // offset += (thread_col / 32) * 4;
 
     return offset;
   }
