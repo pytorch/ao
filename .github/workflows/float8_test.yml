@@ -36,14 +36,13 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@update-nvidia-driver-cuda12.6  # FOR TESTING, TO BE REMOVED
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 60
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
-      test-infra-ref: update-nvidia-driver-cuda12.6  # FOR TESTING, TO BE REMOVED
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
