@@ -77,9 +77,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     input_col_major = input_tensor.clone().detach().t()
 
     # - configure input to be row-major with groups divided along the column dimension,
-    #   mimicking the left operand of grad_weight = grad_output_t @ input
+    #   representing the left operand of grad_weight = grad_output_t @ input
     #   that occurs in the backward pass of the differentiable scaled grouped mm.
-    # - the transposed tensor in col-major format will then mimick the right operand.
+    # - the transposed tensor in col-major format with groups along the row dimension,
+    #    which represents the right operand.
     group_size = input_row_major.shape[1] // config.n_groups
     n_groups = config.n_groups
     offs = torch.arange(
