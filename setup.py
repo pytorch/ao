@@ -361,10 +361,10 @@ def get_extensions():
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
     if IS_WINDOWS:
         # Remove csrc/cpu/*.cpp on Windows due to the link issue: unresolved external symbol PyInit__C
-        cpp_sources = list(
+        excluded_sources = list(
             glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
         )
-        sources = [s for s in sources if s not in cpp_sources]
+        sources = [s for s in sources if s not in excluded_sources]
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
