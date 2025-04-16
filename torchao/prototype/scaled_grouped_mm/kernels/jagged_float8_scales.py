@@ -5,9 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Triton kernels for scaling high precision tensors to float8.
+Triton kernels for scaling high precision tensors to float8 using "jagged"
+rowwise scales (i.e., separate scales for each group/subtensor as determined by
+the offsets).
 """
-import itertools
+
 from typing import Tuple
 
 import torch
@@ -33,7 +35,9 @@ FP8_DTYPE_MAP = {
 
 block_sizes = [128, 256]
 kernel_configs_2D = [
-    triton.Config({"BLOCK_SIZE_ROWS": block_size_rows, "BLOCK_SIZE_COLS": block_size_cols})
+    triton.Config(
+        {"BLOCK_SIZE_ROWS": block_size_rows, "BLOCK_SIZE_COLS": block_size_cols}
+    )
     for block_size_rows in block_sizes
     for block_size_cols in block_sizes
 ]
