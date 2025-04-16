@@ -1,16 +1,23 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Optional, Tuple
 
 import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.scaled_grouped_mm.utils import _is_column_major
 
 
 def _scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: torch.Tensor,
-    out_dtype: Optional[torch.dtype] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization with row-wise scaling
@@ -41,32 +48,32 @@ class _Float8GroupedMM(torch.autograd.Function):
         A: torch.Tensor,
         B_t: torch.Tensor,
         offs: torch.Tensor,
-        out_dtype: Optional[torch.dtype] = None,
+        out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
 
-        assert (
-            A.size(-1) % 16 == 0
-        ), f"A must have a last dim divisible by 16, but got shape: {A.shape}"
-        assert (
-            B_t.size(-2) % 16 == 0 and B_t.size(-1) % 16 == 0
-        ), f"B must have last 2 dims divisible by 16, but got shape: {B_t.shape}"
+        assert A.size(-1) % 16 == 0, (
+            f"A must have a last dim divisible by 16, but got shape: {A.shape}"
+        )
+        assert B_t.size(-2) % 16 == 0 and B_t.size(-1) % 16 == 0, (
+            f"B must have last 2 dims divisible by 16, but got shape: {B_t.shape}"
+        )
 
         # Assert input tensors are in high-precision dtypes.
-        assert (
-            A.dtype == torch.float32 or A.dtype == torch.bfloat16
-        ), "A must be float32 or bfloat16"
-        assert (
-            B_t.dtype == torch.float32 or B_t.dtype == torch.bfloat16
-        ), "B must be float32 or bfloat16"
+        assert A.dtype == torch.float32 or A.dtype == torch.bfloat16, (
+            "A must be float32 or bfloat16"
+        )
+        assert B_t.dtype == torch.float32 or B_t.dtype == torch.bfloat16, (
+            "B must be float32 or bfloat16"
+        )
         assert offs.dtype == torch.int32, "offs must be int32"
 
         # Assert A and B dims are compatible for a scaled grouped GEMM.
-        assert A.size(-1) == B_t.size(
-            -2
-        ), f"shape {A.shape} and {B_t.shape} are not compatible for _scaled_grouped_mm"
+        assert A.size(-1) == B_t.size(-2), (
+            f"shape {A.shape} and {B_t.shape} are not compatible for _scaled_grouped_mm"
+        )
 
         # The left operand in the scaled grouped GEMM must be row-major due to hardware requirements.
         assert not _is_column_major(A), "A must be row-major"
@@ -345,17 +352,3 @@ def _to_2d_jagged_float8_tensor_rowwise(
         next_scale_idx += subtensor_scales.numel()
 
     return x_fp8, x_scales
-
-
-def _is_column_major(x: torch.Tensor) -> bool:
-    """
-    This function checks if the input tensor is column-major.
-
-    Args:
-        x (torch.Tensor): The input tensor to be checked.
-
-    Returns:
-        A boolean indicating whether the input tensor is column-major.
-    """
-    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
-    return x.stride(-2) == 1 and x.stride(-1) > 1
