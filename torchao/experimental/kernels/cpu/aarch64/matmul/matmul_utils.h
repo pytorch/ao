@@ -71,7 +71,7 @@ void transpose_4x4(
     const size_t lda,
     float32x4_t (&tranposed)[4]);
 
-TORCHAO_ALWAYS_INLINE void transpose_4x4(
+TORCHAO_ALWAYS_INLINE inline void transpose_4x4(
     const float32_t* a,
     const size_t lda,
     float32x4_t (&tranposed)[4]) {
