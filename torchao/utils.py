@@ -314,6 +314,8 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             and type(child.weight) is not torch.nn.Parameter
             and isinstance(child.weight, torch.Tensor)
             and issubclass(type(child.weight), torch.Tensor)
+            and isinstance(child.weight, TorchAOBaseTensor)
+            and not parametrize.is_parametrized(child)
         ):
             parametrize.register_parametrization(
                 child, "weight", UnwrapTensorSubclass()
