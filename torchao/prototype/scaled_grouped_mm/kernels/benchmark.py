@@ -21,7 +21,7 @@ from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )
-from torchao.prototype.scaled_grouped_mm.kernels import (
+from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
@@ -40,8 +40,8 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    torch_time_ms: float
-    triton_time_ms: float
+    torch_time_us: float
+    triton_time_us: float
 
 @dataclass(frozen=True)
 class Experiment:
@@ -74,10 +74,15 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         device=device,
     )
     input_row_major = input_tensor.clone().detach()
-    input_col_major = input_tensor.clone().detach().t().contiguous().t()
-    m = input_row_major.shape[0]
+    input_col_major = input_tensor.clone().detach().t()
+
+    # - configure input to be row-major with groups divided along the column dimension,
+    #   mimicking the left operand of grad_weight = grad_output_t @ input
+    #   that occurs in the backward pass of the differentiable scaled grouped mm.
+    # - the transposed tensor in col-major format will then mimick the right operand.
+    group_size = input_row_major.shape[1] // config.n_groups
     n_groups = config.n_groups
-    offs = torch.arange(m, m * n_groups + 1, m, device=device, dtype=torch.int32)
+    offs = torch.arange(group_size, group_size * n_groups + 1, group_size, device=device, dtype=torch.int32)
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
@@ -124,18 +129,18 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     start_time_ns = time.perf_counter_ns()
     run_torch(input_row_major, input_col_major, offs)
     torch_time_ns = time.perf_counter_ns() - start_time_ns
-    torch_time_ms = torch_time_ns * 1e6
+    torch_time_us = torch_time_ns / 1e3
 
     # bench triton
     warmup(run_triton, input_row_major, input_col_major, offs)
     start_time_ns = time.perf_counter_ns()
     run_triton(input_row_major, input_col_major, offs)
-    triton_time_ns = time.perf_counter_ns()
-    triton_time_ms = triton_time_ns * 1e6
+    triton_time_ns = time.perf_counter_ns() - start_time_ns
+    triton_time_us = triton_time_ns / 1e3
 
     return ExperimentResult(
-        torch_time_ms=torch_time_ms,
-        triton_time_ms=triton_time_ms,
+        torch_time_us=torch_time_us,
+        triton_time_us=triton_time_us,
     )
 
 
@@ -144,8 +149,8 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "n_groups",
         "high_precision_dtype",
-        "torch_time_ms",
-        "triton_time_ms",
+        "torch_time_us",
+        "triton_time_us",
     ]
     rows = []
     for experiment in experiments:
@@ -157,8 +162,8 @@ def print_results(experiments: List[Experiment]):
                 input_shape,
                 experiment.config.n_groups,
                 experiment.config.high_precision_dtype,
-                experiment.result.torch_time_ms,
-                experiment.result.triton_time_ms,
+                experiment.result.torch_time_us,
+                experiment.result.triton_time_us,
             ]
         )
     print(tabulate(rows, headers=headers))
