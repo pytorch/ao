@@ -477,6 +477,46 @@ def _(func, types, args, kwargs):
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
+@implements(aten.index.Tensor)
+def _(func, types, args, kwargs):
+    self, indices = args
+    assert len(indices) == 1, f"op {func} currently only implemented for single dimensional indexing but got indices: {indices}"
+    
+    new_tensor_impl = aten.index.Tensor(self.tensor_impl, indices)
+    shape = tuple([indices[0].numel(), *self.shape[1:]])
+
+    block_size = self.block_size
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = fill_defaults(args, 3, [0, 0])
+    assert dim==0, f"op {func} currently only implemented for dim=0 but got dim={dim}"
+    assert self.dim() == 3, f"op {func} currently only implemented for 3 dimensional tensors but got shape={self.shape}"
+    
+    new_tensor_impl = aten.select.int(self.tensor_impl, dim, index)
+
+    shape = self.shape[1:]
+    block_size = self.block_size[1:]
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
