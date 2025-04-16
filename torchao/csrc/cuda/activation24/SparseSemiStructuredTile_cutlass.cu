@@ -85,12 +85,12 @@ struct MetadataCutlass {
   }
 };
 
-template <typename KT, typename Metadata, typename Algorithm>
+template <typename KT, typename Metadata>
 __global__ void __launch_bounds__(32 /* num_threads */,
                                   20 /* min warps per SM*/)
-    sparse_semi_structured_tile_kernel(typename KT::Params p, Metadata metadata,
-                                       Algorithm algo) {
-  KT::sparse_semi_structured_tile_kernel(p, metadata, algo);
+    sparse_semi_structured_tile_kernel(typename KT::Params p,
+                                       Metadata metadata) {
+  KT::sparse_semi_structured_tile_kernel(p, metadata);
 }
 
 template <typename Element, typename MetadataFormat>
@@ -127,22 +127,14 @@ sparse_semi_structured_tile_typed(const at::Tensor input,
 
   MetadataFormat metadata = MetadataFormat(packed_meta_reordered, rows, cols);
 
-  bool kernel_launched = false;
-  auto launchKernel = [&](auto algo, std::string const &algo_name) {
-    if (algo_name == algorithm) {
-      kernel_launched = true;
-      if (input.is_meta()) {
-        return;
-      }
-      size_t smem_bytes = 0;
-      sparse_semi_structured_tile_kernel<KT>
-          <<<p.getBlocksGrid(), p.getThreadsGrid(), smem_bytes,
-             at::cuda::getCurrentCUDAStream()>>>(p, metadata, algo);
-    }
-  };
-  named_algorithms(launchKernel);
-  TORCH_CHECK(kernel_launched, "Unknown algorithm \"", algorithm, "\"");
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (!input.is_meta()) {
+    size_t smem_bytes = 0;
+    sparse_semi_structured_tile_kernel<KT>
+        <<<p.getBlocksGrid(), p.getThreadsGrid(), smem_bytes,
+           at::cuda::getCurrentCUDAStream()>>>(p, metadata);
+    // TORCH_CHECK(kernel_launched, "Unknown algorithm \"", algorithm, "\"");
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
   return std::make_tuple(compressed, packed_meta_reordered);
 }
 

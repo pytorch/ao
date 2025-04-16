@@ -37,7 +37,8 @@ struct Tile1x16Masks {
   CUTLASS_DEVICE Tile1x16Masks() { a = 0; }
 };
 
-template <typename Element, typename Pointwise> struct TileValueOrderedT {
+// For sorting + keeping track of index
+template <typename Element> struct TileValueOrderedT {
   union {
     struct {
       Element value;
@@ -45,70 +46,12 @@ template <typename Element, typename Pointwise> struct TileValueOrderedT {
     } parts;
     uint32_t raw;
   };
-  CUTLASS_DEVICE bool
-  operator<(TileValueOrderedT<Element, Pointwise> const &other) const {
-    return Pointwise::apply(parts.value) < Pointwise::apply(other.parts.value);
+  CUTLASS_DEVICE bool operator<(TileValueOrderedT<Element> const &other) const {
+    return parts.value < other.parts.value;
   }
+
   CUTLASS_DEVICE TileValueOrderedT() {}
 };
-
-// Operations that we can apply to rank the values
-struct IdentityOp {
-  template <typename T> static T CUTLASS_HOST_DEVICE apply(T const &x) {
-    return x;
-  }
-};
-
-// Given 1x4 values (a row), computes the selected indices that will remain
-// after 2:4 sparsification, as a bitmask. We have 1 constraint: (1) Exactly 2
-// values per row ALGO: We use a simple algorithm that selects the 2 largest
-// values in the row. NOTE: RF are not indexable, so we shouldn't rely on
-// indexing
-//   values at any point, otherwise they will be stored in local memory.
-template <typename Op = IdentityOp> struct LargestValuesRowwise {
-  template <typename T> static CUTLASS_DEVICE T outOfBoundsFillValue() {
-    return -cutlass::platform::numeric_limits<T>::infinity();
-  }
-
-  template <typename Fragment>
-  CUTLASS_DEVICE Indices1x16 operator()(Fragment &values) {
-    using TileValueOrdered = TileValueOrderedT<typename Fragment::Element, Op>;
-    using TileValuesFragment = cutlass::Array<TileValueOrdered, 4>;
-
-    Indices1x16 indices;
-    TileValuesFragment values_ordered;
-    // Use a sorting network (aka without branches) to avoid
-    // warp divergence
-    StaticSort<TileValuesFragment::kElements> sorter;
-
-    indices = 0;
-
-    CUTLASS_PRAGMA_UNROLL
-    for (int i = 0; i < 4; ++i) {
-      CUTLASS_PRAGMA_UNROLL
-      for (int j = 0; j < 4; ++j) {
-        TileValueOrdered &v = values_ordered[j];
-        v.parts.value = values[j + 4 * i];
-        v.parts.inner_index = j;
-      }
-
-      sorter(values_ordered);
-
-      // write top 2 values
-      auto &largest = values_ordered[3];
-      indices |= 1 << (largest.parts.inner_index + 4 * i);
-      auto &second_largest = values_ordered[2];
-      indices |= 1 << (second_largest.parts.inner_index + 4 * i);
-    }
-
-    return indices;
-  }
-};
-
-template <typename T> void named_algorithms(T callback) {
-  // default one
-  callback(LargestValuesRowwise<IdentityOp>(), "");
-}
 
 template <typename Element_> struct KernelTypes {
   using Element = Element_;
@@ -176,6 +119,39 @@ template <typename Element_> struct KernelTypes {
     cutlass::arch::global_store<Fragment8, sizeof(Fragment8)>(write, ptr, true);
   }
 
+  CUTLASS_DEVICE static Indices1x16 compute_tile_indices(Fragment &values) {
+    using TileValueOrdered = TileValueOrderedT<typename Fragment::Element>;
+    using TileValuesFragment = cutlass::Array<TileValueOrdered, 4>;
+
+    Indices1x16 indices;
+    TileValuesFragment values_ordered;
+    // Use a sorting network (aka without branches) to avoid
+    // warp divergence
+    StaticSort<TileValuesFragment::kElements> sorter;
+
+    indices = 0;
+
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < 4; ++i) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int j = 0; j < 4; ++j) {
+        TileValueOrdered &v = values_ordered[j];
+        v.parts.value = values[j + 4 * i];
+        v.parts.inner_index = j;
+      }
+
+      sorter(values_ordered);
+
+      // write top 2 values
+      auto &largest = values_ordered[3];
+      indices |= 1 << (largest.parts.inner_index + 4 * i);
+      auto &second_largest = values_ordered[2];
+      indices |= 1 << (second_largest.parts.inner_index + 4 * i);
+    }
+
+    return indices;
+  }
+
   CUTLASS_DEVICE static Strip1x16Packed
   pack_1x16(Indices1x16 indices, Fragment &tile, uint16_t &meta) {
     Strip1x16Packed packed;
@@ -223,10 +199,9 @@ template <typename Element_> struct KernelTypes {
   }
 
   // Every thread runs this kernel
-  template <typename Algorithm, typename MetadataStore>
+  template <typename MetadataStore>
   CUTLASS_DEVICE static void
-  sparse_semi_structured_tile_kernel(Params p, MetadataStore metadata_gmem,
-                                     Algorithm compute_tile_indices) {
+  sparse_semi_structured_tile_kernel(Params p, MetadataStore metadata_gmem) {
     // Each thread is responsible for an 1x16 tile, which contains 4 1x4 tiles:
     // A, B, C and D, as displayed in the following schema:
     // +---+---+---+---+
