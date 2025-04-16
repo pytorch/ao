@@ -470,7 +470,7 @@ check_submodules()
 setup(
     name="torchao",
     version=version + version_suffix,
-    packages=find_packages(),
+    packages=find_packages(exclude=["benchmarks", "benchmarks.*"]),
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
