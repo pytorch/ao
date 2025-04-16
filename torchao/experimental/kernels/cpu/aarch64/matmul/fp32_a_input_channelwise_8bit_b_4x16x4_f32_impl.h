@@ -40,7 +40,7 @@ For each int8x16_t of b:
 - By doing the above 4 times (lane=[0-3]), we used all values along k dim of a
   and accumulated 4 float32x4_t values
 */
-TORCHAO_ALWAYS_INLINE void block_mul_4x16x1(
+TORCHAO_ALWAYS_INLINE inline void block_mul_4x16x1(
     const float32x4_t& a,
     const int8x16_t& b_vec,
     const int8_t b_zero_point,
@@ -82,7 +82,7 @@ TORCHAO_ALWAYS_INLINE void block_mul_4x16x1(
   partial_sums[3][3] = vfmaq_n_f32(partial_sums[3][3], b_vec_high_high, a[3]);
 }
 
-TORCHAO_ALWAYS_INLINE void block_mul_4x16x4(
+TORCHAO_ALWAYS_INLINE inline void block_mul_4x16x4(
     const float32_t* a,
     const size_t lda,
     const int8_t* b,
