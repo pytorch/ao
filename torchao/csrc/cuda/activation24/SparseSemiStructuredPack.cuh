@@ -119,24 +119,23 @@ template <typename Element_> struct KernelTypes {
     cutlass::arch::global_store<Fragment8, sizeof(Fragment8)>(write, ptr, true);
   }
 
-  CUTLASS_DEVICE static Indices1x16 compute_tile_indices(Fragment &values) {
+  CUTLASS_DEVICE static Strip1x16Packed
+  compute_and_pack_tile_indices(Fragment &tile, uint16_t &meta) {
     using TileValueOrdered = TileValueOrderedT<typename Fragment::Element>;
     using TileValuesFragment = cutlass::Array<TileValueOrdered, 4>;
 
-    Indices1x16 indices;
+    Strip1x16Packed packed;
     TileValuesFragment values_ordered;
     // Use a sorting network (aka without branches) to avoid
     // warp divergence
     StaticSort<TileValuesFragment::kElements> sorter;
-
-    indices = 0;
 
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < 4; ++i) {
       CUTLASS_PRAGMA_UNROLL
       for (int j = 0; j < 4; ++j) {
         TileValueOrdered &v = values_ordered[j];
-        v.parts.value = values[j + 4 * i];
+        v.parts.value = tile[j + 4 * i];
         v.parts.inner_index = j;
       }
 
@@ -144,57 +143,56 @@ template <typename Element_> struct KernelTypes {
 
       // write top 2 values
       auto &largest = values_ordered[3];
-      indices |= 1 << (largest.parts.inner_index + 4 * i);
       auto &second_largest = values_ordered[2];
-      indices |= 1 << (second_largest.parts.inner_index + 4 * i);
-    }
 
-    return indices;
-  }
+      // indices |= 1 << (largest.parts.inner_index + 4 * i);
+      // indices |= 1 << (second_largest.parts.inner_index + 4 * i);
 
-  CUTLASS_DEVICE static Strip1x16Packed
-  pack_1x16(Indices1x16 indices, Fragment &tile, uint16_t &meta) {
-    Strip1x16Packed packed;
-    CUTLASS_PRAGMA_UNROLL
-    for (int strip = 0; strip < 4; ++strip) {
       uint2b_t col0_from, col1_from;
-      auto packValue = [&](uint2b_t col_to, uint2b_t col_from) {
-        auto value = tile[4 * strip + col_from];
-        packed.strips[strip].values[col_to] = value;
-        if (col_to == uint2b_t(0)) {
+      auto packValue = [&](int col_to, uint2b_t col_from) {
+        packed.strips[i].values[col_to] = tile[col_from + 4 * i];
+
+        if (col_to == 0) {
           col0_from = col_from;
         } else {
           col1_from = col_from;
         }
       };
 
-      auto isSelected = [&](int col) {
-        return indices & (1 << (4 * strip) + col);
-      };
-
-      if (isSelected(1)) {
+      if (largest.parts.inner_index == 1 ||
+          second_largest.parts.inner_index == 1) {
         packValue(0, 1);
       }
-      if (isSelected(0)) {
+      if (largest.parts.inner_index == 0 ||
+          second_largest.parts.inner_index == 0) {
         packValue(0, 0);
       }
-      if (isSelected(0) && isSelected(1)) {
+      if ((largest.parts.inner_index == 0 &&
+           second_largest.parts.inner_index == 1) ||
+          (largest.parts.inner_index == 1 &&
+           second_largest.parts.inner_index == 0)) {
         packValue(1, 1);
       }
       // Process cols 2/3
       // same sort of heuristic
-      if (isSelected(2)) {
+      if (largest.parts.inner_index == 2 ||
+          second_largest.parts.inner_index == 2) {
         packValue(1, 2);
       }
-      if (isSelected(3)) {
+      if (largest.parts.inner_index == 3 ||
+          second_largest.parts.inner_index == 3) {
         packValue(1, 3);
       }
-      if (isSelected(2) && isSelected(3)) {
+      if ((largest.parts.inner_index == 2 &&
+           second_largest.parts.inner_index == 3) ||
+          (largest.parts.inner_index == 3 &&
+           second_largest.parts.inner_index == 2)) {
         packValue(0, 2);
       }
-      int add_mask = (col0_from | (col1_from << 2)) << (4 * strip);
+      int add_mask = (col0_from | (col1_from << 2)) << (4 * i);
       meta |= add_mask;
     }
+
     return packed;
   }
 
@@ -225,16 +223,15 @@ template <typename Element_> struct KernelTypes {
     Fragment line; // Contains all values from the 1x16 tile
 
     Tile1x16Meta metadata;
-    Tile1x16Masks indices;
+    // Tile1x16Masks indices;
 
     // Load/process tiles `A` and `B`
     // Element fillValue = Algorithm::template outOfBoundsFillValue<Element>();
     // line.fill(fillValue);
     cutlass::arch::global_load<Fragment, sizeof(Fragment)>(line, input, true);
 
-    indices.a = compute_tile_indices(line);
-
-    Strip1x16Packed packed_a = pack_1x16(indices.a, line, metadata.meta);
+    Strip1x16Packed packed_a =
+        compute_and_pack_tile_indices(line, metadata.meta);
     writePacked(packed, packed_a);
 
     // Writing non-transposed metadata
