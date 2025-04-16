@@ -5,25 +5,22 @@
 # LICENSE file in the root directory of this source tree.
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
-import time
 import itertools
+import time
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import List
 
 import torch
 from tabulate import tabulate
-from torch import nn
-from torch._inductor.utils import do_bench_using_profiling
-from torch.nn import functional as F
 from tqdm import tqdm
 
-from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
-    _to_2d_jagged_float8_tensor_colwise,
-    _to_2d_jagged_float8_tensor_rowwise,
-)
 from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
+)
+from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
+    _to_2d_jagged_float8_tensor_colwise,
+    _to_2d_jagged_float8_tensor_rowwise,
 )
 
 device = torch.device("cuda")
@@ -38,10 +35,12 @@ class ExperimentConfig:
     input_shape: tuple[int]
     n_groups: int
 
+
 @dataclass(frozen=True)
 class ExperimentResult:
     torch_time_us: float
     triton_time_us: float
+
 
 @dataclass(frozen=True)
 class Experiment:
@@ -51,7 +50,7 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     input_shapes = [(2**8, 4096), (2**12, 4096), (2**16, 4096)]
-    n_groups_list = [4,8,16]
+    n_groups_list = [4, 8, 16]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for input_shape, n_groups, high_precision_dtype in itertools.product(
@@ -65,6 +64,7 @@ def get_configs() -> List[ExperimentConfig]:
             )
         )
     return configs
+
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # define test inputs
@@ -82,24 +82,28 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # - the transposed tensor in col-major format will then mimick the right operand.
     group_size = input_row_major.shape[1] // config.n_groups
     n_groups = config.n_groups
-    offs = torch.arange(group_size, group_size * n_groups + 1, group_size, device=device, dtype=torch.int32)
+    offs = torch.arange(
+        group_size,
+        group_size * n_groups + 1,
+        group_size,
+        device=device,
+        dtype=torch.int32,
+    )
 
     def warmup(func, *args, **kwargs):
         for _ in range(10):
             func(*args, **kwargs)
 
     def run_torch(
-        input_row_major: torch.Tensor,
-        input_col_major: torch.Tensor,
-        offs: torch.Tensor
+        input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        out_row_major = _to_2d_jagged_float8_tensor_rowwise(
+        _ = _to_2d_jagged_float8_tensor_rowwise(
             input_row_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        out_col_major = _to_2d_jagged_float8_tensor_colwise(
+        _ = _to_2d_jagged_float8_tensor_colwise(
             input_col_major,
             offs,
             target_dtype=torch.float8_e4m3fn,
@@ -107,17 +111,15 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         )
 
     def run_triton(
-        input_row_major: torch.Tensor,
-        input_col_major: torch.Tensor,
-        offs: torch.Tensor
+        input_row_major: torch.Tensor, input_col_major: torch.Tensor, offs: torch.Tensor
     ):
-        out_row_major = triton_fp8_row_major_jagged_rowwise_scales(
+        _ = triton_fp8_row_major_jagged_rowwise_scales(
             input_row_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
             round_scales_to_power_of_2=True,
         )
-        out_col_major = triton_fp8_col_major_jagged_colwise_scales(
+        _ = triton_fp8_col_major_jagged_colwise_scales(
             input_col_major,
             offs,
             output_dtype=torch.float8_e4m3fn,
@@ -125,9 +127,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         )
 
     # bench torch
-    warmup(run_torch, input_row_major, input_col_major, offs)
+    compiled_run_torch = torch.compile(run_torch)
+    warmup(compiled_run_torch, input_row_major, input_col_major, offs)
     start_time_ns = time.perf_counter_ns()
-    run_torch(input_row_major, input_col_major, offs)
+    compiled_run_torch(input_row_major, input_col_major, offs)
     torch_time_ns = time.perf_counter_ns() - start_time_ns
     torch_time_us = torch_time_ns / 1e3
 
