@@ -50,14 +50,16 @@ def triton_fp8_row_major_jagged_rowwise_scales(
     round_scales_to_power_of_2: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Converts a high precision tensor to a float8 tensor is row-major memory layout,
+    Converts a high precision tensor to a float8 tensor in row-major memory layout,
     using 'jagged' rowwise scales (i.e., separate scales for each group/subtensor as
     determined by the offsets).
 
     Args:
         - hp_tensor: 2D high precision tensor to be converted
-        - fp8_dtype: desired fp8 dtype
-        - offsets: end index for each group/subtensor along dim 1
+        - offsets: end index for each group/subtensor along dim 0
+        - output_dtype: desired float8 dtype for the output tensor
+        - round_scales_to_power_of_2: boolean indicating if scales should be rounded
+            down to the nearest power of 2.
     Returns:
         - float8 tensor
         - jagged rowwise scales (i.e., rowwise scales for each group)
@@ -75,7 +77,7 @@ def triton_fp8_row_major_jagged_rowwise_scales(
     m, k = hp_tensor.shape
     n_groups = offsets.numel()
 
-    # perform fp8 conversion
+    # allocate on-device buffers for output and scales
     output_buffer = torch.empty_like(
         hp_tensor, dtype=output_dtype, device=hp_tensor.device
     )
@@ -203,14 +205,16 @@ def triton_fp8_col_major_jagged_colwise_scales(
     round_scales_to_power_of_2: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Converts a high precision tensor to a float8 tensor is row-major memory layout,
+    Converts a high precision tensor to a float8 tensor in row-major memory layout,
     using 'jagged' column-wise scales (i.e., separate scales for each group/subtensor as
     determined by the offsets).
 
     Args:
         - hp_tensor: 2D high precision tensor to be converted
-        - fp8_dtype: desired fp8 dtype
         - offsets: end index for each group/subtensor along dim 0
+        - output_dtype: desired float8 dtype for the output tensor
+        - round_scales_to_power_of_2: boolean indicating if scales should be rounded
+            down to the nearest power of 2.
     Returns:
         - float8 tensor
         - jagged column-wise scales (i.e., column-wise scales for each group)
@@ -228,7 +232,7 @@ def triton_fp8_col_major_jagged_colwise_scales(
     k, n = hp_tensor.shape
     n_groups = offsets.numel()
 
-    # perform fp8 conversion
+    # allocate on-device buffers for output and scales
     output_buffer = torch.empty_like(
         hp_tensor, dtype=output_dtype, device=hp_tensor.device
     )
