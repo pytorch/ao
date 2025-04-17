@@ -214,7 +214,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
                 ElementBias(0),
                 {cute::_0{}, cute::_1{}, problem_size.n()}};
       } else {
-        return {ElementBias(0)};
+        return {{ElementBias(0)}};
       }
     }()
   };
