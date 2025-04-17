@@ -140,11 +140,11 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
     offset_idx = tl.program_id(axis=1)
 
     # determine start and end column idx for this group
-    block_row_offs = block_row_id * BLOCK_SIZE_ROWS + tl.arange(0, BLOCK_SIZE_ROWS)
     group_col_start_idx = tl.load(
         offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
     )
     group_col_end_idx = tl.load(offsets_ptr + offset_idx)
+    block_row_offs = block_row_id * BLOCK_SIZE_ROWS + tl.arange(0, BLOCK_SIZE_ROWS)
 
     # compute rowwise amaxes for this group
     amax_buffer = tl.zeros((BLOCK_SIZE_ROWS,), dtype=tl.float64)
@@ -295,11 +295,11 @@ def _triton_fp8_col_major_jagged_colwise_scales(
     offset_idx = tl.program_id(axis=1)
 
     # determine start and end row idx for this group
-    block_col_offs = block_col_id * BLOCK_SIZE_COLS + tl.arange(0, BLOCK_SIZE_COLS)
     group_row_start_idx = tl.load(
         offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
     )
     group_row_end_idx = tl.load(offsets_ptr + offset_idx)
+    block_col_offs = block_col_id * BLOCK_SIZE_COLS + tl.arange(0, BLOCK_SIZE_COLS)
 
     # compute colwise amaxes for this group
     amax_buffer = tl.zeros((BLOCK_SIZE_COLS,), dtype=tl.float64)
