@@ -966,7 +966,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
-        `use_hqq`: whether to use hqq or default quantization mode, default is False
+        `use_hqq`: whether to use hqq or default quantization mode, default is True
         `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE]
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
         `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT
@@ -974,7 +974,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     group_size: int = 128
     layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
-    use_hqq: bool = False
+    use_hqq: bool = True
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
     preserve_zero: Optional[bool] = None
