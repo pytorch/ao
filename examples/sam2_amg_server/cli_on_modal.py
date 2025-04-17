@@ -19,7 +19,7 @@ image = (
     .pip_install(
         "torch",
         pre=True,
-        index_url="https://download.pytorch.org/whl/nightly/cu124",
+        index_url="https://download.pytorch.org/whl/nightly/cu126",
     )
     .pip_install(
         "torchvision",
