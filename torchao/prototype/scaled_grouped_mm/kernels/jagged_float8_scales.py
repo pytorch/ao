@@ -182,7 +182,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
             block_row_offs[:, None] * stride_input_row
             + block_col_offs[None, :] * stride_input_col
         )
-        block_mask = (block_row_offs[:, None] < M) & (block_col_offs[None, :] < K)
+        block_mask = (block_row_offs[:, None] < M) & (block_col_offs[None, :] < group_col_end_idx)
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
         )
@@ -194,8 +194,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
             block_row_offs[:, None] * stride_output_row
             + block_col_offs[None, :] * stride_output_col
         )
-        out_mask = (block_row_offs[:, None] < M) & (block_col_offs[None, :] < K)
-        tl.store(out_ptr + out_offs, fp8_data, mask=out_mask)
+        tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
 
 def triton_fp8_col_major_jagged_colwise_scales(
@@ -352,5 +351,4 @@ def _triton_fp8_col_major_jagged_colwise_scales(
             block_row_offs[:, None] * stride_output_row
             + block_col_offs[None, :] * stride_output_col
         )
-        out_mask = (block_row_offs[:, None] < K) & (block_col_offs[None, :] < N)
-        tl.store(out_ptr + out_offs, fp8_data, mask=out_mask)
+        tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
