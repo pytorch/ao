@@ -14,7 +14,13 @@ from torch.testing import FileCheck
 
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization.qat import (
+    FakeQuantizeConfig,
+    FromIntXQuantizationAwareTrainingConfig,
+    IntXQuantizationAwareTrainingConfig,
+)
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
     quantize_,
@@ -417,6 +423,120 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=torch.int4,
                 granularity=PerGroup(64),
             )
+
+    @parameterized.expand(
+        [
+            param(
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+            )
+            for group_size, mapping_type, act_mapping_type in zip(
+                [32, 64],
+                [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+                [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+            )
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_int8_dynamic_activation_int4_weight(
+        self, group_size, mapping_type, act_mapping_type
+    ):
+        """
+        Checks that Int8DynamicActivationIntxWeightConfig with weight_dtype=torch.int4 is identical to Int8DynamicActivationInt4WeightConfig
+        """
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(3, 1, k0)
+
+        model_copy = copy.deepcopy(model)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=None,
+                act_mapping_type=act_mapping_type,
+            ),
+        )
+        quantize_(
+            model_copy,
+            Int8DynamicActivationInt4WeightConfig(
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+            ),
+        )
+        with torch.no_grad():
+            torch.allclose(model(activations), model_copy(activations))
+
+    @parameterized.expand(
+        [
+            param(
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+            )
+            for group_size, mapping_type, act_mapping_type in zip(
+                [64, 128],
+                [
+                    MappingType.SYMMETRIC,
+                ],
+                [
+                    MappingType.ASYMMETRIC,
+                ],
+            )
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    @unittest.skip("not working yet")
+    def test_identical_to_qat_configs(self, group_size, mapping_type, act_mapping_type):
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(3, 1, k0)
+
+        weight_dtype = torch.int4
+
+        activation_config = FakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=(act_mapping_type == MappingType.SYMMETRIC),
+            is_dynamic=True,
+        )
+        weight_config = FakeQuantizeConfig(
+            weight_dtype,
+            group_size=group_size,
+            is_symmetric=(mapping_type == MappingType.SYMMETRIC),
+            is_dynamic=False,
+        )
+        quantize_(
+            model,
+            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+        )
+
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        expected = model(activations)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_granularity=PerGroup(group_size),
+                weight_dtype=weight_dtype,
+            ),
+        )
+        actual = model(activations)
+
+        self.assertTrue(torch.allclose(expected, actual))
 
 
 if __name__ == "__main__":
