@@ -126,7 +126,7 @@ void pack_weights(
       bias);
 }
 
-template <int weight_nbit, int nr, int kr, int sr>
+template <int weight_nbit, int nr_, int kr_, int sr_>
 void pack_weights_with_lut(
     // Output
     void* packed_weights,
@@ -141,10 +141,16 @@ void pack_weights_with_lut(
     // weight_zeros not packed if nullptr
     const int8_t* weight_zeros,
     // bias not packed if nullptr
-    const float* bias) {
+    const float* bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)nr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
   torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-          pack_weights_with_lut<weight_nbit, nr, kr, sr>(
+          pack_weights_with_lut<weight_nbit, nr_, kr_, sr_>(
               packed_weights,
               n,
               k,

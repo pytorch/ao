@@ -87,6 +87,23 @@ struct UKernelConfig {
       int kr,
       int sr);
 
+  // Pack weights into packed_weights buffer with int8-valued LUT
+  using pack_weights_with_lut_fn_type = void (*)(
+    void* packed_weights,
+      int n,
+      int k,
+      int group_size,
+      const int8_t* weight_qval_idxs,
+      int n_luts,
+      const int8_t* luts,
+      const float* weight_scales,
+      const int8_t* weight_zeros,
+      const float* bias,
+      int nr,
+      int kr,
+      int sr
+    );
+
   // Run matmul kernel
   using kernel_fn_type = void (*)(
       float* output,
@@ -126,6 +143,7 @@ struct UKernelConfig {
   packed_weights_size_fn_type packed_weights_size{nullptr};
   packed_weights_offset_fn_type packed_weights_offset{nullptr};
   pack_weights_fn_type pack_weights{nullptr};
+  pack_weights_with_lut_fn_type pack_weights_with_lut{nullptr};
 
   // linear_configs must be sorted in ascending m_step
   std::array<linear_config_type, kMaxLinearConfigs> linear_configs;
@@ -144,6 +162,20 @@ struct UKernelConfig {
       pack_weights_fn_type pack_weights,
       std::array<linear_config_type, kMaxLinearConfigs> linear_configs);
 
+  static UKernelConfig make_with_lut(
+      size_t preferred_alignment,
+      int n_step,
+      int nr,
+      int kr,
+      int sr,
+      int weight_nbit,
+      bool has_weight_zeros,
+      bool has_bias,
+      packed_weights_size_fn_type packed_weights_with_lut_size,
+      packed_weights_offset_fn_type packed_weights_with_lut_offset,
+      pack_weights_with_lut_fn_type pack_weights_with_lut,
+      std::array<linear_config_type, kMaxLinearConfigs> linear_configs);
+
   inline void validate() const {
     TORCHAO_CHECK(preferred_alignment >= 1, "preferred_alignment must be >= 1");
     TORCHAO_CHECK(n_step >= 1, "n_step must be >= 1");
@@ -155,7 +187,7 @@ struct UKernelConfig {
         packed_weights_size != nullptr, "packed_weights_size must be set");
     TORCHAO_CHECK(
         packed_weights_offset != nullptr, "packed_weights_offset must be set");
-    TORCHAO_CHECK(pack_weights != nullptr, "pack_weights must be set");
+    TORCHAO_CHECK(pack_weights != nullptr || pack_weights_with_lut != nullptr, "pack_weights or pack_weights_with_lut must be set");
 
     bool linear_configs_set = true; // first linear config must be set
     for (int i = 0; i < linear_configs.size(); i++) {
@@ -232,6 +264,36 @@ inline UKernelConfig UKernelConfig::make(
       packed_weights_size,
       packed_weights_offset,
       pack_weights,
+      /*pack_weights_with_lut*/nullptr,
+      std::move(linear_configs)};
+}
+
+inline UKernelConfig UKernelConfig::make_with_lut(
+    size_t preferred_alignment,
+    int n_step,
+    int nr,
+    int kr,
+    int sr,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    packed_weights_size_fn_type packed_weights_with_lut_size,
+    packed_weights_offset_fn_type packed_weights_with_lut_offset,
+    pack_weights_with_lut_fn_type pack_weights_with_lut,
+    std::array<linear_config_type, kMaxLinearConfigs> linear_configs) {
+  return UKernelConfig{
+      preferred_alignment,
+      n_step,
+      nr,
+      kr,
+      sr,
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      packed_weights_with_lut_size,
+      packed_weights_with_lut_offset,
+      /*pack_weights*/nullptr,
+      /*pack_weights_with_lut*/pack_weights_with_lut,
       std::move(linear_configs)};
 }
 
