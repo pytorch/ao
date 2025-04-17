@@ -1,4 +1,5 @@
 import functools
+import itertools
 
 import torch
 from torch._dynamo.utils import counters
@@ -96,36 +97,47 @@ def _register_int8_sdpa_pattern(pattern):
     return int8_sdpa
 
 
-def _get_int8_sdpa_q_pattern(is_batch_size_1: bool, has_convert: bool):
-    int8_sdpa_q_basic_pattern = CallFunction(
-        torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-        CallFunction(
+def _get_int8_sdpa_qkv_pattern(
+    is_batch_size_1: bool, has_convert: bool, input_name: str
+):
+    assert input_name in ["query", "key", "value"]
+    int8_sdpa_qkv_pattern_before_dequant = CallFunction(
+        aten.permute.default,
+        KeywordArg(input_name),
+        Arg(),
+    )
+    if input_name == "key":
+        # do transpose
+        int8_sdpa_qkv_pattern_before_dequant = CallFunction(
             aten.permute.default,
-            KeywordArg("query"),
+            int8_sdpa_qkv_pattern_before_dequant,
             Arg(),
-        ),
-        KeywordArg("q_scale"),
-        KeywordArg("q_zp"),
+        )
+    int8_sdpa_qkv_basic_pattern = CallFunction(
+        torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+        int8_sdpa_qkv_pattern_before_dequant,
+        KeywordArg(input_name[0] + "_scale"),
+        KeywordArg(input_name[0] + "_zp"),
         Arg(),
         Arg(),
         Arg(),
     )
     if has_convert:
-        int8_sdpa_q_basic_pattern = CallFunction(
+        int8_sdpa_qkv_basic_pattern = CallFunction(
             torch.ops.prims.convert_element_type.default,
-            int8_sdpa_q_basic_pattern,
+            int8_sdpa_qkv_basic_pattern,
             Arg(),
         )
-    int8_sdpa_q_basic_pattern = CallFunction(
+    int8_sdpa_qkv_basic_pattern = CallFunction(
         aten.expand.default,
-        int8_sdpa_q_basic_pattern,
+        int8_sdpa_qkv_basic_pattern,
         Arg(),
     )
     if is_batch_size_1:
         # pattern is different for bs=1
         return CallFunction(
             aten.reshape.default,
-            int8_sdpa_q_basic_pattern,
+            int8_sdpa_qkv_basic_pattern,
             Arg(),
         )
     else:
@@ -133,99 +145,7 @@ def _get_int8_sdpa_q_pattern(is_batch_size_1: bool, has_convert: bool):
             aten.reshape.default,
             CallFunction(
                 aten.clone.default,
-                int8_sdpa_q_basic_pattern,
-                memory_format=Arg(),
-            ),
-            Arg(),
-        )
-
-
-def _get_int8_sdpa_k_pattern(is_batch_size_1: bool, has_convert: bool):
-    int8_sdpa_k_basic_pattern = CallFunction(
-        torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-        CallFunction(
-            aten.permute.default,
-            CallFunction(
-                aten.permute.default,
-                KeywordArg("key"),
-                Arg(),
-            ),
-            Arg(),
-        ),
-        KeywordArg("k_scale"),
-        KeywordArg("k_zp"),
-        Arg(),
-        Arg(),
-        Arg(),
-    )
-    if has_convert:
-        int8_sdpa_k_basic_pattern = CallFunction(
-            torch.ops.prims.convert_element_type.default,
-            int8_sdpa_k_basic_pattern,
-            Arg(),
-        )
-    int8_sdpa_k_basic_pattern = CallFunction(
-        aten.expand.default,
-        int8_sdpa_k_basic_pattern,
-        Arg(),
-    )
-    if is_batch_size_1:
-        # pattern is different for bs=1
-        return CallFunction(
-            aten.reshape.default,
-            int8_sdpa_k_basic_pattern,
-            Arg(),
-        )
-    else:
-        return CallFunction(
-            aten.reshape.default,
-            CallFunction(
-                aten.clone.default,
-                int8_sdpa_k_basic_pattern,
-                memory_format=Arg(),
-            ),
-            Arg(),
-        )
-
-
-def _get_int8_sdpa_v_pattern(is_batch_size_1: bool, has_convert: bool):
-    int8_sdpa_v_basic_pattern = CallFunction(
-        torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-        CallFunction(
-            aten.permute.default,
-            KeywordArg("value"),
-            Arg(),
-        ),
-        KeywordArg("v_scale"),
-        KeywordArg("v_zp"),
-        Arg(),
-        Arg(),
-        Arg(),
-    )
-    if has_convert:
-        int8_sdpa_v_basic_pattern = CallFunction(
-            torch.ops.prims.convert_element_type.default,
-            int8_sdpa_v_basic_pattern,
-            Arg(),
-        )
-    int8_sdpa_v_basic_pattern = CallFunction(
-        aten.expand.default,
-        int8_sdpa_v_basic_pattern,
-        Arg(),
-    )
-    if is_batch_size_1:
-        # pattern is different for bs=1
-        return CallFunction(
-            aten.reshape.default,
-            int8_sdpa_v_basic_pattern,
-            Arg(),
-        )
-    else:
-        return CallFunction(
-            aten.reshape.default,
-            CallFunction(
-                aten.clone.default,
-                int8_sdpa_v_basic_pattern,
+                int8_sdpa_qkv_basic_pattern,
                 memory_format=Arg(),
             ),
             Arg(),
@@ -235,8 +155,12 @@ def _get_int8_sdpa_v_pattern(is_batch_size_1: bool, has_convert: bool):
 def _get_int8_sdpa_score_pattern(
     has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool
 ):
-    int8_sdpa_q_pattern = _get_int8_sdpa_q_pattern(is_batch_size_1, has_convert)
-    int8_sdpa_k_pattern = _get_int8_sdpa_k_pattern(is_batch_size_1, has_convert)
+    int8_sdpa_q_pattern = _get_int8_sdpa_qkv_pattern(
+        is_batch_size_1, has_convert, "query"
+    )
+    int8_sdpa_k_pattern = _get_int8_sdpa_qkv_pattern(
+        is_batch_size_1, has_convert, "key"
+    )
     int8_sdpa_score_basic_pattern = CallFunction(
         aten.reshape.default,
         CallFunction(
@@ -385,10 +309,17 @@ def _get_int8_sdpa_attn_pattern(
     )
 
 
+# Parameters to generate various patterns:
+#   has_mask: if SDPA has attention mask
+#   is_batch_size_1: if the batch size is 1
+#   is_reduced_type: if autocast is enabled
+#   has_convert: convert type if dequant out dtype is assigned
 def _get_int8_sdpa_final_pattern(
     has_mask: bool, is_batch_size_1: bool, is_reduced_type: bool, has_convert: bool
 ):
-    int8_sdpa_v_pattern = _get_int8_sdpa_v_pattern(is_batch_size_1, has_convert)
+    int8_sdpa_v_pattern = _get_int8_sdpa_qkv_pattern(
+        is_batch_size_1, has_convert, "value"
+    )
     int8_sdpa_attn_pattern = _get_int8_sdpa_attn_pattern(
         has_mask, is_batch_size_1, is_reduced_type, has_convert
     )
@@ -419,160 +350,18 @@ def _get_int8_sdpa_final_pattern(
     )
 
 
-def _register_int8_sdpa_fp32_lowering():
-    # dtype = float32, without attention mask, batch size > 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=False,
-            is_reduced_type=False,
-            has_convert=True,
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=False,
-            is_reduced_type=False,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_fp32_mask_lowering():
-    # dtype = float32, with attention mask, batch size > 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True,
-            is_batch_size_1=False,
-            is_reduced_type=False,
-            has_convert=True,
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True,
-            is_batch_size_1=False,
-            is_reduced_type=False,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_fp32_bs1_lowering():
-    # dtype = float32, without attention mask, batch size == 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=True,
-            is_reduced_type=False,
-            has_convert=True,
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=True,
-            is_reduced_type=False,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_fp32_mask_bs1_lowering():
-    # dtype = float32, with attention mask, batch size == 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=True, is_reduced_type=False, has_convert=True
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True,
-            is_batch_size_1=True,
-            is_reduced_type=False,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_bf16_lowering():
-    # dtype = bfloat16, without attention mask, batch size > 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=False,
-            is_reduced_type=True,
-            has_convert=True,
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=False,
-            is_reduced_type=True,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_bf16_mask_lowering():
-    # dtype = bfloat16, with attention mask, batch size > 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=False, is_reduced_type=True, has_convert=True
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True,
-            is_batch_size_1=False,
-            is_reduced_type=True,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_bf16_bs1_lowering():
-    # dtype = bfloat16, without attention mask, batch size == 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False, is_batch_size_1=True, is_reduced_type=True, has_convert=True
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=False,
-            is_batch_size_1=True,
-            is_reduced_type=True,
-            has_convert=False,
-        )
-    )
-
-
-def _register_int8_sdpa_bf16_mask_bs1_lowering():
-    # dtype = bfloat16, with attention mask, batch size == 1
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=True, is_reduced_type=True, has_convert=True
-        )
-    )
-    _register_int8_sdpa_pattern(
-        _get_int8_sdpa_final_pattern(
-            has_mask=True, is_batch_size_1=True, is_reduced_type=True, has_convert=False
-        )
-    )
-
-
 def _register_int8_sdpa_lowerings():
-    _register_int8_sdpa_fp32_lowering()
-    _register_int8_sdpa_fp32_mask_lowering()
-    _register_int8_sdpa_fp32_bs1_lowering()
-    _register_int8_sdpa_fp32_mask_bs1_lowering()
-    _register_int8_sdpa_bf16_lowering()
-    _register_int8_sdpa_bf16_mask_lowering()
-    _register_int8_sdpa_bf16_bs1_lowering()
-    _register_int8_sdpa_bf16_mask_bs1_lowering()
+    for has_mask, is_batch_size_1, is_reduced_type, has_convert in itertools.product(
+        [True, False], [True, False], [True, False], [True, False]
+    ):
+        _register_int8_sdpa_pattern(
+            _get_int8_sdpa_final_pattern(
+                has_mask=has_mask,
+                is_batch_size_1=is_batch_size_1,
+                is_reduced_type=is_reduced_type,
+                has_convert=has_convert,
+            )
+        )
 
 
 @functools.lru_cache(None)

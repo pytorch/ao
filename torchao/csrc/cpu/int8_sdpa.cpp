@@ -725,9 +725,12 @@ inline void copy_value_with_pad(
 }
 
 // UINT8 - one parallel loop with u8u8s32 GEMM 
-template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
+template <typename scalar_t, typename mask_t,
+          int64_t q_split_size, int64_t kv_split_size,
+          bool use_one_parallel_loop,
+          typename std::enable_if_t<use_one_parallel_loop, int> = 0>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
-sdpa_int8_kernel_one_loop_impl(
+sdpa_int8_fused_kernel_impl(
     const at::Tensor& output,
     const at::Tensor& q,
     const at::Tensor& k,
@@ -1150,9 +1153,12 @@ sdpa_int8_kernel_one_loop_impl(
 }
 
 // UINT8 - several parallel loops with u8u8s32 GEMM
-template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
+template <typename scalar_t, typename mask_t,
+          int64_t q_split_size, int64_t kv_split_size,
+          bool use_one_parallel_loop,
+          typename std::enable_if_t<!use_one_parallel_loop, int> = 0>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
-sdpa_int8_kernel_several_loops_impl(
+sdpa_int8_fused_kernel_impl(
     const at::Tensor& output,
     const at::Tensor& q,
     const at::Tensor& k,
@@ -1615,6 +1621,53 @@ sdpa_int8_kernel_several_loops_impl(
   at::native::cpublas::brgemm_release();
 }
 
+
+template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
+inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
+sdpa_int8_fused_kernel_impl(
+    bool use_one_parallel_loop,
+    const at::Tensor& output,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    double dropout_p,
+    bool is_causal,
+    std::optional<at::Tensor> attn_mask,
+    double scale,
+    int32_t q_zp,
+    float q_scale,
+    int32_t k_zp,
+    float k_scale,
+    int32_t v_zp,
+    float v_scale,
+    int32_t a_zp,
+    float a_scale,
+    int32_t o_zp,
+    float o_scale) {
+  if (use_one_parallel_loop) {
+    sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
+          /* use_one_parallel_loop */ true>(
+      output, query, key, value,
+      dropout_p, is_causal, attn_mask, scale,
+      q_zp, q_scale,
+      k_zp, k_scale,
+      v_zp, v_scale,
+      a_zp, a_scale,
+      o_zp, o_scale);
+  } else {
+    sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
+          /* use_one_parallel_loop */ false>(
+      output, query, key, value,
+      dropout_p, is_causal, attn_mask, scale,
+      q_zp, q_scale,
+      k_zp, k_scale,
+      v_zp, v_scale,
+      a_zp, a_scale,
+      o_zp, o_scale);
+  }
+}
+
+
 #define AT_DISPATCH_MASK_TYPES(TYPE, NAME, ...)            \
   AT_DISPATCH_SWITCH(                                      \
       TYPE,                                                \
@@ -1661,77 +1714,50 @@ void sdpa_int8_fused_kernel(
     q_split_size = 64;
   }
   // Heuristic to decide whether to use one parallel loop or not
+  //    true: one parallel loop for sum+packing+core
+  //    false: three parallel loops for sum, packing, core
   uint32_t l2_cache_size = at::cpu::L2_cache_size();
   int64_t num_thread = at::get_num_threads();
   int64_t attn_size = q_split_size * kv_seq_len * sizeof(int32_t) * num_thread;
   bool use_one_parallel_loop = (batchSize * num_head > num_thread) &&
       (attn_size > 1.5 * l2_cache_size);
-  if (use_one_parallel_loop) {
-    if (!attn_mask.has_value()) {
-      if (q_split_size == 256) {
-        sdpa_int8_kernel_one_loop_impl<unsigned char, float, 256, 64>(
-          output, query, key, value,
-          dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
-      } else if (q_split_size == 64) {
-        sdpa_int8_kernel_one_loop_impl<unsigned char, float, 64, 64>(
-          output, query, key, value,
-          dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
-      } else {
-        sdpa_int8_kernel_one_loop_impl<unsigned char, float, 32, 64>(
-          output, query, key, value,
-          dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
-      }
+  if (!attn_mask.has_value()) {
+    if (q_split_size == 256) {
+      sdpa_int8_fused_kernel_impl<unsigned char, float, 256, 64>(
+        use_one_parallel_loop,
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_zp, q_scale,
+        k_zp, k_scale,
+        v_zp, v_scale,
+        a_zp, a_scale,
+        o_zp, o_scale);
+    } else if (q_split_size == 64) {
+      sdpa_int8_fused_kernel_impl<unsigned char, float, 64, 64>(
+        use_one_parallel_loop,
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_zp, q_scale,
+        k_zp, k_scale,
+        v_zp, v_scale,
+        a_zp, a_scale,
+        o_zp, o_scale);
     } else {
-      AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
-        if (q_split_size == 256) {
-          sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 256, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        } else if (q_split_size == 64) {
-          sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 64, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        } else {
-          sdpa_int8_kernel_one_loop_impl<unsigned char, mask_t, 32, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        }
-      });
+      sdpa_int8_fused_kernel_impl<unsigned char, float, 32, 64>(
+        use_one_parallel_loop,
+        output, query, key, value,
+        dropout_p, is_causal, attn_mask, scale,
+        q_zp, q_scale,
+        k_zp, k_scale,
+        v_zp, v_scale,
+        a_zp, a_scale,
+        o_zp, o_scale);
     }
   } else {
-    if (!attn_mask.has_value()) {
+    AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
       if (q_split_size == 256) {
-        sdpa_int8_kernel_several_loops_impl<unsigned char, float, 256, 64>(
+        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 256, 64>(
+          use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_zp, q_scale,
@@ -1740,7 +1766,8 @@ void sdpa_int8_fused_kernel(
           a_zp, a_scale,
           o_zp, o_scale);
       } else if (q_split_size == 64) {
-        sdpa_int8_kernel_several_loops_impl<unsigned char, float, 64, 64>(
+        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 64, 64>(
+          use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_zp, q_scale,
@@ -1749,7 +1776,8 @@ void sdpa_int8_fused_kernel(
           a_zp, a_scale,
           o_zp, o_scale);
       } else {
-        sdpa_int8_kernel_several_loops_impl<unsigned char, float, 32, 64>(
+        sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 32, 64>(
+          use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_zp, q_scale,
@@ -1758,38 +1786,7 @@ void sdpa_int8_fused_kernel(
           a_zp, a_scale,
           o_zp, o_scale);
       }
-    } else {
-      AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
-        if (q_split_size == 256) {
-          sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 256, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        } else if (q_split_size == 64) {
-          sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 64, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        } else {
-          sdpa_int8_kernel_several_loops_impl<unsigned char, mask_t, 32, 64>(
-            output, query, key, value,
-            dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
-        }
-      });
-    }
+    });
   }
 }
 #endif // CPU_CAPABILITY_AVX512
@@ -1888,6 +1885,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
             o_zp, o_scale);
         return output.transpose(1, 2);
     } else {
+  #endif // CPU_CAPABILITY_AVX512
         return sdpa_int8_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_zp, q_scale,
@@ -1895,15 +1893,8 @@ at::Tensor _scaled_dot_product_int8_cpu(
               v_zp, v_scale,
               a_zp, a_scale,
               o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
+  #ifdef CPU_CAPABILITY_AVX512
     }
-  #else
-    return sdpa_int8_math_kernel(query, key, value,
-        dropout_p, is_causal, attn_mask, scale,
-        q_zp, q_scale,
-        k_zp, k_scale,
-        v_zp, v_scale,
-        a_zp, a_scale,
-        o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
   #endif // CPU_CAPABILITY_AVX512
 }
 
