@@ -182,7 +182,9 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
             block_row_offs[:, None] * stride_input_row
             + block_col_offs[None, :] * stride_input_col
         )
-        block_mask = (block_row_offs[:, None] < M) & (block_col_offs[None, :] < group_col_end_idx)
+        block_mask = (block_row_offs[:, None] < M) & (
+            block_col_offs[None, :] < group_col_end_idx
+        )
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
         )
