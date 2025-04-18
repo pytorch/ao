@@ -389,6 +389,11 @@ def get_extensions():
                     "activation24",
                     "SparseSemiStructuredTile_cutlass.cu"
                 ),
+                os.path.join(
+                    extensions_cuda_dir,
+                    "activation24",
+                    "sparsify24.cu"
+                ),
             ]
             for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
                 cutlass_90a_sources.append(

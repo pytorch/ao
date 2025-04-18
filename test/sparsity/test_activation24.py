@@ -21,75 +21,12 @@ dtypeq_X = torch.float8_e4m3fn
 dtypeq_W = torch.float8_e4m3fn
 torch.set_printoptions(profile="full")
 torch.set_printoptions(linewidth=10000)
+from torchao.testing.utils import skip_if_compute_capability_less_than
+from torchao.utils import is_sm_at_least_90
+import unittest
 
 
 torch.manual_seed(32)
-
-# class TestActivation24(common_utils.TestCase):
-
-# @common_utils.parametrize("pattern", [[1, 1, 0, 0], [1, 0, 1, 0], [1, 0, 0, 1], [0, 1, 1, 0], [0, 1, 0, 1], [0, 0, 1, 1]])
-def test_correctness():
-    r, c = 128, 256
-    # 238 in binary
-    W_ref_asdf = torch.Tensor([0, 0, 1, 1]).to(device=device, dtype=torch.float8_e4m3fn).tile((r, c // 4)).contiguous()
-    packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref_asdf)
-    # W_quant_func = _float8_cutlass_quant_sparse
-    # W_aqt = W_quant_func(W_ref_asdf, dtypeq_W)
-    # W_meta = W_aqt.tensor_impl.meta
-    print("INITIAL")
-    print(meta_reference)
-    print(meta_reference.shape, meta_reference.is_contiguous(), meta_reference.dtype)
-    breakpoint()
-    garbanzo_beans = meta_reference.tolist()
-
-
-    pattern = [1, 1, 0, 0] # 68
-    for i in range(r):
-        num_per_tb = 8
-        for j in range(c // num_per_tb):
-            W_ref = W_ref_asdf.clone()
-            W_ref[i, j*num_per_tb:(j+1)*num_per_tb] = torch.Tensor(pattern).to(device=device, dtype=dtype).tile((1, 2)).contiguous()
-            _, W_meta = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-
-            indicies = (W_meta == 68).nonzero()
-
-            # print(indicies, i, j, W_meta)
-            # breakpoint()
-
-            for (r_i, c_i) in indicies:
-                garbanzo_beans[r_i][c_i] = f"a[{i:2d}, {j*num_per_tb:2d}:{(j+1)*num_per_tb:2d}]"
-
-    # from pprint import pprint
-    print("METADATA FORMAT")
-    for line in garbanzo_beans:
-        print(line)
-        print()
-        # print(line[:4])
-        # print(line[4:])
-
-    assert False
-    # torch.testing.assert_close(W_meta, W_subclass_sparse.meta.view(torch.uint8))
-
-
-def test_fast_rowwise_packing():
-    # W_ref = create_semi_structured_tensor(128, 128)
-    W_ref = create_semi_structured_tensor(128, 128, dtype=dtype).to(device)
-    W_subclass_sparse = to_sparse_semi_structured(W_ref)
-    # print(W_ref)
-
-
-    # Test packed
-    vc_mine = torch.unique(packed, return_counts=True)
-    vc_ref = torch.unique(W_subclass_sparse.packed, return_counts=True)
-    print(packed[:16, :16])
-    print(W_subclass_sparse.packed[:16, :16])
-    torch.testing.assert_close(vc_mine, vc_ref)
-
-    # Test meta
-    # vc_mine = torch.unique(packed_meta, return_counts=True)
-    # vc_ref = torch.unique(W_subclass_sparse.meta, return_counts=True)
-    # torch.testing.assert_close(vc_mine, vc_ref)
-
 
 def test_packed_fp8():
     # W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
@@ -144,3 +81,89 @@ def test_meta_packed_fp8():
 
             torch.testing.assert_close(packed, packed_reference)
             torch.testing.assert_close(packed_meta, meta_reference)
+
+# @fairinternal-below
+@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+def test_sparse24_sm90_sparsify_identity_1(
+    M=512, K=1024, fp8=torch.float8_e4m3fn
+) -> None:
+    torch.manual_seed(0)
+    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
+    
+    # Test with act="identity"
+    A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
+        A_sp_ref.to(fp8)
+    )
+    A_packed, A_mdata = torch.ops.xformers.sparse24_sm90_sparsify(
+        A_sp_ref,
+        "cutlass",
+        "identity",
+        sp_selection_algo="largest",
+        dtype=A_packed_ref.dtype,
+    )
+    A_mdata = A_mdata.view(A_mdata_ref.shape)
+
+    # Note: sparsification is not deterministic (eg if 3 items have the same value in a block of 4 for instance)
+    # so we allow a tiny margin for error
+    assert (A_packed != A_packed_ref).float().mean().item() < 0.005
+    assert (A_mdata != A_mdata_ref).float().mean().item() < 0.005
+    # The sum should always match though
+    assert torch.allclose(A_packed.float().sum(), A_packed_ref.float().sum())
+
+
+@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+def test_sparse24_sm90_sparsify_identity_scaled(
+    M=512, K=1024, fp8=torch.float8_e4m3fn
+) -> None:
+    torch.manual_seed(0)
+    A_dense = torch.randn([M, K], device="cuda", dtype=torch.bfloat16)
+    A_scale = torch.randn([M, 1], device="cuda", dtype=torch.float32).abs() + 0.1
+    A_dense[A_dense == 0] = 1
+    A_sp_ref = torch.ops.xformers.sparseNM_dense(
+        (A_dense / A_scale).bfloat16(), N=2, M=4, sort_preproc="largest"
+    )
+
+    A_packed_ref, A_mdata_ref = torch.ops.xformers._sparse24_sm90_cutlass_compress(
+        A_sp_ref.to(fp8)
+    )
+    A_packed, A_mdata = torch.ops.xformers.sparse24_sm90_sparsify(
+        A_dense,
+        "cutlass",
+        "identity",
+        sp_selection_algo="largest",
+        dtype=A_packed_ref.dtype,
+        scale=A_scale,
+    )
+    assert (A_packed != A_packed_ref).float().mean().item() < 0.05
+    assert (A_mdata != A_mdata_ref).float().mean().item() < 0.005
+    assert torch.allclose(
+        A_packed.float().sum(), A_packed_ref.float().sum(), rtol=0.001
+    )
+
+
+@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
+def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) -> None:
+    torch.manual_seed(0)
+    A_dense = torch.randn([M, K], device="cuda", dtype=torch.bfloat16)
+    A_dense[A_dense == 0] = 1
+    A_sp_ref = torch.ops.xformers.sparseNM_dense(
+        (A_dense.float().relu() ** 2).bfloat16(), N=2, M=4, sort_preproc="largest"
+    )
+
+    # Test with act="srelu"
+    # NOTE: Due to different rounding strategies, and way more zeros, we don't have the exact same
+    # bitwise packed values, so we bump up the margin here
+    A_packed_ref, _A_mdata_ref = torch.ops.xformers._sparse24_sm90_cutlass_compress(
+        A_sp_ref.to(fp8)
+    )
+    A_packed, _A_mdata = torch.ops.xformers.sparse24_sm90_sparsify(
+        A_dense,
+        "cutlass",
+        "srelu",
+        sp_selection_algo="largest",
+        dtype=A_packed_ref.dtype,
+    )
+    assert torch.allclose(
+        A_packed.float().sum(), A_packed_ref.float().sum(), rtol=0.005
+    )
+    assert (A_packed != A_packed_ref).float().mean().item() < 0.1
