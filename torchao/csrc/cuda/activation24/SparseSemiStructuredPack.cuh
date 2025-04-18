@@ -158,10 +158,10 @@ template <typename Element_> struct KernelTypes {
     CUTLASS_PRAGMA_UNROLL
     for (int strip = 0; strip < 4; ++strip) {
       uint2b_t col0_from, col1_from;
-      auto packValue = [&](uint2b_t col_to, uint2b_t col_from) {
+      auto packValue = [&](int col_to, uint2b_t col_from) {
         auto value = tile[4 * strip + col_from];
         packed.strips[strip].values[col_to] = value;
-        if (col_to == uint2b_t(0)) {
+        if (col_to == 0) {
           col0_from = col_from;
         } else {
           col1_from = col_from;

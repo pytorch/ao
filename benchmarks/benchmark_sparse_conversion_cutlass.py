@@ -22,6 +22,7 @@ dtypeq_W = torch.float8_e4m3fn
 device = torch.device("cuda")
 
 
+
 def benchmark_microseconds(f, *args):
     return do_bench(lambda: f(*args), return_mode="median") * 1e3
 
@@ -75,9 +76,9 @@ def get_problem_scaled_mm(m: int, n: int, k: int):
     return (Wq, Xq.t(), W_scale, X_scale, None, None, dtype)
 
 
-def benchmark():
+def benchmark(m, k):
     torch.manual_seed(123)
-    W_ref = create_semi_structured_tensor(2048, 8192, dtype=torch.float8_e4m3fn).cuda()
+    W_ref = create_semi_structured_tensor(m, k, dtype=torch.float8_e4m3fn).cuda()
 
     # packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
     cutlass_reference_args = (W_ref, )
@@ -103,12 +104,13 @@ def profile():
 
 
 if __name__ == "__main__":
-    # results = []
-    # results.append(benchmark())
+    results = []
+    for m in (2048, 4096, 8192):
+        results.append(benchmark(m, 8192))
 
-    # df = pd.DataFrame(results)
-    # df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
-    # print(df.to_markdown(index=False))
+    df = pd.DataFrame(results)
+    df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
+    print(df.to_markdown(index=False))
 
-    print("PROFILING")
-    profile()
+    # print("PROFILING")
+    # profile()

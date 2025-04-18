@@ -29,7 +29,7 @@ torch.manual_seed(32)
 
 # @common_utils.parametrize("pattern", [[1, 1, 0, 0], [1, 0, 1, 0], [1, 0, 0, 1], [0, 1, 1, 0], [0, 1, 0, 1], [0, 0, 1, 1]])
 def test_correctness():
-    r, c = 128, 512 
+    r, c = 128, 256
     # 238 in binary
     W_ref_asdf = torch.Tensor([0, 0, 1, 1]).to(device=device, dtype=torch.float8_e4m3fn).tile((r, c // 4)).contiguous()
     packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref_asdf)

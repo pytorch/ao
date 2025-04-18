@@ -735,8 +735,11 @@ def sparse_semi_structured_tile(weight: Tensor, algorthim: str, use_cutlass: boo
     return torch.ops.torchao.sparse_semi_structured_tile.default(weight, algorthim, use_cutlass)
 
 @register_custom_op("torchao::sparse_semi_structured_tile")
-def _() -> (Tensor, Tensor):
-    return (torch.empty(1), torch.empty(1), torch.empty(1), torch.empty(1), torch.empty(1))
+def _(weight:Tensor, algo: str, use_cutlass: bool) -> (Tensor, Tensor):
+    return (
+        weight.new_empty(weight.shape[0], weight.shape[1] // 2),
+        weight.new_empty(weight.shape[0], max(weight.shape[1] // 8, 16), dtype=torch.uint8),
+    )
 
 
 @functools.lru_cache()
