@@ -4,14 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import csv
-import datetime
-import json
 import os
 from typing import Any, Dict, List, Optional
 
 import torch
 from tabulate import tabulate
-from torch.profiler import ProfilerActivity
 from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
@@ -51,57 +48,6 @@ def get_default_device(device: str = "cuda") -> str:
     else:
         print(f"Warning: Running on CPU as {device} support was not found")
         return "cpu"
-
-
-def generate_model_profile(model, input_data, profile_file_path):
-    """Function to benchmark model evaluation with profiling.
-
-    Args:
-        model: The model to profile
-        input_data: Input data for the model
-        profile_file_path: Path to save the profiler output
-
-    Returns:
-        profile_file_path
-    """
-    # Create parent directory if it doesn't exist
-    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
-
-    # Set up profiler activities based on device
-    activities = [ProfilerActivity.CPU]
-    device = next(model.parameters()).device
-    if device.type == "cuda" and torch.cuda.is_available():
-        activities.append(ProfilerActivity.CUDA)
-
-    # Run profiler with minimal settings to ensure compatibility
-    prof = torch.profiler.profile(
-        activities=activities,
-        record_shapes=True,
-        with_stack=True,
-        profile_memory=True,
-        with_flops=True,  # Experimental; might be unreliable for some layers
-    )
-
-    # Warm up
-    with torch.no_grad():
-        for _ in range(3):
-            _ = model(input_data)
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-
-    # Profile
-    with prof:
-        with torch.no_grad():
-            for _ in range(3):
-                _ = model(input_data)
-                if device.type == "cuda":
-                    torch.cuda.synchronize()
-
-    # Save profiling details
-    prof.export_chrome_trace(profile_file_path)
-    print(f"Profile saved to: {profile_file_path}")
-
-    return profile_file_path
 
 
 class BenchmarkConfig:
@@ -182,6 +128,9 @@ class BenchmarkResult:
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
         self.profiler_json_path: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_visualization_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
@@ -189,6 +138,9 @@ class BenchmarkResult:
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
             "profiler_json_path": self.profiler_json_path,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_visualization_path": self.memory_visualization_path,
+            "memory_stats": self.memory_stats,
         }
         return result_dict
 
@@ -299,24 +251,30 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        from torchao.experimental.quant_api import (
-            Int8DynamicActivationIntxWeightConfig,
-        )
-        from torchao.quantization.granularity import PerGroup
-
         assert (
             high_precision_dtype == torch.float32
         ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
 
+        from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
+        from torchao.quantization.granularity import PerAxis, PerGroup
+        from torchao.quantization.quant_api import (
+            Int8DynamicActivationIntxWeightConfig,
+        )
+
         # Quantize model
         _quant_args = quantization.split("-")
         weight_dtype = getattr(torch, f"int{_quant_args[1]}")
-        granularity = PerGroup(int(_quant_args[2]))
-        has_weight_zeros = bool(_quant_args[3])
+        group_size = int(_quant_args[2])
+        granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
+        is_asymmetric = bool(_quant_args[3])
         return Int8DynamicActivationIntxWeightConfig(
             weight_dtype=weight_dtype,
-            granularity=granularity,
-            has_weight_zeros=has_weight_zeros,
+            weight_granularity=granularity,
+            weight_mapping_type=MappingType.ASYMMETRIC
+            if is_asymmetric
+            else MappingType.SYMMETRIC,
+            weight_scale_dtype=torch.bfloat16,
+            layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
         )
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
@@ -447,103 +405,3 @@ def print_results(results: List[BenchmarkResult]):
         print(tabulate(table_data, headers=headers, tablefmt="grid"))
     else:
         print("\nNo valid results to display")
-
-
-def generate_memory_profile(model, input_data, profile_file_path):
-    """Function to generate CUDA memory profile using torch.cuda.memory._snapshot().
-
-    Args:
-        model: The model to profile
-        input_data: Input data for the model
-        profile_file_path: Path to save the memory profile
-
-    Returns:
-        profile_file_path
-    """
-    if not torch.cuda.is_available():
-        print("Warning: CUDA is not available. Memory profiling requires CUDA.")
-        return None
-
-    # Create parent directory if it doesn't exist
-    os.makedirs(os.path.dirname(profile_file_path), exist_ok=True)
-
-    # Warm up
-    with torch.no_grad():
-        for _ in range(3):
-            _ = model(input_data)
-            torch.cuda.synchronize()
-
-    # Take memory snapshot before inference
-    before_snapshot = torch.cuda.memory._snapshot()
-
-    # Run inference
-    with torch.no_grad():
-        _ = model(input_data)
-        torch.cuda.synchronize()
-
-    # Take memory snapshot after inference
-    after_snapshot = torch.cuda.memory._snapshot()
-
-    # Save snapshots to file
-    profile_data = {
-        "before_snapshot": before_snapshot,
-        "after_snapshot": after_snapshot,
-        "timestamp": str(datetime.datetime.now()),
-        "model_info": {
-            "name": model.__class__.__name__,
-            "device": str(next(model.parameters()).device),
-            "num_parameters": sum(p.numel() for p in model.parameters()),
-        },
-    }
-
-    with open(profile_file_path, "w") as f:
-        json.dump(profile_data, f, indent=2)
-
-    print(f"Memory profile saved to: {profile_file_path}")
-    return profile_file_path
-
-
-def visualize_memory_profile(profile_file_path):
-    """Visualize memory profile using matplotlib.
-
-    Args:
-        profile_file_path: Path to the memory profile file
-    """
-    #     try:
-    #         import matplotlib.pyplot as plt
-    #     except ImportError:
-    #         print("Warning: matplotlib is required for memory profile visualization")
-    #         return
-
-    #     with open(profile_file_path, "r") as f:
-    #         profile_data = json.load(f)
-
-    #     before_snapshot = profile_data["before_snapshot"]
-    #     after_snapshot = profile_data["after_snapshot"]
-
-    #     print(f"Visualizing memory profile... {after_snapshot['segments']['blocks']}")
-
-    #     # Extract memory usage data
-    #     before_memory = sum(
-    #         block["size"] for block in before_snapshot["segments"]["blocks"]
-    #     )
-    #     after_memory = sum(block["size"] for block in after_snapshot["segments"]["blocks"])
-
-    #     # Create visualization
-    #     plt.figure(figsize=(10, 6))
-    #     plt.bar(
-    #         ["Before Inference", "After Inference"],
-    #         [before_memory / (1024**2), after_memory / (1024**2)],
-    #     )
-    #     plt.ylabel("Memory Usage (MB)")
-    #     plt.title("CUDA Memory Usage Comparison")
-    #     plt.grid(True)
-
-    #     # Save visualization
-    #     viz_path = profile_file_path.replace(".json", "_viz.png")
-    #     plt.savefig(viz_path)
-    #     plt.close()
-
-    #     print(f"Memory profile visualization saved to: {viz_path}")
-    #     return viz_path
-    pass

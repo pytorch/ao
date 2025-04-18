@@ -337,7 +337,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
         )
 
-        int_data, scale, zero_point = _layout.post_process(int_data, scale, zero_point)
+        int_data, scale, zero_point = _layout.post_process(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
