@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import List
 
 import torch
@@ -22,6 +27,14 @@ def check_parity_no_mp(
     precompute: bool = False,
     compile_transformer_block: bool = False,
 ):
+    # check that requires_grad matches ref module
+    for ref_param, fsdp_param in zip(ref_model.parameters(), fsdp_model.parameters()):
+        test_cls.assertEqual(
+            ref_param.requires_grad,
+            fsdp_param.requires_grad,
+            msg=f"ref_param.requires_grad: {ref_param.requires_grad}, fsdp_param.requires_grad: {fsdp_param.requires_grad}",
+        )
+
     # TODO(before land): reorder args and make config not optional
     for iter_idx in range(10):
         losses: List[torch.Tensor] = []
@@ -31,8 +44,9 @@ def check_parity_no_mp(
             losses[-1].backward()
             if model is ref_model:
                 for param in model.parameters():
-                    dist.all_reduce(param.grad)
-                    param.grad.div_(dist.get_world_size())
+                    if param.requires_grad:
+                        dist.all_reduce(param.grad)
+                        param.grad.div_(dist.get_world_size())
 
             optim.step()
             if (

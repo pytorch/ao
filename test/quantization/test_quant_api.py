@@ -24,7 +24,11 @@ from torch.testing._internal.common_utils import TestCase
 from torchao import quantize_
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.dtypes import AffineQuantizedTensor
+from torchao.dtypes import (
+    AffineQuantizedTensor,
+    Int4CPULayout,
+    Int4XPULayout,
+)
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
     Quantizer,
@@ -54,6 +58,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -189,6 +194,10 @@ _ref_change_linear_weights_to_int4_woqtensors = (
 
 
 class TestQuantFlow(TestCase):
+    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
+        ["xpu"] if torch.xpu.is_available() else []
+    )
+
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
@@ -228,6 +237,34 @@ class TestQuantFlow(TestCase):
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "only works for torch 2.8+")
+    def test_int4_wo_quant_save_load(self):
+        m = ToyLinearModel().eval().cpu()
+
+        def api(model):
+            quantize_(model, int4_weight_only(layout=Int4XPULayout()))
+            unwrap_tensor_subclass(model)
+
+        api(m)
+
+        example_inputs = m.example_inputs()
+        ref = m(*example_inputs)
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(m.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f)
+
+        m2 = ToyLinearModel().eval().cpu()
+        api(m2)
+
+        m2.load_state_dict(state_dict)
+        m2 = m2.to(device="xpu")
+        example_inputs = map(lambda x: x.xpu(), example_inputs)
+        res = m2(*example_inputs)
+
+        torch.testing.assert_close(ref, res.cpu())
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "only works for torch 2.4+")
@@ -615,25 +652,31 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_quantized_tensor_subclass_int4(self):
-        # use 1024 so that we don't need padding
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
-        m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        for device in self.GPU_DEVICES:
+            # use 1024 so that we don't need padding
+            m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
+            m_copy = copy.deepcopy(m)
+            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
-        group_size = 32
-        quantize_(m, int4_weight_only(group_size=group_size))
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
+            group_size = 32
+            if device == "xpu":
+                quantize_(
+                    m, int4_weight_only(group_size=group_size, layout=Int4XPULayout())
+                )
+            else:
+                quantize_(m, int4_weight_only(group_size=group_size))
+            assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+            assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
-        # reference
-        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
+            # reference
+            _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
 
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
+            res = m(*example_inputs)
+            ref = m_copy(*example_inputs)
 
-        self.assertTrue(torch.equal(res, ref))
+            self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -799,8 +842,6 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("use_hqq", [True, False])
     def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
-        from torchao.dtypes import Int4CPULayout
-
         device = "cpu"
         m = ToyLinearModel().eval().to(dtype).to(device)
         example_inputs = m.example_inputs(dtype=dtype, device=device)

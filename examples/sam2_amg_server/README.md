@@ -80,7 +80,7 @@ pip install -r examples/sam2_amg_server/requirements.txt
 pip uninstall torch
 
 # Install torch nightly
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
 
 # Build ao from source for now
 python setup.py develop

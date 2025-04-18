@@ -1,10 +1,18 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Any, Optional, Tuple
 
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.core.config import AOBaseConfig
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
@@ -293,7 +301,19 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-def int8_weight_only_quantized_training():
-    return _get_linear_subclass_inserter(
-        Int8QuantizedTrainingLinearWeight.from_float, allow_requires_grad=True
-    )
+class Int8WeightOnlyQuantizedTrainingConfig(AOBaseConfig):
+    pass
+
+
+# for bc
+int8_weight_only_quantized_training = Int8WeightOnlyQuantizedTrainingConfig
+
+
+@register_quantize_module_handler(Int8WeightOnlyQuantizedTrainingConfig)
+def _int8_weight_only_quantized_training_transform(
+    module: torch.nn.Module,
+    config: Int8WeightOnlyQuantizedTrainingConfig,
+) -> torch.nn.Module:
+    new_weight = Int8QuantizedTrainingLinearWeight.from_float(module.weight)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=True)
+    return module

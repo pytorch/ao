@@ -78,11 +78,11 @@ quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
 ### 2:4 sparsity
 
 ```py
-from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
+from torchao.sparsity.sparse_api import sparsify_, SemiSparseWeightConfig
 from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
-sparsify_(model, semi_sparse_weight())
+sparsify_(model, SemiSparseWeightConfig())
 ```
 
 ### Block sparsity
@@ -90,10 +90,10 @@ We offer prototype support for accelerating block sparsity with our triton kerne
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_
-from torchao.sparsity import block_sparse_weight
+from torchao.sparsity import BlockSparseWeightConfig
 
 model = model.cuda()
-sparsify_(model, block_sparse_weight())
+sparsify_(model, BlockSparseWeightConfig())
 ```
 
 # Goal

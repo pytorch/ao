@@ -1,14 +1,23 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
 
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxTensor
 from torchao.prototype.quantization.codebook.codebook_ops import (
     choose_qparams_codebook,
     dequantize_codebook,
     quantize_codebook,
 )
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
@@ -254,10 +263,21 @@ def function_requires_grad_(tensor, *args, **kwargs):
     return tensor.requires_grad_(*args, **kwargs)
 
 
-def codebook_weight_only(
-    dtype=torch.uint4,
-    block_size: Tuple[int, int] = (1, 1),
-    scale_block_size: int = None,
+@dataclass
+class CodebookWeightOnlyConfig(AOBaseConfig):
+    dtype: torch.dtype = torch.uint4
+    block_size: Tuple[int, int] = (1, 1)
+    scale_block_size: int = None
+
+
+# for bc
+codebook_weight_only = CodebookWeightOnlyConfig
+
+
+@register_quantize_module_handler(CodebookWeightOnlyConfig)
+def _codebook_weight_only_transform(
+    module: torch.nn.Module,
+    config: CodebookWeightOnlyConfig,
 ):
     """
     Applies codebook weight-only quantization to linear layers.
@@ -269,20 +289,20 @@ def codebook_weight_only(
     Returns:
         Callable for quantization transformation.
     """
+    dtype = config.dtype
+    block_size = config.block_size
+    scale_block_size = config.scale_block_size
+    weight = module.weight
 
-    def apply_codebook_quantization(weight, scale_block_size):
-        if weight.numel() > 2**27:
-            return weight  # k_means is too numerically unstable
-        if scale_block_size is None:
-            scale_block_size = weight.shape[1]
-        quantized = CodebookQuantizedTensor.from_float(
-            weight,
-            block_size=block_size,
-            code_dtype=dtype,
-            scale_block_size=scale_block_size,
-        )
-        return quantized
-
-    return _get_linear_subclass_inserter(
-        apply_codebook_quantization, scale_block_size=scale_block_size
+    if weight.numel() > 2**27:
+        return module  # k_means is too numerically unstable
+    if scale_block_size is None:
+        scale_block_size = weight.shape[1]
+    quantized_weight = CodebookQuantizedTensor.from_float(
+        weight,
+        block_size=block_size,
+        code_dtype=dtype,
+        scale_block_size=scale_block_size,
     )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    return module

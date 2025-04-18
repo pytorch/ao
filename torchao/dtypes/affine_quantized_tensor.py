@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import math
 from typing import Optional, Tuple, Union
@@ -160,14 +165,18 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dq
 
     def __tensor_flatten__(self):
-        return ["tensor_impl"], [
-            self.block_size,
-            self.shape,
-            self.quant_min,
-            self.quant_max,
-            self.zero_point_domain,
-            self.dtype,
-        ]
+        # This is used in rumtime to unwrap AffineQuantizedTensor activations.
+        # AffineQuantizedTensor has __torch_function__ override:
+        # Each getattr will go through it, which is up to 10x slower than default attribute access.
+        with torch._C.DisableTorchFunctionSubclass():
+            return ["tensor_impl"], [
+                self.block_size,
+                self.shape,
+                self.quant_min,
+                self.quant_max,
+                self.zero_point_domain,
+                self.dtype,
+            ]
 
     @classmethod
     def __tensor_unflatten__(
@@ -275,7 +284,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data = _layout.post_process(data)
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -326,7 +337,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
         )
 
-        int_data = _layout.post_process(int_data)
+        int_data, scale, zero_point = _layout.post_process(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
@@ -420,7 +436,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
         scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
+        floatx_packed, scale, _ = _layout.post_process(
+            floatx_unpacked, scale, None, block_size
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)

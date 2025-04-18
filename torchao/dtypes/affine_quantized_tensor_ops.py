@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 
 import torch
@@ -5,6 +10,10 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
+)
+from torchao.dtypes.floatx.cutlass_semi_sparse_layout import (
+    _linear_fp8_act_fp8_weight_sparse_cutlass_check,
+    _linear_fp8_act_fp8_weight_sparse_cutlass_impl,
 )
 from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_check,
@@ -34,6 +43,12 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
 )
+from torchao.dtypes.uintx.int4_xpu_layout import (
+    _linear_bf16_act_uint4_weight_float_zero_check,
+    _linear_bf16_act_uint4_weight_float_zero_impl,
+    _linear_bf16_act_uint4_weight_int8_zero_check,
+    _linear_bf16_act_uint4_weight_int8_zero_impl,
+)
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
     _linear_int8_act_int4_weight_marlin_qqq_impl,
@@ -42,12 +57,30 @@ from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
     _linear_fp_act_int4_weight_sparse_marlin_impl,
 )
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_check as _linear_int8_act_intx_weight_packed_check,
+)
+from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
+    _linear_impl as _linear_int8_act_intx_weight_packed_impl,
+)
 from torchao.dtypes.uintx.plain_layout import (
     PlainAQTTensorImpl,
     _linear_fp_act_int8_weight_check,
     _linear_fp_act_int8_weight_impl,
     _linear_int8_act_int8_weight_check,
     _linear_int8_act_int8_weight_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_check as _embedding_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _embedding_impl as _embedding_q_dq_impl,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_check as _linear_q_dq_check,
+)
+from torchao.dtypes.uintx.q_dq_layout import (
+    _linear_impl as _linear_q_dq_impl,
 )
 from torchao.dtypes.uintx.semi_sparse_layout import (
     _linear_int8_act_int8_weight_semi_structured_sparse_check,
@@ -124,6 +157,9 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
+# input_tensor: dimension is (M1, M2, ..., in_features)
+# weight_tensor: dimension is (out_features, in_features)
+# bias: dimension is (out_features,)
 @staticmethod
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
@@ -183,8 +219,28 @@ def _register_aqt_quantized_linear_dispatches():
             _linear_int4_act_int4_weight_cutlass_impl,
         ),
         (
+            _linear_fp8_act_fp8_weight_sparse_cutlass_check,
+            _linear_fp8_act_fp8_weight_sparse_cutlass_impl,
+        ),
+        (
             _linear_fp_act_uint4_weight_cpu_check,
             _linear_fp_act_uint4_weight_cpu_impl,
+        ),
+        (
+            _linear_int8_act_intx_weight_packed_check,
+            _linear_int8_act_intx_weight_packed_impl,
+        ),
+        (
+            _linear_q_dq_check,
+            _linear_q_dq_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_int8_zero_check,
+            _linear_bf16_act_uint4_weight_int8_zero_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_float_zero_check,
+            _linear_bf16_act_uint4_weight_float_zero_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
@@ -230,6 +286,9 @@ def _(func, types, args, kwargs):
 
 @implements(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
+    if _embedding_q_dq_check(args, kwargs):
+        return _embedding_q_dq_impl(args, kwargs)
+
     # new_arg1 = args[1].dequantize()
     # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
     assert isinstance(
@@ -279,12 +338,19 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -309,9 +375,16 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -328,7 +401,7 @@ def _(func, types, args, kwargs):
         return func(input_tensor, weight_tensor)
 
 
-@implements(aten.detach.default)
+@implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
@@ -339,6 +412,13 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[1]._apply_fn_to_data(torch.clone)
     )
 
 

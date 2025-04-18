@@ -4,15 +4,16 @@ The `float8_training_benchmark.sh` script in this directory can be used to launc
 
 ## Usage
 
-Example: `TORCHTITAN_ROOT=${HOME}/torchtitan FLOAT8_RECIPE=rowwise ./float8_training_benchmark.sh`
+Example: `TORCHTITAN_ROOT=${HOME}/torchtitan FLOAT8_RECIPE_WITH_BEST_SETTINGS=rowwise ./float8_training_benchmark.sh`
 
 Training parameters can be configured via environment variables.
 
 - Required:
-    - `TORCHTITAN_ROOT`
+    - `TORCHTITAN_ROOT`: Root directory of torchtitan in your local filesystem
 - Optional:
-    - `RECIPE`: rowwise|tensorwise. defaults to tensorwise.
-    - `BATCH_SIZE`: defaults to 1.
-    - `STEPS`: defaults to 100.
+    - `FLOAT8_RECIPE_WITH_BEST_SETTINGS`: "rowwise" or "tensorwise". Applies float8 training with the specified scaling recipe, as well as additional training configs which are optimal for that scaling recipe. See `float8_training_benchmark.sh` for more details.
+    - `BATCH_SIZE`: Defaults to 1.
+    - `STEPS`: Defaults to 100.
+    - `EXTRA_ARGS`: Extra arguments to pass to torchtitan training script. See [torchtitan](https://github.com/pytorch/torchtitan) docs for the full list of options.
 
 **NOTE**: `torch.compile` and FSDP2 are always used. Other forms of parallelism supported in torchtitan are not yet supported in this script.

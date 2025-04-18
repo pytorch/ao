@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -9,6 +15,10 @@ class Quantizer(ABC):
 
     def __init__(self, center: bool = False) -> None:
         self.center = center
+
+    @abstractmethod
+    def get_quant_size(self, b: int) -> int:
+        """Given number of bits b, return total number of quantization values"""
 
     @abstractmethod
     def quantize(self, p: Tensor, b: int) -> tuple[Tensor, Tensor]:

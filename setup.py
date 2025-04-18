@@ -3,6 +3,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import glob
 import os
 import subprocess
@@ -54,6 +55,10 @@ build_torchao_experimental = (
     and platform.system() == "Darwin"
 )
 
+use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and platform.system() == "Linux"
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -75,6 +80,7 @@ from torch.utils.cpp_extension import (
     BuildExtension,
     CppExtension,
     CUDAExtension,
+    _get_cuda_arch_flags,
 )
 
 IS_ROCM = (torch.version.hip is not None) and (ROCM_HOME is not None)
@@ -269,13 +275,29 @@ def get_extensions():
     extra_link_args = []
     extra_compile_args = {
         "cxx": [f"-DPy_LIMITED_API={PY3_9_HEXCODE}"],
-        "nvcc": ["-O3" if not debug_mode else "-O0", "-std=c++17"],
+        "nvcc": [
+            "-DNDEBUG" if not debug_mode else "-DDEBUG",
+            "-O3" if not debug_mode else "-O0",
+            "-t=0",
+            "-std=c++17",
+        ],
     }
 
     if not IS_WINDOWS:
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
+
+        if use_cpp_avx512 and TORCH_VERSION_AT_LEAST_2_7:
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -298,6 +320,12 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+    if IS_WINDOWS:
+        # Remove csrc/cpu/*.cpp on Windows due to the link issue: unresolved external symbol PyInit__C
+        excluded_sources = list(
+            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in excluded_sources]
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(
@@ -310,13 +338,30 @@ def get_extensions():
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
-
+    
     extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
     hip_sources += list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
 
+    # Collect CUDA source files if needed
+    if not IS_ROCM and use_cuda:
+        sources += cuda_sources
+
+    # TOOD: Remove this and use what CUDA has once we fix all the builds.
+    if IS_ROCM and use_cuda:
+        # Add ROCm GPU architecture check
+        gpu_arch = torch.cuda.get_device_properties(0).name.gcnArchName
+        if gpu_arch != "gfx942":
+            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
+            print(
+                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
+            )
+        else:
+            sources += hip_sources
+
     use_cutlass = False
+    cutlass_90a_sources = None
     if use_cuda and not IS_ROCM and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
@@ -332,24 +377,46 @@ def get_extensions():
                 "-I" + cutlass_include_dir,
                 "-I" + cutlass_tools_include_dir,
                 "-I" + cutlass_extensions_include_dir,
+                "-DCUTE_USE_PACKED_TUPLE=1",
+                "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
+                "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
+                "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+                "--ftemplate-backtrace-limit=0",
+                # "--keep",
+                # "--ptxas-options=--verbose,--register-usage-level=5,--warn-on-local-memory-usage",
+                # "--resource-usage",
+                # "-lineinfo",
+                # "-DCUTLASS_ENABLE_GDC_FOR_SM90",  # https://github.com/NVIDIA/cutlass/blob/main/media/docs/dependent_kernel_launch.md
             ]
         )
 
-    # Collect CUDA source files if needed
-    if not IS_ROCM and use_cuda:
-        sources += cuda_sources
-    elif IS_ROCM and use_cuda:
-        # Add ROCm GPU architecture check
-        gpu_arch = torch.cuda.get_device_properties(0).gcnArchName
-        if "gfx942" not in gpu_arch:
-            print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
-            print(
-                "Currently only gfx942 is supported. Skipping compilation of ROCm extensions"
-            )
-        else:
-            sources += hip_sources
+        cuda_arch_flags = _get_cuda_arch_flags()
+        build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
+        build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
+        if build_for_sm90 and not build_for_sm90a:
+            cutlass_90a_sources = [
+                os.path.join(
+                    extensions_cuda_dir,
+                    "rowwise_scaled_linear_sparse_cutlass",
+                    "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+                ),
+                os.path.join(
+                    extensions_cuda_dir,
+                    "to_sparse_semi_structured_cutlass_sm9x",
+                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+                ),
+            ]
+            for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
+                cutlass_90a_sources.append(
+                    os.path.join(
+                        extensions_cuda_dir,
+                        "rowwise_scaled_linear_sparse_cutlass",
+                        "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
+                    )
+                )
+            sources = [s for s in sources if s not in cutlass_90a_sources]
     else:
-        # Remove CUTLASS-based kernels from the cuda_sources list.  An
+        # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
         # name.
         cutlass_sources = list(
@@ -367,6 +434,21 @@ def get_extensions():
                 sources,
                 py_limited_api=True,
                 extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    if cutlass_90a_sources is not None and len(cutlass_90a_sources) > 0:
+        cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        cutlass_90a_extra_compile_args["nvcc"].extend(
+            cuda_arch_flags + ["-gencode=arch=compute_90a,code=sm_90a"]
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C",
+                cutlass_90a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_90a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
@@ -410,7 +492,7 @@ check_submodules()
 setup(
     name="torchao",
     version=version + version_suffix,
-    packages=find_packages(),
+    packages=find_packages(exclude=["benchmarks", "benchmarks.*"]),
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],

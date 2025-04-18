@@ -19,8 +19,7 @@ from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 
 import torchao
-from torchao.dtypes import Int4CPULayout, TensorCoreTiledLayout
-from torchao.dtypes.utils import is_device
+from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
@@ -84,6 +83,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -113,7 +114,7 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_weight_only(), set_inductor_config=False)
+        quantize_(mod, int8_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5 or (
             not TORCH_VERSION_AT_LEAST_2_6 and torch._inductor.config.freezing
         ):
@@ -124,7 +125,7 @@ def _int8wo_api(mod):
 
 def _int8wo_groupwise_api(mod):
     group_size = 32
-    quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
+    quantize_(mod, int8_weight_only(group_size=group_size, set_inductor_config=False))
 
 
 def _int8da_int8w_api(
@@ -136,8 +137,8 @@ def _int8da_int8w_api(
             mod,
             int8_dynamic_activation_int8_weight(
                 act_mapping_type=act_mapping_type,
+                set_inductor_config=False,
             ),
-            set_inductor_config=False,
         )
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
@@ -146,18 +147,21 @@ def _int8da_int8w_api(
 
 
 def _int4wo_api(mod, use_hqq=False):
-    if (
-        is_device(next(mod.parameters()).device.type, "cpu")
-        and TORCH_VERSION_AT_LEAST_2_6
-    ):
+    if check_cpu_version(next(mod.parameters()).device):
         quantize_(
             mod,
-            int4_weight_only(layout=Int4CPULayout(), use_hqq=use_hqq),
-            set_inductor_config=False,
+            int4_weight_only(
+                layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
+            ),
+        )
+        unwrap_tensor_subclass(mod)
+    elif check_xpu_version(next(mod.parameters()).device):
+        quantize_(
+            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int4_weight_only(), set_inductor_config=False)
+        quantize_(mod, int4_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
@@ -165,7 +169,7 @@ def _int4wo_api(mod, use_hqq=False):
 
 
 def _int8da_int4w_api(mod):
-    quantize_(mod, int8_dynamic_activation_int4_weight(), set_inductor_config=False)
+    quantize_(mod, int8_dynamic_activation_int4_weight(set_inductor_config=False))
     if not TORCH_VERSION_AT_LEAST_2_5:
         unwrap_tensor_subclass(mod)
 
@@ -1128,8 +1132,10 @@ class TestSubclass(unittest.TestCase):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         layout_list = []
-        if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(device):
             layout_list.append(Int4CPULayout())
+        elif check_xpu_version(device):
+            layout_list.append(Int4XPULayout())
         else:
             for inner_k_tiles in [4, 2]:
                 layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))
@@ -2028,15 +2034,17 @@ class TestExport(unittest.TestCase):
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
         if TORCH_VERSION_AT_LEAST_2_5:
-            model = torch.export.export_for_training(model, example_inputs).module()
+            model = torch.export.export_for_training(
+                model, example_inputs, strict=True
+            ).module()
         else:
             model = torch._export.capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int4w_api:
             targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.quant.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.quant.quantize_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
 

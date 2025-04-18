@@ -24,6 +24,7 @@ enable_testing()
 
 if(TORCHAO_BUILD_CPU_AARCH64)
   add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64=1)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 endif()
 
 if(TORCHAO_BUILD_KLEIDIAI)

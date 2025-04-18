@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -223,8 +228,14 @@ class UintxLayout(Layout):
     dtype: torch.dtype
     pack_dim: int = -1
 
-    def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        return to_uintx(input, self.dtype, self.pack_dim)
+    def post_process(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return to_uintx(input, self.dtype, self.pack_dim), scale, zero_point
 
 
 @register_layout(UintxLayout)

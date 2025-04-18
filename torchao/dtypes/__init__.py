@@ -9,6 +9,7 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx_static,
 )
 from .floatx import (
+    CutlassSemiSparseLayout,
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
@@ -16,9 +17,12 @@ from .uintx import (
     BlockSparseLayout,
     CutlassInt4PackedLayout,
     Int4CPULayout,
+    Int4XPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
     MarlinSparseLayout,
+    PackedLinearInt8DynamicActivationIntxWeightLayout,
+    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     UintxLayout,
@@ -52,4 +56,9 @@ __all__ = [
     "MarlinQQQLayout",
     "Int4CPULayout",
     "CutlassInt4PackedLayout",
+    "CutlassSemiSparseLayout",
+    "QDQLayout",
+    "PackedLinearInt8DynamicActivationIntxWeightLayout",
+    "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
+    "Int4XPULayout",
 ]

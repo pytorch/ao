@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import functools
 import itertools
 import re
@@ -309,6 +314,8 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             and type(child.weight) is not torch.nn.Parameter
             and isinstance(child.weight, torch.Tensor)
             and issubclass(type(child.weight), torch.Tensor)
+            and isinstance(child.weight, TorchAOBaseTensor)
+            and not parametrize.is_parametrized(child)
         ):
             parametrize.register_parametrization(
                 child, "weight", UnwrapTensorSubclass()
@@ -351,6 +358,7 @@ def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 
+TORCH_VERSION_AT_LEAST_2_8 = torch_version_at_least("2.8.0")
 TORCH_VERSION_AT_LEAST_2_7 = torch_version_at_least("2.7.0")
 TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
@@ -668,6 +676,18 @@ def is_sm_at_least_100():
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (10, 0)
     )
+
+
+def check_cpu_version(device, version="2.6.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+
+
+def check_xpu_version(device, version="2.8.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
 
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")

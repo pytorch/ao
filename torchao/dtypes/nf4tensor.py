@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import functools
 import math
 import sys
@@ -983,15 +988,6 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
     """Convert a given tensor to normalized float 4-bit tensor."""
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
-
-
-def nf4_weight_only(block_size: int = 64, scaler_block_size: int = 256):
-    from torchao.quantization.quant_api import _get_linear_subclass_inserter
-
-    def _to_nf4(tensor: torch.Tensor):
-        return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
-
-    return _get_linear_subclass_inserter(_to_nf4)
 
 
 NF4_TORCH_FUNCTIONS = {}

@@ -1,4 +1,10 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import functools
+from typing import Optional
 
 import torch
 from torch import Tensor
@@ -22,10 +28,16 @@ lib.define(
     "marlin_qqq_gemm(Tensor x, Tensor weight_marlin, Tensor s_tok, Tensor s_ch, Tensor s_group, Tensor workspace, int size_m, int size_n, int size_k) -> Tensor"
 )
 lib.define(
-    "rowwise_scaled_linear_cutlass_s4s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
+    "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
 )
 lib.define(
-    "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor bias) -> Tensor"
+    "rowwise_scaled_linear_cutlass_s4s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
+)
+lib.define(
+    "rowwise_scaled_linear_sparse_cutlass_f8f8(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_meta, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
+)
+lib.define(
+    "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
 )
 # Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
 # to honor the layout constraints for `b` in the two ops below.
@@ -36,6 +48,9 @@ lib.define(
 lib.define(
     "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
     tags=[torch._C.Tag.needs_fixed_stride_order],
+)
+lib.define(
+    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
 
 
@@ -57,6 +72,13 @@ def register_custom_op_impl(name):
             return torch.library.impl(f"{name}", "CUDA")(func)
 
     return decorator
+
+
+@functools.lru_cache
+def cached_compute_capability():
+    device_props = torch.cuda.get_device_properties(torch.cuda.current_device())
+    compute_capability = device_props.major * 10 + device_props.minor
+    return compute_capability
 
 
 def quant_llm_linear(
@@ -81,6 +103,12 @@ def quant_llm_linear(
     Returns
         output of linear layer
     """
+    # Check if we're on a supported architecture (sm7.5 or higher)
+    compute_capability = cached_compute_capability()
+    torch._check(
+        compute_capability >= 75,
+        lambda: f"quant_llm_linear requires sm7.5+ GPU architecture, but current device has sm{compute_capability}",
+    )
     return torch.ops.torchao.quant_llm_linear.default(
         EXPONENT, MANTISSA, _in_feats, _weights, _scales, splitK
     )
@@ -126,6 +154,94 @@ def _(
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def scaled_dot_product_int8(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Optional[Tensor] = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float = 0.0,
+    q_scale: float = 1.0,
+    q_zp: int = 0,
+    k_scale: float = 1.0,
+    k_zp: int = 0,
+    v_scale: float = 1.0,
+    v_zp: int = 0,
+    a_scale: float = 1.0,
+    a_zp: int = 0,
+    o_scale: float = 1.0,
+    o_zp: int = 0,
+) -> Tensor:
+    """
+    Quantized SDPA with uint8 inputs and outputs.
+
+    Arguments
+        query: input query tensor,
+        key: input key tensor,
+        value: input value tensor,
+        attn_mask: attention mask tensor,
+        dropout_p: dropout probability,
+        is_causal: causal flag,
+        scale: scaling factor applied prior to softmax,
+        q_scale: scale for query from linear quantization,
+        q_zp: zero point for query from linear quantization,
+        k_scale: scale for key from linear quantization,
+        k_zp: zero point of key from linear quantization,
+        v_scale: zero point for value from linear quantization,
+        v_zp: zero point of value from linear quantization,
+        a_scale: scale for attention from softmax quantization,
+        a_zp: zero point for attention from softmax quantization,
+        o_scale: scale for output from linear quantization,
+        o_zp: zero point for output from linear quantization,
+
+    Returns
+        output of quantized SDPA
+    """
+    return torch.ops.torchao.scaled_dot_product_int8.default(
+        query,
+        key,
+        value,
+        attn_mask,
+        dropout_p,
+        is_causal,
+        scale,
+        q_scale,
+        q_zp,
+        k_scale,
+        k_zp,
+        v_scale,
+        v_zp,
+        a_scale,
+        a_zp,
+        o_scale,
+        o_zp,
+    )
+
+
+@register_custom_op("torchao::scaled_dot_product_int8")
+def _(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Optional[Tensor] = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float = 0.0,
+    q_scale: float = 1.0,
+    q_zp: int = 0,
+    k_scale: float = 1.0,
+    k_zp: int = 0,
+    v_scale: float = 1.0,
+    v_zp: int = 0,
+    a_scale: float = 1.0,
+    a_zp: int = 0,
+    o_scale: float = 1.0,
+    o_zp: int = 0,
+) -> Tensor:
+    return query
 
 
 def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
@@ -544,7 +660,8 @@ def rowwise_scaled_linear_cutlass_s8s4(
     input_scale: Tensor,
     weight: Tensor,
     weight_scale: Tensor,
-    bias: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     """
     CUTLASS-based row-wise scaled W4A8 linear operator.
@@ -553,13 +670,19 @@ def rowwise_scaled_linear_cutlass_s8s4(
         input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
         weight: quantized weight matrix, in row-major layout.
         weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
-        bias: a vector of size equal to number of rows of weight tensor, or None.
+        bias: an optional vector of size equal to number of rows of weight tensor, or None.
+        out_dtype: optional data type for output tensor.
     Returns:
         output: result tensor, in row-major layout.
     """
 
     return torch.ops.torchao.rowwise_scaled_linear_cutlass_s8s4.default(
-        input, input_scale, weight, weight_scale, bias
+        input,
+        input_scale,
+        weight,
+        weight_scale,
+        bias,
+        out_dtype,
     )
 
 
@@ -569,16 +692,15 @@ def _(
     input_scale: Tensor,
     weight: Tensor,
     weight_scale: Tensor,
-    bias: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     # No checks here, as detailed checks are performed by the
     # operator itself.
 
-    return torch.empty(
-        (*input.shape[:-1], weight.shape[0]),
-        dtype=input_scale.dtype,
-        device=input.device,
-    )
+    dtype = out_dtype if out_dtype is not None else input_scale.dtype
+    device = input.device
+    return torch.empty((*input.shape[:-1], weight.shape[0]), dtype=dtype, device=device)
 
 
 def rowwise_scaled_linear_cutlass_s4s4(
@@ -586,7 +708,8 @@ def rowwise_scaled_linear_cutlass_s4s4(
     input_scale: Tensor,
     weight: Tensor,
     weight_scale: Tensor,
-    bias: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     """
     CUTLASS-based row-wise scaled W4A4 linear operator.
@@ -595,13 +718,14 @@ def rowwise_scaled_linear_cutlass_s4s4(
         input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
         weight: quantized weight matrix, in row-major layout.
         weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
-        bias: a vector of size equal to number of rows of weight tensor, or None.
+        bias: an optional vector of size equal to number of rows of weight tensor, or None.
+        out_dtype: optional data type for output tensor.
     Returns:
         output: result tensor, in row-major layout.
     """
 
     return torch.ops.torchao.rowwise_scaled_linear_cutlass_s4s4.default(
-        input, input_scale, weight, weight_scale, bias
+        input, input_scale, weight, weight_scale, bias, out_dtype
     )
 
 
@@ -611,9 +735,89 @@ def _(
     input_scale: Tensor,
     weight: Tensor,
     weight_scale: Tensor,
-    bias: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
-    return input_scale.new_empty(*input.shape[:-1], weight.shape[0])
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
+
+    dtype = out_dtype if out_dtype is not None else input_scale.dtype
+    device = input.device
+    return torch.empty((*input.shape[:-1], weight.shape[0]), dtype=dtype, device=device)
+
+
+def rowwise_scaled_linear_sparse_cutlass_f8f8(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_meta: Tensor,
+    weight_scale: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> Tensor:
+    """
+    CUTLASS-based row-wise scaled F8F8 linear operator, for sparsified weight case.
+    Args:
+        input: quantized input tensor, in row-major layout.
+        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
+        weight: sparsified quantized weight matrix, in row-major layout.
+        weight_meta: sparsify metadata for weight tensor.
+        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
+        bias: an optional vector of size equal to number of rows of weight tensor, or None.
+        out_dtype: optional data type for output tensor.
+    Returns:
+        output: result tensor, in row-major layout.
+    """
+
+    return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
+        input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
+    )
+
+
+@register_custom_op("torchao::rowwise_scaled_linear_sparse_cutlass_f8f8")
+def _(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_meta: Tensor,
+    weight_scale: Tensor,
+    bias: Optional[Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> Tensor:
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
+
+    dtype = out_dtype if out_dtype is not None else input_scale.dtype
+    device = input.device
+    return torch.empty((*input.shape[:-1], weight.shape[0]), dtype=dtype, device=device)
+
+
+def to_sparse_semi_structured_cutlass_sm9x_f8(
+    weight: Tensor,
+) -> (Tensor, Tensor):
+    """
+    CUTLASS-based conversion from sparsified input tensor to corresponding compressed tensor, along with corresponding metadata tensor.
+    Args:
+        weight: input tensor, in row-major layout.
+    Returns:
+        weight_compressed: compressed weight tensor, with sparsity eliminated, in row-major layout.
+        weight_meta: metadata tensor, describing the sparsity structure of the input tensor, also in row-major layout.
+    """
+
+    return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(weight)
+
+
+@register_custom_op("torchao::to_sparse_semi_structured_cutlass_sm9x_f8")
+def _(
+    weight: Tensor,
+) -> (Tensor, Tensor):
+    # No checks here, as detailed checks are performed by the
+    # operator itself.
+
+    return (
+        weight.new_empty(weight[0], weight[1] // 2),
+        weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
+    )
 
 
 @functools.lru_cache()

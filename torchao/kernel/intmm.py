@@ -1,9 +1,14 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import os
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, check_cpu_version
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -149,7 +154,7 @@ def int_scaled_matmul(
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
 
-    if scales1.device.type == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+    if check_cpu_version(scales1.device):
         # CPU prefers decomposed version of int_scaled_matmul
         # to leverage the fusion capability of Inductor
         c = torch._int_mm(a, b)

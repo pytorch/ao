@@ -24,6 +24,10 @@ if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
 
+if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
+    set(TORCHAO_PARALLEL_BACKEND aten_openmp)
+endif()
+
 include(CMakePrintHelpers)
 
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
@@ -36,6 +40,7 @@ include_directories(${TORCHAO_INCLUDE_DIRS})
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
+    add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
