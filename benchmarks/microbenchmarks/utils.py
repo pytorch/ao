@@ -85,6 +85,7 @@ class BenchmarkConfig:
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
@@ -114,6 +115,7 @@ class BenchmarkConfig:
             "model_type": self.model_type,
             "output_dir": self.output_dir,
             "enable_profiler": self.enable_profiler,
+            "enable_memory_profiler": self.enable_memory_profiler,
         }
 
 
@@ -126,6 +128,9 @@ class BenchmarkResult:
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
         self.profiler_json_path: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_visualization_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
@@ -133,6 +138,9 @@ class BenchmarkResult:
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
             "profiler_json_path": self.profiler_json_path,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_visualization_path": self.memory_visualization_path,
+            "memory_stats": self.memory_stats,
         }
         return result_dict
 
