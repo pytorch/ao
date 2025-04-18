@@ -56,7 +56,7 @@ lib.define(
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 lib.define(
-    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, int q_zp=0, float q_scale=1.0, int k_zp=0, float k_scale=1.0, int v_zp=0, float v_scale=1.0, int a_zp=0, float a_scale=1.0, int o_zp=0, float o_scale=1.0) -> Tensor"
+    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
 
 
@@ -170,16 +170,16 @@ def scaled_dot_product_int8(
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: float = 0.0,
-    q_zp: int = 0,
     q_scale: float = 1.0,
-    k_zp: int = 0,
+    q_zp: int = 0,
     k_scale: float = 1.0,
-    v_zp: int = 0,
+    k_zp: int = 0,
     v_scale: float = 1.0,
-    a_zp: int = 0,
+    v_zp: int = 0,
     a_scale: float = 1.0,
-    o_zp: int = 0,
+    a_zp: int = 0,
     o_scale: float = 1.0,
+    o_zp: int = 0,
 ) -> Tensor:
     """
     Quantized SDPA with uint8 inputs and outputs.
@@ -192,16 +192,16 @@ def scaled_dot_product_int8(
         dropout_p: dropout probability,
         is_causal: causal flag,
         scale: scaling factor applied prior to softmax,
-        q_zp: zero point for query from linear quantization,
         q_scale: scale for query from linear quantization,
-        k_zp: zero point of key from linear quantization,
+        q_zp: zero point for query from linear quantization,
         k_scale: scale for key from linear quantization,
-        v_zp: zero point of value from linear quantization,
+        k_zp: zero point of key from linear quantization,
         v_scale: zero point for value from linear quantization,
-        a_zp: zero point for attention from softmax quantization,
+        v_zp: zero point of value from linear quantization,
         a_scale: scale for attention from softmax quantization,
-        o_zp: zero point for output from linear quantization,
+        a_zp: zero point for attention from softmax quantization,
         o_scale: scale for output from linear quantization,
+        o_zp: zero point for output from linear quantization,
 
     Returns
         output of quantized SDPA
@@ -214,16 +214,16 @@ def scaled_dot_product_int8(
         dropout_p,
         is_causal,
         scale,
-        q_zp,
         q_scale,
-        k_zp,
+        q_zp,
         k_scale,
-        v_zp,
+        k_zp,
         v_scale,
-        a_zp,
+        v_zp,
         a_scale,
-        o_zp,
+        a_zp,
         o_scale,
+        o_zp,
     )
 
 
@@ -236,16 +236,16 @@ def _(
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: float = 0.0,
-    q_zp: int = 0,
     q_scale: float = 1.0,
-    k_zp: int = 0,
+    q_zp: int = 0,
     k_scale: float = 1.0,
-    v_zp: int = 0,
+    k_zp: int = 0,
     v_scale: float = 1.0,
-    a_zp: int = 0,
+    v_zp: int = 0,
     a_scale: float = 1.0,
-    o_zp: int = 0,
+    a_zp: int = 0,
     o_scale: float = 1.0,
+    o_zp: int = 0,
 ) -> Tensor:
     return query
 
