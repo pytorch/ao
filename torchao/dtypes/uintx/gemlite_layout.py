@@ -342,8 +342,8 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 # TODO: maybe get_plain should not output a transposed scale and zp?
                 # since scale and zero_point are transposed from `get_plain`,
                 # we need to transpose them back before feeding to from_plain
-                scale = scale.t()
-                zero_point = zero_point.t()
+                scale = scale.t().contiguous()
+                zero_point = zero_point.t().contiguous()
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:

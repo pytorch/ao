@@ -26,6 +26,7 @@ from torchao.dtypes import (
 from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
+    GemliteUIntXWeightOnlyConfig,
     float8_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -342,12 +343,26 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
     @skip_if_no_cuda()
-    def test_slice(self, device, dtype):
+    def test_slice_int4wo(self, device, dtype):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8
         # to test slice + padding for int4 weight only quantization
         dummy = nn.Linear(256, 321, dtype=dtype, device=device)
         quantize_(dummy, Int4WeightOnlyConfig())
+        # make sure these run without error
+        _ = dummy.weight.narrow(0, 0, 64)
+        _ = dummy.weight.narrow(1, 0, 128)
+
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.float16])
+    @skip_if_no_cuda()
+    def test_slice_gemlite(self, device, dtype):
+        # in_feature not divisible by 1024
+        # out_feature not divisible by 8
+        # to test slice + padding for int4 weight only quantization
+        dummy = nn.Linear(256, 512, dtype=dtype, device=device)
+        quantize_(dummy, GemliteUIntXWeightOnlyConfig())
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
