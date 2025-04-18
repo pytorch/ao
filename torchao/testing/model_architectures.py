@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 
 
+# TODO: Refactor torchao and tests to use these models
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, k=64, n=32, dtype=torch.bfloat16):
         super().__init__()
