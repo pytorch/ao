@@ -867,8 +867,8 @@ __global__ void Marlin_24(
            thread_k_blocks == THREAD_K_BLOCKS &&                              \
            group_blocks == GROUP_BLOCKS) {                                    \
     cudaFuncSetAttribute(                                                     \
-        Marlin_24<NUM_BITS, THREADS, THREAD_N_BLOCKS, THREAD_M_BLOCKS,        \
-                  THREAD_K_BLOCKS, STAGES, GROUP_BLOCKS>,                     \
+      reinterpret_cast<const void*>(&Marlin_24<NUM_BITS, THREADS, THREAD_N_BLOCKS, THREAD_M_BLOCKS,        \
+                  THREAD_K_BLOCKS, STAGES, GROUP_BLOCKS>),                     \
         cudaFuncAttributeMaxDynamicSharedMemorySize, max_shared_mem);         \
     Marlin_24<NUM_BITS, THREADS, THREAD_N_BLOCKS, THREAD_M_BLOCKS,            \
               THREAD_K_BLOCKS, STAGES, GROUP_BLOCKS>                          \

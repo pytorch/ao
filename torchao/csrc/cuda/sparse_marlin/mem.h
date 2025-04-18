@@ -56,7 +56,18 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
   int src_in_bytes = (zfill ? 0 : BYTES);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  __builtin_amdgcn_global_load_lds(static_cast<const uint32_t*>(glob_ptr), &smem, BYTES, 0, 0);
+   // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } 
   #else
   asm volatile(
       "{\n"
@@ -73,7 +84,18 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
   const int BYTES = 16;
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  __builtin_amdgcn_global_load_lds(static_cast<const uint32_t*>(glob_ptr), &smem, BYTES, 0, 0);
+    // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    }
   #else
   asm volatile(
       "{\n"
@@ -90,7 +112,18 @@ __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
   const int BYTES = 16;
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  __builtin_amdgcn_global_load_lds(static_cast<const uint32_t*>(glob_ptr), &smem, BYTES, 0, 0);
+   // Use appropriate ds_load instruction based on byte size
+    if (BYTES == 4) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b32 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } else if (BYTES == 8) {
+      asm volatile(
+          "{\n"
+          "   ds_load_b64 %0, %1\n"
+          "}\n" :: "v"(smem), "v"(glob_ptr));
+    } 
   #else
   asm volatile(
       "{\n"
@@ -128,11 +161,19 @@ __device__ inline void ldsm4(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  asm volatile(
-      "ds_read_b128 %0, %1 offset:0\n"
-      "ds_read_b128 %2, %1 offset:16\n"
-      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
-      : "v"(smem));
+   // Try using multiple ds_read_b32 instructions which are more widely supported
+    asm volatile(
+        "ds_read_b32 %0, %8 offset:0\n"
+        "ds_read_b32 %1, %8 offset:4\n"
+        "ds_read_b32 %2, %8 offset:8\n"
+        "ds_read_b32 %3, %8 offset:12\n"
+        "ds_read_b32 %4, %8 offset:16\n"
+        "ds_read_b32 %5, %8 offset:20\n"
+        "ds_read_b32 %6, %8 offset:24\n"
+        "ds_read_b32 %7, %8 offset:28\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3]), 
+          "=v"(a[4]), "=v"(a[5]), "=v"(a[6]), "=v"(a[7])
+        : "v"(smem));
   #else
   asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n"
                : "=r"(a[0]), "=r"(a[1]), "=r"(a[2]), "=r"(a[3])
@@ -145,7 +186,8 @@ __device__ inline void ldsm4_m(FragM& frag_m, const void* smem_ptr) {
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
   asm volatile(
-      "ds_read_b64 %0, %2 offset:0\n"
+      "ds_read_b32 %0, %2 offset:0\n"
+      "ds_read_b32 %1, %2 offset:4\n"
       : "=v"(a[0]), "=v"(a[1])
       : "v"(smem));
   #else
@@ -161,11 +203,19 @@ __device__ inline void ldsm4_t(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = cvta_to_shared(smem_ptr);
   #ifdef USE_ROCM
-  asm volatile(
-      "ds_read_b128 %0, %1 offset:0\n"
-      "ds_read_b128 %2, %1 offset:16\n"
-      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
-      : "v"(smem));
+   // Try using multiple ds_read_b32 instructions which are more widely supported
+    asm volatile(
+        "ds_read_b32 %0, %8 offset:0\n"
+        "ds_read_b32 %1, %8 offset:4\n"
+        "ds_read_b32 %2, %8 offset:8\n"
+        "ds_read_b32 %3, %8 offset:12\n"
+        "ds_read_b32 %4, %8 offset:16\n"
+        "ds_read_b32 %5, %8 offset:20\n"
+        "ds_read_b32 %6, %8 offset:24\n"
+        "ds_read_b32 %7, %8 offset:28\n"
+        : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3]), 
+          "=v"(a[4]), "=v"(a[5]), "=v"(a[6]), "=v"(a[7])
+        : "v"(smem));
   #else
   asm volatile(
       "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0,%1,%2,%3}, [%4];\n"
