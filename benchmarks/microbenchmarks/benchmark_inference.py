@@ -22,12 +22,14 @@ from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     clean_caches,
-    create_model_and_input,
     model_inference_time_in_ms,
     string_to_config,
 )
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
+from torchao.testing.model_architectures import (
+    create_model_and_input_data,
+)
 
 
 def run(config: BenchmarkConfig) -> BenchmarkResult:
@@ -38,7 +40,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         # Create output directory if it doesn't exist
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        base_model, input_data = create_model_and_input(
+        base_model, input_data = create_model_and_input_data(
             config.model_type,
             config.m,
             config.k,
