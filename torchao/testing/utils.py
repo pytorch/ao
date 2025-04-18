@@ -91,12 +91,13 @@ def skip_if_rocm(message=None):
 
 
 def skip_if_no_cuda():
-    import unittest
+    import pytest
 
     def decorator(test_func):
+        @functools.wraps(test_func)
         def wrapper(*args, **kwargs):
             if not torch.cuda.is_available():
-                raise unittest.SkipTest("No cuda available")
+                raise pytest.skip("No cuda available")
             return test_func(*args, **kwargs)
 
         return wrapper
