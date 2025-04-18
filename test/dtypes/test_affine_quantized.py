@@ -21,6 +21,7 @@ from torchao.dtypes import (
     Int4XPULayout,
     PlainLayout,
     SemiSparseLayout,
+    to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
@@ -351,6 +352,23 @@ class TestAffineQuantizedBasic(TestCase):
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_matmul(self, device, dtype):
+        x = torch.randn(53, 2048)
+        w = torch.randn(53, 2048)
+        w = to_affine_quantized_intx(
+            w,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=(1, 32),
+            target_dtype=torch.int8,
+            quant_min=-8,
+            quant_max=7,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        # make sure it runs
+        torch.matmul(x, w.t())
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)

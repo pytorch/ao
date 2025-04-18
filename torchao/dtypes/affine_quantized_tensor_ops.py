@@ -157,6 +157,9 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
+# input_tensor: dimension is (M1, M2, ..., in_features)
+# weight_tensor: dimension is (out_features, in_features)
+# bias: dimension is (out_features,)
 @staticmethod
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
@@ -335,12 +338,19 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -365,9 +375,16 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
