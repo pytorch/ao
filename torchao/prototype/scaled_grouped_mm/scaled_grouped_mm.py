@@ -1,16 +1,23 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Optional, Tuple
 
 import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.scaled_grouped_mm.utils import _is_column_major
 
 
 def _scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: torch.Tensor,
-    out_dtype: Optional[torch.dtype] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
 ) -> torch.Tensor:
     """
     This function performs dynamic float8 quantization with row-wise scaling
@@ -41,7 +48,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         A: torch.Tensor,
         B_t: torch.Tensor,
         offs: torch.Tensor,
-        out_dtype: Optional[torch.dtype] = None,
+        out_dtype: Optional[torch.dtype] = torch.bfloat16,
     ) -> torch.Tensor:
         # torchao _scaled_grouped_mm only supports A=2D, B=3D.
         assert A.ndim == 2, "A must be 2D"
@@ -345,17 +352,3 @@ def _to_2d_jagged_float8_tensor_rowwise(
         next_scale_idx += subtensor_scales.numel()
 
     return x_fp8, x_scales
-
-
-def _is_column_major(x: torch.Tensor) -> bool:
-    """
-    This function checks if the input tensor is column-major.
-
-    Args:
-        x (torch.Tensor): The input tensor to be checked.
-
-    Returns:
-        A boolean indicating whether the input tensor is column-major.
-    """
-    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
-    return x.stride(-2) == 1 and x.stride(-1) > 1
