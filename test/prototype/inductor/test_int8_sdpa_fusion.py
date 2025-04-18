@@ -11,6 +11,7 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 from torch.utils.cpp_extension import IS_WINDOWS
 
+import torchao
 from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
@@ -147,12 +148,13 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
-        import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
-        from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-        from torch.ao.quantization.quantizer.x86_inductor_quantizer import (
+        from torch.export import export_for_training
+
+        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+        from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+        from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
             X86InductorQuantizer,
         )
-        from torch.export import export_for_training
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
@@ -195,7 +197,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 prepare_model = prepare_pt2e(export_model, quantizer)
                 prepare_model(*inputs)
                 convert_model = convert_pt2e(prepare_model)
-                torch.ao.quantization.move_exported_model_to_eval(convert_model)
+                torchao.quantization.pt2e.move_exported_model_to_eval(convert_model)
                 self._check_common(
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )

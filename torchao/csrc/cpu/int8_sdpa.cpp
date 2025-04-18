@@ -739,16 +739,16 @@ sdpa_int8_fused_kernel_impl(
     bool is_causal,
     std::optional<at::Tensor> attention_mask,
     double scale,
-    int32_t q_zp,
     float q_scale,
-    int32_t k_zp,
+    int32_t q_zp,
     float k_scale,
-    int32_t v_zp,
+    int32_t k_zp,
     float v_scale,
-    int32_t a_zp,
+    int32_t v_zp,
     float a_scale,
-    int32_t o_zp,
-    float o_scale) {
+    int32_t a_zp,
+    float o_scale,
+    int32_t o_zp) {
   // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
   //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
   // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
@@ -1167,16 +1167,16 @@ sdpa_int8_fused_kernel_impl(
     bool is_causal,
     std::optional<at::Tensor> attention_mask,
     double scale,
-    int32_t q_zp,
     float q_scale,
-    int32_t k_zp,
+    int32_t q_zp,
     float k_scale,
-    int32_t v_zp,
+    int32_t k_zp,
     float v_scale,
-    int32_t a_zp,
+    int32_t v_zp,
     float a_scale,
-    int32_t o_zp,
-    float o_scale) {
+    int32_t a_zp,
+    float o_scale,
+    int32_t o_zp) {
   // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
   //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
   // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
@@ -1634,36 +1634,36 @@ sdpa_int8_fused_kernel_impl(
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
     double scale,
-    int32_t q_zp,
     float q_scale,
-    int32_t k_zp,
+    int32_t q_zp,
     float k_scale,
-    int32_t v_zp,
+    int32_t k_zp,
     float v_scale,
-    int32_t a_zp,
+    int32_t v_zp,
     float a_scale,
-    int32_t o_zp,
-    float o_scale) {
+    int32_t a_zp,
+    float o_scale,
+    int32_t o_zp) {
   if (use_one_parallel_loop) {
     sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
           /* use_one_parallel_loop */ true>(
       output, query, key, value,
       dropout_p, is_causal, attn_mask, scale,
-      q_zp, q_scale,
-      k_zp, k_scale,
-      v_zp, v_scale,
-      a_zp, a_scale,
-      o_zp, o_scale);
+      q_scale, q_zp,
+      k_scale, k_zp,
+      v_scale, v_zp,
+      a_scale, a_zp,
+      o_scale, o_zp);
   } else {
     sdpa_int8_fused_kernel_impl<scalar_t, mask_t, q_split_size, kv_split_size,
           /* use_one_parallel_loop */ false>(
       output, query, key, value,
       dropout_p, is_causal, attn_mask, scale,
-      q_zp, q_scale,
-      k_zp, k_scale,
-      v_zp, v_scale,
-      a_zp, a_scale,
-      o_zp, o_scale);
+      q_scale, q_zp,
+      k_scale, k_zp,
+      v_scale, v_zp,
+      a_scale, a_zp,
+      o_scale, o_zp);
   }
 }
 
@@ -1692,16 +1692,16 @@ void sdpa_int8_fused_kernel(
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
     double scale,
-    long q_zp,
-    double q_scale,
-    long k_zp,
-    double k_scale,
-    long v_zp,
-    double v_scale,
-    long a_zp,
-    double a_scale,
-    long o_zp,
-    double o_scale) {
+    float q_scale,
+    int32_t q_zp,
+    float k_scale,
+    int32_t k_zp,
+    float v_scale,
+    int32_t v_zp,
+    float a_scale,
+    int32_t a_zp,
+    float o_scale,
+    int32_t o_zp) {
   TORCH_CHECK(query.scalar_type() == c10::kByte);
   int64_t batchSize = query.size(0);
   int64_t num_head = query.size(1);
@@ -1727,31 +1727,31 @@ void sdpa_int8_fused_kernel(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
-        q_zp, q_scale,
-        k_zp, k_scale,
-        v_zp, v_scale,
-        a_zp, a_scale,
-        o_zp, o_scale);
+        q_scale, q_zp,
+        k_scale, k_zp,
+        v_scale, v_zp,
+        a_scale, a_zp,
+        o_scale, o_zp);
     } else if (q_split_size == 64) {
       sdpa_int8_fused_kernel_impl<unsigned char, float, 64, 64>(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
-        q_zp, q_scale,
-        k_zp, k_scale,
-        v_zp, v_scale,
-        a_zp, a_scale,
-        o_zp, o_scale);
+        q_scale, q_zp,
+        k_scale, k_zp,
+        v_scale, v_zp,
+        a_scale, a_zp,
+        o_scale, o_zp);
     } else {
       sdpa_int8_fused_kernel_impl<unsigned char, float, 32, 64>(
         use_one_parallel_loop,
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
-        q_zp, q_scale,
-        k_zp, k_scale,
-        v_zp, v_scale,
-        a_zp, a_scale,
-        o_zp, o_scale);
+        q_scale, q_zp,
+        k_scale, k_zp,
+        v_scale, v_zp,
+        a_scale, a_zp,
+        o_scale, o_zp);
     }
   } else {
     AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
@@ -1760,31 +1760,31 @@ void sdpa_int8_fused_kernel(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
+          q_scale, q_zp,
+          k_scale, k_zp,
+          v_scale, v_zp,
+          a_scale, a_zp,
+          o_scale, o_zp);
       } else if (q_split_size == 64) {
         sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 64, 64>(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
+          q_scale, q_zp,
+          k_scale, k_zp,
+          v_scale, v_zp,
+          a_scale, a_zp,
+          o_scale, o_zp);
       } else {
         sdpa_int8_fused_kernel_impl<unsigned char, mask_t, 32, 64>(
           use_one_parallel_loop,
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
-          q_zp, q_scale,
-          k_zp, k_scale,
-          v_zp, v_scale,
-          a_zp, a_scale,
-          o_zp, o_scale);
+          q_scale, q_zp,
+          k_scale, k_zp,
+          v_scale, v_zp,
+          a_scale, a_zp,
+          o_scale, o_zp);
       }
     });
   }
@@ -1799,16 +1799,16 @@ at::Tensor sdpa_int8_math_kernel(
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
     double scale,
-    int32_t q_zp,
     float q_scale,
-    int32_t k_zp,
+    int32_t q_zp,
     float k_scale,
-    int32_t v_zp,
+    int32_t k_zp,
     float v_scale,
-    int32_t a_zp,
+    int32_t v_zp,
     float a_scale,
-    int32_t o_zp,
-    float o_scale) {
+    int32_t a_zp,
+    float o_scale,
+    int32_t o_zp) {
   // dequant q/k/v
   auto q = (query.to(at::kFloat) - q_zp) * q_scale;
   auto k = (key.to(at::kFloat) - k_zp) * k_scale;
@@ -1842,16 +1842,16 @@ at::Tensor _scaled_dot_product_int8_cpu(
     double dropout_p,
     bool is_causal,
     double scale,
-    int64_t q_zp,
     double q_scale,
-    int64_t k_zp,
+    int64_t q_zp,
     double k_scale,
-    int64_t v_zp,
+    int64_t k_zp,
     double v_scale,
-    int64_t a_zp,
+    int64_t v_zp,
     double a_scale,
-    int64_t o_zp,
-    double o_scale) {
+    int64_t a_zp,
+    double o_scale,
+    int64_t o_zp) {
   const auto dtype = query.scalar_type();
   TORCH_CHECK(!query.is_nested() && !key.is_nested() && !value.is_nested(),
     "_scaled_dot_product_int8_cpu: Only accept plain inputs");
@@ -1878,21 +1878,21 @@ at::Tensor _scaled_dot_product_int8_cpu(
         at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
         sdpa_int8_fused_kernel(output, query, key, value,
             dropout_p, is_causal, attn_mask, scale,
-            q_zp, q_scale,
-            k_zp, k_scale,
-            v_zp, v_scale,
-            a_zp, a_scale,
-            o_zp, o_scale);
+            q_scale, q_zp,
+            k_scale, k_zp,
+            v_scale, v_zp,
+            a_scale, a_zp,
+            o_scale, o_zp);
         return output.transpose(1, 2);
     } else {
   #endif // CPU_CAPABILITY_AVX512
         return sdpa_int8_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
-              q_zp, q_scale,
-              k_zp, k_scale,
-              v_zp, v_scale,
-              a_zp, a_scale,
-              o_zp, o_scale).transpose(1, 2).contiguous().transpose(1, 2);
+              q_scale, q_zp,
+              k_scale, k_zp,
+              v_scale, v_zp,
+              a_scale, a_zp,
+              o_scale, o_zp).transpose(1, 2).contiguous().transpose(1, 2);
   #ifdef CPU_CAPABILITY_AVX512
     }
   #endif // CPU_CAPABILITY_AVX512

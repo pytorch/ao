@@ -123,16 +123,16 @@ class TestOps(TestCase):
         attn_mask=None,
         dropout_p=0,
         is_causal=False,
-        q_zp=0,
         q_scale=1.0,
-        k_zp=0,
+        q_zp=0,
         k_scale=1.0,
-        v_zp=0,
+        k_zp=0,
         v_scale=1.0,
-        a_zp=0,
+        v_zp=0,
         a_scale=1.0,
-        o_zp=0,
+        a_zp=0,
         o_scale=1.0,
+        o_zp=0,
     ):
         q = (q.to(torch.float) - q_zp) * q_scale
         k = (k.to(torch.float) - k_zp) * k_scale
@@ -168,16 +168,16 @@ class TestOps(TestCase):
     ):
         torch.manual_seed(1234)
         device = "cpu"
-        q_zp = int(127)
         q_scale = float(1.7907238006591797)
-        k_zp = int(125)
+        q_zp = int(127)
         k_scale = float(1.8039721250534058)
-        v_zp = int(127)
+        k_zp = int(125)
         v_scale = float(1.839004635810852)
-        a_zp = int(120)
+        v_zp = int(127)
         a_scale = float(0.003919653594493866)
-        o_zp = int(128)
+        a_zp = int(120)
         o_scale = float(1.8191684484481812)
+        o_zp = int(128)
         q_shape = [batch_size, q_seq_len, n_head, head_dim]
         kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
         mask_shape = [batch_size, 1, 1, kv_seq_len]
@@ -212,16 +212,16 @@ class TestOps(TestCase):
             attn_mask=attn_mask,
             dropout_p=0.0,
             is_causal=False,
-            q_zp=q_zp,
             q_scale=q_scale,
-            k_zp=k_zp,
+            q_zp=q_zp,
             k_scale=k_scale,
-            v_zp=v_zp,
+            k_zp=k_zp,
             v_scale=v_scale,
-            a_zp=a_zp,
+            v_zp=v_zp,
             a_scale=a_scale,
-            o_zp=o_zp,
+            a_zp=a_zp,
             o_scale=o_scale,
+            o_zp=o_zp,
         )
         actual = torch.ops.torchao.scaled_dot_product_int8(
             q,
@@ -230,16 +230,16 @@ class TestOps(TestCase):
             attn_mask=attn_mask_2,
             dropout_p=0.0,
             is_causal=False,
-            q_zp=q_zp,
             q_scale=q_scale,
-            k_zp=k_zp,
+            q_zp=q_zp,
             k_scale=k_scale,
-            v_zp=v_zp,
+            k_zp=k_zp,
             v_scale=v_scale,
-            a_zp=a_zp,
+            v_zp=v_zp,
             a_scale=a_scale,
-            o_zp=o_zp,
+            a_zp=a_zp,
             o_scale=o_scale,
+            o_zp=o_zp,
         )
 
         self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)

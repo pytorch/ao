@@ -54,16 +54,16 @@ def _register_int8_sdpa_pattern(pattern):
         value = kwargs["value"]
         inv_scale = kwargs["inv_scale"]
         attn_mask = kwargs["attn_mask"] if "attn_mask" in kwargs else None
-        q_zp = kwargs["q_zp"]
         q_scale = kwargs["q_scale"]
-        k_zp = kwargs["k_zp"]
+        q_zp = kwargs["q_zp"]
         k_scale = kwargs["k_scale"]
-        v_zp = kwargs["v_zp"]
+        k_zp = kwargs["k_zp"]
         v_scale = kwargs["v_scale"]
-        a_zp = kwargs["a_zp"]
+        v_zp = kwargs["v_zp"]
         a_scale = kwargs["a_scale"]
-        o_zp = kwargs["o_zp"]
+        a_zp = kwargs["a_zp"]
         o_scale = kwargs["o_scale"]
+        o_zp = kwargs["o_zp"]
         counters["inductor"]["int8_fuse_attention"] += 1
         counters["inductor"]["int8_sdpa_nodes"] += len(match.nodes)
 
@@ -78,16 +78,16 @@ def _register_int8_sdpa_pattern(pattern):
             0.0,  # dropout
             False,  # is_causal
             1.0 / inv_scale,  # scale
-            q_zp,
             q_scale,
-            k_zp,
+            q_zp,
             k_scale,
-            v_zp,
+            k_zp,
             v_scale,
-            a_zp,
+            v_zp,
             a_scale,
-            o_zp,
+            a_zp,
             o_scale,
+            o_zp,
         )
         trans_output = L[aten.permute.default](output, [0, 2, 1, 3])
         return L[aten.clone.default](
