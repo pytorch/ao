@@ -75,8 +75,14 @@ def mx_mm(aten_op, args, kwargs=None):
     b = args[1]
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
     assert a._gemm_kernel_choice == b._gemm_kernel_choice, "unsupported"
-    if a._gemm_kernel_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
-        # real MX gemm backed by torchao's CUTLASS kernels
+    kernel_choice = a._gemm_kernel_choice
+    valid_kernels = (
+        MXGemmKernelChoice.CUBLAS,
+        MXGemmKernelChoice.CUTLASS,
+        MXGemmKernelChoice.HIPBLASLT,
+    )
+    if kernel_choice in valid_kernels:
+        # real MX gemm backed by torchao's CUTLASS/CUBLAS/HIPBLASLT kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a._data.is_contiguous()
         assert b._data.t().is_contiguous()
@@ -88,7 +94,12 @@ def mx_mm(aten_op, args, kwargs=None):
         b_scale_block = to_blocked(b_scale)
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            if a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS:
+            scaled_mm_kernels = (
+                MXGemmKernelChoice.CUBLAS,
+                MXGemmKernelChoice.HIPBLASLT,
+            )
+            if kernel_choice in scaled_mm_kernels:
+                # Use native scaled_mm for both CUBLAS and HIPBLASLT
                 res = torch._scaled_mm(
                     a._data,
                     b._data,
@@ -103,7 +114,8 @@ def mx_mm(aten_op, args, kwargs=None):
         else:
             assert a._elem_dtype == DTYPE_FP4
             assert b._elem_dtype == DTYPE_FP4
-            assert a._gemm_kernel_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
+            msg = "FP4 is only supported with CUTLASS kernel at this moment"
+            assert kernel_choice is MXGemmKernelChoice.CUTLASS, msg
             res = torchao.ops.mx_fp4_bf16(
                 a._data, b._data, a_scale_block, b_scale_block
             )
@@ -185,9 +197,9 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     tensor.
     """
     assert isinstance(args[0], MXTensor)
-    assert (
-        len(kwargs) == 1 and "dtype" in kwargs
-    ), "Only support dtype kwarg for autocast"
+    assert len(kwargs) == 1 and "dtype" in kwargs, (
+        "Only support dtype kwarg for autocast"
+    )
     assert kwargs["dtype"] in {
         torch.float16,
         torch.bfloat16,
