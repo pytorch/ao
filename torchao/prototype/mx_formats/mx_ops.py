@@ -174,8 +174,7 @@ def mx_view_op(aten_op, args, kwargs=None):
     if args[0]._elem_dtype == DTYPE_FP4:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
-    elif (args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3] and 
-          args[0]._pack_fp6):
+    elif args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3] and args[0]._pack_fp6:
         # special case fp6 as we pack 4 elements in 3 bytes
         new_size = tensor_size_hpx3_to_fp6x4(new_size, data.is_contiguous())
     new_data = aten_op(data, new_size, *args[2:], **kwargs)
@@ -198,9 +197,9 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     tensor.
     """
     assert isinstance(args[0], MXTensor)
-    assert (
-        len(kwargs) == 1 and "dtype" in kwargs
-    ), "Only support dtype kwarg for autocast"
+    assert len(kwargs) == 1 and "dtype" in kwargs, (
+        "Only support dtype kwarg for autocast"
+    )
     assert kwargs["dtype"] in {
         torch.float16,
         torch.bfloat16,
