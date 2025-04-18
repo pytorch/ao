@@ -45,7 +45,7 @@ Possibly better to transpose 16x16 of b and use dotprod. Left for future.
 */
 
 template <int lane>
-TORCHAO_ALWAYS_INLINE void block_mul_1x16x1(
+TORCHAO_ALWAYS_INLINE inline void block_mul_1x16x1(
     const int16x4_t& a_vec,
     const int8x16_t& b_vec,
     const int8x16_t& b_zero_point_vec,
@@ -129,7 +129,7 @@ void block_mul_1x16x16(
       vget_high_s16(a_vec_high), b_vec, b_zero_point_vec, partial_sums);
 }
 
-TORCHAO_ALWAYS_INLINE void dequantize_1x16_int32_t(
+TORCHAO_ALWAYS_INLINE inline void dequantize_1x16_int32_t(
     const int32x4_t (&sums)[4],
     const float* lhs_scales,
     const float* rhs_scales,

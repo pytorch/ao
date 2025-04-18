@@ -41,15 +41,6 @@ def generate_model_profile(model, input_data, profile_file_path):
     if device.type == "cuda" and torch.cuda.is_available():
         activities.append(ProfilerActivity.CUDA)
 
-    # Run profiler with minimal settings to ensure compatibility
-    prof = torch.profiler.profile(
-        activities=activities,
-        record_shapes=True,
-        with_stack=True,
-        profile_memory=True,
-        with_flops=True,  # Experimental; might be unreliable for some layers
-    )
-
     # Warm up
     with torch.no_grad():
         for _ in range(3):
@@ -57,8 +48,14 @@ def generate_model_profile(model, input_data, profile_file_path):
             if device.type == "cuda":
                 torch.cuda.synchronize()
 
-    # Profile
-    with prof:
+    # Run profiler with minimal settings to ensure compatibility
+    with torch.profiler.profile(
+        activities=activities,
+        record_shapes=True,
+        with_stack=True,
+        profile_memory=True,
+        with_flops=True,  # Experimental; might be unreliable for some layers
+    ) as prof:
         with torch.no_grad():
             for _ in range(3):
                 _ = model(input_data)
@@ -67,7 +64,10 @@ def generate_model_profile(model, input_data, profile_file_path):
 
     # Save profiling details
     prof.export_chrome_trace(profile_file_path)
-    print(f"Profile saved to: {profile_file_path}")
+    print(f"Chrome trace saved at: {profile_file_path}")
+    print("You can now visualize it using:")
+    print("1. Chrome Trace Viewer: chrome://tracing")
+    print("2. Perfetto UI: https://ui.perfetto.dev")
 
     return profile_file_path
 

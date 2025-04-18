@@ -43,6 +43,12 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
 )
+from torchao.dtypes.uintx.int4_xpu_layout import (
+    _linear_bf16_act_uint4_weight_float_zero_check,
+    _linear_bf16_act_uint4_weight_float_zero_impl,
+    _linear_bf16_act_uint4_weight_int8_zero_check,
+    _linear_bf16_act_uint4_weight_int8_zero_impl,
+)
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
     _linear_int8_act_int4_weight_marlin_qqq_impl,
@@ -151,6 +157,9 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
+# input_tensor: dimension is (M1, M2, ..., in_features)
+# weight_tensor: dimension is (out_features, in_features)
+# bias: dimension is (out_features,)
 @staticmethod
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
@@ -224,6 +233,14 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_q_dq_check,
             _linear_q_dq_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_int8_zero_check,
+            _linear_bf16_act_uint4_weight_int8_zero_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_float_zero_check,
+            _linear_bf16_act_uint4_weight_float_zero_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
@@ -321,12 +338,19 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -351,9 +375,16 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -381,6 +412,13 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[1]._apply_fn_to_data(torch.clone)
     )
 
 

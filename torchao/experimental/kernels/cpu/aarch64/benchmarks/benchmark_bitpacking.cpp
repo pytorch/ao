@@ -27,7 +27,7 @@ template <
     typename pack_8_values_fn_type,
     typename vec_pack_64_values_fn_type,
     typename vec_pack_128_values_fn_type>
-TORCHAO_ALWAYS_INLINE void pack_uint_odd_bit_values(
+TORCHAO_ALWAYS_INLINE inline void pack_uint_odd_bit_values(
     pack_8_values_fn_type pack_8_values_func,
     vec_pack_64_values_fn_type vec_pack_64_values_func,
     vec_pack_128_values_fn_type vec_pack_128_values_func,
@@ -94,7 +94,7 @@ template <
     typename unpack_8_values_fn_type,
     typename vec_unpack_64_values_fn_type,
     typename vec_unpack_128_values_fn_type>
-TORCHAO_ALWAYS_INLINE void unpack_uint_odd_bit_values(
+TORCHAO_ALWAYS_INLINE inline void unpack_uint_odd_bit_values(
     unpack_8_values_fn_type unpack_8_values_func,
     vec_unpack_64_values_fn_type vec_unpack_64_values_func,
     vec_unpack_128_values_fn_type vec_unpack_128_values_func,

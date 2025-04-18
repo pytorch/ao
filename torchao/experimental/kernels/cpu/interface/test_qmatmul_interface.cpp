@@ -349,6 +349,18 @@ TEST(test_channelwise_8bit_channelwise_8bit_b, TranposeBWithZeroPointsLargeM) {
 
 TEST(
     test_channelwise_8bit_channelwise_8bit_b,
+    TranposeBWithZeroPointsLargeMWithGemmGemvMix) {
+  test_channelwise_8bit_channelwise_8bit_b<
+      true /*a_has_zeros*/,
+      true /*b_has_zeros*/,
+      false /*a_transposed*/,
+      true /*b_transposed*/>::
+      Run(
+          /*m=*/11, /*k=*/128, /*n=*/16);
+}
+
+TEST(
+    test_channelwise_8bit_channelwise_8bit_b,
     TranposedBWithZeroPointsOddSizes) {
   test_channelwise_8bit_channelwise_8bit_b<
       true /*a_has_zeros*/,
@@ -622,6 +634,22 @@ TEST_P(
   generate(4, 5, 3, true, false, false, 32);
   test_fp32_a_input_channelwise_8bit_b(
       /*m=*/4, /*k=*/5, /*n=*/3, beta(), *this, 32);
+}
+
+TEST_P(
+    FP32A_QuantizedB_FP32C_Interface_Test,
+    BTranposedWithZeroPointsOddSizes2) {
+  generate(19, 37, 35, true, false, false);
+  test_fp32_a_input_channelwise_8bit_b(
+      /*m=*/19, /*k=*/37, /*n=*/35, beta(), *this);
+}
+
+TEST_P(
+    FP32A_QuantizedB_FP32C_Interface_Test,
+    BTranposedWithZeroPointsOddSizesStrided2) {
+  generate(23, 37, 50, true, false, false, 32);
+  test_fp32_a_input_channelwise_8bit_b(
+      /*m=*/23, /*k=*/37, /*n=*/50, beta(), *this, 32);
 }
 
 INSTANTIATE_TEST_SUITE_P(
