@@ -193,7 +193,7 @@ void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
           {cute::_1{}, cute::_0{}, cute::_0{}}
         };
       } else {
-        return {ElementBias(0)};
+        return {{ElementBias(0)}};
       }
     }()
   };
