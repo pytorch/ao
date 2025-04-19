@@ -20,7 +20,7 @@ from torchao.dtypes.affine_quantized_tensor import (
 from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledAQTTensorImpl
 from torchao.dtypes.utils import Layout, is_device
 from torchao.quantization.quant_primitives import quantize_affine
-from torchao.utils import fill_defaults
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, fill_defaults
 
 aten = torch.ops.aten
 
@@ -402,3 +402,13 @@ def _linear_fp_act_int4_weight_gemlite_check(input_tensor, weight_tensor, bias):
         and isinstance(weight_tensor, AffineQuantizedTensor)
         and isinstance(weight_tensor._layout, GemlitePackedLayout)
     )
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    try:
+        from gemlite.core import DType, GemLiteLinearTriton
+
+        # TODO: we need to remove `getattr` since it's unsafe (by picklescan)
+        torch.serialization.add_safe_globals([DType, GemLiteLinearTriton, getattr])
+    except:
+        pass
