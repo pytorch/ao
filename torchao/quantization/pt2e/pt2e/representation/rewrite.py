@@ -17,7 +17,7 @@ from torch.fx import GraphModule
 from torch.fx.subgraph_rewriter import replace_pattern
 
 from torchao.quantization.pt2e.pt2e.export_utils import _WrapperModule
-from torchao.quantization.pt2e.pt2e.utils import (
+from torchao.quantization.pt2e.utils import (
     _get_aten_graph_module_for_pattern,
     _replace_literals_with_existing_placeholders,
     _replace_literals_with_new_placeholders,

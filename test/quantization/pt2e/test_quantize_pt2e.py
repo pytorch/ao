@@ -2077,14 +2077,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         exported_gm = export_for_training(m, example_inputs, strict=True).module()
         fx_traced_gm = torch.fx.symbolic_trace(m, example_inputs)
         self.assertTrue(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(exported_gm)
+            torchao.quantization.pt2e.export_utils.model_is_exported(exported_gm)
         )
         self.assertFalse(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(fx_traced_gm)
+            torchao.quantization.pt2e.export_utils.model_is_exported(fx_traced_gm)
         )
-        self.assertFalse(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(m)
-        )
+        self.assertFalse(torchao.quantization.pt2e.export_utils.model_is_exported(m))
 
     def test_reentrant(self):
         """Test we can safely call quantization apis multiple times"""
