@@ -9,7 +9,7 @@
 #include "sparse24_metadata.h"
 #include "warp_tensor.h"
 
-using namespace xformers::sp24;
+using namespace torchao;
 
 namespace {
 // ############################################
@@ -406,19 +406,19 @@ std::tuple<at::Tensor, at::Tensor> sparse24_sm90_sparsify(
 }
 } // namespace
 
-TORCH_LIBRARY_IMPL(xformers, CUDA, m) {
+TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl(
-      TORCH_SELECTIVE_NAME("xformers::sparse24_sm90_sparsify"),
+      TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
       TORCH_FN(sparse24_sm90_sparsify<false>));
 }
 
-TORCH_LIBRARY_IMPL(xformers, Meta, m) {
+TORCH_LIBRARY_IMPL(torchao, Meta, m) {
   m.impl(
-      TORCH_SELECTIVE_NAME("xformers::sparse24_sm90_sparsify"),
+      TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
       TORCH_FN(sparse24_sm90_sparsify<true>));
 }
 
-TORCH_LIBRARY_FRAGMENT(xformers, m) {
+TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "xformers::sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale = None) -> (Tensor, Tensor)"));
+      "torchao::sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale = None) -> (Tensor, Tensor)"));
 }

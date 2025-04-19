@@ -4,10 +4,9 @@
 #include <cutlass/array.h>
 #include <cutlass/numeric_conversion.h>
 
-#include "StaticSort.h"
+#include "static_sort.h"
 
-namespace xformers {
-namespace sp24 {
+namespace torchao {
 
 template <typename Element, int kRows_, int kCols_>
 struct WarpTensor {
@@ -466,5 +465,4 @@ CUTLASS_DEVICE void warp_dump_sparse_and_dense_from_smem_32cols(
     }
   }
 }
-} // namespace sp24
-} // namespace xformers
+} // namespace torchao

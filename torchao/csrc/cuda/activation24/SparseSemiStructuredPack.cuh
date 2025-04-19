@@ -1,6 +1,6 @@
 #pragma once
 
-#include "StaticSort.h"
+#include "static_sort.h"
 #include <cutlass/arch/memory.h>
 #include <cutlass/array.h>
 #include <cutlass/bfloat16.h>

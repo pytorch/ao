@@ -3,15 +3,26 @@
 #include <cutlass/bfloat16.h>
 #include <cutlass/half.h>
 
-#include "sparse24_pack.h"
-#include "StaticSort.h"
+// #include "sparse24_pack.h"
+#include <cutlass/arch/memory.h>
+#include <cutlass/array.h>
+#include <cutlass/bfloat16.h>
+#include <cutlass/fast_math.h>
+#include <cutlass/half.h>
+#include <cutlass/integer_subbyte.h>
+#include "static_sort.h"
 
 // Given 4x4 values, computes the selected indices that will remain after 2:4
 // sparsification, as a bitmask.
 // NOTE: Algorithms might select LESS than 8 values in total in some cases.
 
-namespace xformers {
-namespace sp24 {
+namespace torchao {
+
+using cutlass::uint1b_t;
+using cutlass::uint2b_t;
+using cutlass::uint4b_t;
+using uint8b_t = cutlass::integer_subbyte<8, false>;
+using ElementInputE = uint16_t;
 
 // Operations that we can apply to rank the values
 struct IdentityOp {
@@ -52,11 +63,7 @@ struct TileValueOrderedT {
     parts.cmp = Pointwise::to_ordered(value);
   }
 };
-} // namespace sp24
-} // namespace xformers
-//@fairinternal-below
-namespace xformers {
-namespace sp24 {
+
 template <typename Op>
 struct Top2 {
   template <typename ElementT>
@@ -92,5 +99,5 @@ void named_algorithms_oneway(T callback) {
   callback(Top2<IdentityOp>(), "largest");
   callback(Top2<AbsOp>(), "largest_abs");
 }
-} // namespace sp24
-} // namespace xformers
+
+} // namespace torchao
