@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import List, Tuple
+from typing import List
 
 import torch
 
@@ -126,9 +126,8 @@ def _fake_quantize_per_token(
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
     block_size = _get_per_token_block_size(input)
-    fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input,
+        input,
         block_size,
         scales,
         zero_points,
@@ -136,55 +135,6 @@ def _fake_quantize_per_token(
         quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
-
-
-# TODO: This is copied from torch/ao/quantization/fx/_decomposed.py.
-# The version in pytorch does not have backward support yet so we add
-# it here for now until https://github.com/pytorch/pytorch/pull/123452
-# is landed.
-def _choose_qparams_per_token_asymmetric(
-    input: torch.Tensor,
-    scales_precision: torch.dtype = torch.float32,
-    zero_points_precision: torch.dtype = torch.float32,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Choose quantization parameters for per token quantization. This means for a N dimension Tensor
-    (M1, M2, ...Mn, N), we calculate scales/zero_points for each N elements and quantize
-    every N elements with the same quantization parameter. The dimension for scales/zero_points
-    will be (M1 * M2 ... * Mn)
-
-    Args:
-       input (torch.Tensor): original float32/float16 Tensor
-       scales_precision (torch.dtype): precision of returned scales
-       zero_points_precision (torch.dtype): precision of returned zero points
-
-    Returns:
-        scales and zero_points, both float32 Tensors
-    """
-    # Based on https://github.com/google/XNNPACK/blob/df156f0cf3db5a4576cc711123eeb54915f82ffc/src/xnnpack/quantization.h#L18
-    qmin, qmax = -128, 127
-    min_val = torch.amin(input, dim=-1, keepdim=True)
-    max_val = torch.amax(input, dim=-1, keepdim=True)
-    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-    eps = torch.finfo(torch.float32).eps  # use xnnpack eps?
-
-    # scale
-    scale = (max_val_pos - min_val_neg) / float(qmax - qmin)
-    scale = scale.clamp(min=eps)
-
-    # zero point
-    descaled_min = min_val_neg / scale
-    descaled_max = max_val_pos / scale
-    zero_point_from_min_error = qmin + descaled_min
-    zero_point_from_max_error = qmax + descaled_max
-    zero_point = torch.where(
-        zero_point_from_min_error + zero_point_from_max_error > 0,
-        qmin - descaled_min,
-        qmax - descaled_max,
-    )
-    zero_point = torch.clamp(zero_point, qmin, qmax).round()
-
-    return scale.to(scales_precision), zero_point.to(zero_points_precision)
 
 
 def _get_qmin_qmax(n_bit: int, symmetric: bool = True):
