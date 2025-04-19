@@ -11,76 +11,16 @@ from torchao.quantization.quant_api import (
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
 
 from torchao.sparsity.utils import create_semi_structured_tensor
-from torch.sparse import to_sparse_semi_structured
-
-from torch.testing._internal import common_utils
 
 dtype = torch.float16
 device = torch.device("cuda")
 dtypeq_X = torch.float8_e4m3fn
 dtypeq_W = torch.float8_e4m3fn
-torch.set_printoptions(profile="full")
-torch.set_printoptions(linewidth=10000)
-from torchao.testing.utils import skip_if_compute_capability_less_than
 from torchao.utils import is_sm_at_least_90
 import unittest
 
 
 torch.manual_seed(32)
-
-def test_packed_fp8():
-    # W_ref = create_semi_structured_tensor(128, 128, dtype=torch.float8_e4m3fn).to(device)
-    W_ref = torch.Tensor([[2, 3, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 8, 0, 0], 
-                          [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-                          [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-                          [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((128// 4, 128// 16)).contiguous().to(torch.float8_e4m3fn)
-    packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-    packed, packed_meta = sparse_semi_structured_tile(W_ref, "", True)
-    
-    torch.testing.assert_close(packed.to(torch.float16), packed_reference.to(torch.float16))
-
-
-def test_meta_fp8_fixed_128x256():
-    r, c = 128, 256
-    torch.manual_seed(123)
-    # W_ref = create_semi_structured_tensor(128, 256, dtype=torch.float8_e4m3fn).to(device)
-    # print(W_ref[:18])
-    # print(W_ref.count_nonzero())
-    # print(W_ref)
-    W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
-                          [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-                          [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-                          [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((r // 4, c// 16)).contiguous().to(torch.float8_e4m3fn)
-    packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-    packed, packed_meta = sparse_semi_structured_tile(W_ref, "", True)
-
-    # vc_mine = torch.unique(packed_meta, return_counts=True)
-    # vc_ref = torch.unique(meta_reference, return_counts=True)
-    # # print(vc_mine)
-    print("CUSTOM")
-    print(packed_meta[:16, :32])
-    print("REFERENCE")
-    print(meta_reference[:16, :32])
-
-    # # print(packed_meta - meta_reference)
-    torch.testing.assert_close(packed, packed_reference)
-    torch.testing.assert_close(packed_meta, meta_reference)
-
-def test_meta_packed_fp8():
-    for r in (64, 128, 256, 512):
-        for c in (128, 256, 512, 1024, 2048):
-            torch.manual_seed(123)
-            # random tensor without 0
-            W_ref = create_semi_structured_tensor(r, c, dtype=torch.float8_e4m3fn).to(device)
-            # W_ref = torch.Tensor([[2, 3, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 8, 0, 8, 0], 
-            #                       [0, 0, 1, 2, 0, 0, 3, 4, 0, 0, 5, 6, 0, 0, 7, 8], 
-            #                       [1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0],
-            #                       [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]]).to(device=device).tile((r // 4, c// 16)).contiguous().to(torch.float8_e4m3fn)
-            packed_reference, meta_reference = to_sparse_semi_structured_cutlass_sm9x_f8(W_ref)
-            packed, packed_meta = sparse_semi_structured_tile(W_ref, "", True)
-
-            torch.testing.assert_close(packed, packed_reference)
-            torch.testing.assert_close(packed_meta, meta_reference)
 
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 @unittest.skip("Not implemented yet")
@@ -101,13 +41,9 @@ def test_sparse24_sm90_sparsify_fp8(
         sp_selection_algo="largest",
         dtype=A_packed_ref.dtype,
     )
-    A_mdata = A_mdata.view(A_mdata_ref.shape)
 
-    # Note: sparsification is not deterministic (eg if 3 items have the same value in a block of 4 for instance)
-    # so we allow a tiny margin for error
     assert (A_packed != A_packed_ref).float().mean().item() < 0.005
     assert (A_mdata != A_mdata_ref).float().mean().item() < 0.005
-    # The sum should always match though
     assert torch.allclose(A_packed.float().sum(), A_packed_ref.float().sum())
 
 # @fairinternal-below
@@ -129,7 +65,6 @@ def test_sparse24_sm90_sparsify_identity(
         sp_selection_algo="largest",
         dtype=A_packed_ref.dtype,
     )
-    A_mdata = A_mdata.view(A_mdata_ref.shape)
 
     # Note: sparsification is not deterministic (eg if 3 items have the same value in a block of 4 for instance)
     # so we allow a tiny margin for error

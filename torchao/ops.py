@@ -40,7 +40,7 @@ lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
 )
 lib.define(
-    "sparse_semi_structured_tile(Tensor input, str algorithm, bool use_cutlass) -> (Tensor, Tensor)"
+    "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
 )
 # Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
 # to honor the layout constraints for `b` in the two ops below.
@@ -731,15 +731,15 @@ def _(
         weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
     )
 
-def sparse_semi_structured_tile(weight: Tensor, algorthim: str, use_cutlass: bool) -> (Tensor, Tensor):
-    return torch.ops.torchao.sparse_semi_structured_tile.default(weight, algorthim, use_cutlass)
-
-@register_custom_op("torchao::sparse_semi_structured_tile")
-def _(weight:Tensor, algo: str, use_cutlass: bool) -> (Tensor, Tensor):
-    return (
-        weight.new_empty(weight.shape[0], weight.shape[1] // 2),
-        weight.new_empty(weight.shape[0], max(weight.shape[1] // 8, 16), dtype=torch.uint8),
-    )
+def sparse_semi_structured_tile(
+    input_tensor: Tensor,
+    metadata_format: str,
+    activation: str,
+    algorithm: str,
+    dtype=None, 
+    scale=None
+) -> (Tensor, Tensor):
+    return torch.ops.torchao.sparse24_sm90_sparsify(input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale)
 
 
 @functools.lru_cache()

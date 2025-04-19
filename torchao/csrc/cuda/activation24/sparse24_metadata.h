@@ -43,7 +43,6 @@ struct MetadataCutlass8bitsSm90 {
     auto n_cols = input.size(1);
     TORCH_CHECK(n_cols % 128 == 0); // aligned metadata
     TORCH_CHECK(n_rows % 64 == 0); // aligned metadata
-    int mdata_bytes = n_rows * n_cols / 8;
 
     at::Tensor packed = at::empty(
         {n_rows, n_cols / 2},

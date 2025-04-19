@@ -417,8 +417,3 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
       TORCH_SELECTIVE_NAME("torchao::sparse24_sm90_sparsify"),
       TORCH_FN(sparse24_sm90_sparsify<true>));
 }
-
-TORCH_LIBRARY_FRAGMENT(torchao, m) {
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "torchao::sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale = None) -> (Tensor, Tensor)"));
-}
