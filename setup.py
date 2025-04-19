@@ -276,7 +276,6 @@ def get_extensions():
             "-O3" if not debug_mode else "-O0",
             "-t=0",
             "-std=c++17",
-            "-w",
         ],
     }
 
@@ -387,11 +386,6 @@ def get_extensions():
                 os.path.join(
                     extensions_cuda_dir,
                     "activation24",
-                    "SparseSemiStructuredTile_cutlass.cu"
-                ),
-                os.path.join(
-                    extensions_cuda_dir,
-                    "activation24",
                     "sparsify24.cu"
                 ),
             ]
@@ -403,7 +397,6 @@ def get_extensions():
                         "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                     )
                 )
-
             sources = [s for s in sources if s not in cutlass_90a_sources]
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
@@ -416,7 +409,6 @@ def get_extensions():
         )
         sources = [s for s in sources if s not in cutlass_sources]
 
-    print("CUDA sources: ", sources)
     ext_modules = []
     if len(sources) > 0:
         ext_modules.append(
