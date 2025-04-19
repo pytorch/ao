@@ -26,6 +26,7 @@ from torchao.quantization.pt2e.fake_quantize import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
 )
+from torchao.quantization.pt2e.graph_utils import find_sequential_partitions
 from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     MovingAverageMinMaxObserver,
@@ -33,7 +34,6 @@ from torchao.quantization.pt2e.observer import (
     PerChannelMinMaxObserver,
     PlaceholderObserver,
 )
-from torchao.quantization.pt2e.pt2e.graph_utils import find_sequential_partitions
 from torchao.quantization.pt2e.quantizer.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,

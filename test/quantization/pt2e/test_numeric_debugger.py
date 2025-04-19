@@ -22,7 +22,7 @@ from torchao.quantization.pt2e import (
     generate_numeric_debug_handle,
     prepare_for_propagation_comparison,
 )
-from torchao.quantization.pt2e.pt2e.graph_utils import bfs_trace_with_node_process
+from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,

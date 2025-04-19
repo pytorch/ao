@@ -20,17 +20,12 @@ from torchao.quantization.pt2e.pt2e.convert import (
 from torchao.quantization.pt2e.pt2e.duplicate_dq_pass import DuplicateDQPass
 from torchao.quantization.pt2e.pt2e.port_metadata_pass import PortNodeMetaForQDQ
 from torchao.quantization.pt2e.pt2e.prepare import prepare
-from torchao.quantization.pt2e.pt2e.qat_utils import (
-    _fold_conv_bn_qat,
-    _fuse_conv_bn_qat,
-)
 from torchao.quantization.pt2e.pt2e.representation import (
     reference_representation_rewrite,
 )
-from torchao.quantization.pt2e.pt2e.utils import (
-    _disallow_eval_train,
-    _fuse_conv_bn_,
-    _get_node_name_to_scope,
+from torchao.quantization.pt2e.qat_utils import (
+    _fold_conv_bn_qat,
+    _fuse_conv_bn_qat,
 )
 from torchao.quantization.pt2e.quantizer import (  # noqa: F401
     DerivedQuantizationSpec,
@@ -40,6 +35,11 @@ from torchao.quantization.pt2e.quantizer import (  # noqa: F401
     QuantizationSpecBase,
     Quantizer,
     SharedQuantizationSpec,
+)
+from torchao.quantization.pt2e.utils import (
+    _disallow_eval_train,
+    _fuse_conv_bn_,
+    _get_node_name_to_scope,
 )
 
 __all__ = [
