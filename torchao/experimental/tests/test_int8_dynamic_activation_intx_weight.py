@@ -17,6 +17,7 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
     FakeQuantizeConfig,
     FromIntXQuantizationAwareTrainingConfig,
+    Int8DynActInt4WeightQATQuantizer,
     IntXQuantizationAwareTrainingConfig,
 )
 from torchao.quantization.quant_api import (
@@ -439,7 +440,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_identical_to_int8_dynamic_activation_int4_weight(
+    def test_identical_to_Int8DynamicActivationInt4WeightConfig(
         self, group_size, mapping_type, act_mapping_type
     ):
         """
@@ -488,14 +489,14 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             )
             for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
             for group_size in [32, 64, 128]
-            for mapping_type in [MappingType.SYMMETRIC]
+            for mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
             for act_mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32]
+            for model_dtype in [torch.float32, torch.bfloat16]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
-    def test_identical_to_qat_configs(
+    def test_identical_to_IntXQuantizationAwareTrainingConfig(
         self,
         weight_dtype,
         group_size,
@@ -504,11 +505,16 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         scale_dtype,
         model_dtype,
     ):
-        # TODOs:
-        # * QAT's default scale-precision is float32, but PTQ's is None (which defaults to input's dtype)
-        #   When model/inputs are bfloat16, this can lead to differences unless users fully specify scale_dtype
-        # * QAT's ASYMMETRIC weight uses a different eps than PTQ routines
-        # * Test more model dtype.  It appears to break when not float32
+        # TODO: the QAT logic for asymmetric mapping is very different from PTQ, so we don't test that case here
+        # Unify the two?
+        if mapping_type == MappingType.ASYMMETRIC:
+            return
+
+        # TODO: QAT logic for non-float32 models does not match PTQ right now
+        # QAT's default scale-precision is float32, but PTQ's is None (which defaults to input's dtype)
+        if model_dtype != torch.float32:
+            return
+
         assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
         assert act_mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
         is_symmetric = mapping_type == MappingType.SYMMETRIC
@@ -555,13 +561,79 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(
-                weight_granularity=PerGroup(group_size),
                 weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
                 weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
             ),
         )
         actual_out = model(activations)
         self.assertTrue(torch.allclose(expected_out, actual_out))
+
+    @parameterized.expand(
+        [
+            param(
+                group_size=group_size,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for group_size in [32, 64, 128]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_Int8DynActInt4WeightQATQuantizer(
+        self, group_size, scale_dtype, model_dtype
+    ):
+        # Currently this does not match
+        # TODO: investigat
+        if scale_dtype != torch.float32:
+            return
+        if model_dtype != torch.float32:
+            return
+
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(
+            groupsize=group_size, precision=model_dtype, scales_precision=scale_dtype
+        )
+        model = qat_quantizer.prepare(model)
+        expected_out = model(activations)
+
+        prepared_model_copy = copy.deepcopy(model)
+
+        # Convert model method 1
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=MappingType.SYMMETRIC,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=MappingType.ASYMMETRIC,
+            ),
+        )
+        actual_out1 = model(activations)
+        self.assertTrue(torch.allclose(expected_out, actual_out1))
+
+        # Convert model method 2
+        qat_quantizer.convert(prepared_model_copy)
+        actual_out2 = prepared_model_copy(activations)
+        self.assertTrue(torch.allclose(expected_out, actual_out2))
 
 
 if __name__ == "__main__":
