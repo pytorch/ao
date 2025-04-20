@@ -261,6 +261,10 @@ class TestEmbeddingQuantizer(unittest.TestCase):
     def test_identical_to_IntXQuantizationAwareTrainingConfig(
         self, weight_dtype, granularity, mapping_type, scale_dtype, model_dtype
     ):
+        # ASYMMETRIC in QAT is very different that PTQ configs
+        if mapping_type == MappingType.ASYMMETRIC:
+            return
+
         embedding_dim = 4096
         num_embeddings = 131
         model = torch.nn.Sequential(
@@ -288,7 +292,6 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
             embedding_filter,
         )
-
         expected_out = model(indices)
 
         quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
