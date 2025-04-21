@@ -16,7 +16,7 @@ from torch.export import ExportedProgram
 from torch.fx import GraphModule, Node
 from torch.nn import functional as F
 
-from torchao.quantization.pt2e.pt2e.graph_utils import bfs_trace_with_node_process
+from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 
 NUMERIC_DEBUG_HANDLE_KEY = "numeric_debug_handle"
 CUSTOM_KEY = "custom"

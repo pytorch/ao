@@ -8,8 +8,8 @@
 
 from torch.fx import Node
 
-from torchao.quantization.pt2e.pt2e.utils import _is_sym_size_node
 from torchao.quantization.pt2e.quantizer.quantizer import QuantizationAnnotation
+from torchao.quantization.pt2e.utils import _is_sym_size_node
 
 
 def _annotate_input_qspec_map(node: Node, input_node: Node, qspec):
@@ -87,3 +87,13 @@ def _get_module_name_filter(module_name: str):
         return module_name in names
 
     return module_name_filter
+
+
+def _is_valid_annotation(annotation: QuantizationAnnotation) -> bool:
+    if annotation is None:
+        return False
+    input_qspec_map = annotation.input_qspec_map
+    output_qspec = annotation.output_qspec
+    if len(input_qspec_map) == 0 and output_qspec is None:
+        return False
+    return True
