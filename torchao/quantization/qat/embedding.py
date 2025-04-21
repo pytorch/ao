@@ -251,6 +251,7 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
                     group_size=group_size,
                     scale_precision=scale_precision,
                     zero_point_precision=zero_point_precision,
+                    weight_original_precision=child.weight.dtype,
                     device=child.weight.device,
                 )
                 setattr(module, name, quantized_embedding)
@@ -336,6 +337,7 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
         group_size: int = 32,
         scale_precision: torch.dtype = torch.float32,
         zero_point_precision: torch.dtype = torch.int32,
+        weight_original_precision: torch.dtype = torch.float32,
         device: torch.device = None,
     ):
         super().__init__()
@@ -354,6 +356,7 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
         self.group_size = group_size
         self.scale_precision = scale_precision
         self.zero_point_precision = zero_point_precision
+        self.weight_original_precision = weight_original_precision
 
         # currently storing unpacked int8 weights
         self.register_buffer(
@@ -393,7 +396,7 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
             qmax,
             torch.int8,
             self.group_size,
-            x.dtype,
+            self.weight_original_precision,
         )
         return F.embedding(
             x,
