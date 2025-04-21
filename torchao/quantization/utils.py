@@ -555,7 +555,7 @@ def get_group_qparams_symmetric(
         quant_max=quant_max,
         eps=eps,
         scale_dtype=precision,
-        zero_point_dtype=torch.int32,
+        zero_point_dtype=precision,
     )
     return scale.reshape(w.shape[0], -1), zero_point.reshape(w.shape[0], -1)
 
