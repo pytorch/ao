@@ -540,7 +540,7 @@ def get_group_qparams_symmetric(
     assert n_bit <= 8, f"unsupported n_bit: {n_bit}"
 
     block_size = (1, groupsize)
-    eps = torch.finfo(torch.float32).eps
+    eps = torch.finfo(w.dtype).eps
     ranges = {}
     ranges[1] = (-1, 0)
     # generating ranges for bit 2 to 8
