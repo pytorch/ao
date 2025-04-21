@@ -3,18 +3,27 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import copy
 import unittest
 
 import torch
+from torch.testing._internal.common_utils import TestCase
 
+from torchao import quantize_
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
     ProxPARQ,
     QuantOptimizer,
 )
-from torchao.prototype.parq.quant import LSBQuantizer, UnifQuantizer
+from torchao.prototype.parq.quant import (
+    LSBQuantizer,
+    UnifQuantizer,
+    UnifTorchaoQuantizer,
+)
+from torchao.quantization.quant_api import int4_weight_only
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
-_DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def split_param_groups(model):
@@ -28,18 +37,19 @@ def split_param_groups(model):
 
 
 class M(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, m=256, n=128, k=16, bias=False):
         super().__init__()
-        self.embedding = torch.nn.Embedding(10, 256)
-        self.linear1 = torch.nn.Linear(256, 128)
-        self.linear2 = torch.nn.Linear(128, 16)
+        self.embedding = torch.nn.Embedding(10, m)
+        self.linear1 = torch.nn.Linear(m, n, bias=bias)
+        self.linear2 = torch.nn.Linear(n, k, bias=bias)
         self.relu = torch.nn.ReLU()
         self.sigmoid = torch.nn.Sigmoid()
 
     def reset_parameters(self):
         for module in (self.linear1, self.linear2):
             torch.nn.init.xavier_uniform_(module.weight)
-            torch.nn.init.zeros_(module.bias)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
 
     def example_inputs(self):
         return torch.randint(1, 10, (1, 256))
@@ -53,10 +63,10 @@ class M(torch.nn.Module):
         return x
 
 
-class TestPARQuantization(unittest.TestCase):
+class TestPARQuantization(TestCase):
     def setUp(self):
         torch.manual_seed(123)
-        self.model = M().to(_DEVICE)
+        self.model = M(bias=True).to(_DEVICE)
         self.params_no_quant, self.params_quant = split_param_groups(self.model)
 
     def test_2bit_unif_quantizer_hard_prox(self):
@@ -99,6 +109,50 @@ class TestPARQuantization(unittest.TestCase):
         for child in self.model.children():
             if isinstance(child, torch.nn.Linear):
                 self.assertEqual(child.weight.unique().numel(), 3)
+
+
+class TestUnifTorchaoQuantizer(TestCase):
+    def setUp(self, group_size=32):
+        torch.manual_seed(123)
+        self.model = M(n=1024, k=1024).to(torch.bfloat16).to(_DEVICE)
+        self.group_size = group_size
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    def test_int4_weight_only(self):
+        self.model.reset_parameters()
+        m_copy = copy.deepcopy(self.model)
+        quantize_(m_copy, int4_weight_only(group_size=self.group_size))
+
+        # copied from torchao.quantization.quant_api._int4_weight_only_transform
+        b = 4
+        quantizer = UnifTorchaoQuantizer(
+            symmetric=False,
+            target_dtype=torch.int32,
+            quant_min=0,
+            quant_max=2**b - 1,
+            eps=1e-6,
+            preserve_zero=False,
+        )
+        self.assertTrue(
+            quantizer.get_quant_size(b) == quantizer.quant_max - quantizer.quant_min + 1
+        )
+
+        for n, module in self.model.named_children():
+            if not isinstance(module, torch.nn.Linear):
+                continue
+
+            # simulate grouping from QuantOptimizer.step
+            p = module.weight
+            original_shape = p.shape
+            p = p.view(-1, self.group_size)
+
+            q, Q = quantizer.quantize(p, b=b, dim=-1)
+            q = q.view(original_shape)
+
+            # compare to AffineQuantizedTensor instance
+            ref = getattr(m_copy, n).weight.dequantize()
+            self.assertTrue(q.equal(ref))
 
 
 if __name__ == "__main__":
