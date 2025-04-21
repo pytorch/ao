@@ -23,6 +23,7 @@ from .quantizer import Quantizer
 
 class UnifTorchaoQuantizer(Quantizer):
     """Uniform quantizer that uses torchao's quantization primitives"""
+
     def __init__(
         self,
         symmetric: bool,
