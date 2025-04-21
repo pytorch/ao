@@ -25,12 +25,12 @@ def implements(aten_ops):
     return decorator
 
 
-@implements([aten.mm.default])
+@implements([aten.mm.default, aten.matmul.default])
 def swizzle_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 
-    if torch.is_floating_point(a) and torch.is_floating_point(b):
+    if torch.is_floating_point(a) and torch.is_floating_point(b) and a.ndim == 2 and b.ndim == 2:
         a_is_swizzled = False
         b_is_swizzled = False
         if isinstance(a, SwizzleTensor):
@@ -106,3 +106,9 @@ def swizzle_permute(aten_op, args, kwargs=None):
     if len(dims) == 2 and dims[0] == 1 and dims[1] == 0:
         return tensor.shallow_transpose()
     return aten_op(tensor.unswizzle(), dims)
+
+
+@implements([aten.numpy_T.default])
+def swizzle_numpy_T(aten_op, args, kwargs=None):
+    tensor = args[0]
+    return tensor.shallow_transpose()
