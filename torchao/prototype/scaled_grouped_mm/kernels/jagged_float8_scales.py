@@ -147,7 +147,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
     block_row_offs = block_row_id * BLOCK_SIZE_ROWS + tl.arange(0, BLOCK_SIZE_ROWS)
 
     # compute rowwise amaxes for this group
-    amax_buffer = tl.zeros((BLOCK_SIZE_ROWS,), dtype=tl.float64)
+    amax_buffer = tl.zeros((BLOCK_SIZE_ROWS,), dtype=input_dtype)
     for col_start_idx in range(group_col_start_idx, group_col_end_idx, BLOCK_SIZE_COLS):
         block_col_offs = col_start_idx + tl.arange(0, BLOCK_SIZE_COLS)
         block_offs = (
@@ -163,6 +163,7 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
         amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=1))
 
     # compute rowwise scales for this group. round scales to nearest power of 2.
+    amax_buffer = amax_buffer.to(tl.float64)
     scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
         tl.float32
     )
@@ -303,7 +304,7 @@ def _triton_fp8_col_major_jagged_colwise_scales(
     block_col_offs = block_col_id * BLOCK_SIZE_COLS + tl.arange(0, BLOCK_SIZE_COLS)
 
     # compute colwise amaxes for this group
-    amax_buffer = tl.zeros((BLOCK_SIZE_COLS,), dtype=tl.float64)
+    amax_buffer = tl.zeros((BLOCK_SIZE_COLS,), dtype=input_dtype)
     for row_start_idx in range(group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ROWS):
         block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ROWS)
         block_offs = (
@@ -319,6 +320,7 @@ def _triton_fp8_col_major_jagged_colwise_scales(
         amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0))
 
     # compute rowwise scales for this group.
+    amax_buffer = amax_buffer.to(tl.float64)
     scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
         tl.float32
     )
