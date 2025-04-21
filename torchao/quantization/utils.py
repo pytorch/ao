@@ -605,7 +605,6 @@ def per_token_dynamic_quant(
         quant_dtype,
         quant_min,
         quant_max,
-        eps=torch.finfo(torch.float32).eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
     )
