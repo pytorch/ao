@@ -181,13 +181,10 @@ class QDQTensorImpl(AQTTensorImpl):
 
                 int_data = aten.slice.Tensor(int_data, dim, start, end, step)
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
-                zero_point = aten.slice.Tensor(
-                    zero_point, dim, start_scale, end_scale, step
-                )
-                # this is to handle padding
-                int_data, scale, zero_point = self._layout.post_process(
-                    int_data, scale, zero_point, self.block_size
-                )
+                if zero_point is not None:
+                    zero_point = aten.slice.Tensor(
+                        zero_point, dim, start_scale, end_scale, step
+                    )
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:

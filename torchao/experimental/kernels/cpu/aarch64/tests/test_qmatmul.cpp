@@ -22,7 +22,7 @@ template <
     bool a_transposed,
     bool b_transposed>
 struct test_channelwise_8bit_channelwise_8bit_b {
-  static void Run(int m, int k, int n);
+  static void Run(int m, int k, int n, int stride = 1, bool use_gemm = false);
 };
 
 template <bool a_has_zeros, bool b_has_zeros>
@@ -31,16 +31,40 @@ struct test_channelwise_8bit_channelwise_8bit_b<
     b_has_zeros,
     false,
     true> {
-  static void Run(int m, int k, int n, int stride = 1) {
+  static void Run(int m, int k, int n, int stride = 1, bool use_gemm = false) {
     auto test_case =
         torchao::channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case::
             generate(m, k, n, a_has_zeros, a_has_zeros, false, true, stride);
 
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
-        channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
+    using kernel_fn_type = void (*)(
+        int,
+        int,
+        int,
+        const void*,
+        int,
+        const void*,
+        int,
+        float*,
+        int,
+        const int8_t*,
+        const int8_t*,
+        const float*,
+        const float*,
+        const int,
+        const int);
+    kernel_fn_type kernel_fn = nullptr;
+    if (use_gemm && (m % 4 == 0) && (n % 8 == 0) && (k % 16 == 0)) {
+      using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+          channelwise_8bit_a_channelwise_8bit_b_4x8x8_f32_neondot;
+      kernel_fn = kernel<a_has_zeros, b_has_zeros, false, true>;
+    } else {
+      using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+          channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
+      kernel_fn = kernel<a_has_zeros, b_has_zeros, false, true>;
+    }
 
     std::vector<float> output(m * n);
-    kernel<a_has_zeros, b_has_zeros, false, true>(
+    kernel_fn(
         m,
         n,
         k,
@@ -69,7 +93,7 @@ struct test_channelwise_8bit_channelwise_8bit_b<
     b_has_zeros,
     false,
     false> {
-  static void Run(int m, int k, int n, int stride = 1) {
+  static void Run(int m, int k, int n, int stride = 1, bool use_gemm = false) {
     // TODO: make use of stride for this kernel
     auto test_case =
         torchao::channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case::
@@ -120,6 +144,42 @@ TEST(test_channelwise_8bit_channelwise_8bit_b, TransposeBWithZeroPointsLargeM) {
       true /*b_transposed*/>::
       Run(
           /*m=*/4, /*k=*/128, /*n=*/16);
+}
+
+TEST(
+    test_channelwise_8bit_channelwise_8bit_b,
+    TransposeBWithZeroPointsLargeMGemm) {
+  test_channelwise_8bit_channelwise_8bit_b<
+      true /*a_has_zeros*/,
+      true /*b_has_zeros*/,
+      false /*a_transposed*/,
+      true /*b_transposed*/>::
+      Run(
+          /*m=*/4, /*k=*/32, /*n=*/8, 1, true);
+}
+
+TEST(
+    test_channelwise_8bit_channelwise_8bit_b,
+    TransposeBWithZeroPointsLargeMGemm2) {
+  test_channelwise_8bit_channelwise_8bit_b<
+      true /*a_has_zeros*/,
+      true /*b_has_zeros*/,
+      false /*a_transposed*/,
+      true /*b_transposed*/>::
+      Run(
+          /*m=*/8, /*k=*/32, /*n=*/32, 1, true);
+}
+
+TEST(
+    test_channelwise_8bit_channelwise_8bit_b,
+    TransposeBWithZeroPointsLargeMGemm3) {
+  test_channelwise_8bit_channelwise_8bit_b<
+      true /*a_has_zeros*/,
+      true /*b_has_zeros*/,
+      false /*a_transposed*/,
+      true /*b_transposed*/>::
+      Run(
+          /*m=*/8, /*k=*/128, /*n=*/32, 32, true);
 }
 
 TEST(
@@ -471,9 +531,6 @@ static void test_8bit_per_token_q_at_k_matmul_attention(
       channelwise_8bit_a_channelwise_8bit_b_q_at_k_attention_test_case::
           generate(b, s_q, s_k, h, d, transpose);
 
-  using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
-      channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
-
   size_t q_b_stride = test_case.b_q_stride;
   size_t q_h_stride = test_case.h_q_stride;
   size_t q_s_q_stride = test_case.s_q_stride;
@@ -493,9 +550,36 @@ static void test_8bit_per_token_q_at_k_matmul_attention(
   size_t output_h_stride = s_q * s_k;
   size_t output_s_q_stride = s_k;
 
+  using kernel_fn_type = void (*)(
+      int,
+      int,
+      int,
+      const void*,
+      int,
+      const void*,
+      int,
+      float*,
+      int,
+      const int8_t*,
+      const int8_t*,
+      const float*,
+      const float*,
+      const int,
+      const int);
+  kernel_fn_type kernel_fn = nullptr;
+  if ((s_q % 4 == 0) && (s_k % 8 == 0) && (d % 16 == 0)) {
+    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+        channelwise_8bit_a_channelwise_8bit_b_4x8x8_f32_neondot;
+    kernel_fn = kernel<true, true, false, true>;
+  } else {
+    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+        channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
+    kernel_fn = kernel<true, true, false, true>;
+  }
+
   for (int b_idx = 0; b_idx < b; b_idx++) {
     for (int h_idx = 0; h_idx < h; h_idx++) {
-      kernel<true, true, false, true>(
+      kernel_fn(
           s_q,
           s_k,
           d,
@@ -525,6 +609,14 @@ static void test_8bit_per_token_q_at_k_matmul_attention(
 
 TEST(test_8bit_per_token_q_at_k_matmul_attention, Basic) {
   test_8bit_per_token_q_at_k_matmul_attention(1, 16, 16, 8, 16);
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, BasicGemmKernel) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 4, 16, 4, 16);
+}
+
+TEST(test_8bit_per_token_q_at_k_matmul_attention, BasicGemmKernelNoTranspose) {
+  test_8bit_per_token_q_at_k_matmul_attention(1, 4, 16, 4, 16, false);
 }
 
 TEST(test_8bit_per_token_q_at_k_matmul_attention, PrimeHeadsAndHeadDim) {

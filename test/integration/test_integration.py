@@ -2043,8 +2043,8 @@ class TestExport(unittest.TestCase):
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int4w_api:
             targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.quant.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.quant.quantize_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
 
