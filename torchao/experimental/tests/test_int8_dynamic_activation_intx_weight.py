@@ -510,11 +510,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         if mapping_type == MappingType.ASYMMETRIC:
             return
 
-        # TODO: QAT logic for non-float32 models does not match PTQ right now
-        # QAT's default scale-precision is float32, but PTQ's is None (which defaults to input's dtype)
-        if model_dtype != torch.float32:
-            return
-
         assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
         assert act_mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
         is_symmetric = mapping_type == MappingType.SYMMETRIC
@@ -587,13 +582,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
     def test_identical_to_Int8DynActInt4WeightQATQuantizer(
         self, group_size, scale_dtype, model_dtype
     ):
-        # Currently this does not match
-        # TODO: investigat
-        if scale_dtype != torch.float32:
-            return
-        if model_dtype != torch.float32:
-            return
-
         k0 = 512
         k1 = 256
         layers = [

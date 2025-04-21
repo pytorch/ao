@@ -346,6 +346,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             zero_point_precision=torch.int32,
         )
         model = qat_quantizer.prepare(model)
+        prepared_model_copy = copy.deepcopy(model)
         expected_out = model(indices)
 
         # Convert model method 1
@@ -363,12 +364,10 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         actual_out1 = model(indices)
         self.assertTrue(torch.allclose(expected_out, actual_out1))
 
-        # TODO: method 2 does not work because the converted embedding op
-        # incorrectly casts output of to indices.dtype
         # Convert model method 2
-        # qat_quantizer.convert(prepared_model_copy)
-        # actual_out2 = prepared_model_copy(indices)
-        # self.assertTrue(torch.allclose(expected_out, actual_out2))
+        qat_quantizer.convert(prepared_model_copy)
+        actual_out2 = prepared_model_copy(indices)
+        self.assertTrue(torch.allclose(expected_out, actual_out2))
 
 
 if __name__ == "__main__":

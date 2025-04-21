@@ -219,7 +219,7 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 n_bit = 4
                 (qmin, qmax) = _get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(
-                    child.weight, n_bit, config.group_size
+                    child.weight, n_bit, config.group_size, precision=scale_precision,
                 )
                 from torchao._executorch_ops import (
                     _quantized_decomposed_quantize_per_channel_group_wrapper,
@@ -270,7 +270,7 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
-        activation_config = _get_8da4w_activation_config(scales_precision)
+        activation_config = _get_8da4w_activation_config(torch.float32)
         weight_config = _get_8da4w_weight_config(groupsize, scales_precision)
         super().__init__(
             in_features,
