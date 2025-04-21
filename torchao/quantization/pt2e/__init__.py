@@ -5,6 +5,15 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.quantization.pt2e.export_utils import (
+    _allow_exported_model_train_eval as allow_exported_model_train_eval,
+)
+from torchao.quantization.pt2e.export_utils import (
+    _move_exported_model_to_eval as move_exported_model_to_eval,
+)
+from torchao.quantization.pt2e.export_utils import (
+    _move_exported_model_to_train as move_exported_model_to_train,
+)
 from torchao.quantization.pt2e.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
@@ -12,15 +21,6 @@ from torchao.quantization.pt2e.pt2e._numeric_debugger import (  # noqa: F401
     extract_results_from_loggers,
     generate_numeric_debug_handle,
     prepare_for_propagation_comparison,
-)
-from torchao.quantization.pt2e.pt2e.export_utils import (
-    _allow_exported_model_train_eval as allow_exported_model_train_eval,
-)
-from torchao.quantization.pt2e.pt2e.export_utils import (
-    _move_exported_model_to_eval as move_exported_model_to_eval,
-)
-from torchao.quantization.pt2e.pt2e.export_utils import (
-    _move_exported_model_to_train as move_exported_model_to_train,
 )
 
 from .fake_quantize import (
