@@ -27,8 +27,10 @@ import yaml
 
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
+    TrainingBenchmarkConfig,
     generate_results_csv,
     print_results,
+    print_training_results,
 )
 
 
@@ -156,7 +158,7 @@ def get_quantization_sparsity_recipes(
     return config_recipes
 
 
-def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig]:
+def load_benchmark_configs(cli_args: argparse.Namespace) -> List[Any]:
     """Load benchmark configurations from CLI arguments and YAML file."""
     with open(cli_args.config, "r") as f:
         config = yaml.safe_load(f)
@@ -178,21 +180,60 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[BenchmarkConfig
             quantization_sparsity_recipes,
             shapes,
         ):
-            configs.append(
-                BenchmarkConfig(
-                    quantization=quant_config,
-                    sparsity=sparse_config,
-                    params=params,
-                    shape_name=shape_name,
-                    shape=shape,
-                    output_dir=output_dir,
-                    benchmark_mode=benchmark_mode,
+            if benchmark_mode == "inference":
+                configs.append(
+                    BenchmarkConfig(
+                        quantization=quant_config,
+                        sparsity=sparse_config,
+                        params=params,
+                        shape_name=shape_name,
+                        shape=shape,
+                        output_dir=output_dir,
+                        benchmark_mode=benchmark_mode,
+                    )
                 )
-            )
+            elif benchmark_mode == "training":
+                # Extract training-specific parameters
+                training_params = params.copy()
+                scaling_type_input = config.get("scaling_type_input", "dynamic")
+                scaling_type_weight = config.get("scaling_type_weight", "dynamic")
+                scaling_type_grad_output = config.get(
+                    "scaling_type_grad_output", "dynamic"
+                )
+
+                # Determine scaling granularity based on quantization string
+                # If quantization contains "-row", use "rowwise", otherwise use the config value
+                default_granularity = config.get("scaling_granularity", "tensorwise")
+                if quant_config and "-row" in quant_config:
+                    scaling_granularity = "rowwise"  # This will be mapped to AXISWISE in create_float8_config
+                else:
+                    scaling_granularity = default_granularity
+
+                use_fast_accum = config.get("use_fast_accum", True)
+                repeat_n = config.get("repeat_n", 100)
+
+                # For training benchmarks, we don't use sparsity
+                configs.append(
+                    TrainingBenchmarkConfig(
+                        quantization=quant_config,
+                        sparsity=None,  # No sparsity for training
+                        params=training_params,
+                        shape_name=shape_name,
+                        shape=shape,
+                        output_dir=output_dir,
+                        benchmark_mode=benchmark_mode,
+                        scaling_type_input=scaling_type_input,
+                        scaling_type_weight=scaling_type_weight,
+                        scaling_type_grad_output=scaling_type_grad_output,
+                        scaling_granularity=scaling_granularity,
+                        use_fast_accum=use_fast_accum,
+                        repeat_n=repeat_n,
+                    )
+                )
     return configs
 
 
-def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None:
+def run_inference_benchmarks_from_config(configs: List[Any]) -> None:
     """Run benchmarks using configurations from YAML file"""
     from benchmarks.microbenchmarks.benchmark_inference import run as run_inference
 
@@ -225,6 +266,35 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
     # 3. For different models for same quantization
 
 
+def run_training_benchmarks_from_config(configs: List[Any]) -> None:
+    """Run training benchmarks using configurations from YAML file"""
+    from benchmarks.microbenchmarks.benchmark_training import run as run_training
+
+    results = []
+    print("----------------- RUNNING BENCHMARKS FOR TRAINING -----------------------")
+    for config in configs:
+        print("----------------------------------------")
+        try:
+            print(f"Running: {config.name} for Quantization: {config.quantization}")
+            result = run_training(config)  # Pass the config object directly
+            if result is not None:  # Only add successful results
+                results.append(result)
+        except Exception as e:
+            print(f"Error running benchmark {config.name} with error: {e}")
+            import traceback
+
+            traceback.print_exc()
+            continue
+
+    # Add results to csv if there are any
+    if results:
+        generate_results_csv(results, configs[0].output_dir)
+        # Print results
+        print_training_results(results)
+    else:
+        print("No benchmark results were collected. All benchmarks failed.")
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -243,7 +313,7 @@ if __name__ == "__main__":
     if configs[0].benchmark_mode == "inference":
         run_inference_benchmarks_from_config(configs)
     elif configs[0].benchmark_mode == "training":
-        print("Training mode not implemented yet")
+        run_training_benchmarks_from_config(configs)
     else:
         raise ValueError(
             f"Invalid benchmark mode: {configs[0].benchmark_mode}, choose from inference or training"

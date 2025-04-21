@@ -15,8 +15,8 @@ model_params:
       - name: "custom"
         shapes: [
           [1024, 1024, 1024],  # [m, k, n]
-          # [2048, 4096, 1024],
-          # [4096, 4096, 1024]
+          [2048, 4096, 1024],
+          [4096, 4096, 1024]
         ]
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
