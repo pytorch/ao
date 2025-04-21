@@ -22,8 +22,7 @@ from .quantizer import Quantizer
 
 
 class UnifTorchaoQuantizer(Quantizer):
-    """Uniform quantizer that uses torchao's quantization primitives to determine scale and zero point."""
-
+    """Uniform quantizer that uses torchao's quantization primitives"""
     def __init__(
         self,
         symmetric: bool,
@@ -45,6 +44,14 @@ class UnifTorchaoQuantizer(Quantizer):
         self.eps = eps
         self.preserve_zero = preserve_zero
         self.zero_point_domain = zero_point_domain
+
+    @property
+    def q_kwargs(self) -> dict[str, Union[int, float]]:
+        return {
+            "quant_min": self.quant_min,
+            "quant_max": self.quant_max,
+            "zero_point_domain": self.zero_point_domain,
+        }
 
     def get_quant_size(self, b: int) -> int:
         return 2 ** (b - 1) + 1 if self.mapping_type == MappingType.SYMMETRIC else 2**b
@@ -72,13 +79,8 @@ class UnifTorchaoQuantizer(Quantizer):
             zero_point_domain=self.zero_point_domain,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
-        q_kwargs = {
-            "quant_min": self.quant_min,
-            "quant_max": self.quant_max,
-            "zero_point_domain": self.zero_point_domain,
-        }
-        q = quantize_affine(p,*q_args,**q_kwargs)
-        q = dequantize_affine(q, *q_args, **q_kwargs, output_dtype=p.dtype)
+        q = quantize_affine(p, *q_args, **self.q_kwargs)
+        q = dequantize_affine(q, *q_args, **self.q_kwargs, output_dtype=p.dtype)
 
         Q = torch.arange(
             self.quant_min, self.quant_max + 1, dtype=self.target_dtype, device=p.device

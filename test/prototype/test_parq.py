@@ -7,7 +7,8 @@ import copy
 import unittest
 
 import torch
-from torch.testing._internal.common_utils import TestCase
+from torch import nn
+from torch.testing._internal import common_utils
 
 from torchao import quantize_
 from torchao.prototype.parq.optim import (
@@ -20,8 +21,17 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
-from torchao.quantization.quant_api import int4_weight_only
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+from torchao.quantization.granularity import PerGroup
+from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
+    IntxWeightOnlyConfig,
+    _is_linear,
+)
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
+    ZeroPointDomain,
+)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,20 +46,20 @@ def split_param_groups(model):
     return params_no_quant, params_quant
 
 
-class M(torch.nn.Module):
+class M(nn.Module):
     def __init__(self, m=256, n=128, k=16, bias=False):
         super().__init__()
-        self.embedding = torch.nn.Embedding(10, m)
-        self.linear1 = torch.nn.Linear(m, n, bias=bias)
-        self.linear2 = torch.nn.Linear(n, k, bias=bias)
-        self.relu = torch.nn.ReLU()
-        self.sigmoid = torch.nn.Sigmoid()
+        self.embedding = nn.Embedding(10, m)
+        self.linear1 = nn.Linear(m, n, bias=bias)
+        self.linear2 = nn.Linear(n, k, bias=bias)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
 
     def reset_parameters(self):
         for module in (self.linear1, self.linear2):
-            torch.nn.init.xavier_uniform_(module.weight)
+            nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
+                nn.init.zeros_(module.bias)
 
     def example_inputs(self):
         return torch.randint(1, 10, (1, 256))
@@ -63,7 +73,7 @@ class M(torch.nn.Module):
         return x
 
 
-class TestPARQuantization(TestCase):
+class TestPARQuantization(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.model = M(bias=True).to(_DEVICE)
@@ -86,7 +96,7 @@ class TestPARQuantization(TestCase):
         optimizer.step()
 
         for child in self.model.children():
-            if isinstance(child, torch.nn.Linear):
+            if isinstance(child, nn.Linear):
                 self.assertEqual(child.weight.unique().numel(), 4)
 
     def test_ternarybit_lsbq_parq_prox(self):
@@ -107,22 +117,47 @@ class TestPARQuantization(TestCase):
             optimizer.step()
 
         for child in self.model.children():
-            if isinstance(child, torch.nn.Linear):
+            if isinstance(child, nn.Linear):
                 self.assertEqual(child.weight.unique().numel(), 3)
 
 
-class TestUnifTorchaoQuantizer(TestCase):
-    def setUp(self, group_size=32):
+class TestUnifTorchaoQuantizer(common_utils.TestCase):
+    def setUp(self):
         torch.manual_seed(123)
-        self.model = M(n=1024, k=1024).to(torch.bfloat16).to(_DEVICE)
-        self.group_size = group_size
+        self.group_size = 32
+
+    def compare_quantized_models(
+        self,
+        model: nn.Module,
+        m_ref: nn.Module,
+        quantizer: UnifTorchaoQuantizer,
+        b: int,
+    ):
+        for n, module in model.named_children():
+            if not _is_linear(module):
+                continue
+
+            # simulate grouping from QuantOptimizer.step
+            p = module.weight
+            original_shape = p.shape
+            p = p.view(-1, self.group_size)
+
+            q, Q = quantizer.quantize(p, b=b, dim=-1)
+            q = q.view(original_shape)
+
+            # compare to AffineQuantizedTensor instance
+            ref = getattr(m_ref, n).weight.dequantize()
+            self.assertTrue(q.equal(ref))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     def test_int4_weight_only(self):
-        self.model.reset_parameters()
-        m_copy = copy.deepcopy(self.model)
-        quantize_(m_copy, int4_weight_only(group_size=self.group_size))
+        model = M(n=1024, k=1024).to(torch.bfloat16).to(_DEVICE)
+        model.reset_parameters()
+        m_ref = copy.deepcopy(model)
+
+        config = Int4WeightOnlyConfig(group_size=self.group_size)
+        quantize_(m_ref, config, device=_DEVICE)
 
         # copied from torchao.quantization.quant_api._int4_weight_only_transform
         b = 4
@@ -137,22 +172,33 @@ class TestUnifTorchaoQuantizer(TestCase):
         self.assertTrue(
             quantizer.get_quant_size(b) == quantizer.quant_max - quantizer.quant_min + 1
         )
+        self.compare_quantized_models(model, m_ref, quantizer, b)
 
-        for n, module in self.model.named_children():
-            if not isinstance(module, torch.nn.Linear):
-                continue
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.4+")
+    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    def test_intx_weight_only(self):
+        model = M(n=512, k=512).to(_DEVICE)
+        model.reset_parameters()
+        m_ref = copy.deepcopy(model)
 
-            # simulate grouping from QuantOptimizer.step
-            p = module.weight
-            original_shape = p.shape
-            p = p.view(-1, self.group_size)
-
-            q, Q = quantizer.quantize(p, b=b, dim=-1)
-            q = q.view(original_shape)
-
-            # compare to AffineQuantizedTensor instance
-            ref = getattr(m_copy, n).weight.dequantize()
-            self.assertTrue(q.equal(ref))
+        config = IntxWeightOnlyConfig(granularity=PerGroup(self.group_size))
+        quantize_(m_ref, config, device=_DEVICE)
+        b = 8
+        q_dtype = torch.int8
+        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[q_dtype]
+        quantizer = UnifTorchaoQuantizer(
+            symmetric=True,
+            target_dtype=q_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=torch.finfo(torch.float32).eps,
+            preserve_zero=True,
+            zero_point_domain=ZeroPointDomain.INT,
+        )
+        self.assertTrue(
+            quantizer.get_quant_size(b) == max(abs(quant_min), quant_max) + 1
+        )
+        self.compare_quantized_models(model, m_ref, quantizer, b)
 
 
 if __name__ == "__main__":
