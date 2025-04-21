@@ -626,7 +626,7 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
     scale_dtype = torch.float32
-    zero_point_dtype = torch.int32
+    zero_point_dtype = torch.int8
     if TORCH_VERSION_AT_LEAST_2_6:
         return to_affine_quantized_intx(
             x,
