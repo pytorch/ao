@@ -96,12 +96,15 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
             codes = self.codes.get_plain()
         else:
             codes = self.codes
+
         if codes.dtype != torch.int32:
             # TODO: Investigate and support not casting to torch.int32 for indexing to improve performance
             codes = codes.to(torch.int32)
+
         return dequantize_codebook(
             codes,
             self.codebook,
+            self.codes.dtype,
             self.scales,
             output_dtype=output_dtype,
         )

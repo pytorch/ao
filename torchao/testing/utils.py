@@ -96,6 +96,7 @@ def skip_if_no_cuda():
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if not torch.cuda.is_available():
+                print("no cuda available")
                 raise unittest.SkipTest("No cuda available")
             return test_func(*args, **kwargs)
 
