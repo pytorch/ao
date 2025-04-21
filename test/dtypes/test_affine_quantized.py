@@ -36,7 +36,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
-from torchao.testing.utils import skip_if_no_cuda, skip_if_rocm
+from torchao.testing.utils import skip_if_no_cuda, skip_if_rocm, skip_if_no_gemlite
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
@@ -357,6 +357,7 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.float16])
     @skip_if_no_cuda()
+    @skip_if_no_gemlite()
     def test_slice_gemlite(self, device, dtype):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8

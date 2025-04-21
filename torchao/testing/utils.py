@@ -105,6 +105,23 @@ def skip_if_no_cuda():
     return decorator
 
 
+def skip_if_no_gemlite():
+    import pytest
+
+    def decorator(test_func):
+        @functools.wraps(test_func)
+        def wrapper(*args, **kwargs):
+            try:
+                import gemlite
+            except:
+                raise pytest.skip("No cuda available")
+            return test_func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389
 def copy_tests(my_cls, other_cls, suffix, test_failures=None, xfail_prop=None):  # noqa: B902
     for name, value in my_cls.__dict__.items():
