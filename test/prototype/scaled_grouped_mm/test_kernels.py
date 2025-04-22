@@ -24,9 +24,11 @@ if torch.cuda.is_available():
         triton_fp8_col_major_jagged_colwise_scales,
         triton_fp8_row_major_jagged_rowwise_scales,
     )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "torch 2.5+ required")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # tests case where rowwise scales are computed for multiple distinct subtensors,
@@ -55,6 +57,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "torch 2.5+ required")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
