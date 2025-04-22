@@ -195,7 +195,7 @@ _PERF_COLUMNS = [
     "self_cpu_time",
     "self_cpu_time_total",
     "cpu_time",
-    "cpu_time_total" "self_device_memory_usage",
+    "cpu_time_totalself_device_memory_usage",
     "device_memory_usage",
     "self_cpu_memory_usage",
     "cpu_memory_usage",

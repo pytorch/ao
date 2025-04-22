@@ -276,9 +276,9 @@ class _matmul(torch.autograd.Function):
         if b.stride(0) > 1 and b.stride(1) > 1:
             b = b.contiguous()
         # checks constraints
-        assert (
-            a.shape[1] == b.shape[0]
-        ), f"incompatible dimensions {a.shape} and {b.shape}"
+        assert a.shape[1] == b.shape[0], (
+            f"incompatible dimensions {a.shape} and {b.shape}"
+        )
         M, K = a.shape
         _, N = b.shape
 
@@ -303,12 +303,12 @@ class _matmul(torch.autograd.Function):
             acc_dtype = supported_acc_dtypes[ab_dtype][0]
         else:
             assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
-            assert (
-                acc_dtype in supported_acc_dtypes[a.dtype]
-            ), "acc_dtype not compatible with the type of a"
-            assert (
-                acc_dtype in supported_acc_dtypes[b.dtype]
-            ), "acc_dtype not compatible with the type of b"
+            assert acc_dtype in supported_acc_dtypes[a.dtype], (
+                "acc_dtype not compatible with the type of a"
+            )
+            assert acc_dtype in supported_acc_dtypes[b.dtype], (
+                "acc_dtype not compatible with the type of b"
+            )
 
         def to_tl_type(ty):
             return getattr(tl, str(ty).split(".")[-1])

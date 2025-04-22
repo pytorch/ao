@@ -550,9 +550,9 @@ def _replace_observer_or_dequant_stub_with_dequantize_node(
     node: Node, graph: Graph
 ) -> None:
     call_custom_module_node = node.args[0]
-    assert isinstance(
-        call_custom_module_node, Node
-    ), f"Expecting the for call custom module node to be a Node, but got {call_custom_module_node}"
+    assert isinstance(call_custom_module_node, Node), (
+        f"Expecting the for call custom module node to be a Node, but got {call_custom_module_node}"
+    )
     node.replace_all_uses_with(call_custom_module_node)
     graph.erase_node(node)
     _insert_dequantize_node(call_custom_module_node, graph)
@@ -645,9 +645,9 @@ def _get_module_path_and_prefix(
     # operator (they can be the same)
     # this flag identifies if the observer is inserted only because the observed node is
     # the input of the next operator
-    assert isinstance(
-        observed_node, Node
-    ), f"Expecting observed node to be a Node, but got {observed_node}"
+    assert isinstance(observed_node, Node), (
+        f"Expecting observed node to be a Node, but got {observed_node}"
+    )
     is_input_observer_only = (
         node_name_to_qconfig[observed_node.name] is None
         if observed_node.name in node_name_to_qconfig
@@ -906,9 +906,9 @@ def convert_weighted_module(
     ref_qmodule_cls = root_module_to_quantized_reference_module.get(
         type_before_parametrizations(float_module), None
     )
-    assert (
-        ref_qmodule_cls is not None
-    ), f"No reference quantized module class configured for {type_before_parametrizations(float_module)}"
+    assert ref_qmodule_cls is not None, (
+        f"No reference quantized module class configured for {type_before_parametrizations(float_module)}"
+    )
     ref_qmodule = ref_qmodule_cls.from_float(float_module, wq_or_wq_dict)  # type: ignore[attr-defined]
     if fused_module is not None:
         fused_module[0] = ref_qmodule  # type: ignore[operator]
@@ -928,9 +928,9 @@ def _remove_previous_dequantize_in_custom_module(
                  \\ - dequantize
     """
     # expecting the input node for a custom module node to be a Node
-    assert isinstance(
-        prev_node, Node
-    ), f"Expecting the argument for custom module node to be a Node, but got {prev_node}"
+    assert isinstance(prev_node, Node), (
+        f"Expecting the argument for custom module node to be a Node, but got {prev_node}"
+    )
     if prev_node.op == "call_method" and prev_node.target == "dequantize":
         node.replace_input_with(prev_node, prev_node.args[0])
         # Remove the dequantize node if it doesn't have other users
@@ -1145,9 +1145,9 @@ def convert(
         # all the values either match what was set in prepare node_name_to_qconfig
         # or are set to None in the convert_node_name_to_qconfig.
         for k, v in node_name_to_qconfig.items():
-            assert (
-                k in convert_node_name_to_qconfig
-            ), f"Expected key {k} in convert node_name_to_qconfig"
+            assert k in convert_node_name_to_qconfig, (
+                f"Expected key {k} in convert node_name_to_qconfig"
+            )
             if convert_node_name_to_qconfig[k] is not None:
                 assert qconfig_equals(v, convert_node_name_to_qconfig[k]), (
                     f"Expected k {k} to have the same value in prepare and convert QConfigMappings, "

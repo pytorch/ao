@@ -228,12 +228,12 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         """Main entrypoint for constructing Float8TensorImpl"""
-        assert _is_float8_type(
-            data.dtype
-        ), f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
-        assert isinstance(
-            _layout, Float8Layout
-        ), f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
+        assert _is_float8_type(data.dtype), (
+            f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
+        )
+        assert isinstance(_layout, Float8Layout), (
+            f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
+        )
         return cls(data, scale, False, _layout)
 
     def __repr__(self):
@@ -303,9 +303,9 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Handle rowwise case
     if _is_rowwise_scaled(weight_tensor):
-        assert _is_rowwise_scaled(
-            input_tensor
-        ), "Input tensor must be rowwise block size"
+        assert _is_rowwise_scaled(input_tensor), (
+            "Input tensor must be rowwise block size"
+        )
         w_scale = w_scale.unsqueeze(-1).T
         input_scale = preprocess_scale(input_scale, input_tensor.shape)
 

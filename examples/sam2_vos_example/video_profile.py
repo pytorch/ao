@@ -113,7 +113,7 @@ class CodeTimer:
         timestamped_print("Average timings for all sections:")
         for section_name in self.elapsed_times:
             average_time = self.get_average_time(section_name, warmup)
-            timestamped_print(f"{section_name}, {average_time*1000.0:.6f}")
+            timestamped_print(f"{section_name}, {average_time * 1000.0:.6f}")
 
 
 global_timer = CodeTimer()
@@ -186,7 +186,7 @@ def profiler_runner(path, fn, *args, **kwargs):
     if path is None:
         path = os.path.join(
             os.path.expanduser("~/traces"),
-            f'{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.json.gz',
+            f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json.gz",
         )
     with torch.profiler.profile(
         activities=[
