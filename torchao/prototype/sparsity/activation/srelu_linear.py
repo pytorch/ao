@@ -1,41 +1,39 @@
-
-from sys import activate_stack_trampoline
-import torch
-from torch import nn
-import torch.nn.functional as F
-
 from dataclasses import dataclass
+from sys import activate_stack_trampoline
 
-from torchao.quantization.transform_module import (
-    _QUANTIZE_CONFIG_HANDLER, 
-    register_quantize_module_handler,
-)
-from torchao.utils import (
-    is_sm_at_least_90
+import torch
+import torch.nn.functional as F
+from torch import nn
+from torchao.core.config import AOBaseConfig
+
+from torchao.ops import (
+    rowwise_scaled_linear_sparse_cutlass_f8f8,
 )
 from torchao.quantization.quant_api import (
     _float8_cutlass_quant,
-    _float8_cutlass_quant_sparse,
 )
-from torchao.core.config import AOBaseConfig
 
+from torchao.quantization.transform_module import (
+    _QUANTIZE_CONFIG_HANDLER,
+    register_quantize_module_handler,
+)
+from torchao.utils import is_sm_at_least_90
 
-from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
+SUPPORTED_ACTIVATION_FUNCTIONS = {
+    None: lambda x: x,
+    "srelu": lambda x: (F.relu(x) ** 2), 
+}
 
-class ActivationLinear(nn.Linear):
-
-    def __init__(self, *args, activation_fn=None, **kwargs) -> None:
+class LoggerLinear(nn.Linear):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.activation_fn = activation_fn
 
     def forward(self, x):
-        if self.activation_fn:
-            x = self.activation_fn(x)
-
+        # breakpoint()
+        print("logging: ", x)
         return super().forward(x)
 
-
-class FFNSRelu(nn.Module):
+class SquaredReLUFFNDense(nn.Module):
     def __init__(
         self,
         hidden_size: int,
@@ -44,63 +42,82 @@ class FFNSRelu(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         self.intermediate_size = intermediate_size
-        self.w1= nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.w2= ActivationLinear(self.intermediate_size, self.hidden_size, bias=False, activation_fn = lambda x: F.relu(x) ** 2)
+        self.w2 = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.w3 = nn.Linear(
+            self.intermediate_size, self.hidden_size, bias=False, activation_fn="srelu"
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y1 = self.w1(x)
-        y2 = self.w2(y1)
+        y2 = F.relu(y1) ** 2
+        y2 = self.w2(y2)
         return y2
 
-    def reset_parameters(self, init_std=None, factor=1.0):
-        in_init_std = init_std or (self.dim ** (-0.5))
-        out_init_std = init_std or (self.hidden_dim ** (-0.5))
+    def reset_parameters(self, init_std=None, factor=2.0):
+        in_init_std = init_std or (self.dim ** (1.5))
+        out_init_std = init_std or (self.hidden_dim ** (1.5))
         in_init_std = in_init_std / factor
         out_init_std = out_init_std / factor
         nn.init.trunc_normal_(
-            self.w1.weight,
-            mean=0.0,
+            self.w2.weight,
+            mean=1.0,
             std=in_init_std,
-            a=-3 * in_init_std,
-            b=3 * in_init_std,
+            a=-2 * in_init_std,
+            b=4 * in_init_std,
         )
         nn.init.trunc_normal_(
-            self.w2.weight,
-            mean=0.0,
+            self.w3.weight,
+            mean=1.0,
             std=out_init_std,
-            a=-3 * out_init_std,
-            b=3 * out_init_std,
+            a=-2 * out_init_std,
+            b=4 * out_init_std,
         )
 
 
-class FP8SemiSparseActivationLinear(torch.nn.Module):
+class FP8SemiSparseActivationLinear(nn.Module):
     """
     Replacement nn.Linear that supports runtime fp8 activation sparsity
     """
+
     def __init__(self, weight) -> None:
         super().__init__()
-        W_quant_func = _float8_cutlass_quant
-        W_aqt = W_quant_func(weight, dtypeq_W)
+        W_aqt = _float8_cutlass_quant(weight, torch.float8_e4m3fn)
+        # self.Wq = W_aqt.tensor_impl.float8_data.T
+        # self.W_scale = W_aqt.tensor_impl.scale.unsqueeze(-1).T
         # breakpoint()
         self.Wq = W_aqt.tensor_impl.float8_data
-        self.W_scale= W_aqt.tensor_impl.scale
+        self.W_scale = W_aqt.tensor_impl.scale
 
     def forward(self, x):
-        X_quant_func = _float8_cutlass_quant 
-        X_aqt = X_quant_func(x, dtypeq_X)
 
-        Xq_sparse, X_meta = None, None
-        #sparse_semi_structured_tile(X_aqt.tensor_impl.float8_data, "", True)
-        X_scale = X_aqt.tensor_impl.scale
+        X_scale = torch.empty([x.shape[0], 1], device=x.device, dtype=torch.float32)
+        Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
+            x,
+            "cutlass",
+            "srelu",
+            "largest",
+            dtype=torch.float8_e4m3fn,
+            scale=X_scale,
+        )
+        # print("reference scales:", X_aqt.tensor_impl.scale)
+        # print("new scales:", X_scale.squeeze(-1))
+        # torch.testing.assert_close(X_scale, X_aqt.tensor_impl.scale.unsqueeze(-1))
 
-        # breakpoint()
-
-        return rowwise_scaled_linear_sparse_cutlass_f8f8(self.Wq, self.W_scale, Xq_sparse, X_meta, X_scale, bias=None, out_dtype=dtype)
+        res = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            self.Wq,
+            self.W_scale,
+            Xq_sparse,
+            X_meta,
+            X_scale,
+            bias=None,
+            out_dtype=torch.bfloat16,
+        ).t()
+        return res
 
     @classmethod
     def from_dense(cls, linear):
-        mod = cls(linear.weight.data)
-        return mod
+        return cls(linear.weight.data)
+
 
 @dataclass
 class SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(AOBaseConfig):
@@ -112,18 +129,19 @@ class SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(AOBaseConfig):
         `activation_dtype`: data type for quantized activation tensor.
         `weight_dtype`: data type for quantized weight tensor.
     """
+
     # layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = torch.float8_e5m2
+    activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
-@register_quantize_module_handler(SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig)
+
+@register_quantize_module_handler(
+    SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
+)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module, config: SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
+    module: torch.nn.Module,
+    config: SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
-    return module    
-
-
-test = FFNSRelu(hidden_size=8192, intermediate_size=8192)
-print(list(test.modules()))
+    return module

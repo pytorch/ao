@@ -731,7 +731,7 @@ def _(
         weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
     )
 
-def sparse_semi_structured_tile(
+def sparse24_sm90_sparsify(
     input_tensor: Tensor,
     metadata_format: str,
     activation: str,

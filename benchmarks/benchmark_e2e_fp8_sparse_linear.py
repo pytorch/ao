@@ -90,10 +90,6 @@ class FP8SemiSparseActivationLinear(torch.nn.Module):
             dtype=torch.float8_e4m3fn,
             scale=X_scale
         )
-        X_scale = X_aqt.tensor_impl.scale
-
-        # breakpoint()
-
         return rowwise_scaled_linear_sparse_cutlass_f8f8(self.Wq, self.W_scale, Xq_sparse, X_meta, X_scale, bias=None, out_dtype=dtype)
 
     @classmethod
@@ -164,10 +160,10 @@ if __name__ == "__main__":
         results.append(benchmark(num_tokens, test_ffn))
 
 
-    test_ffn = LlamaMLP(
-        hidden_size=4096,
-        intermediate_size=14336,
-    ).to(torch.bfloat16).cuda()
+    # test_ffn = LlamaMLP(
+    #     hidden_size=4096,
+    #     intermediate_size=14336,
+    # ).to(torch.bfloat16).cuda()
 
     df = pd.DataFrame(results)
     df.to_csv("e2e_fp8_sparse.csv", index=False)
