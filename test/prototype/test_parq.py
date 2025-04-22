@@ -122,9 +122,11 @@ class TestPARQuantization(common_utils.TestCase):
 
 
 class TestUnifTorchaoQuantizer(common_utils.TestCase):
-    def setUp(self):
+    def __init__(self, methodName, group_size: int = 32):
+        super(TestUnifTorchaoQuantizer, self).__init__(methodName)
         torch.manual_seed(123)
-        self.group_size = 32
+        self.group_size = group_size
+        self.out_dim = 512
 
     def compare_quantized_models(
         self,
@@ -152,14 +154,13 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     def test_int4_weight_only(self):
-        model = M(n=1024, k=1024).to(torch.bfloat16).to(_DEVICE)
+        model = M(m=self.out_dim, n=self.out_dim).to(torch.bfloat16).to(_DEVICE)
         model.reset_parameters()
         m_ref = copy.deepcopy(model)
 
-        config = Int4WeightOnlyConfig(group_size=self.group_size)
-        quantize_(m_ref, config, device=_DEVICE)
+        quantize_(m_ref, Int4WeightOnlyConfig(group_size=self.group_size))
 
-        # copied from torchao.quantization.quant_api._int4_weight_only_transform
+        # based off torchao.quantization.quant_api._int4_weight_only_transform
         b = 4
         quantizer = UnifTorchaoQuantizer(
             symmetric=False,
@@ -169,20 +170,19 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             eps=1e-6,
             preserve_zero=False,
         )
-        self.assertTrue(
-            quantizer.get_quant_size(b) == quantizer.quant_max - quantizer.quant_min + 1
-        )
         self.compare_quantized_models(model, m_ref, quantizer, b)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     def test_intx_weight_only(self):
-        model = M(n=512, k=512).to(_DEVICE)
+        model = M(m=self.out_dim, n=self.out_dim).to(_DEVICE)
         model.reset_parameters()
         m_ref = copy.deepcopy(model)
 
         config = IntxWeightOnlyConfig(granularity=PerGroup(self.group_size))
-        quantize_(m_ref, config, device=_DEVICE)
+        quantize_(m_ref, config)
+
+        # based off torchao.quantization.quant_api._intx_weight_only_transform
         b = 8
         q_dtype = torch.int8
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[q_dtype]
@@ -195,10 +195,17 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             preserve_zero=True,
             zero_point_domain=ZeroPointDomain.INT,
         )
-        self.assertTrue(
-            quantizer.get_quant_size(b) == max(abs(quant_min), quant_max) + 1
-        )
         self.compare_quantized_models(model, m_ref, quantizer, b)
+
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite()
+    suite.addTests(loader.loadTestsFromTestCase(TestPARQuantization))
+    suite.addTests(loader.loadTestsFromTestCase(TestUnifTorchaoQuantizer))
+
+    group_size = suite._tests[-1].out_dim  # row-wise grouping
+    suite.addTest(TestUnifTorchaoQuantizer("test_intx_weight_only", group_size))
+    return suite
 
 
 if __name__ == "__main__":

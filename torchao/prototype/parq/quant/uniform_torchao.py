@@ -55,7 +55,7 @@ class UnifTorchaoQuantizer(Quantizer):
         }
 
     def get_quant_size(self, b: int) -> int:
-        return 2 ** (b - 1) + 1 if self.mapping_type == MappingType.SYMMETRIC else 2**b
+        return self.quant_max - self.quant_min + 1
 
     def quantize(
         self, p: Tensor, b: int, dim: Optional[int] = None
@@ -73,15 +73,13 @@ class UnifTorchaoQuantizer(Quantizer):
             self.mapping_type,
             block_size,
             self.target_dtype,
-            quant_min=self.quant_min,
-            quant_max=self.quant_max,
             eps=self.eps,
             preserve_zero=self.preserve_zero,
-            zero_point_domain=self.zero_point_domain,
+            **self.q_kwargs,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
         q = quantize_affine(p, *q_args, **self.q_kwargs)
-        q = dequantize_affine(q, *q_args, **self.q_kwargs, output_dtype=p.dtype)
+        q = dequantize_affine(q, *q_args, output_dtype=p.dtype, **self.q_kwargs)
 
         Q = torch.arange(
             self.quant_min, self.quant_max + 1, dtype=self.target_dtype, device=p.device
