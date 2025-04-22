@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import gemlite
-    from gemlite.core import DType, GemLiteLinearTriton
+    from gemlite.core import GemLiteLinearTriton
 except:
     logger.error(
         "Unable to import 'gemlite'. Please ensure it is installed correctly. You can install it with: pip install gemlite"
@@ -210,25 +210,10 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
         )
         group_size, bit_width = _layout.group_size, _layout.bit_width
-
         out_features, in_features = int_data.shape
-        input_dtype, output_dtype = DType.FP16, DType.FP16
-        gemlite_linear = GemLiteLinearTriton(
-            bit_width,
-            group_size=group_size,
-            in_features=in_features,
-            out_features=out_features,
-            input_dtype=input_dtype,
-            output_dtype=output_dtype,
-            scaled_activations=False,
-        )
 
-        gemlite_linear.pack(
-            int_data,
-            scale,
-            zero_point,
-            bias=None,
-            packing_bitwidth=_layout.packing_bitwidth,
+        gemlite_linear = gemlite.helper.A16Wn(device=int_data.device).from_weights(
+            int_data, scale, zero_point, bit_width, group_size, bias=None
         )
 
         gemlite_kwargs = {
