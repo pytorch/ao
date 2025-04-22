@@ -665,9 +665,9 @@
             <span class="n">group_size</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">group_size</span> <span class="o">=</span> <span class="n">in_features</span> <span class="o">//</span> <span class="n">s_group_t</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">group_size</span> <span class="o">&lt;=</span> <span class="n">in_features</span>
-        <span class="p">),</span> <span class="s2">&quot;Group size must be less than or equal to in_features.&quot;</span>
+        <span class="k">assert</span> <span class="n">group_size</span> <span class="o">&lt;=</span> <span class="n">in_features</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Group size must be less than or equal to in_features.&quot;</span>
+        <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">group_size</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">const</span><span class="o">.</span><span class="n">SUPPORTED_GROUP_SIZES</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>

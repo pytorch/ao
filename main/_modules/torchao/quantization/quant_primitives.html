@@ -670,9 +670,9 @@
     <span class="n">cur_dim</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)):</span>
         <span class="k">if</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">!=</span> <span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="ow">and</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">%</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Expecting input size at </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> dimension: </span><span class="si">{</span><span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">}</span><span class="s2"> to be divisible by block_size at </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> dimension: </span><span class="si">{</span><span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">%</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Expecting input size at </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> dimension: </span><span class="si">{</span><span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">}</span><span class="s2"> to be divisible by block_size at </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> dimension: </span><span class="si">{</span><span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
             <span class="n">shape_for_reduction</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">input_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
             <span class="n">shape_for_reduction</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
             <span class="c1"># reduce over the block_size[i] dim</span>
@@ -810,9 +810,9 @@
         <span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported input dtype: </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
         <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
     <span class="p">)</span>
@@ -835,9 +835,9 @@
             <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">scale</span><span class="p">))</span> <span class="o">+</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span>
         <span class="p">)</span>
     <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
+        <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">quant_dtype</span><span class="p">):</span>
             <span class="n">quant</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">input</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">reciprocal</span><span class="p">(),</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -921,9 +921,9 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;op definition that has compatible signatures with custom op library&quot;&quot;&quot;</span>
     <span class="c1"># TODO: validate scale/zero_point dimensions are compatible with block_size</span>
     <span class="k">if</span> <span class="n">input_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">input_dtype</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Expected: </span><span class="si">{</span><span class="n">input_dtype</span><span class="si">}</span><span class="s2">, got: </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">input</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">input_dtype</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Expected: </span><span class="si">{</span><span class="n">input_dtype</span><span class="si">}</span><span class="s2">, got: </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
     <span class="k">assert</span> <span class="n">output_dtype</span> <span class="ow">in</span> <span class="p">[</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
@@ -960,9 +960,9 @@
 <span class="sd">    2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain</span>
 <span class="sd">    3. reshape the quantized result to origianl shape and change dtype to the output_dtype</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
         <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
     <span class="p">)</span>
@@ -985,15 +985,15 @@
         <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
         <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span> <span class="o">*</span> <span class="n">scale</span>
     <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="p">),</span> <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
+        <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span>
+        <span class="p">)</span>
         <span class="n">dequant</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
         <span class="n">dequant</span> <span class="o">=</span> <span class="n">dequant</span> <span class="o">*</span> <span class="n">scale</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Unexpected zero point domain: </span><span class="si">{</span><span class="n">zero_point_domain</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Unexpected zero point domain: </span><span class="si">{</span><span class="n">zero_point_domain</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="c1"># TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)</span>
         <span class="n">mid_point</span> <span class="o">=</span> <span class="p">(</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
         <span class="c1"># This should allocate new memory and avoid input modification</span>
@@ -1278,9 +1278,9 @@
         <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
     <span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Unsupported mapping type: </span><span class="si">{</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="o">.</span><span class="n">name</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only symmetric quantization is supported for FP8 types, got </span><span class="si">{</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Only symmetric quantization is supported for FP8 types, got </span><span class="si">{</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1288,9 +1288,9 @@
         <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
 
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">(),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Got input dim:</span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">, block_size: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
             <span class="n">block_size</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
         <span class="p">)</span>
@@ -1299,12 +1299,12 @@
         <span class="n">min_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">min_val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-        <span class="p">),</span> <span class="s2">&quot;Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">max_val</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="p">),</span> <span class="s2">&quot;Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}&quot;</span>
+        <span class="k">assert</span> <span class="n">min_val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">max_val</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}&quot;</span>
+        <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">scale_dtype</span> <span class="o">=</span> <span class="n">min_val</span><span class="o">.</span><span class="n">dtype</span>
@@ -1367,9 +1367,9 @@
             <span class="k">if</span> <span class="n">zero_point_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span>
-            <span class="p">),</span> <span class="s2">&quot;zero_point must be in FLOAT/INT/None domain for asymmetric quantization&quot;</span>
+            <span class="k">assert</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;zero_point must be in FLOAT/INT/None domain for asymmetric quantization&quot;</span>
+            <span class="p">)</span>
             <span class="n">mid_point</span> <span class="o">=</span> <span class="p">(</span><span class="n">quant_max</span> <span class="o">+</span> <span class="n">quant_min</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
             <span class="c1"># this is not preserving zero_point, this is converting to TensorCoreTiledFormat</span>
             <span class="c1"># TODO move the conversion of zero_point out of quant_primitives</span>

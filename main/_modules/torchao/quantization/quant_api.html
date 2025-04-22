@@ -1132,28 +1132,36 @@
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">QDQLayout</span><span class="p">()</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">TORCH_VERSION_AT_LEAST_2_6</span>
-        <span class="p">),</span> <span class="s2">&quot;Int8DynamicActivationIntxWeightConfig requires torch 2.6+&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Int8DynamicActivationIntxWeightConfig requires torch 2.6+&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;axis must be 0, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;axis must be 0, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="p">],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
+            <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="p">],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="p">,</span> <span class="p">(</span><span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">,</span> <span class="n">QDQLayout</span><span class="p">)</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="p">,</span> <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="o">.</span><span class="n">target</span> <span class="ow">in</span> <span class="p">[</span><span class="n">Target</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span> <span class="n">Target</span><span class="o">.</span><span class="n">KLEIDIAI</span><span class="p">,</span> <span class="n">Target</span><span class="o">.</span><span class="n">ATEN</span><span class="p">]:</span>
@@ -1224,9 +1232,9 @@
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">PackedLinearInt8DynamicActivationIntxWeightLayout</span><span class="p">):</span>
         <span class="c1"># PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization</span>
         <span class="c1"># fused with the kernel and it should not be applied separately</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
-        <span class="p">),</span> <span class="s2">&quot;PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC&quot;</span>
+        <span class="k">assert</span> <span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC&quot;</span>
+        <span class="p">)</span>
         <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
         <span class="n">groups_per_row</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="n">group_size</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">groups_per_row</span><span class="p">)</span>
@@ -1428,16 +1436,16 @@
     <span class="p">)</span>
 
     <span class="c1"># nonlocal zero_point_domain</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Only support layout: </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
         <span class="c1"># the first value is the default one</span>
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">zero_point_domain</span> <span class="ow">in</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">layout</span><span class="p">)],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Layout only support </span><span class="si">{</span><span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="n">layout</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">Int4XPULayout</span><span class="p">):</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
@@ -1452,9 +1460,9 @@
     <span class="c1"># we should consider moving this logic somewhere else.</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">MarlinSparseLayout</span><span class="p">):</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">group_size</span> <span class="o">==</span> <span class="mi">128</span> <span class="ow">or</span> <span class="n">group_size</span> <span class="o">==</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;MarlinSparseLayout only supports 128 group size or per channel quantization, got </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
         <span class="n">weight</span><span class="p">,</span>
@@ -1776,13 +1784,13 @@
     <span class="c1"># Validate granularity with supported Hardware</span>
     <span class="k">for</span> <span class="n">_granularity</span> <span class="ow">in</span> <span class="n">processed_granularity</span><span class="p">:</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">()</span>
-            <span class="p">),</span> <span class="s2">&quot;PerTensor quantization only works for CUDA&gt;=8.9 and MI300+&quot;</span>
+            <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
+                <span class="s2">&quot;PerTensor quantization only works for CUDA&gt;=8.9 and MI300+&quot;</span>
+            <span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">is_sm_at_least_90</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">()</span>
-            <span class="p">),</span> <span class="s2">&quot;PerRow quantization only works for CUDA&gt;=9.0 and MI300+&quot;</span>
+            <span class="k">assert</span> <span class="n">is_sm_at_least_90</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
+                <span class="s2">&quot;PerRow quantization only works for CUDA&gt;=9.0 and MI300+&quot;</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity type: </span><span class="si">{</span><span class="n">_granularity</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
@@ -1799,13 +1807,13 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This function is used to quantize the input activation tensor for an aqt_float variant. If scale</span>
 <span class="sd">    is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span>
-    <span class="p">),</span> <span class="s2">&quot;Zero point is not supported for dynamic FP8 quantization&quot;</span>
+    <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;Zero point is not supported for dynamic FP8 quantization&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
-        <span class="p">),</span> <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input activation&quot;</span>
+        <span class="k">assert</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input activation&quot;</span>
+        <span class="p">)</span>
 
     <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">activation_granularity</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">scale</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1817,9 +1825,9 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>  <span class="c1"># Config is stored on weight</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
-            <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
-        <span class="p">),</span> <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">),</span> <span class="p">(</span>
+            <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
+        <span class="p">)</span>
         <span class="n">activation</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx_static</span><span class="p">(</span>
             <span class="n">input_float</span><span class="o">=</span><span class="n">x</span><span class="p">,</span>
             <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
@@ -1840,9 +1848,9 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        bool: True if the tensor can be quantized to float8, False otherwise</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;float8 quantization only works for 2-D tensors, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D tensor&quot;</span>
+    <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;float8 quantization only works for 2-D tensors, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D tensor&quot;</span>
+    <span class="p">)</span>
 
     <span class="n">out_dim</span><span class="p">,</span> <span class="n">in_dim</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
     <span class="n">is_compatible</span> <span class="o">=</span> <span class="p">(</span><span class="n">in_dim</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">out_dim</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
@@ -1895,9 +1903,9 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_dynamic_activation_float8_weight_transform</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span>
 <span class="p">):</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">()</span>
-    <span class="p">),</span> <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
+    <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
@@ -1914,9 +1922,9 @@
         <span class="c1"># not doing what the user asked</span>
         <span class="k">return</span> <span class="n">module</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
-        <span class="p">),</span> <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
+        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
+        <span class="p">)</span>
 
     <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span>
     <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
@@ -2021,9 +2029,9 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_static_activation_float8_weight_transform</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Float8StaticActivationFloat8WeightConfig</span>
 <span class="p">):</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">()</span>
-    <span class="p">),</span> <span class="s2">&quot;Float8 static activation quantization is only supported on CUDA 8.9 and above&quot;</span>
+    <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
+        <span class="s2">&quot;Float8 static activation quantization is only supported on CUDA 8.9 and above&quot;</span>
+    <span class="p">)</span>
 
     <span class="n">scale</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">activation_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span>
@@ -2035,9 +2043,9 @@
 
     <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
     <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
-        <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
-    <span class="p">),</span> <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">),</span> <span class="p">(</span>
+        <span class="s2">&quot;Static quantization only supports PerTensor granularity&quot;</span>
+    <span class="p">)</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
@@ -2192,19 +2200,19 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">TORCH_VERSION_AT_LEAST_2_6</span><span class="p">,</span> <span class="s2">&quot;IntxWeightOnlyConfig requires torch 2.6+&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">]</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">IntxWeightOnlyConfig</span><span class="p">)</span>
@@ -2218,15 +2226,15 @@
     <span class="n">scale_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">scale_dtype</span>
     <span class="n">layout</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">layout</span>
 
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;IntxWeightOnlyConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;IntxWeightOnlyConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">granularity</span><span class="o">.</span><span class="n">group_size</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>

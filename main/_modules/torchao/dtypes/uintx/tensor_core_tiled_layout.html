@@ -477,9 +477,9 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_linear_bf16_act_uint4_weight_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Requires groupwise quantization, got block_size: </span><span class="si">{</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Requires groupwise quantization, got block_size: </span><span class="si">{</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;need input_tensor shape: </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> final&quot;</span>
         <span class="sa">f</span><span class="s2">&quot;dim to match weight_tensor shape: </span><span class="si">{</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> second dim &quot;</span>
@@ -576,9 +576,9 @@
             <span class="nb">input</span><span class="p">,</span>
             <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">in_features</span> <span class="o">-</span> <span class="n">orig_in_features</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">out_features</span> <span class="o">-</span> <span class="n">orig_out_features</span><span class="p">),</span>
         <span class="p">)</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledLayout only supports len(block_size) == 2, got: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledLayout only supports len(block_size) == 2, got: </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
         <span class="n">scale_pad_dim_0</span> <span class="o">=</span> <span class="p">(</span><span class="n">out_features</span> <span class="o">-</span> <span class="n">orig_out_features</span><span class="p">)</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="n">scale_pad_dim_1</span> <span class="o">=</span> <span class="p">(</span><span class="n">in_features</span> <span class="o">-</span> <span class="n">orig_in_features</span><span class="p">)</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">scale_pad_dim_1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">scale_pad_dim_0</span><span class="p">))</span>
@@ -674,13 +674,13 @@
 
         <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
             <span class="n">int_data</span> <span class="o">=</span> <span class="p">(</span><span class="n">int_data</span><span class="p">[::,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">int_data</span><span class="p">[::,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
-            <span class="p">),</span> <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype&quot;</span>
+            <span class="k">assert</span> <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype&quot;</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
-            <span class="p">),</span> <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype&quot;</span>
+            <span class="k">assert</span> <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype&quot;</span>
+            <span class="p">)</span>
         <span class="n">packed_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack</span><span class="p">(</span>
             <span class="n">int_data</span><span class="p">,</span> <span class="n">_layout</span><span class="o">.</span><span class="n">inner_k_tiles</span>
         <span class="p">)</span>
