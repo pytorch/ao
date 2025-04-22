@@ -25,8 +25,6 @@ import copy
 from torchao.prototype.sparsity.activation.srelu_linear import SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
 from torchao.sparsity import sparsify_
 
-torch.manual_seed(32)
-
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 @unittest.skip("Not implemented yet")
 def test_sparse24_sm90_sparsify_fp8(
@@ -153,8 +151,7 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
-        quantize_(reference_linear_copy, SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig())
-        print(reference_linear_copy)
+        sparsify_(reference_linear_copy, SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig())
         # (reference_linear_copy)
         reference_linear_copy.forward = torch.compile(reference_linear_copy.forward, fullgraph=True)
 

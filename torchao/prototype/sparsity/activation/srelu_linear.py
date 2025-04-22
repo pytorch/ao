@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from sys import activate_stack_trampoline
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torchao.core.config import AOBaseConfig
 
@@ -12,7 +10,6 @@ from torchao.ops import (
 from torchao.quantization.quant_api import (
     _float8_cutlass_quant,
 )
-
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -23,7 +20,6 @@ class SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(AOBaseConfig):
     Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.
 
     Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
         `activation_dtype`: data type for quantized activation tensor.
         `weight_dtype`: data type for quantized weight tensor.
     """
@@ -54,7 +50,6 @@ class FP8SemiSparseActivationLinear(nn.Module):
         self.W_scale = W_aqt.tensor_impl.scale
 
     def forward(self, x):
-
         X_scale = torch.empty([x.shape[0], 1], device=x.device, dtype=torch.float32)
         Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
             x,
