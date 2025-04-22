@@ -22,6 +22,15 @@ from torchao.dtypes.utils import Layout, is_device
 from torchao.quantization.quant_primitives import quantize_affine
 from torchao.utils import fill_defaults
 
+import logging
+logger = logging.getLogger(__name__)
+
+try:
+    import gemlite
+    from gemlite.core import DType, GemLiteLinearTriton
+except:
+    logger.error("Unable to import 'gemlite'. Please ensure it is installed correctly. You can install it with: pip install gemlite")
+
 aten = torch.ops.aten
 
 def _same_metadata(
@@ -43,6 +52,15 @@ def _same_metadata(
         and type(self._layout) == type(src._layout)
     )
 
+def scaled_activations_no_scaling(x):
+    return x, None
+
+def scaled_activations_int8(x):
+    x_shape  = x.shape
+    out_x    = x.view(-1, x.shape[-1]) 
+    scaled_x = torch.abs(out_x).amax(axis=1, keepdim=True) / 127
+    out_x    = torch.round(out_x / scaled_x).to(dtype=torch.int8)
+    return out_x.view(x_shape), scaled_x
 
 def get_gemlite_quant_kwargs(bit_width, group_size):
     from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
@@ -100,15 +118,6 @@ def get_gemlite_aqt_kwargs(
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
 
-    if in_features % 128 != 0 and out_features % 128 != 0:
-        warnings.simplefilter("once", UserWarning)
-        warnings.warn(
-            "Gemlite only works for layers with in_features or out_features divisible by 128, "
-            + "some layers have been skipped",
-            UserWarning,
-        )
-        return weight
-
     aqt_kwargs = get_gemlite_quant_kwargs(bit_width, group_size)
     aqt_kwargs["_layout"] = GemlitePackedLayout(
         group_size=group_size,
@@ -163,7 +172,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         self.zero_point = zero_point
         self.gemlite_kwargs = gemlite_kwargs
         self._layout = _layout
-        torch._dynamo.config.inline_inbuilt_nn_modules = False
 
     def __tensor_flatten__(self):
         return ["packed_weight", "scale", "zero_point"], [
@@ -192,24 +200,11 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         _layout: Layout,
     ):
         print(f"from plain: {int_data.shape=} {scale.shape=}")
-        from gemlite.core import DType, GemLiteLinearTriton, set_autotune
 
         assert isinstance(
             _layout, GemlitePackedLayout
         ), f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
         group_size, bit_width = _layout.group_size, _layout.bit_width
-
-        torch._dynamo.config.inline_inbuilt_nn_modules = False
-        set_autotune(
-            {"GEMV_REVSPLITK": True, "GEMV": True, "GEMM_SPLITK": True, "GEMM": True},
-            exhaustive=False,
-            use_cuda_graph=False,
-        )
-        if _layout.group_size is None and _layout.bit_width == 4:
-            from gemlite.core import GEMLITE_ACC_DTYPE
-            from gemlite.dtypes import DType
-
-            GEMLITE_ACC_DTYPE[DType.FP16] = DType.FP32
 
         out_features, in_features = int_data.shape
         input_dtype, output_dtype = DType.FP16, DType.FP16
@@ -220,16 +215,18 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             out_features=out_features,
             input_dtype=input_dtype,
             output_dtype=output_dtype,
+            scaled_activations=False,
         )
+
         gemlite_linear.pack(
             int_data,
             scale,
             zero_point,
             bias=None,
-            fma_mode=False,
             packing_bitwidth=_layout.packing_bitwidth,
-            contiguous=_layout.contiguous,
         )
+
+        gemlite_linear.scale_activations = scaled_activations_no_scaling #No scaling for 4-bit quant
 
         gemlite_kwargs = {
             "out_features": out_features,
@@ -266,7 +263,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         )
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        import gemlite
         elements_per_sample = self._layout.packing_bitwidth // self._layout.bit_width
         in_features = (self.packed_weight.numel() * elements_per_sample) // self.gemlite_kwargs['out_features']
         int_data = (
@@ -372,19 +368,14 @@ def _matmul_type_fn(batch_size: int, bit_width: int) -> str:
         return "GEMM"
     elif batch_size > 1:
         return "GEMM_SPLITK"
-    elif bit_width < 8:
-        return "GEMV_REVSPLITK"
     else:
-        return "GEMV_SPLITK"
-
+        return gemlite.core.get_default_gemv(bit_width)
 
 def _linear_fp_act_int4_weight_gemlite_impl(input_tensor, weight_tensor, bias=None):
     if hasattr(weight_tensor, "tensor_impl"):
         weight_impl = weight_tensor.tensor_impl
     else:
         weight_impl = weight_tensor
-
-    from gemlite.core import GemLiteLinearTriton
 
     batch_size = input_tensor.view(-1, input_tensor.shape[-1]).shape[0]
     matmul_type = _matmul_type_fn(batch_size, weight_impl._layout.bit_width)
