@@ -30,7 +30,12 @@ def swizzle_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 
-    if torch.is_floating_point(a) and torch.is_floating_point(b) and a.ndim == 2 and b.ndim == 2:
+    if (
+        torch.is_floating_point(a)
+        and torch.is_floating_point(b)
+        and a.ndim == 2
+        and b.ndim == 2
+    ):
         a_is_swizzled = False
         b_is_swizzled = False
         if isinstance(a, SwizzleTensor):
