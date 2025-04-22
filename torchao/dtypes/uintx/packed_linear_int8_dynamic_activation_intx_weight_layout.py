@@ -160,20 +160,22 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         validate_inputs: bool = True,
     ):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
-        assert layout.target in [
-            t for t, _ in _TARGET_AND_STR
-        ], f"Unexpected target: {layout.target}"
-        assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
+        assert layout.target in [t for t, _ in _TARGET_AND_STR], (
+            f"Unexpected target: {layout.target}"
+        )
+        assert layout.has_params_set(), (
+            "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
+        )
 
         if layout.target != Target.ATEN:
             _check_torchao_ops_loaded()
         else:
-            assert (
-                TORCH_VERSION_AT_LEAST_2_6
-            ), "aten target is requires torch version > 2.6.0"
-            assert (
-                torch.backends.kleidiai.is_available()
-            ), "ATEN target requires torch.backends.kleidiai.is_available()"
+            assert TORCH_VERSION_AT_LEAST_2_6, (
+                "aten target is requires torch version > 2.6.0"
+            )
+            assert torch.backends.kleidiai.is_available(), (
+                "ATEN target requires torch.backends.kleidiai.is_available()"
+            )
             layout.bit_width == 4, "ATEN target only supports torch.int4"
             assert not layout.has_weight_zeros, "ATEN target does not support zeros"
 
@@ -199,9 +201,9 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
             scale = scale.to(torch.float32)
         n_, _ = scale.shape
         assert n_ == n
-        assert (
-            scale.numel() * layout.group_size == int_data.numel()
-        ), "must have 1 scale per group"
+        assert scale.numel() * layout.group_size == int_data.numel(), (
+            "must have 1 scale per group"
+        )
         if validate_inputs:
             assert scale.min().item() > 0
             # Some targets round scales to bfloat16, give warning if scales are at higher precision
@@ -220,16 +222,16 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
 
         # Check zero_point
         if zero_point is None:
-            assert (
-                not layout.has_weight_zeros
-            ), "zero_point must be provided if has_weight_zeros=True"
+            assert not layout.has_weight_zeros, (
+                "zero_point must be provided if has_weight_zeros=True"
+            )
         else:
             assert zero_point.device == torch.device("cpu")
             assert zero_point.shape == scale.shape
             assert zero_point.dtype in int_types
-            assert (
-                zero_point.numel() * layout.group_size == int_data.numel()
-            ), "must have 1 zero_point per group"
+            assert zero_point.numel() * layout.group_size == int_data.numel(), (
+                "must have 1 zero_point per group"
+            )
             if validate_inputs:
                 zero_point_min = zero_point.min().item()
                 zero_point_max = zero_point.max().item()
@@ -238,16 +240,16 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
                 has_weight_zeros = True
                 if zero_point_min == 0 and zero_point_max == 0:
                     has_weight_zeros = False
-                assert (
-                    has_weight_zeros == layout.has_weight_zeros
-                ), "zero_point being all zeros must be consistent with layout.has_weight_zeros"
+                assert has_weight_zeros == layout.has_weight_zeros, (
+                    "zero_point being all zeros must be consistent with layout.has_weight_zeros"
+                )
             zero_point = zero_point.to(torch.int8)
 
         # Check bias
         has_bias = bias is not None
-        assert (
-            has_bias == layout.has_bias
-        ), "bias being None must be consistent with layout.has_bias"
+        assert has_bias == layout.has_bias, (
+            "bias being None must be consistent with layout.has_bias"
+        )
         if has_bias:
             assert bias.device == torch.device("cpu")
             if bias.dtype != torch.float32:
@@ -367,9 +369,9 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     target = weight_tensor.tensor_impl.get_layout().target
 
     if weight_tensor.tensor_impl.get_layout().has_bias:
-        assert (
-            bias is None
-        ), "bias should be None because it is already packed with the weights (has_bias=True)"
+        assert bias is None, (
+            "bias should be None because it is already packed with the weights (has_bias=True)"
+        )
 
     if target == Target.ATEN:
         assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
@@ -415,7 +417,9 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     from plain data.
     """
     # TORCH_VERSION_AT_LEAST_2_6 is needed for torch.intx with x < 8
-    assert TORCH_VERSION_AT_LEAST_2_6, "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
+    assert TORCH_VERSION_AT_LEAST_2_6, (
+        "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
+    )
 
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
 

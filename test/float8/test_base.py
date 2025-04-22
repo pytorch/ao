@@ -426,9 +426,9 @@ class TestFloat8Linear:
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
             y = m(x)
-        assert (
-            y.dtype == torch.bfloat16
-        ), f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
+        assert y.dtype == torch.bfloat16, (
+            f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
+        )
 
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -457,9 +457,9 @@ class TestFloat8Linear:
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
             y = m(x)
-        assert (
-            y.dtype == torch.bfloat16
-        ), f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
+        assert y.dtype == torch.bfloat16, (
+            f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
+        )
 
     def test_repr(self):
         m = nn.Linear(32, 16)
@@ -490,9 +490,9 @@ class TestFloat8Linear:
         from torchao.quantization.quant_api import float8_weight_only, quantize_
 
         quantize_(m, float8_weight_only())
-        assert (
-            m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn
-        ), "Post quantization dtype should be torch.float8_e4m3fn"
+        assert m[0].weight.tensor_impl.float8_data.dtype == torch.float8_e4m3fn, (
+            "Post quantization dtype should be torch.float8_e4m3fn"
+        )
         with torch.no_grad():
             m(x)
 

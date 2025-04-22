@@ -361,8 +361,7 @@ def get_image_size(image: Union[np.ndarray, torch.Tensor]):
         return (h, w)
     else:
         raise NotImplementedError(
-            "Only support np.ndarray, torch.Tensor"
-            f"or PIL Image, but got {type(image)}"
+            f"Only support np.ndarray, torch.Tensoror PIL Image, but got {type(image)}"
         )
 
 

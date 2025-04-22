@@ -65,15 +65,15 @@ def _tensor_to_multi_tensor(model):
 def _multi_tensor_to_tensor(model):
     for name, buf in model.named_buffers(recurse=False):
         if isinstance(buf, MultiTensor):
-            assert (
-                len(buf.values) == 1
-            ), f"The buffer should only have one tensor, but got {buf.count}."
+            assert len(buf.values) == 1, (
+                f"The buffer should only have one tensor, but got {buf.count}."
+            )
             model.register_buffer(name, buf.values[0])
     for name, param in model.named_parameters(recurse=False):
         if isinstance(param, MultiTensor):
-            assert (
-                len(param.values) == 1
-            ), f"The parameter should only have one tensor, but got {param.count}."
+            assert len(param.values) == 1, (
+                f"The parameter should only have one tensor, but got {param.count}."
+            )
             setattr(
                 model, name, torch.nn.Parameter(param.values[0], requires_grad=False)
             )
@@ -195,9 +195,9 @@ def apply_auto_round():
                 )
                 from torchao.quantization.quant_primitives import ZeroPointDomain
 
-                assert (
-                    _auto_round_config.bits in _BIT_WIDTH_TO_DTYPE
-                ), f"Invalid bits: {_auto_round_config.bits}"
+                assert _auto_round_config.bits in _BIT_WIDTH_TO_DTYPE, (
+                    f"Invalid bits: {_auto_round_config.bits}"
+                )
                 dtype = _BIT_WIDTH_TO_DTYPE[_auto_round_config.bits]
                 pack_dim = -1
                 _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)

@@ -544,9 +544,9 @@ def run(
         runner = profile_top_runner
 
     if memory_path is not None:
-        assert (
-            use_compile != "max-autotune"
-        ), f"Memory path does not support {use_compile}"
+        assert use_compile != "max-autotune", (
+            f"Memory path does not support {use_compile}"
+        )
         import functools
 
         runner = functools.partial(memory_runner, memory_path)

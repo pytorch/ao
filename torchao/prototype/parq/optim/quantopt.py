@@ -189,9 +189,9 @@ class QuantOptimizer(Optimizer):
 
                 # reshape p according to block size if specified
                 if block_size is not None:
-                    assert (
-                        p.size(-1) % block_size == 0
-                    ), f"{p.size(-1)=} is not divisible by {block_size=}"
+                    assert p.size(-1) % block_size == 0, (
+                        f"{p.size(-1)=} is not divisible by {block_size=}"
+                    )
                     assert p.dim() <= 2, f"Invalid {p.dim()=} for {block_size=}"
                     if p.dim() == 1:
                         p = p.unsqueeze(0)

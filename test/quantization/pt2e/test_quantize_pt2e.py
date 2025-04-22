@@ -365,9 +365,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                         def derive_qparams_fn(
                             obs_or_fqs: list[ObserverOrFakeQuantize],
                         ) -> tuple[Tensor, Tensor]:
-                            assert (
-                                len(obs_or_fqs) == 2
-                            ), f"Expecting two obs/fqs, one for activation and one for weight, got: {len(obs_or_fqs)}"
+                            assert len(obs_or_fqs) == 2, (
+                                f"Expecting two obs/fqs, one for activation and one for weight, got: {len(obs_or_fqs)}"
+                            )
                             act_obs_or_fq = obs_or_fqs[0]
                             weight_obs_or_fq = obs_or_fqs[1]
                             act_scale, act_zp = act_obs_or_fq.calculate_qparams()
@@ -468,9 +468,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                         def derive_qparams_fn(
                             obs_or_fqs: list[ObserverOrFakeQuantize],
                         ) -> tuple[Tensor, Tensor]:
-                            assert (
-                                len(obs_or_fqs) == 1
-                            ), f"Expecting one weight obs/fq, got: {len(obs_or_fqs)}"
+                            assert len(obs_or_fqs) == 1, (
+                                f"Expecting one weight obs/fq, got: {len(obs_or_fqs)}"
+                            )
                             weight_obs_or_fq = obs_or_fqs[0]
                             (
                                 weight_scale,
@@ -809,9 +809,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 obs_ins0 = getattr(m, input0.target)
                 obs_ins1 = getattr(m, input1.target)
                 assert obs_ins0 == obs_ins1
-        assert (
-            len(conv_output_obs) == 2
-        ), "expecting two observer that follows conv2d ops"
+        assert len(conv_output_obs) == 2, (
+            "expecting two observer that follows conv2d ops"
+        )
         # checking that the output observers for the two convs are shared as well
         assert conv_output_obs[0] == conv_output_obs[1]
 
@@ -876,9 +876,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 obs_ins2 = getattr(m, output_obs.target)
                 assert obs_ins0 == obs_ins2, "input observer does not match output"
 
-        assert (
-            len(conv_output_obs) == 2
-        ), "expecting two observer that follows conv2d ops"
+        assert len(conv_output_obs) == 2, (
+            "expecting two observer that follows conv2d ops"
+        )
         # checking that the output observers for the two convs are shared as well
         assert conv_output_obs[0] == conv_output_obs[1]
 
