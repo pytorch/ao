@@ -4,18 +4,26 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
+
 import pytest
 import torch
 
-from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
-    triton_fp8_col_major_jagged_colwise_scales,
-    triton_fp8_row_major_jagged_rowwise_scales,
-)
 from torchao.prototype.scaled_grouped_mm.utils import (
     _is_column_major,
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# triton only ships with pytorch cuda builds, so do import conditionally.
+if torch.cuda.is_available():
+    from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
+        triton_fp8_col_major_jagged_colwise_scales,
+        triton_fp8_row_major_jagged_rowwise_scales,
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
