@@ -21,6 +21,7 @@ from torchao.dtypes import (
     Int4XPULayout,
     PlainLayout,
     SemiSparseLayout,
+    to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
@@ -354,6 +355,7 @@ class TestAffineQuantizedBasic(TestCase):
         _ = dummy.weight.narrow(1, 0, 128)
 
     @common_utils.parametrize("device", ["cuda"])
+
     @common_utils.parametrize("dtype", [torch.float16])
     @skip_if_no_cuda()
     @skip_if_no_gemlite()
