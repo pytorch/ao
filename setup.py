@@ -359,11 +359,11 @@ def get_extensions():
                 "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
                 "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
                 "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
-                # "--ftemplate-backtrace-limit=0",
+                "--ftemplate-backtrace-limit=0",
                 # "--keep",
                 # "--ptxas-options=--verbose,--register-usage-level=5,--warn-on-local-memory-usage",
                 # "--resource-usage",
-                "-lineinfo",
+                # "-lineinfo",
                 # "-DCUTLASS_ENABLE_GDC_FOR_SM90",  # https://github.com/NVIDIA/cutlass/blob/main/media/docs/dependent_kernel_launch.md
             ]
         )
