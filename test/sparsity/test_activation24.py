@@ -22,7 +22,8 @@ from torchao.utils import is_sm_at_least_90
 import unittest
 import copy
 
-from torchao.prototype.sparsity.activation.srelu_linear import FP8SemiSparseActivationLinear
+from torchao.prototype.sparsity.activation.srelu_linear import SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
+from torchao.sparsity import sparsify_
 
 torch.manual_seed(32)
 
@@ -135,9 +136,14 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
     with torch.no_grad():
         torch.manual_seed(0)
         input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
-        reference_linear = torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16)
+        # we have to wrap in a sequential block for quantize_ to work properly
+        reference_linear = torch.nn.Sequential(torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16))
         reference_linear_copy = copy.deepcopy(reference_linear) 
 
+        quantize_(reference_linear,
+                  Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                    mm_config=Float8MMConfig(use_fast_accum=False)))
         # define reference implementation
         def srelu_linear(x):
             x = F.relu(x) ** 2
@@ -147,12 +153,13 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
-        srelu_fp8_semi_sparse_linear = FP8SemiSparseActivationLinear.from_dense(reference_linear_copy)
-        srelu_fp8_semi_sparse_linear.forward = torch.compile(srelu_fp8_semi_sparse_linear.forward, fullgraph=True)
+        quantize_(reference_linear_copy, SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig())
+        print(reference_linear_copy)
+        # (reference_linear_copy)
+        reference_linear_copy.forward = torch.compile(reference_linear_copy.forward, fullgraph=True)
 
-        quantize_(reference_linear, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=False)))
 
         reference_output = reference_srelu(input_tensor)
-        custom_output = srelu_fp8_semi_sparse_linear(input_tensor)
+        custom_output = reference_linear_copy(input_tensor)
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
