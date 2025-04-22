@@ -10,7 +10,7 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
+from torchao.prototype.scaled_grouped_mm.kernels import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
