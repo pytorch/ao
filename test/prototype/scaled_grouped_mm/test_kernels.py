@@ -4,31 +4,27 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import logging
-
 import pytest
 import torch
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+# We need to skip before doing any imports which would use triton, since
+# triton won't be available on CPU builds and torch < 2.5
+if not (TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_available()):
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
+from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
+    triton_fp8_col_major_jagged_colwise_scales,
+    triton_fp8_row_major_jagged_rowwise_scales,
+)
 from torchao.prototype.scaled_grouped_mm.utils import (
     _is_column_major,
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# triton only ships with pytorch cuda builds, so do import conditionally.
-if torch.cuda.is_available():
-    from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
-        triton_fp8_col_major_jagged_colwise_scales,
-        triton_fp8_row_major_jagged_rowwise_scales,
-    )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "torch 2.5+ required")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # tests case where rowwise scales are computed for multiple distinct subtensors,
@@ -56,8 +52,6 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "torch 2.5+ required")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
