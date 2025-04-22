@@ -266,34 +266,23 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         )
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        dq = (
-            _linear_fp_act_int4_weight_gemlite_impl(
-                torch.eye(
-                    self.scale.shape[0] * self._layout.group_size,
-                    device=self.device,
-                    dtype=self.scale.dtype,
-                ),
-                self,
+        import gemlite
+        elements_per_sample = self._layout.packing_bitwidth // self._layout.bit_width
+        in_features = (self.packed_weight.numel() * elements_per_sample) // self.gemlite_kwargs['out_features']
+        int_data = (
+            gemlite.bitpack.unpack_over_rows(
+                self.packed_weight,
+                W_nbits=self._layout.bit_width,
+                num_output_rows=in_features,
+                dtype=torch.uint8,
             )
             .t()
             .contiguous()
         )
+        scale      = self.scale#.t().contiguous()
+        zero_point = self.zero_point#.t().contiguous()
 
-        quant_kwargs = get_gemlite_quant_kwargs(
-            self._layout.bit_width, self._layout.group_size
-        )
-        quant_kwargs["output_dtype"] = quant_kwargs.pop("target_dtype")
-        for key in ["mapping_type", "eps", "zero_point_dtype"]:
-            del quant_kwargs[key]
-
-        int_data = quantize_affine(
-            dq,
-            scale=self.scale,
-            zero_point=self.zero_point,
-            **quant_kwargs,
-        )
-
-        return int_data, self.scale, self.zero_point
+        return int_data, scale, zero_point
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -344,7 +333,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 # we need to transpose them back before feeding to from_plain
                 scale = scale.t().contiguous()
                 zero_point = zero_point.t().contiguous()
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+                sliced = self.from_plain(int_data, scale, zero_point, self._layout) #Will be transposed again
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
