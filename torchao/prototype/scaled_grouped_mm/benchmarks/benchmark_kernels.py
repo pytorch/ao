@@ -18,7 +18,7 @@ from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
-from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
+from torchao.prototype.scaled_grouped_mm.utils import (
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )

@@ -7,15 +7,27 @@
 import pytest
 import torch
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+# We need to skip before doing any imports which would use triton, since
+# triton won't be available on CPU builds and torch < 2.5
+if not (
+    TORCH_VERSION_AT_LEAST_2_5
+    and torch.cuda.is_available()
+    and torch.cuda.get_device_capability()[0] >= 9
+):
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
+
 from torchao.prototype.scaled_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_col_major_jagged_colwise_scales,
     triton_fp8_row_major_jagged_rowwise_scales,
 )
-from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
+from torchao.prototype.scaled_grouped_mm.utils import (
+    _is_column_major,
     _to_2d_jagged_float8_tensor_colwise,
     _to_2d_jagged_float8_tensor_rowwise,
 )
-from torchao.prototype.scaled_grouped_mm.utils import _is_column_major
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])

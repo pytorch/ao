@@ -160,7 +160,11 @@ def _triton_fp8_row_major_jagged_rowwise_scales(
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
         )
-        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=1))
+        # we need to cast back to input dtype since triton promotes bf16 to fp32:
+        # https://github.com/triton-lang/triton/blob/981e987eed9053b952f81153bc0779c99d8c642e/python/triton/language/standard.py#L173
+        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=1)).to(
+            input_dtype
+        )
 
     # compute rowwise scales for this group. round scales to nearest power of 2.
     amax_buffer = amax_buffer.to(tl.float64)
@@ -317,7 +321,11 @@ def _triton_fp8_col_major_jagged_colwise_scales(
         data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
             input_dtype
         )
-        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0))
+        # we need to cast back to input dtype since triton promotes bf16 to fp32:
+        # https://github.com/triton-lang/triton/blob/981e987eed9053b952f81153bc0779c99d8c642e/python/triton/language/standard.py#L173
+        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0)).to(
+            input_dtype
+        )
 
     # compute rowwise scales for this group.
     amax_buffer = amax_buffer.to(tl.float64)
