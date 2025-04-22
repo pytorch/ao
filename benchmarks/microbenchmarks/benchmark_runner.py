@@ -271,81 +271,22 @@ def run_training_benchmarks_from_config(configs: List[Any]) -> None:
     from benchmarks.microbenchmarks.benchmark_training import run as run_training
 
     results = []
-    baseline_result = None
-    baseline_configs = []
-    non_baseline_configs = []
-
-    # Separate baseline configs from non-baseline configs
-    for config in configs:
-        if not config.quantization or config.quantization == "baseline":
-            baseline_configs.append(config)
-        else:
-            non_baseline_configs.append(config)
-
     print("----------------- RUNNING BENCHMARKS FOR TRAINING -----------------------")
 
-    # Run baseline configs first
-    for config in baseline_configs:
+    # Run all configs - each config will calculate its own reference baseline
+    for config in configs:
         print("----------------------------------------")
         try:
-            print(
-                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
-            )
+            print(f"Running: {config.name} for Quantization: {config.quantization}")
             result = run_training(config)  # Pass the config object directly
             if result is not None:  # Only add successful results
                 results.append(result)
-                if baseline_result is None:
-                    baseline_result = result
         except Exception as e:
             print(f"Error running benchmark {config.name} with error: {e}")
             import traceback
 
             traceback.print_exc()
             continue
-
-    # If we have a baseline result, use it for speedup calculations
-    if baseline_result is not None:
-        baseline_total_time = baseline_result.total_time_ms
-
-        # Run non-baseline configs
-        for config in non_baseline_configs:
-            print("----------------------------------------")
-            try:
-                print(
-                    f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
-                )
-                result = run_training(config)  # Pass the config object directly
-                if result is not None:  # Only add successful results
-                    # Override speedup calculation to use baseline time
-                    if result.total_time_ms > 0:
-                        result.speedup = baseline_total_time / result.total_time_ms
-                    results.append(result)
-            except Exception as e:
-                print(f"Error running benchmark {config.name} with error: {e}")
-                import traceback
-
-                traceback.print_exc()
-                continue
-    else:
-        # If no baseline result, run all configs normally
-        print(
-            "Warning: No baseline result available. Running all configs without baseline comparison."
-        )
-        for config in non_baseline_configs:
-            print("----------------------------------------")
-            try:
-                print(
-                    f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
-                )
-                result = run_training(config)  # Pass the config object directly
-                if result is not None:  # Only add successful results
-                    results.append(result)
-            except Exception as e:
-                print(f"Error running benchmark {config.name} with error: {e}")
-                import traceback
-
-                traceback.print_exc()
-                continue
 
     # Add results to csv if there are any
     if results:
@@ -354,6 +295,11 @@ def run_training_benchmarks_from_config(configs: List[Any]) -> None:
         print_training_results(results)
     else:
         print("No benchmark results were collected. All benchmarks failed.")
+
+    # TODO: Process results: Speedups:
+    # 1. For different shapes for same model and quantization
+    # 2. For different quantizations for same model and shape
+    # 3. For different models for same quantization
 
 
 if __name__ == "__main__":

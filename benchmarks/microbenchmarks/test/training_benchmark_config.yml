@@ -5,7 +5,7 @@ output_dir: "benchmarks/microbenchmarks/results/training"
 # Float8 training specific configurations
 quantization_config_recipe_names:
   - "float8dq-tensor"
-  - "float8dq-row"
+  # - "float8dq-row"
   - "baseline"  # Always include baseline for comparison
 
 # Training specific configurations
@@ -26,6 +26,7 @@ model_params:
           [4096, 4096, 1024],
           [16384, 16384, 16384],
         ]
+      # - name: "sweep"
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
