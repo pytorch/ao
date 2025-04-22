@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import logging
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -21,15 +20,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledAQTTens
 from torchao.dtypes.utils import Layout, is_device
 from torchao.utils import fill_defaults
 
-logger = logging.getLogger(__name__)
-
 try:
     import gemlite
     from gemlite.core import GemLiteLinearTriton
 except:
-    logger.error(
-        "Unable to import 'gemlite'. Please ensure it is installed correctly. You can install it with: pip install gemlite"
-    )
+    gemlite = None
+
 
 aten = torch.ops.aten
 
@@ -101,7 +97,10 @@ def get_gemlite_aqt_kwargs(
     contiguous=None,
     use_hqq=True,
 ):
-    from torchao.dtypes.uintx.gemlite_layout import GemlitePackedLayout
+    if gemlite is None:
+        raise ImportError(
+            "Unable to import 'gemlite'. Please ensure it is installed correctly. You can install it with: pip install gemlite"
+        )
 
     assert bit_width in [
         4,
