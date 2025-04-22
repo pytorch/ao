@@ -177,7 +177,7 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
-        from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
+        from torchao.dtypes import AffineQuantizedTensor
         from torchao.dtypes.affine_quantized_tensor_ops import (
             deregister_aqt_quantized_linear_dispatch,
             register_aqt_quantized_linear_dispatch,
@@ -355,7 +355,6 @@ class TestAffineQuantizedBasic(TestCase):
         _ = dummy.weight.narrow(1, 0, 128)
 
     @common_utils.parametrize("device", ["cuda"])
-
     @common_utils.parametrize("dtype", [torch.float16])
     @skip_if_no_cuda()
     @skip_if_no_gemlite()
