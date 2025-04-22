@@ -17,7 +17,10 @@ from benchmarks.microbenchmarks.utils import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Int4WeightOnlyConfig,
     SemiSparseWeightConfig,
+    TrainingBenchmarkConfig,
+    TrainingBenchmarkResult,
     clean_caches,
+    dtype_to_peak_tops,
     generate_results_csv,
     get_default_device,
     string_to_config,
@@ -222,6 +225,100 @@ class TestUtils(unittest.TestCase):
     def test_clean_caches(self):
         # Just test that it runs without error
         clean_caches()
+
+    def test_training_benchmark_result_tops_calculation(self):
+        """Test TOPS calculation in TrainingBenchmarkResult"""
+        # Create a config with known dimensions
+        config = TrainingBenchmarkConfig(
+            quantization="baseline",
+            sparsity=None,
+            params={"high_precision_dtype": "torch.bfloat16"},
+            shape_name="test",
+            shape=[1024, 1024, 1024],  # M, K, N
+            output_dir="test_output",
+            benchmark_mode="training",
+        )
+
+        # Create a result with known times
+        result = TrainingBenchmarkResult(config=config)
+        result.reference_total_time_ms = 1000.0  # 1 second
+        result.total_time_ms = 500.0  # 0.5 seconds
+
+        # Calculate expected TOPS
+        # 3 * (2 * M * K * N) / time_in_seconds
+        expected_ref_tops = 3 * (2 * 1024 * 1024 * 1024) / 1.0
+        expected_tops = 3 * (2 * 1024 * 1024 * 1024) / 0.5
+
+        # Test reference TOPS calculation
+        calculated_ref_tops = result.calculate_ref_tops_sec()
+        self.assertAlmostEqual(calculated_ref_tops, expected_ref_tops, delta=1e-5)
+
+        # Test TOPS calculation
+        calculated_tops = result.calculate_tops_sec()
+        self.assertAlmostEqual(calculated_tops, expected_tops, delta=1e-5)
+
+    def test_training_benchmark_result_peak_tops_calculation(self):
+        """Test peak TOPS percentage calculation in TrainingBenchmarkResult"""
+        # Create a config with known dimensions and dtype
+        config = TrainingBenchmarkConfig(
+            quantization="baseline",
+            sparsity=None,
+            params={"high_precision_dtype": "torch.bfloat16"},
+            shape_name="test",
+            shape=[1024, 1024, 1024],
+            output_dir="test_output",
+            benchmark_mode="training",
+        )
+
+        # Create a result with known values
+        result = TrainingBenchmarkResult(config=config)
+        result.reference_total_time_ms = 1000.0  # 1 second
+        result.total_time_ms = 500.0  # 0.5 seconds
+
+        # Calculate expected TOPS
+        expected_ref_tops = 3 * (2 * 1024 * 1024 * 1024) / 1.0
+        expected_tops = 3 * (2 * 1024 * 1024 * 1024) / 0.5
+
+        # Calculate expected peak percentages
+        expected_ref_pct_peak = expected_ref_tops / dtype_to_peak_tops["bfloat16"]
+        expected_pct_peak = expected_tops / dtype_to_peak_tops["bfloat16"]
+
+        # Test reference peak percentage calculation
+        calculated_ref_pct_peak = result.calculate_ref_pct_top_peak()
+        self.assertAlmostEqual(
+            calculated_ref_pct_peak, expected_ref_pct_peak, delta=1e-5
+        )
+
+        # Test peak percentage calculation
+        calculated_pct_peak = result.calculate_pct_top_peak()
+        self.assertAlmostEqual(calculated_pct_peak, expected_pct_peak, delta=1e-5)
+
+    def test_training_benchmark_result_float8_peak_tops_calculation(self):
+        """Test peak TOPS percentage calculation for float8 models"""
+        # Create a config with float8 quantization
+        config = TrainingBenchmarkConfig(
+            quantization="float8dq-tensor",
+            sparsity=None,
+            params={"high_precision_dtype": "torch.bfloat16"},
+            shape_name="test",
+            shape=[1024, 1024, 1024],
+            output_dir="test_output",
+            benchmark_mode="training",
+        )
+
+        # Create a result with known values
+        result = TrainingBenchmarkResult(config=config)
+        result.total_time_ms = 500.0  # 0.5 seconds
+
+        # Calculate expected TOPS
+        expected_tops = 3 * (2 * 1024 * 1024 * 1024) / 0.5
+
+        # Calculate expected peak percentage (should use float8 peak for float8 models)
+        expected_pct_peak = expected_tops / dtype_to_peak_tops["float8_e4m3fn"]
+
+        # Test peak percentage calculation
+        calculated_pct_peak = result.calculate_pct_top_peak()
+        self.assertAlmostEqual(calculated_pct_peak, expected_pct_peak, delta=1e-5)
 
 
 if __name__ == "__main__":

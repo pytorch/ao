@@ -11,6 +11,21 @@ import torch
 from tabulate import tabulate
 from torch.utils.benchmark import Timer
 
+# H100 SXM specs: bottom of https://www.nvidia.com/en-us/data-center/h100/
+h100_peak_flops_float32 = 67e12
+h100_peak_flops_fp16_tc = 1979e12
+h100_peak_tops_float8_tc = 3958e12
+
+# Use strings as keys to avoid issues with torch.dtype objects
+dtype_to_peak_tops = {
+    "float32": h100_peak_flops_float32,
+    "float16": h100_peak_flops_fp16_tc,
+    "bfloat16": h100_peak_flops_fp16_tc,
+    "float8_e4m3fn": h100_peak_tops_float8_tc,
+    "float8_e5m2": h100_peak_tops_float8_tc,
+}
+# TODO: Add flops for other hardware (A100, MI300, etc.)
+
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
@@ -213,6 +228,53 @@ class TrainingBenchmarkResult(BenchmarkResult):
         self.reference_total_time_ms = 0.0
         self.speedup = 0.0
         self.scaling_repr = ""
+        # TOPS metrics
+        self.ref_tops_sec = 0.0
+        self.ref_pct_top_peak = 0.0
+        self.tops_sec = 0.0
+        self.pct_top_peak = 0.0
+
+    def calculate_ref_tops_sec(self) -> float:
+        """Calculate reference TOPS (Tera Operations Per Second)"""
+        if self.reference_total_time_ms <= 0:
+            return 0.0
+        M, K, N = self.config.m, self.config.k, self.config.n
+        # 3 * (2 * M * K * N) accounts for forward and backward passes
+        # 3 = 1 (forward) + 2 (backward: gradient wrt input + gradient wrt weight)
+        # 2 * M * K * N is the number of FLOPs for a matrix multiplication
+        return float(3 * (2 * M * K * N)) / (self.reference_total_time_ms * 1e-3)
+
+    def calculate_ref_pct_top_peak(self) -> float:
+        """Calculate reference percentage of peak TOPS"""
+        ref_tops = self.calculate_ref_tops_sec()
+        if ref_tops <= 0:
+            return 0.0
+        # Convert torch.dtype to string
+        dtype_str = str(self.config.high_precision_dtype).split(".")[-1]
+        if dtype_str not in dtype_to_peak_tops:
+            return 0.0
+        return ref_tops / dtype_to_peak_tops[dtype_str]
+
+    def calculate_tops_sec(self) -> float:
+        """Calculate TOPS (Tera Operations Per Second)"""
+        if self.total_time_ms <= 0:
+            return 0.0
+        M, K, N = self.config.m, self.config.k, self.config.n
+        return float(3 * (2 * M * K * N)) / (self.total_time_ms * 1e-3)
+
+    def calculate_pct_top_peak(self) -> float:
+        """Calculate percentage of peak TOPS"""
+        tops = self.calculate_tops_sec()
+        if tops <= 0:
+            return 0.0
+        # For float8 models, use float8 peak TOPS
+        if self.config.quantization and "float8" in self.config.quantization:
+            return tops / dtype_to_peak_tops["float8_e4m3fn"]
+        # For other models, use the high precision dtype
+        dtype_str = str(self.config.high_precision_dtype).split(".")[-1]
+        if dtype_str not in dtype_to_peak_tops:
+            return 0.0
+        return tops / dtype_to_peak_tops[dtype_str]
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
@@ -227,6 +289,10 @@ class TrainingBenchmarkResult(BenchmarkResult):
                 "reference_total_time_ms": self.reference_total_time_ms,
                 "speedup": self.speedup,
                 "scaling_repr": self.scaling_repr,
+                "ref_tops_sec": self.ref_tops_sec,
+                "ref_pct_top_peak": self.ref_pct_top_peak,
+                "tops_sec": self.tops_sec,
+                "pct_top_peak": self.pct_top_peak,
             }
         )
         return result
@@ -533,6 +599,8 @@ def print_training_results(results: List[TrainingBenchmarkResult]):
             f"{result.backward_time_ms:.2f}",
             f"{result.total_time_ms:.2f}",
             f"{result.speedup:.2f}x" if result.speedup > 0 else "N/A",
+            f"{result.tops_sec/1e12:.2f}",
+            f"{result.pct_top_peak*100:.2f}%",
             scaling_repr,
         ]
 
@@ -547,6 +615,8 @@ def print_training_results(results: List[TrainingBenchmarkResult]):
         "Backward (ms)",
         "Total Time (ms)",
         "Speedup",
+        "TOPS",
+        "% Peak",
         "Scaling",
     ]
 

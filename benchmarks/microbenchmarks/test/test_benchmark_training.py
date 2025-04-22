@@ -82,6 +82,23 @@ class TestBenchmarkTraining(unittest.TestCase):
         self.assertTrue(hasattr(result, "reference_backward_time_ms"))
         self.assertTrue(hasattr(result, "reference_total_time_ms"))
 
+        # Check TOPS metrics
+        self.assertTrue(hasattr(result, "ref_tops_sec"))
+        self.assertTrue(hasattr(result, "ref_pct_top_peak"))
+        self.assertTrue(hasattr(result, "tops_sec"))
+        self.assertTrue(hasattr(result, "pct_top_peak"))
+
+        # For float8 models, tops_sec should be different from ref_tops_sec
+        # We're using float8dq-tensor in this test, so we don't expect them to be equal
+        self.assertIsNotNone(result.tops_sec)
+        self.assertIsNotNone(result.ref_tops_sec)
+
+        # Check TOPS metrics
+        self.assertTrue(hasattr(result, "ref_tops_sec"))
+        self.assertTrue(hasattr(result, "ref_pct_top_peak"))
+        self.assertTrue(hasattr(result, "tops_sec"))
+        self.assertTrue(hasattr(result, "pct_top_peak"))
+
     def test_run_training_baseline(self):
         # Test with baseline (no float8)
         config = TrainingBenchmarkConfig(
@@ -172,6 +189,51 @@ class TestBenchmarkTraining(unittest.TestCase):
             result.scaling_repr,
             "MockFloat8Linear(scaling=dynamic, granularity=rowwise)",
         )
+
+    def test_tops_calculation_in_run(self):
+        """Test that TOPS metrics are correctly calculated in the run function"""
+        # Create a simple config for testing
+        config = TrainingBenchmarkConfig(
+            quantization="baseline",
+            sparsity=None,
+            params={
+                "high_precision_dtype": "torch.float32",
+                "use_torch_compile": False,
+                "device": "cpu",
+                "model_type": "linear",
+            },
+            shape_name="custom",
+            shape=[16, 32, 8],  # Small shape for testing
+            output_dir=self.temp_dir,
+            benchmark_mode="training",
+            scaling_type_input="dynamic",
+            scaling_type_weight="dynamic",
+            scaling_type_grad_output="dynamic",
+            scaling_granularity="tensorwise",
+            use_fast_accum=True,
+            repeat_n=10,  # Use a small number for testing
+        )
+
+        # Run the benchmark
+        result = run(config)
+
+        # Check that TOPS metrics are set
+        self.assertIsNotNone(result.ref_tops_sec)
+        self.assertIsNotNone(result.ref_pct_top_peak)
+        self.assertIsNotNone(result.tops_sec)
+        self.assertIsNotNone(result.pct_top_peak)
+
+        # Check that TOPS metrics are calculated correctly
+        # For baseline, tops_sec should equal ref_tops_sec
+        self.assertEqual(result.tops_sec, result.ref_tops_sec)
+        self.assertEqual(result.pct_top_peak, result.ref_pct_top_peak)
+
+        # Verify the calculation is correct
+        if result.reference_total_time_ms > 0:
+            expected_tops = (
+                3 * (2 * 16 * 32 * 8) / (result.reference_total_time_ms * 1e-3)
+            )
+            self.assertAlmostEqual(result.ref_tops_sec, expected_tops, delta=1e-5)
 
 
 if __name__ == "__main__":

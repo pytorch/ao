@@ -144,11 +144,22 @@ def visualize_memory_profile(profile_file_path):
     try:
         from torch.cuda._memory_viz import trace_plot
 
-        with open(profile_file_path, "rb") as f:
-            data = pickle.load(f)
-        with open(memory_visualization_path, "w") as f:
-            f.write(trace_plot(data))
-        print(f"Memory visualization saved to: {memory_visualization_path}")
+        # Validate the pickle file before loading
+        if not _validate_pickle_file(profile_file_path):
+            print(
+                f"Warning: Skipping visualization for invalid pickle file: {profile_file_path}"
+            )
+            return memory_visualization_path
+
+        try:
+            with open(profile_file_path, "rb") as f:
+                data = pickle.load(f)
+            with open(memory_visualization_path, "w") as f:
+                f.write(trace_plot(data))
+            print(f"Memory visualization saved to: {memory_visualization_path}")
+        except (pickle.UnpicklingError, KeyError, ValueError) as e:
+            print(f"Error loading pickle data: {e}")
+            print("The pickle file may be corrupted or in an unexpected format.")
     except Exception as e:
         print(
             f"Error in generating visualization: {e}\n",

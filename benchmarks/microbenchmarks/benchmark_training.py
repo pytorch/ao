@@ -28,6 +28,20 @@ from benchmarks.microbenchmarks.utils import (
     TrainingBenchmarkResult,
     clean_caches,
 )
+
+# H100 SXM specs: bottom of https://www.nvidia.com/en-us/data-center/h100/
+h100_peak_flops_float32 = 67e12
+h100_peak_flops_fp16_tc = 1979e12
+h100_peak_tops_float8_tc = 3958e12
+
+# Use strings as keys to avoid issues with torch.dtype objects
+dtype_to_peak_tops = {
+    "float32": h100_peak_flops_float32,
+    "float16": h100_peak_flops_fp16_tc,
+    "bfloat16": h100_peak_flops_fp16_tc,
+    "float8_e4m3fn": h100_peak_tops_float8_tc,
+    "float8_e5m2": h100_peak_tops_float8_tc,
+}
 from torchao.float8.config import (
     CastConfig,
     Float8LinearConfig,
@@ -267,6 +281,26 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
         result.reference_backward_time_ms = ref_backward_time
         result.reference_total_time_ms = ref_total_time
 
+        # Calculate reference TOPS metrics directly
+        M, K, N = config.m, config.k, config.n
+        if ref_total_time > 0:
+            # 3 * (2 * M * K * N) accounts for forward and backward passes
+            # 3 = 1 (forward) + 2 (backward: gradient wrt input + gradient wrt weight)
+            # 2 * M * K * N is the number of FLOPs for a matrix multiplication
+            ref_tops_sec = float(3 * (2 * M * K * N)) / (ref_total_time * 1e-3)
+            # Convert torch.dtype to string
+            dtype_str = str(config.high_precision_dtype).split(".")[-1]
+            if dtype_str in dtype_to_peak_tops:
+                ref_pct_top_peak = ref_tops_sec / dtype_to_peak_tops[dtype_str]
+            else:
+                ref_pct_top_peak = 0.0
+        else:
+            ref_tops_sec = 0.0
+            ref_pct_top_peak = 0.0
+
+        result.ref_tops_sec = ref_tops_sec
+        result.ref_pct_top_peak = ref_pct_top_peak
+
         # For baseline or no quantization, use reference model results
         if not config.quantization or config.quantization == "baseline":
             print("Using reference model results for baseline...")
@@ -275,6 +309,10 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
             result.backward_time_ms = ref_backward_time
             result.total_time_ms = ref_total_time
             result.speedup = 1.0  # Speedup is 1.0 for baseline
+
+            # For baseline, TOPS metrics are the same as reference
+            result.tops_sec = ref_tops_sec
+            result.pct_top_peak = ref_pct_top_peak
             # Set scaling representation to the actual dtype being used
             dtype_str = str(config.high_precision_dtype).split(".")[
                 -1
@@ -419,6 +457,26 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
             result.backward_time_ms = backward_time
             result.total_time_ms = total_time
             result.speedup = ref_total_time / total_time
+
+            # Calculate TOPS metrics for float8 model directly
+            if total_time > 0:
+                tops_sec = float(3 * (2 * M * K * N)) / (total_time * 1e-3)
+                # For float8 models, use float8 peak TOPS
+                if config.quantization and "float8" in config.quantization:
+                    pct_top_peak = tops_sec / dtype_to_peak_tops["float8_e4m3fn"]
+                else:
+                    # For other models, use the high precision dtype
+                    dtype_str = str(config.high_precision_dtype).split(".")[-1]
+                    if dtype_str in dtype_to_peak_tops:
+                        pct_top_peak = tops_sec / dtype_to_peak_tops[dtype_str]
+                    else:
+                        pct_top_peak = 0.0
+            else:
+                tops_sec = 0.0
+                pct_top_peak = 0.0
+
+            result.tops_sec = tops_sec
+            result.pct_top_peak = pct_top_peak
 
             # Run profiler if enabled
             if config.enable_profiler:
