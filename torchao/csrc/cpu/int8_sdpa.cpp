@@ -1,14 +1,14 @@
-#pragma once
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/Dispatch.h>
-#include <ATen/Parallel.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/cpu/vec/functional.h>
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/cpu/Utils.h>
-
 #include <ATen/native/cpu/utils.h>
+#include <ATen/native/CPUBlas.h>
+#include <ATen/Parallel.h>
+#include <ATen/Tensor.h>
 #include <c10/util/irange.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -17,12 +17,10 @@
 #include <ATen/ops/empty.h>
 #endif
 
-#include <ATen/Tensor.h>
 #include <limits>
 #include <omp.h>
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
-#include <ATen/native/CPUBlas.h>
 
 namespace torchao {
 
