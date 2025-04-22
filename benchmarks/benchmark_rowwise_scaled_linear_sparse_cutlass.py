@@ -44,20 +44,22 @@ def get_problem_cutlass(m: int, n: int, k: int):
 
     return (X_ref, W_ref), (Xq, X_scale, Wq_sparse, W_meta, W_scale, bias, out_dtype)
 
+
 def get_problem_cusparselt(m: int, n: int, k: int):
     X_ref = torch.randn((m, k), dtype=dtype, device=device)
     W_ref = create_semi_structured_tensor(n, k, dtype=dtype).to(device)
-
 
     Xq = X_ref.to(dtypeq_W)
     Wq = W_ref.to(dtypeq_W)
 
     Wqs = torch._cslt_compress(Wq)
 
-
-    alg_id, split_k, split_k_one_kernel, _ = torch._C._cusparselt.mm_search(Wqs, Xq.t(), None, None, None, False)
+    alg_id, split_k, split_k_one_kernel, _ = torch._C._cusparselt.mm_search(
+        Wqs, Xq.t(), None, None, None, False
+    )
 
     return (Wqs, Xq.t(), None, None, dtype, False, alg_id, split_k, split_k_one_kernel)
+
 
 def get_problem_scaled_mm(m: int, n: int, k: int):
     X_ref = torch.randn((m, k), dtype=dtype, device=device)
@@ -82,9 +84,7 @@ def benchmark(m: int, k: int, n: int):
     )
 
     cslt_args = get_problem_cusparselt(m, n, k)
-    cusparselt_time = benchmark_microseconds(
-        torch._cslt_sparse_mm, *cslt_args
-    )
+    cusparselt_time = benchmark_microseconds(torch._cslt_sparse_mm, *cslt_args)
 
     fp8_args = get_problem_scaled_mm(m, n, k)
     fp8_time = benchmark_microseconds(torch._scaled_mm, *fp8_args)
@@ -97,8 +97,7 @@ def benchmark(m: int, k: int, n: int):
         "fp8_latency (ms)": fp8_time,
         "rowwise_scaled_linear_sparse_cutlass_f8f8 latency (ms)": rowwise_scaled_linear_sparse_cutlass_f8f8_time,
         "cusparselt latency (ms)": cusparselt_time,
-        "f8f8 speedup (d/s)": fp8_time
-        / rowwise_scaled_linear_sparse_cutlass_f8f8_time,
+        "f8f8 speedup (d/s)": fp8_time / rowwise_scaled_linear_sparse_cutlass_f8f8_time,
     }
 
 

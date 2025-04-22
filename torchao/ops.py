@@ -731,15 +731,18 @@ def _(
         weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
     )
 
+
 def sparse24_sm90_sparsify(
     input_tensor: Tensor,
     metadata_format: str,
     activation: str,
     algorithm: str,
-    dtype=None, 
-    scale=None
+    dtype=None,
+    scale=None,
 ) -> (Tensor, Tensor):
-    return torch.ops.torchao.sparse24_sm90_sparsify(input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale)
+    return torch.ops.torchao.sparse24_sm90_sparsify(
+        input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
+    )
 
 
 @functools.lru_cache()

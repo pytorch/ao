@@ -1,4 +1,3 @@
-
 import torch
 import torchao
 import torch.nn.functional as F
@@ -7,56 +6,36 @@ from typing import Tuple
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
 from torchao.quantization.quant_api import (
     _float8_cutlass_quant,
-    _float8_cutlass_quant_sparse
+    _float8_cutlass_quant_sparse,
 )
-from torchao.quantization import quantize_, Float8DynamicActivationFloat8WeightConfig, PerRow, Float8MMConfig
+from torchao.quantization import (
+    quantize_,
+    Float8DynamicActivationFloat8WeightConfig,
+    PerRow,
+    Float8MMConfig,
+)
+
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
 
 from torchao.sparsity.utils import create_semi_structured_tensor
 
-dtype = torch.float16
-device = torch.device("cuda")
-dtypeq_X = torch.float8_e4m3fn
-dtypeq_W = torch.float8_e4m3fn
 from torchao.utils import is_sm_at_least_90
 import unittest
 import copy
 
-from torchao.prototype.sparsity.activation.srelu_linear import SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
+from torchao.prototype.sparsity.activation.srelu_linear import (
+    SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
+)
 from torchao.sparsity import sparsify_
 
-@unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
-@unittest.skip("Not implemented yet")
-def test_sparse24_sm90_sparsify_fp8(
-    M=512, K=1024, fp8=torch.float8_e4m3fn
-) -> None:
-    torch.manual_seed(0)
-    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.float8_e4m3fn).to(device)
-    
-    # Test with act="identity"
-    A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
-        A_sp_ref.to(fp8)
-    )
-    A_packed, A_mdata = torch.ops.torchao.sparse24_sm90_sparsify(
-        A_sp_ref,
-        "cutlass",
-        "identity",
-        sp_selection_algo="largest",
-        dtype=A_packed_ref.dtype,
-    )
 
-    assert (A_packed != A_packed_ref).float().mean().item() < 0.005
-    assert (A_mdata != A_mdata_ref).float().mean().item() < 0.005
-    assert torch.allclose(A_packed.float().sum(), A_packed_ref.float().sum())
-
-# @fairinternal-below
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_sm90_sparsify_identity(
     M=512, K=1024, fp8=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
-    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
-    
+    A_sp_ref = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
+
     # Test with act="identity"
     A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
         A_sp_ref.to(fp8)
@@ -82,9 +61,9 @@ def test_sparse24_sm90_sparsify_identity_scaled(
     M=512, K=1024, fp8=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
     A_scale = torch.randn([M, 1], device="cuda", dtype=torch.float32).abs() + 0.1
-    A_sp_ref =  (A_dense / A_scale).bfloat16()
+    A_sp_ref = (A_dense / A_scale).bfloat16()
 
     A_packed_ref, A_mdata_ref = to_sparse_semi_structured_cutlass_sm9x_f8(
         A_sp_ref.to(fp8)
@@ -107,7 +86,7 @@ def test_sparse24_sm90_sparsify_identity_scaled(
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
 def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) -> None:
     torch.manual_seed(0)
-    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
+    A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
     A_sp_ref = (A_dense.float().relu() ** 2).bfloat16()
 
     # Test with act="srelu"
@@ -133,15 +112,20 @@ def test_sparse24_sm90_sparsify_srelu(M=512, K=1024, fp8=torch.float8_e4m3fn) ->
 def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
     with torch.no_grad():
         torch.manual_seed(0)
-        input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).to(device)
+        input_tensor = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
         # we have to wrap in a sequential block for quantize_ to work properly
-        reference_linear = torch.nn.Sequential(torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16))
-        reference_linear_copy = copy.deepcopy(reference_linear) 
+        reference_linear = torch.nn.Sequential(
+            torch.nn.Linear(K, N, bias=False).cuda().to(torch.bfloat16)
+        )
+        reference_linear_copy = copy.deepcopy(reference_linear)
 
-        quantize_(reference_linear,
-                  Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow(),
-                    mm_config=Float8MMConfig(use_fast_accum=False)))
+        quantize_(
+            reference_linear,
+            Float8DynamicActivationFloat8WeightConfig(
+                granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=False)
+            ),
+        )
+
         # define reference implementation
         def srelu_linear(x):
             x = F.relu(x) ** 2
@@ -151,10 +135,14 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
 
         # this only works with fullgraph=True, errors in eager
         # TODO figure out exactly why this happens
-        sparsify_(reference_linear_copy, SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig())
+        sparsify_(
+            reference_linear_copy,
+            SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(),
+        )
         # (reference_linear_copy)
-        reference_linear_copy.forward = torch.compile(reference_linear_copy.forward, fullgraph=True)
-
+        reference_linear_copy.forward = torch.compile(
+            reference_linear_copy.forward, fullgraph=True
+        )
 
         reference_output = reference_srelu(input_tensor)
         custom_output = reference_linear_copy(input_tensor)

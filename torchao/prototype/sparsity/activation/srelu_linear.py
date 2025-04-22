@@ -14,6 +14,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 
+
 @dataclass
 class SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(AOBaseConfig):
     """
@@ -23,6 +24,7 @@ class SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(AOBaseConfig):
         `activation_dtype`: data type for quantized activation tensor.
         `weight_dtype`: data type for quantized weight tensor.
     """
+
     activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
@@ -35,6 +37,7 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     config: SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 ):
     return FP8SemiSparseActivationLinear.from_dense(module, config)
+
 
 class FP8SemiSparseActivationLinear(nn.Module):
     """
@@ -73,7 +76,9 @@ class FP8SemiSparseActivationLinear(nn.Module):
         return result
 
     @classmethod
-    def from_dense(cls, linear, config: SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig):
+    def from_dense(
+        cls, linear, config: SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig
+    ):
         if linear.bias is not None:
             raise NotImplementedError("bias is not supported")
         if linear.weight.dtype != torch.bfloat16:
