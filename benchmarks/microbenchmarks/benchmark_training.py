@@ -143,25 +143,14 @@ def run_training_benchmark(
     config: TrainingBenchmarkConfig,
 ) -> Tuple[float, float, float]:
     """Run training benchmark and return forward, backward, and total times in milliseconds"""
-    # Check if we need to use cudagraph_mark_step_begin
-    use_cudagraph_mark = config.use_torch_compile and hasattr(
-        torch.compiler, "cudagraph_mark_step_begin"
-    )
 
-    # Create a loss function with cudagraph marking if needed
+    # Define benchmark functions similar to bench_linear_float8.py
     def forward_pass():
-        if use_cudagraph_mark:
-            torch.compiler.cudagraph_mark_step_begin()
-        # Clone input to avoid CUDA graph issues
-        input_clone = input_data.clone() if config.use_torch_compile else input_data
-        return model(input_clone).sum()
+        return model(input_data).sum()
 
     def forward_backward_pass():
-        if use_cudagraph_mark:
-            torch.compiler.cudagraph_mark_step_begin()
-        # Clone input to avoid CUDA graph issues
-        input_clone = input_data.clone() if config.use_torch_compile else input_data
-        loss = model(input_clone).sum()
+        model.zero_grad()  # Reset gradients before each run
+        loss = model(input_data).sum()
         loss.backward()
 
     # Measure forward pass time
@@ -170,9 +159,6 @@ def run_training_benchmark(
         * 1e-3
         / config.repeat_n
     )  # Convert to ms
-
-    # Reset gradients
-    model.zero_grad()
 
     # Measure forward+backward pass time
     total_time = (
@@ -192,6 +178,19 @@ def run_training_benchmark(
 def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
     """Run training benchmarks"""
     try:
+        # Check if model type is supported
+        if config.model_type != "linear":
+            print(
+                f"Error: Model type '{config.model_type}' is not supported. Only 'linear' model type is currently implemented."
+            )
+            return None
+
+        # Note: Sparsity is not supported for training benchmarks
+        if config.sparsity:
+            print(
+                f"Warning: Sparsity '{config.sparsity}' is not supported for training benchmarks and will be ignored."
+            )
+
         clean_caches()  # Clean caches
 
         # Create output directory if it doesn't exist
@@ -208,7 +207,7 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
         )
 
         # Create a copy for reference benchmarking
-        ref_model = deepcopy(base_model).eval().to(config.device)
+        ref_model = deepcopy(base_model).to(config.device)
 
         # Create result object
         result = TrainingBenchmarkResult(config=config)
@@ -216,66 +215,49 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
         # Benchmark reference model
         print(f"Benchmarking reference model ({config.high_precision_dtype})...")
 
-        # Flag to track if we need to fall back to non-compiled mode
-        use_compile = config.use_torch_compile
+        # Define benchmark functions similar to bench_linear_float8.py
+        def ref_forw_backward():
+            ref_model(input_data).sum().backward()
+            ref_model.zero_grad()
 
-        # Try with torch.compile first if requested
-        if use_compile:
-            try:
-                print("Compiling reference model...")
-                ref_model_compiled = torch.compile(
-                    ref_model, mode=config.torch_compile_mode, fullgraph=True
-                )
+        # Wrap the function to execute it multiple times
+        REPEAT_N = config.repeat_n
+        ref_forw_backward_repeated = n_times(REPEAT_N, ref_forw_backward)
 
-                # Warmup with cloned inputs to avoid CUDA graph issues
-                for _ in range(5):
-                    input_clone = input_data.clone()
-                    if hasattr(torch.compiler, "cudagraph_mark_step_begin"):
-                        torch.compiler.cudagraph_mark_step_begin()
-                    output = ref_model_compiled(input_clone)
-                    output.sum().backward()
-                    ref_model_compiled.zero_grad()
+        # Compile if requested
+        if config.use_torch_compile:
+            print("Compiling reference model...")
+            ref_forw_backward_compiled = torch.compile(ref_forw_backward_repeated)
 
-                # Benchmark compiled reference model
-                ref_forward_time, ref_backward_time, ref_total_time = (
-                    run_training_benchmark(ref_model_compiled, input_data, config)
-                )
-
-            except RuntimeError as e:
-                if "CUDAGraphs" in str(e):
-                    print(f"CUDA Graph error with torch.compile: {e}")
-                    print("Falling back to non-compiled mode for reference model")
-                    use_compile = False
-                    clean_caches()  # Clean caches before retrying
-
-                    # Create a fresh copy of the model
-                    ref_model = deepcopy(base_model).eval().to(config.device)
-
-                    # Warmup without compilation
-                    for _ in range(5):
-                        output = ref_model(input_data)
-                        output.sum().backward()
-                        ref_model.zero_grad()
-
-                    # Benchmark without compilation
-                    ref_forward_time, ref_backward_time, ref_total_time = (
-                        run_training_benchmark(ref_model, input_data, config)
-                    )
-                else:
-                    # Re-raise other errors
-                    raise
-        else:
-            # Run without compilation if not requested
             # Warmup
             for _ in range(5):
-                output = ref_model(input_data)
-                output.sum().backward()
-                ref_model.zero_grad()
+                ref_forw_backward_compiled()
 
-            # Benchmark reference model
-            ref_forward_time, ref_backward_time, ref_total_time = (
-                run_training_benchmark(ref_model, input_data, config)
+            # Benchmark
+            ref_time = (
+                benchmark_torch_function_in_microseconds(ref_forw_backward_compiled)
+                * 1e-6
+                / REPEAT_N
             )
+        else:
+            # Warmup without compilation
+            for _ in range(5):
+                ref_forw_backward()
+
+            # Benchmark
+            ref_time = (
+                benchmark_torch_function_in_microseconds(ref_forw_backward_repeated)
+                * 1e-6
+                / REPEAT_N
+            )
+
+        # Store reference time in milliseconds
+        ref_total_time = ref_time * 1000  # Convert to ms
+
+        # For simplicity, we'll estimate forward and backward times
+        # Typically backward is ~2x the forward time for linear layers
+        ref_forward_time = ref_total_time / 3
+        ref_backward_time = ref_total_time * 2 / 3
 
         result.reference_forward_time_ms = ref_forward_time
         result.reference_backward_time_ms = ref_backward_time
@@ -324,54 +306,39 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
             print(f"Creating Float8 model with {config.scaling_granularity} scaling...")
 
             # Create a fresh copy of the base model
-            float8_model = deepcopy(base_model).eval().to(config.device)
+            float8_model = deepcopy(base_model).to(config.device)
 
             # Create Float8 configuration
             float8_config = create_float8_config(config)
 
-            # Convert linear layers within the model to Float8Linear
-            if hasattr(float8_model, "linear1"):  # ToyLinearModel case
-                float8_model.linear1 = Float8Linear.from_float(
-                    float8_model.linear1,
-                    config=float8_config,
-                )
-                if hasattr(float8_model.linear1, "extra_repr"):
-                    result.scaling_repr = float8_model.linear1.extra_repr()
-            elif hasattr(float8_model, "fc"):  # LNLinearActivationModel case
-                float8_model.fc = Float8Linear.from_float(
-                    float8_model.fc,
-                    config=float8_config,
-                )
-                if hasattr(float8_model.fc, "extra_repr"):
-                    result.scaling_repr = float8_model.fc.extra_repr()
-            else:  # Try direct conversion (will fail if not a Linear layer)
-                try:
-                    float8_model = Float8Linear.from_float(
-                        float8_model,
-                        config=float8_config,
-                    )
-                    if hasattr(float8_model, "extra_repr"):
-                        result.scaling_repr = float8_model.extra_repr()
-                except AttributeError as e:
-                    print(f"Error converting model to Float8: {e}")
-                    print("Model structure not supported for Float8 conversion")
-                    return None
+            # TODO: Add support for other models also, currently this only works for ToyLinearModel
+            # Since we only support linear models, we know it has a linear1 attribute
+            float8_model.linear1 = Float8Linear.from_float(
+                float8_model.linear1,
+                config=float8_config,
+            )
 
-            # For test cases with mocked Float8Linear, get the scaling_repr from the mock
-            print("Checking for mock Float8Linear...")
-            mock_from_float = getattr(Float8Linear.from_float, "__self__", None)
-            print(f"mock_from_float: {mock_from_float}")
+            # Store scaling representation for reporting
+            if hasattr(float8_model.linear1, "extra_repr"):
+                result.scaling_repr = float8_model.linear1.extra_repr()
+            else:
+                result.scaling_repr = f"float8 ({config.scaling_granularity})"
 
-            if mock_from_float is not None:
-                print(f"Has return_value: {hasattr(mock_from_float, 'return_value')}")
-                if hasattr(mock_from_float, "return_value"):
-                    print(f"return_value: {mock_from_float.return_value}")
-                    print(
-                        f"Has extra_repr: {hasattr(mock_from_float.return_value, 'extra_repr')}"
-                    )
-                    if hasattr(mock_from_float.return_value, "extra_repr"):
-                        result.scaling_repr = mock_from_float.return_value.extra_repr()
-                        print(f"Set scaling_repr to: {result.scaling_repr}")
+            # # For test cases with mocked Float8Linear, get the scaling_repr from the mock
+            # print("Checking for mock Float8Linear...")
+            # mock_from_float = getattr(Float8Linear.from_float, "__self__", None)
+            # print(f"mock_from_float: {mock_from_float}")
+
+            # if mock_from_float is not None:
+            #     print(f"Has return_value: {hasattr(mock_from_float, 'return_value')}")
+            #     if hasattr(mock_from_float, "return_value"):
+            #         print(f"return_value: {mock_from_float.return_value}")
+            #         print(
+            #             f"Has extra_repr: {hasattr(mock_from_float.return_value, 'extra_repr')}"
+            #         )
+            #         if hasattr(mock_from_float.return_value, "extra_repr"):
+            #             result.scaling_repr = mock_from_float.return_value.extra_repr()
+            #             print(f"Set scaling_repr to: {result.scaling_repr}")
 
             # Set fast accumulation if requested
             if hasattr(float8_model, "forward_config"):
@@ -387,71 +354,54 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
             if not result.scaling_repr:
                 result.scaling_repr = f"float8 ({config.scaling_granularity})"
 
-            # Try with torch.compile first if requested
-            if use_compile:
-                try:
-                    print("Compiling Float8 model...")
-                    float8_model_compiled = torch.compile(
-                        float8_model, mode=config.torch_compile_mode, fullgraph=True
-                    )
+            # Define benchmark function for float8 model
+            def float8_forw_backward():
+                float8_model(input_data).sum().backward()
+                float8_model.zero_grad()
 
-                    # Warmup with cloned inputs to avoid CUDA graph issues
-                    for _ in range(5):
-                        input_clone = input_data.clone()
-                        if hasattr(torch.compiler, "cudagraph_mark_step_begin"):
-                            torch.compiler.cudagraph_mark_step_begin()
-                        output = float8_model_compiled(input_clone)
-                        output.sum().backward()
-                        float8_model_compiled.zero_grad()
+            # Wrap the function to execute it multiple times
+            float8_forw_backward_repeated = n_times(REPEAT_N, float8_forw_backward)
 
-                    # Benchmark compiled Float8 model
-                    forward_time, backward_time, total_time = run_training_benchmark(
-                        float8_model_compiled, input_data, config
-                    )
+            # Compile if requested
+            if config.use_torch_compile:
+                print("Compiling Float8 model...")
+                float8_forw_backward_compiled = torch.compile(
+                    float8_forw_backward_repeated
+                )
 
-                except RuntimeError as e:
-                    if "CUDAGraphs" in str(e):
-                        print(f"CUDA Graph error with torch.compile: {e}")
-                        print("Falling back to non-compiled mode for Float8 model")
-                        clean_caches()  # Clean caches before retrying
-
-                        # Create a fresh Float8 model
-                        float8_model = Float8Linear.from_float(
-                            deepcopy(base_model).eval().to(config.device),
-                            config=float8_config,
-                        )
-
-                        # Set fast accumulation if requested
-                        if hasattr(float8_model, "forward_config"):
-                            float8_model.forward_config = ScaledMMConfig(
-                                False, config.use_fast_accum, False
-                            )
-
-                        # Warmup without compilation
-                        for _ in range(5):
-                            output = float8_model(input_data)
-                            output.sum().backward()
-                            float8_model.zero_grad()
-
-                        # Benchmark without compilation
-                        forward_time, backward_time, total_time = (
-                            run_training_benchmark(float8_model, input_data, config)
-                        )
-                    else:
-                        # Re-raise other errors
-                        raise
-            else:
-                # Run without compilation if not requested
                 # Warmup
                 for _ in range(5):
-                    output = float8_model(input_data)
-                    output.sum().backward()
-                    float8_model.zero_grad()
+                    float8_forw_backward_compiled()
 
-                # Benchmark Float8 model
-                forward_time, backward_time, total_time = run_training_benchmark(
-                    float8_model, input_data, config
+                # Benchmark
+                float8_time = (
+                    benchmark_torch_function_in_microseconds(
+                        float8_forw_backward_compiled
+                    )
+                    * 1e-6
+                    / REPEAT_N
                 )
+            else:
+                # Warmup without compilation
+                for _ in range(5):
+                    float8_forw_backward()
+
+                # Benchmark
+                float8_time = (
+                    benchmark_torch_function_in_microseconds(
+                        float8_forw_backward_repeated
+                    )
+                    * 1e-6
+                    / REPEAT_N
+                )
+
+            # Store float8 time in milliseconds
+            total_time = float8_time * 1000  # Convert to ms
+
+            # For simplicity, we'll estimate forward and backward times
+            # Typically backward is ~2x the forward time for linear layers
+            forward_time = total_time / 3
+            backward_time = total_time * 2 / 3
 
             result.forward_time_ms = forward_time
             result.backward_time_ms = backward_time
