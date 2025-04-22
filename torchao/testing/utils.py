@@ -112,7 +112,7 @@ def skip_if_no_gemlite():
         @functools.wraps(test_func)
         def wrapper(*args, **kwargs):
             try:
-                import gemlite
+                pass
             except:
                 raise pytest.skip("No cuda available")
             return test_func(*args, **kwargs)
