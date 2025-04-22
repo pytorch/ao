@@ -291,9 +291,9 @@ def _(func, types, args, kwargs):
 
     # new_arg1 = args[1].dequantize()
     # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
-    assert isinstance(
-        args[1].tensor_impl, PlainAQTTensorImpl
-    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    assert isinstance(args[1].tensor_impl, PlainAQTTensorImpl), (
+        f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    )
     assert (
         kwargs["padding_idx"] is None
         and kwargs["max_norm"] is None
@@ -476,9 +476,9 @@ def _(func, types, args, kwargs):
     shape = list(self.shape)
     shape[dim] = end - start
     block_size = self.block_size
-    assert (
-        len(block_size) == 2
-    ), f"Slice only works for 2d block_size right now, got: {block_size}"
+    assert len(block_size) == 2, (
+        f"Slice only works for 2d block_size right now, got: {block_size}"
+    )
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
     block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))

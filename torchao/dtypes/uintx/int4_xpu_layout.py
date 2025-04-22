@@ -50,9 +50,9 @@ def _linear_bf16_act_uint4_weight_float_zero_check(input_tensor, weight_tensor, 
 
 
 def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, bias):
-    assert (
-        weight_tensor.block_size[0] == 1
-    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
@@ -109,9 +109,9 @@ def _linear_bf16_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, b
 
 
 def _linear_bf16_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias):
-    assert (
-        weight_tensor.block_size[0] == 1
-    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
@@ -249,9 +249,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         from torchao.quantization.utils import convert_weight_to_int4pack_xpu
 
         if TORCH_VERSION_AT_LEAST_2_8:
-            assert (
-                int_data.dtype == torch.int32
-            ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+            assert int_data.dtype == torch.int32, (
+                "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+            )
             packed_weight = convert_weight_to_int4pack_xpu(
                 int_data, zero_point.dtype != scale.dtype
             )

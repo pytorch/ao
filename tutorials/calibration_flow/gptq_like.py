@@ -88,9 +88,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(
-                input, torch.Tensor
-            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            assert isinstance(input, torch.Tensor), (
+                f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            )
             self.count += 1
             self.values.append(input)
         return self

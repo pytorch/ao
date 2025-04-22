@@ -109,9 +109,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
           multimask_output (bool): Whether to output multimask at each point of the grid.
         """
         super().__init__()
-        assert (points_per_side is None) != (
-            point_grids is None
-        ), "Exactly one of points_per_side or point_grid must be provided."
+        assert (points_per_side is None) != (point_grids is None), (
+            "Exactly one of points_per_side or point_grid must be provided."
+        )
         if points_per_side is not None:
             self.point_grids = build_all_layer_point_grids(
                 points_per_side,
@@ -528,9 +528,9 @@ class SAM2AutomaticMaskGenerator(torch.nn.Module):
             high_res_feats = self.predictor._features["high_res_feats"]
             image_embed = self.predictor._features["image_embed"]
             image_pe = self.predictor.model.sam_prompt_encoder.get_dense_pe().clone()
-            assert (
-                self.multimask_output
-            ), "Currently require multimask_output set to True"
+            assert self.multimask_output, (
+                "Currently require multimask_output set to True"
+            )
             high_res_feats_input = [
                 feat_level[-1].unsqueeze(0).clone()
                 # for feat_level in self._features["high_res_feats"]

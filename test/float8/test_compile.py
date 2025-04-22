@@ -291,15 +291,15 @@ class TestGraphBreaks(DynamoTestCase):
             assert not isinstance(
                 getattr(y_compiled, tensor), torch._subclasses.fake_tensor.FakeTensor
             ), "Float8Tensor should not contain any FakeTensors!"
-        assert isinstance(
-            y_compiled._orig_dtype, torch.dtype
-        ), "Float8Tensor._orig_dtype should be a dtype but got {}".format(
-            type(y_compiled._orig_dtype)
+        assert isinstance(y_compiled._orig_dtype, torch.dtype), (
+            "Float8Tensor._orig_dtype should be a dtype but got {}".format(
+                type(y_compiled._orig_dtype)
+            )
         )
-        assert isinstance(
-            y_compiled._linear_mm_config.output.emulate, bool
-        ), "Float8Tensor._emulate should be a bool but got {}".format(
-            type(y_compiled._linear_mm_config.output.emulate)
+        assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
+            "Float8Tensor._emulate should be a bool but got {}".format(
+                type(y_compiled._linear_mm_config.output.emulate)
+            )
         )
 
 

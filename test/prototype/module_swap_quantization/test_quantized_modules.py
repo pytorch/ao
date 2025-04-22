@@ -223,9 +223,9 @@ class TestQuantizedLinear(unittest.TestCase):
         assert linear.input_quantizer.offset is not None
         assert linear.input_quantizer.scale.requires_grad is True
 
-        assert (
-            linear.input_quantizer.scale.grad is not None
-        ), linear.input_quantizer.scale
+        assert linear.input_quantizer.scale.grad is not None, (
+            linear.input_quantizer.scale
+        )
         assert linear.input_quantizer.offset.grad is not None
 
     def test_set_weight_scale_to_min_max_test_all_options(self) -> None:

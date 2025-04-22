@@ -110,9 +110,9 @@ def _create_obs_or_fq_from_qspec(
         else:
             return observer_ctr()
 
-    assert isinstance(
-        quantization_spec, QuantizationSpec
-    ), f"Expected QuantizationSpec got: {quantization_spec}"
+    assert isinstance(quantization_spec, QuantizationSpec), (
+        f"Expected QuantizationSpec got: {quantization_spec}"
+    )
     observer_or_fake_quant_ctr = quantization_spec.observer_or_fake_quant_ctr
     kwargs = _get_observer_kwargs(quantization_spec)
     kwargs.pop("observer_or_fake_quant_ctr")
@@ -445,9 +445,9 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     original_arg = arg
     while _is_activation_post_process_node(original_arg, named_modules):
         original_arg = original_arg.args[0]  # type: ignore[assignment]
-    assert isinstance(
-        original_arg, Node
-    ), f"expect original argument to be a Node, but got: {type(original_arg)}"
+    assert isinstance(original_arg, Node), (
+        f"expect original argument to be a Node, but got: {type(original_arg)}"
+    )
 
     input_edge = (original_arg, node)
     if input_edge not in obs_or_fq_map:

@@ -69,9 +69,9 @@ def apply_spinquant(
     # pretrained_rotation_path = "7B_W4A16KV16_lr_1.5_seed_0/R.bin"
 
     if pretrained_rotation_path is not None:
-        assert Path(
-            pretrained_rotation_path
-        ).is_file(), "Pretrained rotation path does not exist"
+        assert Path(pretrained_rotation_path).is_file(), (
+            "Pretrained rotation path does not exist"
+        )
         assert Path(pretrained_rotation_path).suffix == ".bin", "Expected a .bin file."
 
     if use_r1:

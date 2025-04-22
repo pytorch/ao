@@ -222,9 +222,9 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 # assert inp.placements[0] == input_layout
                 dt_inp = input
             else:
-                assert isinstance(
-                    input, torch.Tensor
-                ), "expecting input to be a torch.Tensor!"
+                assert isinstance(input, torch.Tensor), (
+                    "expecting input to be a torch.Tensor!"
+                )
                 dt_inp = DTensor.from_local(
                     input, mesh, (input_layout,), run_check=False
                 )
@@ -256,9 +256,9 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                     if self.linear_mm_config is None:
                         self.linear_mm_config = mod.linear_mm_config
                     else:
-                        assert (
-                            self.linear_mm_config == mod.linear_mm_config
-                        ), "All the Float8Linear modules should have same linear_mm_config!"
+                        assert self.linear_mm_config == mod.linear_mm_config, (
+                            "All the Float8Linear modules should have same linear_mm_config!"
+                        )
 
         assert self.linear_mm_config is not None
         super()._apply(module, device_mesh)

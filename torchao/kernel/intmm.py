@@ -58,9 +58,9 @@ if TORCH_VERSION_AT_LEAST_2_2:
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
         # error checking for cublas path
-        assert (
-            mat2.device == input.device
-        ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
+        assert mat2.device == input.device, (
+            f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
+        )
         device_cpu = "cpu" in [mat2.device.type, input.device.type]
         # with input.shape = [i,j] and mat2.shape = [j,k]
         j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] > 0)

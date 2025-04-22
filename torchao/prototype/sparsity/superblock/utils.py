@@ -29,9 +29,9 @@ from torchao.sparsity import semi_sparse_weight, sparsify_
 
 
 def get_args_parser(train=False, evaluate=False, benchmark=False):
-    assert (
-        sum([train, evaluate, benchmark]) == 1
-    ), "One and only one of training, evaluation, or benchmark can be true"
+    assert sum([train, evaluate, benchmark]) == 1, (
+        "One and only one of training, evaluation, or benchmark can be true"
+    )
 
     # Shared common args
     parser = argparse.ArgumentParser(
