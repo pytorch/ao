@@ -24,9 +24,9 @@ from torchao.dtypes import (
     to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
-    GemliteUIntXWeightOnlyConfig,
     float8_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -36,7 +36,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
-from torchao.testing.utils import skip_if_no_cuda, skip_if_rocm, skip_if_no_gemlite
+from torchao.testing.utils import skip_if_no_cuda, skip_if_no_gemlite, skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
@@ -352,7 +352,6 @@ class TestAffineQuantizedBasic(TestCase):
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
-
 
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.float16])
