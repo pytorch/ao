@@ -52,10 +52,10 @@ def _same_metadata(
         and type(self._layout) == type(src._layout)
     )
 
-def scaled_activations_no_scaling(x):
+def scale_activations_no_scaling(x):
     return x, None
 
-def scaled_activations_int8(x):
+def scale_activations_int8(x):
     x_shape  = x.shape
     out_x    = x.view(-1, x.shape[-1]) 
     scaled_x = torch.abs(out_x).amax(axis=1, keepdim=True) / 127
@@ -133,7 +133,7 @@ def get_gemlite_aqt_kwargs(
 class GemlitePackedLayout(Layout):
     group_size: Optional[int] = 64
     bit_width: int = 4
-    packing_bitwidth: int = 8
+    packing_bitwidth: int = None
     contiguous: bool = None
 
 
@@ -226,11 +226,9 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             packing_bitwidth=_layout.packing_bitwidth,
         )
 
-        gemlite_linear.scale_activations = scaled_activations_no_scaling #No scaling for 4-bit quant
-
         gemlite_kwargs = {
             "out_features": out_features,
-            "scale_activations": gemlite_linear.scale_activations,
+            "scaled_activations": gemlite_linear.scaled_activations,
             "meta_args": gemlite_linear.get_meta_args(),
         }
 
@@ -380,11 +378,18 @@ def _linear_fp_act_int4_weight_gemlite_impl(input_tensor, weight_tensor, bias=No
     batch_size = input_tensor.view(-1, input_tensor.shape[-1]).shape[0]
     matmul_type = _matmul_type_fn(batch_size, weight_impl._layout.bit_width)
 
+    if(weight_impl.gemlite_kwargs['scaled_activations']):
+        scale_activations = scale_activations_int8
+    else:
+        scale_activations = scale_activations_no_scaling
+
     return GemLiteLinearTriton.forward_functional(
         x=input_tensor,
         bias=bias,
         matmul_type=matmul_type,
-        **weight_impl.gemlite_kwargs,
+        out_features = weight_impl.gemlite_kwargs['out_features'],
+        scale_activations = scale_activations,
+        meta_args = weight_impl.gemlite_kwargs['meta_args'],
         tensor_args=(
             weight_impl.packed_weight,
             weight_impl.scale,
