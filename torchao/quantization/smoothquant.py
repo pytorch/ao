@@ -80,9 +80,9 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
 
     def get_scaled_quantized_w(self):
         # inference
-        assert (
-            self.smooth_scale is not None
-        ), "self.smooth_scale is None, did you turn on inference?"
+        assert self.smooth_scale is not None, (
+            "self.smooth_scale is None, did you turn on inference?"
+        )
         W = self.weight
 
         # scale weight

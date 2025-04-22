@@ -267,9 +267,9 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        assert (
-            high_precision_dtype == torch.float32
-        ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        assert high_precision_dtype == torch.float32, (
+            "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        )
 
         from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
         from torchao.quantization.granularity import PerAxis, PerGroup

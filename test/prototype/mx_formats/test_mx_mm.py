@@ -74,6 +74,6 @@ def test_matrix_multiplication(size, format):
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format)
     threshold = 80.0
-    assert (
-        sqnr >= threshold
-    ), f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
+    assert sqnr >= threshold, (
+        f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
+    )
