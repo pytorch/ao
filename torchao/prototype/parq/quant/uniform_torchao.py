@@ -9,7 +9,9 @@ from typing import Optional, Union
 import torch
 from torch import Tensor
 
+from torchao.core.config import AOBaseConfig
 from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     ZeroPointDomain,
@@ -20,6 +22,8 @@ from torchao.quantization.quant_primitives import (
 
 from .quantizer import Quantizer
 
+_BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
+
 
 class UnifTorchaoQuantizer(Quantizer):
     """Uniform quantizer that uses torchao's quantization primitives"""
@@ -27,12 +31,13 @@ class UnifTorchaoQuantizer(Quantizer):
     def __init__(
         self,
         symmetric: bool,
-        target_dtype: torch.dtype,
+        target_dtype: Optional[torch.dtype] = None,
         quant_min: Optional[Union[int, float]] = None,
         quant_max: Optional[Union[int, float]] = None,
         eps: Optional[float] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+        config: Optional[AOBaseConfig] = None,
     ) -> None:
         super().__init__(center=False)
 
@@ -45,6 +50,7 @@ class UnifTorchaoQuantizer(Quantizer):
         self.eps = eps
         self.preserve_zero = preserve_zero
         self.zero_point_domain = zero_point_domain
+        self.config = config
 
     @property
     def q_kwargs(self) -> dict[str, Union[int, float]]:
@@ -54,15 +60,23 @@ class UnifTorchaoQuantizer(Quantizer):
             "zero_point_domain": self.zero_point_domain,
         }
 
+    def _init_quant_min_max(self, b: int) -> None:
+        if self.quant_min is None or self.quant_max is None:
+            assert b in _BIT_WIDTH_TO_DTYPE, f"Unsupported bitwidth {b}"
+            self.quant_min, self.quant_max = _DTYPE_TO_QVALUE_BOUNDS[
+                _BIT_WIDTH_TO_DTYPE[b]
+            ]
+        if self.target_dtype is None:
+            self.target_dtype = torch.int8
+
     def get_quant_size(self, b: int) -> int:
+        self._init_quant_min_max(b)
         return self.quant_max - self.quant_min + 1
 
     def quantize(
         self, p: Tensor, b: int, dim: Optional[int] = None
     ) -> tuple[Tensor, Tensor]:
-        if self.quant_min is None or self.quant_max is None:
-            self.quant_min, self.quant_max = _DTYPE_TO_QVALUE_BOUNDS[p.dtype]
-
+        self._init_quant_min_max(b)
         if self.eps is None:
             self.eps = torch.finfo(p.dtype).eps
 
@@ -85,7 +99,12 @@ class UnifTorchaoQuantizer(Quantizer):
             self.quant_min, self.quant_max + 1, dtype=self.target_dtype, device=p.device
         )
         if dim is not None:
-            Q = Q.unsqueeze(0).mul(s.unsqueeze(dim))
+            Q = Q.view(1, -1).expand(q.size(0), -1)
+            block_size = (1, Q.size(-1))
         else:
-            Q.mul_(s)
+            block_size = Q.shape
+
+        Q = dequantize_affine(
+            Q, block_size, *q_args[1:], output_dtype=p.dtype, **self.q_kwargs
+        )
         return q, Q

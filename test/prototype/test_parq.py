@@ -21,29 +21,34 @@ from torchao.prototype.parq.quant import (
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
+from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     IntxWeightOnlyConfig,
     _is_linear,
 )
-from torchao.quantization.quant_primitives import (
-    _DTYPE_TO_QVALUE_BOUNDS,
-    ZeroPointDomain,
-)
+from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def split_param_groups(model):
-    params_no_quant, params_quant = [], []
-    for p in model.parameters():
-        if p.dim() > 1:
-            params_quant.append(p)
-        else:
-            params_no_quant.append(p)
-    return params_no_quant, params_quant
+    params_quant, params_no_quant = [], []
+
+    def get_param_groups(model):
+        for module in model.children():
+            is_linear = isinstance(module, nn.Linear)
+            for n, p in module.named_parameters(recurse=False):
+                if is_linear and n == "weight":
+                    params_quant.append(p)
+                else:
+                    params_no_quant.append(p)
+            get_param_groups(module)
+
+    get_param_groups(model)
+    return params_quant, params_no_quant
 
 
 class M(nn.Module):
@@ -73,60 +78,75 @@ class M(nn.Module):
         return x
 
 
+def train_loop(model, optimizer, update=True, steps=1):
+    for _ in range(steps):
+        x = model.example_inputs().to(_DEVICE)
+        out = model(x)
+        out.sum().backward()
+        optimizer.step()
+
+
 class TestPARQuantization(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.model = M(bias=True).to(_DEVICE)
-        self.params_no_quant, self.params_quant = split_param_groups(self.model)
+        self.params_quant, self.params_no_quant = split_param_groups(self.model)
 
     def test_2bit_unif_quantizer_hard_prox(self):
+        b = 2
         self.model.reset_parameters()
         param_groups = [
+            {"params": self.params_quant, "quant_bits": b},
             {"params": self.params_no_quant},
-            {"params": self.params_quant, "quant_bits": 2},
         ]
         base_optimizer = torch.optim.AdamW(param_groups)
         quantizer = UnifQuantizer()
-        prox_map = ProxHardQuant()
-        optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map)
-
-        x = self.model.example_inputs().to(_DEVICE)
-        out = self.model(x)
-        out.sum().backward()
-        optimizer.step()
+        optimizer = QuantOptimizer(base_optimizer, quantizer, ProxHardQuant())
+        train_loop(self.model, optimizer)
 
         for child in self.model.children():
             if isinstance(child, nn.Linear):
-                self.assertEqual(child.weight.unique().numel(), 4)
+                self.assertEqual(
+                    child.weight.unique().numel(), quantizer.get_quant_size(b)
+                )
 
     def test_ternarybit_lsbq_parq_prox(self):
+        b = 0
         self.model.reset_parameters()
         param_groups = [
+            {"params": self.params_quant, "quant_bits": b},
             {"params": self.params_no_quant},
-            {"params": self.params_quant, "quant_bits": 0},
         ]
         base_optimizer = torch.optim.AdamW(param_groups)
         quantizer = LSBQuantizer()
-        prox_map = ProxPARQ(anneal_start=0, anneal_end=2)
-        optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map)
-
-        for _ in range(3):
-            x = self.model.example_inputs().to(_DEVICE)
-            out = self.model(x)
-            out.sum().backward()
-            optimizer.step()
+        optimizer = QuantOptimizer(
+            base_optimizer, quantizer, ProxPARQ(anneal_start=0, anneal_end=2)
+        )
+        train_loop(self.model, optimizer, steps=3)
 
         for child in self.model.children():
             if isinstance(child, nn.Linear):
-                self.assertEqual(child.weight.unique().numel(), 3)
+                self.assertEqual(
+                    child.weight.unique().numel(), quantizer.get_quant_size(b)
+                )
 
 
 class TestUnifTorchaoQuantizer(common_utils.TestCase):
-    def __init__(self, methodName, group_size: int = 32):
-        super(TestUnifTorchaoQuantizer, self).__init__(methodName)
+    def setUp(self):
         torch.manual_seed(123)
-        self.group_size = group_size
-        self.out_dim = 512
+
+    @staticmethod
+    def int4_torchao_quantizer(b: int = 4, config=None):
+        # based off torchao.quantization.quant_api._int4_weight_only_transform
+        return UnifTorchaoQuantizer(
+            symmetric=False,
+            target_dtype=torch.int32,
+            quant_min=0,
+            quant_max=2**b - 1,
+            eps=1e-6,
+            preserve_zero=False,
+            config=config,
+        )
 
     def compare_quantized_models(
         self,
@@ -134,6 +154,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         m_ref: nn.Module,
         quantizer: UnifTorchaoQuantizer,
         b: int,
+        group_size: int,
     ):
         for n, module in model.named_children():
             if not _is_linear(module):
@@ -142,7 +163,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             # simulate grouping from QuantOptimizer.step
             p = module.weight
             original_shape = p.shape
-            p = p.view(-1, self.group_size)
+            p = p.view(-1, group_size)
 
             q, Q = quantizer.quantize(p, b=b, dim=-1)
             q = q.view(original_shape)
@@ -153,59 +174,88 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
-    def test_int4_weight_only(self):
-        model = M(m=self.out_dim, n=self.out_dim).to(torch.bfloat16).to(_DEVICE)
+    @common_utils.parametrize("group_size", [32, 256])
+    def test_int4_weight_only(self, group_size: int = 32):
+        model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
         model.reset_parameters()
+
         m_ref = copy.deepcopy(model)
+        quantize_(m_ref, Int4WeightOnlyConfig(group_size))
 
-        quantize_(m_ref, Int4WeightOnlyConfig(group_size=self.group_size))
-
-        # based off torchao.quantization.quant_api._int4_weight_only_transform
         b = 4
-        quantizer = UnifTorchaoQuantizer(
-            symmetric=False,
-            target_dtype=torch.int32,
-            quant_min=0,
-            quant_max=2**b - 1,
-            eps=1e-6,
-            preserve_zero=False,
-        )
-        self.compare_quantized_models(model, m_ref, quantizer, b)
+        quantizer = self.int4_torchao_quantizer()
+        self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
-    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
-    def test_intx_weight_only(self):
-        model = M(m=self.out_dim, n=self.out_dim).to(_DEVICE)
+    @common_utils.parametrize("b", [2, 3, 4, 8])
+    @common_utils.parametrize("group_size", [32, 512])
+    def test_intx_weight_only(self, b: int = 2, group_size: int = 32):
+        model = M(m=512, n=512).to(_DEVICE)
         model.reset_parameters()
+
         m_ref = copy.deepcopy(model)
+        quantize_(
+            m_ref,
+            IntxWeightOnlyConfig(
+                weight_dtype=_BIT_WIDTH_TO_DTYPE[b], granularity=PerGroup(group_size)
+            ),
+        )
 
-        config = IntxWeightOnlyConfig(granularity=PerGroup(self.group_size))
-        quantize_(m_ref, config)
-
-        # based off torchao.quantization.quant_api._intx_weight_only_transform
-        b = 8
-        q_dtype = torch.int8
-        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[q_dtype]
         quantizer = UnifTorchaoQuantizer(
             symmetric=True,
-            target_dtype=q_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=torch.finfo(torch.float32).eps,
             preserve_zero=True,
             zero_point_domain=ZeroPointDomain.INT,
         )
-        self.compare_quantized_models(model, m_ref, quantizer, b)
+        self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    def test_int4_weight_only_e2e(self, group_size: int = 32):
+        model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
+        model.reset_parameters()
+
+        m_ref = copy.deepcopy(model)
+        config = Int4WeightOnlyConfig(group_size)
+        quantize_(m_ref, config)
+
+        b = 4
+        params_quant, params_no_quant = split_param_groups(model)
+        param_groups = [
+            {"params": params_quant, "quant_bits": b, "quant_block_size": group_size},
+            {"params": params_no_quant},
+        ]
+        base_optimizer = torch.optim.AdamW(param_groups)
+
+        quantizer = self.int4_torchao_quantizer(config=config)
+        optimizer = QuantOptimizer(
+            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+        )
+
+        # do not update model weights, just quantize
+        optimizer.zero_grad()
+        optimizer.step()
+
+        orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
+
+        # equivalent to torchao's convert step
+        with torch.no_grad():
+            optimizer.restore_latent_params()
+        quantize_(model, quantizer.config)
+
+        for n, module in model.named_modules():
+            if not _is_linear(module):
+                continue
+
+            p_orig = getattr(orig_model, n).weight  # PARQ weight
+            p = module.weight.dequantize()  # PARQ weight after quantize_
+            p_ref = getattr(m_ref, n).weight.dequantize()  # natively quantize_
+
+            self.assertTrue(p_orig.equal(p_ref))
+            self.assertTrue(p.equal(p_ref))
 
 
-def load_tests(loader, tests, pattern):
-    suite = unittest.TestSuite()
-    suite.addTests(loader.loadTestsFromTestCase(TestPARQuantization))
-    suite.addTests(loader.loadTestsFromTestCase(TestUnifTorchaoQuantizer))
-
-    group_size = suite._tests[-1].out_dim  # row-wise grouping
-    suite.addTest(TestUnifTorchaoQuantizer("test_intx_weight_only", group_size))
-    return suite
+for test_cls in (TestPARQuantization, TestUnifTorchaoQuantizer):
+    common_utils.instantiate_parametrized_tests(test_cls)
 
 
 if __name__ == "__main__":
