@@ -28,9 +28,14 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
     Int4XPULayout,
+    PlainLayout,
+    TensorCoreTiledLayout,
 )
 from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import (
+    AOPerModuleConfig,
+    Int4WeightOnlyConfig,
+    Int8WeightOnlyConfig,
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
@@ -391,9 +396,9 @@ class TestQuantFlow(TestCase):
             1,
         )
 
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.88, (
-            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 7.88
+        ), f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     @unittest.skipIf(
@@ -430,9 +435,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
+        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
@@ -500,9 +505,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             None,
         )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
+        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
@@ -538,9 +543,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
+        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
@@ -570,9 +575,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
+        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
 
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
@@ -605,9 +610,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
+        assert (
+            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
+        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
 
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
@@ -932,6 +937,34 @@ class TestQuantFlow(TestCase):
 
         sqnr = compute_error(y_ref, y_q)
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_default(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"_default": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_module_name(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"linear1": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
 
 
 class TestMultiTensorFlow(TestCase):
