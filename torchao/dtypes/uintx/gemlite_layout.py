@@ -203,7 +203,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
-        print(f"from plain: {int_data.shape=} {scale.shape=}")
 
         assert isinstance(_layout, GemlitePackedLayout), (
             f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
