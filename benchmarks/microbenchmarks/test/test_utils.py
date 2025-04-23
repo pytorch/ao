@@ -16,16 +16,14 @@ from benchmarks.microbenchmarks.utils import (
     BlockSparseWeightConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Int4WeightOnlyConfig,
+    LNLinearSigmoid,
     SemiSparseWeightConfig,
+    ToyLinearModel,
     clean_caches,
+    create_model_and_input,
     generate_results_csv,
     get_default_device,
     string_to_config,
-)
-from torchao.testing.model_architectures import (
-    LNLinearActivationModel,
-    ToyLinearModel,
-    create_model_and_input_data,
 )
 
 
@@ -155,7 +153,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(out.dtype, torch.float32)
 
     def test_ln_linear_sigmoid(self):
-        model = LNLinearActivationModel(fc_dim1=64, fc_dim2=32, dtype=torch.float32)
+        model = LNLinearSigmoid(fc_dim1=64, fc_dim2=32, dtype=torch.float32)
         x = torch.randn(16, 64)
         out = model(x)
         self.assertEqual(out.shape, (16, 32))
@@ -164,9 +162,9 @@ class TestUtils(unittest.TestCase):
             torch.all((out >= 0) & (out <= 1))
         )  # Check sigmoid output range
 
-    def test_create_model_and_input_data(self):
+    def test_create_model_and_input(self):
         m, k, n = 16, 64, 32
-        model, input_data = create_model_and_input_data(
+        model, input_data = create_model_and_input(
             model_type="linear",
             m=m,
             k=k,
@@ -177,7 +175,7 @@ class TestUtils(unittest.TestCase):
         self.assertIsInstance(model, ToyLinearModel)
         self.assertEqual(input_data.shape, (m, k))
 
-        model, input_data = create_model_and_input_data(
+        model, input_data = create_model_and_input(
             model_type="ln_linear_sigmoid",
             m=m,
             k=k,
@@ -185,7 +183,7 @@ class TestUtils(unittest.TestCase):
             high_precision_dtype=torch.float32,
             device="cpu",
         )
-        self.assertIsInstance(model, LNLinearActivationModel)
+        self.assertIsInstance(model, LNLinearSigmoid)
         self.assertEqual(input_data.shape, (m, k))
 
     def test_generate_results_csv(self):
