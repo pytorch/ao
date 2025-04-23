@@ -16,11 +16,8 @@ from torchao.quantization.granularity import (
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
-    MappingType,
-    choose_qparams_affine,
 )
 from torchao.quantization.utils import (
-    _get_per_token_block_size,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
 )
@@ -29,6 +26,7 @@ from .api import (
     FakeQuantizeConfig,
 )
 from .utils import (
+    _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
 )
@@ -71,19 +69,13 @@ class FakeQuantizer(torch.nn.Module):
         """
         if self.config.is_symmetric:
             raise NotImplementedError("Symmetric per token is not supported yet")
-
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         if self._should_compute_qparams():
-            self.scale, self.zero_point = choose_qparams_affine(
+            (self.scale, self.zero_point) = _choose_qparams_per_token_asymmetric(
                 x,
-                mapping_type=MappingType.ASYMMETRIC,
-                block_size=_get_per_token_block_size(x),
-                target_dtype=self.config.dtype,
-                quant_min=qmin,
-                quant_max=qmax,
-                scale_dtype=self.config.scale_precision,
-                zero_point_dtype=self.config.zero_point_precision,
+                self.config.scale_precision,
+                self.config.zero_point_precision,
             )
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
 
     def _per_channel_or_group_forward(self, x: torch.Tensor):
@@ -108,7 +100,6 @@ class FakeQuantizer(torch.nn.Module):
             raise ValueError("Unexpected granularity '%s'" % granularity)
 
         # get scales and zero points
-        # TODO: refactor this to use `choose_qparams_affine`
         if self._should_compute_qparams():
             bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
             if is_symmetric:
