@@ -196,7 +196,7 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         """
         self._convert_helper(model)
         return model
-    
+
     @staticmethod
     def quantize_weights(
         weight: torch.Tensor,
@@ -207,12 +207,11 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         Helper function to quantize weights
         """
         (qmin, qmax) = _get_qmin_qmax(bit_width)
-        (s, zp) = get_group_qparams_symmetric(
-            weight, bit_width, group_size
-        )
+        (s, zp) = get_group_qparams_symmetric(weight, bit_width, group_size)
         from torchao._executorch_ops import (
             _quantized_decomposed_quantize_per_channel_group_wrapper,
         )
+
         q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
             weight,
             s,
@@ -223,7 +222,6 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
             group_size,
         )
         return (q_weight, s, zp)
-
 
     def _convert_helper(self, module: torch.nn.Module):
         """
@@ -255,7 +253,9 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
                 )
                 setattr(module, name, quantized_embedding)
 
-                q_weight, s, zp = self.quantize_weights(child.weight, self.bit_width, group_size)
+                q_weight, s, zp = self.quantize_weights(
+                    child.weight, self.bit_width, group_size
+                )
                 # Load weights and qparams into quantized embedding
                 quantized_embedding.weight = q_weight
                 quantized_embedding.scale = s.to(scale_precision)
