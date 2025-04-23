@@ -258,6 +258,7 @@ intx_quantization_aware_training = IntXQuantizationAwareTrainingConfig
 @register_quantize_module_handler(IntXQuantizationAwareTrainingConfig)
 def _intx_quantization_aware_training_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: IntXQuantizationAwareTrainingConfig,
 ) -> torch.nn.Module:
     """
@@ -338,6 +339,7 @@ from_intx_quantization_aware_training = FromIntXQuantizationAwareTrainingConfig
 @register_quantize_module_handler(FromIntXQuantizationAwareTrainingConfig)
 def _from_intx_quantization_aware_training_transform(
     mod: torch.nn.Module,
+    module_name: str,
     config: FromIntXQuantizationAwareTrainingConfig,
 ) -> torch.nn.Module:
     """

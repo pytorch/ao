@@ -251,6 +251,7 @@ bitnet_training = BitNetTrainingConfig
 @register_quantize_module_handler(BitNetTrainingConfig)
 def _bitnet_training_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: BitNetTrainingConfig,
 ) -> torch.nn.Module:
     new_weight = BitNetTrainingLinearWeight(module.weight)

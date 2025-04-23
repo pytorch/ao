@@ -29,6 +29,7 @@ nf4_weight_only = NF4WeightOnlyConfig
 @register_quantize_module_handler(NF4WeightOnlyConfig)
 def _nf4_weight_only_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: NF4WeightOnlyConfig,
 ) -> torch.nn.Module:
     block_size = config.block_size

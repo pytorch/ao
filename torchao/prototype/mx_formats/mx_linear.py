@@ -272,12 +272,14 @@ class MXInferenceLinear(torch.nn.Linear):
 
 
 @register_quantize_module_handler(MXLinearConfig)
-def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
+def _mx_linear_transform(
+    module: torch.nn.Module, module_name: str, config: MXLinearConfig
+):
     return MXLinear.from_float(module, config=config)
 
 
 @register_quantize_module_handler(MXInferenceLinearConfig)
 def _mx_inference_linear_transform(
-    module: torch.nn.Module, config: MXInferenceLinearConfig
+    module: torch.nn.Module, module_name: str, config: MXInferenceLinearConfig
 ):
     return MXInferenceLinear.from_float(module, config=config)

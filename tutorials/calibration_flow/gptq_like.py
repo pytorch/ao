@@ -88,9 +88,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(input, torch.Tensor), (
-                f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
-            )
+            assert isinstance(
+                input, torch.Tensor
+            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
             self.count += 1
             self.values.append(input)
         return self
@@ -269,6 +269,7 @@ class ApplyActivationStaticWeightQuantConfig(AOBaseConfig):
 @register_quantize_module_handler(ApplyActivationStaticWeightQuantConfig)
 def _apply_activation_static_weight_quant_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: ApplyActivationStaticWeightQuantConfig,
 ):
     observed_linear = module

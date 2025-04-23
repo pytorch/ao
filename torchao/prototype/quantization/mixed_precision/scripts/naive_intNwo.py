@@ -43,6 +43,7 @@ intN_weight_only = IntNWeightOnlyConfig
 @register_quantize_module_handler(IntNWeightOnlyConfig)
 def _intN_weight_only_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: IntNWeightOnlyConfig,
 ) -> torch.nn.Module:
     group_size = config.group_size

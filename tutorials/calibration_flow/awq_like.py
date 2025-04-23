@@ -105,6 +105,7 @@ class ApplyAWQConfig(AOBaseConfig):
 @register_quantize_module_handler(ApplyAWQConfig)
 def _apply_awq_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: ApplyAWQConfig,
 ):
     target_dtype = config.target_dtype

@@ -176,6 +176,7 @@ class SmoothQuantConfig(AOBaseConfig):
 @register_quantize_module_handler(SmoothQuantConfig)
 def _smooth_quant_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: SmoothQuantConfig,
 ):
     smoothing_factor = config.smoothing_factor

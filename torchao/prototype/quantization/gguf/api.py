@@ -27,6 +27,7 @@ class GGUFWeightOnlyConfig(AOBaseConfig):
 @register_quantize_module_handler(GGUFWeightOnlyConfig)
 def _gguf_weight_only_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: GGUFWeightOnlyConfig,
 ):
     """

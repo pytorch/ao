@@ -97,6 +97,7 @@ class ApplyStaticQuantConfig(AOBaseConfig):
 @register_quantize_module_handler(ApplyStaticQuantConfig)
 def _apply_static_quant_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: ApplyStaticQuantConfig,
 ):
     target_dtype = config.target_dtype

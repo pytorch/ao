@@ -26,7 +26,8 @@ class AOBaseConfig(abc.ABC):
         # non user facing code
         @register_quantize_module_handler(WorkflowFooConfig)
         def _transform(
-            mod: torch.nn.Module,
+            module: torch.nn.Module,
+            module_name: str,
             config: WorkflowFooConfig,
         ) -> torch.nn.Module:
             # the transform is implemented here, usually a tensor sublass

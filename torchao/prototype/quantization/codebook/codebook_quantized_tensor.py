@@ -277,6 +277,7 @@ codebook_weight_only = CodebookWeightOnlyConfig
 @register_quantize_module_handler(CodebookWeightOnlyConfig)
 def _codebook_weight_only_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: CodebookWeightOnlyConfig,
 ):
     """

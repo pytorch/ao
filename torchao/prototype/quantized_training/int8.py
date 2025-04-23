@@ -312,6 +312,7 @@ int8_weight_only_quantized_training = Int8WeightOnlyQuantizedTrainingConfig
 @register_quantize_module_handler(Int8WeightOnlyQuantizedTrainingConfig)
 def _int8_weight_only_quantized_training_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: Int8WeightOnlyQuantizedTrainingConfig,
 ) -> torch.nn.Module:
     new_weight = Int8QuantizedTrainingLinearWeight.from_float(module.weight)

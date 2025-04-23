@@ -58,6 +58,7 @@ block_sparse_weight = BlockSparseWeightConfig
 @register_quantize_module_handler(BlockSparseWeightConfig)
 def _block_sparse_weight_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: BlockSparseWeightConfig,
 ):
     blocksize = config.blocksize
@@ -82,6 +83,7 @@ semi_sparse_weight = SemiSparseWeightConfig
 @register_quantize_module_handler(SemiSparseWeightConfig)
 def _semi_sparse_weight_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: SemiSparseWeightConfig,
 ) -> torch.nn.Module:
     new_weight = to_sparse_semi_structured(module.weight)

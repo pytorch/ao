@@ -283,6 +283,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
 @register_quantize_module_handler(Int8MixedPrecisionTrainingConfig)
 def _int8_mixed_precision_training_transform(
     module: torch.nn.Module,
+    module_name: str,
     config: Int8MixedPrecisionTrainingConfig,
 ):
     module_swap = config.module_swap
