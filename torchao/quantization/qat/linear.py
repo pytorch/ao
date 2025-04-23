@@ -219,7 +219,10 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 n_bit = 4
                 (qmin, qmax) = _get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(
-                    child.weight, n_bit, config.group_size, precision=scale_precision,
+                    child.weight,
+                    n_bit,
+                    config.group_size,
+                    precision=config.scale_precision,
                 )
                 from torchao._executorch_ops import (
                     _quantized_decomposed_quantize_per_channel_group_wrapper,

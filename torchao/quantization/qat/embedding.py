@@ -235,7 +235,10 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
                 # Load weights and qparams into quantized embedding
                 (qmin, qmax) = _get_qmin_qmax(self.bit_width)
                 (s, zp) = get_group_qparams_symmetric(
-                    child.weight, self.bit_width, group_size, precision=scale_precision,
+                    child.weight,
+                    self.bit_width,
+                    group_size,
+                    precision=scale_precision,
                 )
                 q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
                     child.weight,
