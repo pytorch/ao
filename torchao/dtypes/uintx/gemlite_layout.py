@@ -203,7 +203,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
-
         assert isinstance(_layout, GemlitePackedLayout), (
             f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
         )
@@ -263,8 +262,8 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             .t()
             .contiguous()
         )
-        scale = self.scale  # .t().contiguous()
-        zero_point = self.zero_point  # .t().contiguous()
+        scale = self.scale.t().contiguous()
+        zero_point = self.zero_point.t().contiguous()
 
         return int_data, scale, zero_point
 
@@ -292,21 +291,17 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             assert step == 1, "Only step == 1 is supported in slicing right now"
             if dim in [0, 1]:
                 int_data, scale, zero_point = self.get_plain()
-                # scale and zero_point are transposed compared to int_data
                 data_len = int_data.shape[dim]
-                param_dim = 1 - dim
-                scale_len = scale.shape[param_dim]
+                scale_len = scale.shape[dim]
                 ratio = data_len / scale_len
                 start_scale = int(start / ratio)
                 end_scale = int(end / ratio)
 
                 int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                scale = aten.slice.Tensor(
-                    scale, param_dim, start_scale, end_scale, step
-                )
+                scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
                 if zero_point is not None and zero_point.numel() > 0:
                     zero_point = aten.slice.Tensor(
-                        zero_point, param_dim, start_scale, end_scale, step
+                        zero_point, dim, start_scale, end_scale, step
                     )
                 else:
                     zero_point = None
@@ -314,11 +309,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 int_data, scale, zero_point = self._layout.post_process(
                     int_data, scale, zero_point, self.block_size
                 )
-                # TODO: maybe get_plain should not output a transposed scale and zp?
-                # since scale and zero_point are transposed from `get_plain`,
-                # we need to transpose them back before feeding to from_plain
-                scale = scale.t().contiguous()
-                zero_point = zero_point.t().contiguous()
+
                 sliced = self.from_plain(
                     int_data, scale, zero_point, self._layout
                 )  # Will be transposed again
