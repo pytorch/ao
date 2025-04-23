@@ -195,9 +195,9 @@ def replace_q_dq_patterns_with_quantized_linear_ops_pass(
     """
     # TODO: figure out how to do this with dynamic_shapes (not saved on EP for easy re-export)
     # See https://fb.workplace.com/groups/1028545332188949/permalink/1185289956514485/
-    assert len(ep.range_constraints) == 0, (
-        "ExportedProgram with range constraints are not supported"
-    )
+    assert (
+        len(ep.range_constraints) == 0
+    ), "ExportedProgram with range constraints are not supported"
 
     # ep.module() unlifts the weight inputs, which we need for constant folding
     gm = ep.module()
@@ -295,9 +295,9 @@ def replace_q_dq_patterns_with_quantized_embedding_ops_pass(
     """
     # TODO: figure out how to do this with dynamic_shapes (not saved on EP for easy re-export)
     # See https://fb.workplace.com/groups/1028545332188949/permalink/1185289956514485/
-    assert len(ep.range_constraints) == 0, (
-        "ExportedProgram with range constraints are not supported"
-    )
+    assert (
+        len(ep.range_constraints) == 0
+    ), "ExportedProgram with range constraints are not supported"
 
     # ep.module() unlifts the weight inputs, which we need for constant folding
     gm = ep.module()

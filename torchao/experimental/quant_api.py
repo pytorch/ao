@@ -225,12 +225,12 @@ def _replace_embedding_with_quantized_embedding(
                     packed_weight = weight_tensor.tensor_impl.packed_weight
                     bit_width = weight_tensor.tensor_impl.get_layout().bit_width
 
-                    assert n == child.num_embeddings, (
-                        "num_embeddings must match n in shared_unembedding"
-                    )
-                    assert k == child.embedding_dim, (
-                        "embedding_dim must match k in shared_unembedding"
-                    )
+                    assert (
+                        n == child.num_embeddings
+                    ), "num_embeddings must match n in shared_unembedding"
+                    assert (
+                        k == child.embedding_dim
+                    ), "embedding_dim must match k in shared_unembedding"
                     qembedding = QuantizedSharedEmbedding(
                         bit_width,
                         packed_weight,
@@ -420,18 +420,16 @@ class SharedEmbeddingQuantizer:
 
         # Check that embeddings are shared, embeddings are embeddings, and unembeddings are linear ops
         for embedding_fqn, unembedding_fqn in embedding_to_unembedding.items():
-            assert embedding_fqn in embedding_fqns, (
-                f"Embedding {embedding_fqn} is not found in model"
-            )
-            assert unembedding_fqn in linear_fqns, (
-                f"Unembedding {unembedding_fqn} is not found in model"
-            )
+            assert (
+                embedding_fqn in embedding_fqns
+            ), f"Embedding {embedding_fqn} is not found in model"
+            assert (
+                unembedding_fqn in linear_fqns
+            ), f"Unembedding {unembedding_fqn} is not found in model"
             assert torch.allclose(
                 state_dict[embedding_fqn + ".weight"],
                 state_dict[unembedding_fqn + ".weight"],
-            ), (
-                f"Embedding {embedding_fqn} does not share weights with unembedding {unembedding_fqn}"
-            )
+            ), f"Embedding {embedding_fqn} does not share weights with unembedding {unembedding_fqn}"
 
         # Quantize unembeddings
         quantize_(
