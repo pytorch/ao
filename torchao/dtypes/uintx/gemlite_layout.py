@@ -152,7 +152,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         _layout: Layout,
     ):
         kwargs = {}
-        kwargs["device"] = "cuda"  # packed_weight.device
+        kwargs["device"] = packed_weight.device
         kwargs["layout"] = (
             kwargs.get("layout")
             if kwargs.get("layout", False)
@@ -285,6 +285,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             assert step == 1, "Only step == 1 is supported in slicing right now"
+
             if dim in [0, 1]:
                 int_data, scale, zero_point = self.get_plain()
                 data_len = int_data.shape[dim]
@@ -311,6 +312,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 )  # Will be transposed again
 
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
+
             else:
                 raise NotImplementedError(
                     f"GemliteAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
