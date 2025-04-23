@@ -17,7 +17,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledAQTTensorImpl
-from torchao.dtypes.utils import Layout, is_device
+from torchao.dtypes.utils import Layout
 from torchao.utils import fill_defaults
 
 try:
@@ -152,7 +152,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         _layout: Layout,
     ):
         kwargs = {}
-        kwargs["device"] = packed_weight.device
+        kwargs["device"] = "cuda"  # packed_weight.device
         kwargs["layout"] = (
             kwargs.get("layout")
             if kwargs.get("layout", False)
@@ -226,10 +226,6 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if not is_device("cuda", device):
-            raise ValueError(
-                f"GemliteAQTTensorImpl is only available for cuda device, can't convert to {device}"
-            )
         return self.__class__(
             self.packed_weight.to(device),
             self.scale.to(device),
@@ -313,6 +309,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
                 sliced = self.from_plain(
                     int_data, scale, zero_point, self._layout
                 )  # Will be transposed again
+
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
