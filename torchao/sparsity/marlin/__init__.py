@@ -48,9 +48,9 @@ def marlin_24_workspace(
     Returns:
         torch.Tensor: The workspace tensor fully initialized with zeros.
     """
-    assert (
-        out_features % min_thread_n == 0
-    ), f"out_features = {out_features}, min_thread_n = {min_thread_n}"
+    assert out_features % min_thread_n == 0, (
+        f"out_features = {out_features}, min_thread_n = {min_thread_n}"
+    )
     max_workspace_size = (out_features // min_thread_n) * max_parallel
     return torch.zeros(max_workspace_size, dtype=torch.int, device="cuda")
 

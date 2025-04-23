@@ -391,9 +391,9 @@ class TestQuantFlow(TestCase):
             1,
         )
 
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.88
-        ), f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.88, (
+            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     @unittest.skipIf(
@@ -430,9 +430,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
@@ -500,9 +500,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             None,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
-        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
@@ -538,9 +538,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
@@ -570,9 +570,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
-        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
@@ -605,9 +605,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")

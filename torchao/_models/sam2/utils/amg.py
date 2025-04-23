@@ -59,15 +59,15 @@ class MaskData:
 
     def __init__(self, **kwargs) -> None:
         for v in kwargs.values():
-            assert isinstance(
-                v, (list, np.ndarray, torch.Tensor, RLEData)
-            ), "MaskData only supports list, numpy arrays, and torch tensors."
+            assert isinstance(v, (list, np.ndarray, torch.Tensor, RLEData)), (
+                "MaskData only supports list, numpy arrays, and torch tensors."
+            )
         self._stats = dict(**kwargs)
 
     def __setitem__(self, key: str, item: Any) -> None:
-        assert isinstance(
-            item, (list, np.ndarray, torch.Tensor, RLEData)
-        ), "MaskData only supports list, numpy arrays, and torch tensors."
+        assert isinstance(item, (list, np.ndarray, torch.Tensor, RLEData)), (
+            "MaskData only supports list, numpy arrays, and torch tensors."
+        )
         self._stats[key] = item
 
     def __delitem__(self, key: str) -> None:
@@ -168,9 +168,9 @@ def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
 
 
 def batch_iterator(batch_size: int, *args) -> Generator[List[Any], None, None]:
-    assert len(args) > 0 and all(
-        len(a) == len(args[0]) for a in args
-    ), "Batched iteration must have inputs of all the same size."
+    assert len(args) > 0 and all(len(a) == len(args[0]) for a in args), (
+        "Batched iteration must have inputs of all the same size."
+    )
     n_batches = len(args[0]) // batch_size + int(len(args[0]) % batch_size != 0)
     for b in range(n_batches):
         yield [arg[b * batch_size : (b + 1) * batch_size] for arg in args]
@@ -281,9 +281,9 @@ def _mask_to_rle_pytorch_2_0(tensor: torch.Tensor) -> RLEData:
         # else:
         #     change_indices = diff.nonzero()
         num_chunks = 8
-        assert num_chunks >= (
-            (diff.numel() + 2147483646) // 2147483646
-        ), "Needed more chunks than expected."
+        assert num_chunks >= ((diff.numel() + 2147483646) // 2147483646), (
+            "Needed more chunks than expected."
+        )
         change_indices = torch.cat([d.nonzero() for d in diff.chunk(num_chunks)])
     with torch.autograd.profiler.record_function(
         "mask_to_rle_pytorch_2: _mask_to_rle_pytorch_2_0_1"

@@ -78,9 +78,9 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     fp16_mod_on_cuda = fp16_mod_on_cpu.to("cuda")
     test_input_on_cuda = test_input_on_cpu.to("cuda")
     output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
-    assert torch.allclose(
-        output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3
-    ), "The output of the model on CPU and CUDA should be close"
+    assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), (
+        "The output of the model on CPU and CUDA should be close"
+    )
 
 
 @pytest.mark.parametrize("dtype", dtypes)
