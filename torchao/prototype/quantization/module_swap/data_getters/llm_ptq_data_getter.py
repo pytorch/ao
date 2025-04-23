@@ -63,9 +63,9 @@ class LLMPTQDataGetter(DataGetter):
             else:
                 query_layer_idx = len(model.model.layers)
 
-            assert (
-                query_layer_idx >= self.current_layer_idx
-            ), "pop() called out of order, layers have to be called in order"
+            assert query_layer_idx >= self.current_layer_idx, (
+                "pop() called out of order, layers have to be called in order"
+            )
 
             # TODO: batch the next two parts
 

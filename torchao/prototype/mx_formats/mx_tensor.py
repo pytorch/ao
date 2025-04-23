@@ -504,9 +504,9 @@ class MXTensor(torch.Tensor):
             dtype=orig_dtype,
             device=data_bits.device,
         )
-        assert (
-            scale_e8m0_bits.dtype == torch.float8_e8m0fnu
-        ), f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
+        assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
+            f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
+        )
         assert len(scale_e8m0_bits.shape) == 1, "unsupported"
         assert data_bits.dtype in (
             torch.float8_e4m3fn,
@@ -534,9 +534,9 @@ class MXTensor(torch.Tensor):
         ):
             # this check is sometimes broken for FakeTensor
             # TODO investigate
-            assert (
-                target_numel == data_bits.numel()
-            ), f"{target_numel} != {data_bits.numel()}"
+            assert target_numel == data_bits.numel(), (
+                f"{target_numel} != {data_bits.numel()}"
+            )
 
         # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
         # `_data`

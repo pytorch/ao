@@ -15,9 +15,9 @@ __all__ = [
 
 
 def create_block_sparse_tensor(M, N, blocksize, sparsity, dtype):
-    assert (
-        sparsity <= 1.0 and sparsity >= 0.0
-    ), "sparsity should be a value between 0 and 1"
+    assert sparsity <= 1.0 and sparsity >= 0.0, (
+        "sparsity should be a value between 0 and 1"
+    )
     A = torch.bernoulli(
         torch.full((M // blocksize, N // blocksize), 1 - sparsity, dtype=dtype)
     )
@@ -117,7 +117,7 @@ def mask_creator(
     # for i, tensor in enumerate(tensors):
     if tensor.numel() % M != 0:
         raise ValueError(
-            f"Tensor of size {tensor.shape} can't be evenly divided into " f"{M} groups"
+            f"Tensor of size {tensor.shape} can't be evenly divided into {M} groups"
         )
 
     num_groups = tensor.numel() // M

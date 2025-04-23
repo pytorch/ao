@@ -257,24 +257,24 @@ def float8_cat(aten_op, args, kwargs=None):
     gemm_input_role = chunked_tensors[0]._gemm_input_role
     chunk_data = []
     for chunk in chunked_tensors:
-        assert isinstance(
-            chunk, Float8Tensor
-        ), "Expecting all chunks to be of type Float8Tensor"
-        assert (
-            chunk._orig_dtype == orig_dtype
-        ), "Expecting all chunks to be of the same dtype"
-        assert (
-            chunk._scale is scale
-        ), "Expecting all chunks to have thee same scale as a result of a split"
-        assert (
-            chunk._linear_mm_config is mm_config
-        ), "Expecting all chunks to have thee same mm config as a result of a split"
-        assert (
-            chunk._data.dtype == fp8_dtype
-        ), "Expecting all chunks to be of the same dtype as a result of a split"
-        assert (
-            chunk._gemm_input_role is gemm_input_role
-        ), "Expecting all chunks to have the same gemm_input_role as a result of a split"
+        assert isinstance(chunk, Float8Tensor), (
+            "Expecting all chunks to be of type Float8Tensor"
+        )
+        assert chunk._orig_dtype == orig_dtype, (
+            "Expecting all chunks to be of the same dtype"
+        )
+        assert chunk._scale is scale, (
+            "Expecting all chunks to have thee same scale as a result of a split"
+        )
+        assert chunk._linear_mm_config is mm_config, (
+            "Expecting all chunks to have thee same mm config as a result of a split"
+        )
+        assert chunk._data.dtype == fp8_dtype, (
+            "Expecting all chunks to be of the same dtype as a result of a split"
+        )
+        assert chunk._gemm_input_role is gemm_input_role, (
+            "Expecting all chunks to have the same gemm_input_role as a result of a split"
+        )
         _assert_tensorwise_scale(aten_op, chunk._scale)
         chunk_data.append(chunk._data.view(torch.uint8))
 
@@ -317,9 +317,9 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     )
 
     if scaled_mm_config.pad_inner_dim:
-        assert a._data.size(1) == b._data.size(
-            0
-        ), f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
+        assert a._data.size(1) == b._data.size(0), (
+            f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
+        )
         a_data = pad_tensor_for_matmul(a_data, dims=1)
         b_data = pad_tensor_for_matmul(b_data, dims=0)
 
@@ -350,10 +350,10 @@ def float8_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
 
-    assert isinstance(a, Float8Tensor) and isinstance(
-        b, Float8Tensor
-    ), "Expecting  both Float8Tensor for mm inputs but found {} and {}".format(
-        type(a), type(b)
+    assert isinstance(a, Float8Tensor) and isinstance(b, Float8Tensor), (
+        "Expecting  both Float8Tensor for mm inputs but found {} and {}".format(
+            type(a), type(b)
+        )
     )
     a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
@@ -431,9 +431,9 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     """
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     assert isinstance(args[0], Float8Tensor)
-    assert (
-        len(kwargs) == 1 and "dtype" in kwargs
-    ), "Only support dtype kwarg for autocast"
+    assert len(kwargs) == 1 and "dtype" in kwargs, (
+        "Only support dtype kwarg for autocast"
+    )
     assert kwargs["dtype"] in {
         torch.float16,
         torch.bfloat16,
@@ -459,9 +459,9 @@ def allgather_fp8(aten_op, args, kwargs=None):
     """
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
-    assert isinstance(
-        fp8_input, Float8Tensor
-    ), f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
+    assert isinstance(fp8_input, Float8Tensor), (
+        f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
+    )
 
     fp8_data = fp8_input._data
     fp8_data = fp8_data.contiguous()
@@ -533,21 +533,21 @@ def copy_fp8(aten_op, args, kwargs=None):
         return aten_op(self, src_hp, *args[2:], **kwargs)
     elif isinstance(self, Float8Tensor) and isinstance(src, Float8Tensor):
         _assert_tensorwise_scale(aten_op, src._scale)
-        assert (
-            self._orig_dtype == src._orig_dtype
-        ), "Expecting both Float8Tensors to be of the same dtype"
-        assert (
-            self._scale == src._scale
-        ), "Expecting both Float8Tensors to have thee same scale"
-        assert (
-            self._linear_mm_config == src._linear_mm_config
-        ), "Expecting both Float8Tensors to have thee same mm config"
-        assert (
-            self._data.dtype == src._data.dtype
-        ), "Expecting both Float8Tensors to be of the same dtypet"
-        assert (
-            self._gemm_input_role == src._gemm_input_role
-        ), "Expecting both Float8Tensors to have the same gemm_input_role"
+        assert self._orig_dtype == src._orig_dtype, (
+            "Expecting both Float8Tensors to be of the same dtype"
+        )
+        assert self._scale == src._scale, (
+            "Expecting both Float8Tensors to have thee same scale"
+        )
+        assert self._linear_mm_config == src._linear_mm_config, (
+            "Expecting both Float8Tensors to have thee same mm config"
+        )
+        assert self._data.dtype == src._data.dtype, (
+            "Expecting both Float8Tensors to be of the same dtypet"
+        )
+        assert self._gemm_input_role == src._gemm_input_role, (
+            "Expecting both Float8Tensors to have the same gemm_input_role"
+        )
         fp8_out = aten_op(self._data, src._data, *args[2:], **kwargs)
         return Float8Tensor(
             fp8_out,

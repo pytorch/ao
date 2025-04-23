@@ -64,9 +64,9 @@ class ModelArgs:
         # take longer name (as it have more symbols matched)
         if len(config) > 1:
             config.sort(key=len, reverse=True)
-            assert len(config[0]) != len(
-                config[1]
-            ), name  # make sure only one 'best' match
+            assert len(config[0]) != len(config[1]), (
+                name
+            )  # make sure only one 'best' match
 
         return cls(**transformer_configs[config[0]])
 
@@ -290,9 +290,9 @@ class Transformer(nn.Module):
                 torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool)
             )
         else:
-            assert (
-                prompt_length is not None and prompt_length > 1
-            ), "need to set prompt_length>1 to use non quadratic causal mask in setup_caches"
+            assert prompt_length is not None and prompt_length > 1, (
+                "need to set prompt_length>1 to use non quadratic causal mask in setup_caches"
+            )
             self.causal_mask = torch.zeros(
                 1, 1, 1, self.max_seq_length, dtype=torch.bool
             )

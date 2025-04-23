@@ -490,7 +490,7 @@ def get_check_run_name_prefix(workflow_run: Any) -> str:
     if workflow_run is None:
         return ""
     else:
-        return f'{workflow_run["workflow"]["name"]} / '
+        return f"{workflow_run['workflow']['name']} / "
 
 
 def is_passing_status(status: Optional[str]) -> bool:
@@ -538,7 +538,7 @@ def add_workflow_conclusions(
                     if not isinstance(checkrun_node, dict):
                         warn(f"Expected dictionary, but got {type(checkrun_node)}")
                         continue
-                    checkrun_name = f'{get_check_run_name_prefix(workflow_run)}{checkrun_node["name"]}'
+                    checkrun_name = f"{get_check_run_name_prefix(workflow_run)}{checkrun_node['name']}"
                     existing_checkrun = workflow_obj.jobs.get(checkrun_name)
                     if existing_checkrun is None or not is_passing_status(
                         existing_checkrun.status
@@ -653,7 +653,7 @@ def get_ghstack_prs(
         if not open_only or not candidate.is_closed():
             return False
         print(
-            f"Skipping {idx+1} of {len(rev_list)} PR (#{candidate.pr_num}) as its already been merged"
+            f"Skipping {idx + 1} of {len(rev_list)} PR (#{candidate.pr_num}) as its already been merged"
         )
         return True
 
