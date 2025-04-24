@@ -206,6 +206,12 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         assert isinstance(_layout, GemlitePackedLayout), (
             f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
         )
+        device = int_data.device
+        if device.type != "cuda":
+            int_data = (
+                int_data.cuda()
+            )  # We need int_data on cuda device because of Triton packing
+
         group_size, bit_width = _layout.group_size, _layout.bit_width
         out_features, in_features = int_data.shape
 
@@ -220,6 +226,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         }
 
         packed_weight, scale, zero_point = gemlite_linear.get_tensor_args()
+        packed_weight = packed_weight.to(device)
 
         return cls(packed_weight, scale, zero_point, gemlite_kwargs, _layout)
 
@@ -244,20 +251,21 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         )
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        device = self.packed_weight.device
         elements_per_sample = self._layout.packing_bitwidth // self._layout.bit_width
         in_features = (
             self.packed_weight.numel() * elements_per_sample
         ) // self.gemlite_kwargs["out_features"]
         int_data = (
             gemlite.bitpack.unpack_over_rows(
-                self.packed_weight,
+                self.packed_weight.cuda(),
                 W_nbits=self._layout.bit_width,
                 num_output_rows=in_features,
                 dtype=torch.uint8,
             )
             .t()
             .contiguous()
-        )
+        ).to(device)
         scale = self.scale.t().contiguous()
         zero_point = self.zero_point.t().contiguous()
 
