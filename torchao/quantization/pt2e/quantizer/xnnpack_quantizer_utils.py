@@ -19,12 +19,7 @@ from torch.fx.passes.utils.matcher_with_name_node_map_utils import (
 )
 from torch.fx.passes.utils.source_matcher_utils import get_source_partitions
 
-from torchao.quantization.pt2e.pt2e.export_utils import _WrapperModule
-from torchao.quantization.pt2e.pt2e.utils import (
-    _get_aten_graph_module_for_pattern,
-    _is_conv_node,
-    _is_conv_transpose_node,
-)
+from torchao.quantization.pt2e.export_utils import _WrapperModule
 from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
@@ -34,7 +29,12 @@ from torchao.quantization.pt2e.quantizer.utils import (
     _annotate_input_qspec_map,
     _annotate_output_qspec,
 )
-from torchao.quantization.pt2e.utils import get_new_attr_name_with_prefix
+from torchao.quantization.pt2e.utils import (
+    _get_aten_graph_module_for_pattern,
+    _is_conv_node,
+    _is_conv_transpose_node,
+    get_new_attr_name_with_prefix,
+)
 
 __all__ = [
     "OperatorConfig",
@@ -171,9 +171,9 @@ def get_bias_qspec(quantization_config: Optional[QuantizationConfig]):
     if quantization_config.bias is None:
         return None
     quantization_spec: QuantizationSpec = quantization_config.bias
-    assert (
-        quantization_spec.dtype == torch.float
-    ), "Only float dtype for bias is supported for bias right now"
+    assert quantization_spec.dtype == torch.float, (
+        "Only float dtype for bias is supported for bias right now"
+    )
     return quantization_spec
 
 

@@ -19,7 +19,7 @@ image = (
     .pip_install(
         "torch",
         pre=True,
-        index_url="https://download.pytorch.org/whl/nightly/cu124",
+        index_url="https://download.pytorch.org/whl/nightly/cu126",
     )
     .pip_install(
         "torchvision",
@@ -372,8 +372,7 @@ def main(
     output_directory = Path(output_directory)
     if not (output_directory.exists() and output_directory.is_dir()):
         raise ValueError(
-            f"Expected output_directory {output_directory} "
-            "to be a directory and exist"
+            f"Expected output_directory {output_directory} to be a directory and exist"
         )
 
     if meta_paths is not None:

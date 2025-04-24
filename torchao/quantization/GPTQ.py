@@ -142,16 +142,16 @@ class GenericGPTQRunner(fx.Interpreter):
         return self
 
     def run(self):
-        assert (
-            self.get_qparams_func is not None
-        ), "need to configure quantization mode before running"
+        assert self.get_qparams_func is not None, (
+            "need to configure quantization mode before running"
+        )
         self.gptq_done = True
         super().run(*self.inputs)
 
     def get_quantized_state_dict(self):
-        assert (
-            self.gptq_done
-        ), "need to run GPTQRunner before you can get_quantized_state_dict"
+        assert self.gptq_done, (
+            "need to run GPTQRunner before you can get_quantized_state_dict"
+        )
         quantized_state_dict = self.new_state_dict
         # Don't want to store/load the kv_cache so remove it from the state_dict
         del_list = []
@@ -599,9 +599,9 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             raise ValueError("Please specify 'precision' instead of 'dtype'")
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
-        assert (
-            in_features % (inner_k_tiles * 16) == 0
-        ), "require in_features % (innerKTiles * 16) == 0"
+        assert in_features % (inner_k_tiles * 16) == 0, (
+            "require in_features % (innerKTiles * 16) == 0"
+        )
         if is_device(device.type, "cpu"):
             self.register_buffer(
                 "weight",
@@ -750,9 +750,9 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
                 logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
-                assert (
-                    in_features % self.groupsize == 0
-                ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                assert in_features % self.groupsize == 0, (
+                    f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                )
 
                 weight = mod.weight.data
                 if not _check_linear_int4_k(
@@ -933,7 +933,7 @@ def linear_forward_8da4w(
     groupsize,
     precision,
 ):
-    x = per_token_dynamic_quant(x)
+    x = per_token_dynamic_quant(x, scale_dtype=precision, zero_point_dtype=precision)
     # TODO: verify and remove following reshape code
     # origin_x_size = x.size()
     # x = x.reshape(-1, origin_x_size[-1])
@@ -998,9 +998,9 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         super().__init__()
         # always pad if needed since it becomes a noop at runtime if not needed
         # self.origin_in_features = in_features
-        assert (
-            in_features % groupsize == 0
-        ), f"require in_features:{in_features} % groupsize:{groupsize} == 0"
+        assert in_features % groupsize == 0, (
+            f"require in_features:{in_features} % groupsize:{groupsize} == 0"
+        )
         # in_features = _calc_padded_size_linear_int4(
         #    in_features, groupsize
         # )
@@ -1142,9 +1142,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
                 logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
-                assert (
-                    in_features % self.groupsize == 0
-                ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                assert in_features % self.groupsize == 0, (
+                    f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                )
 
                 weight = mod.weight.data
                 if not _check_linear_int4_k(in_features, self.groupsize):

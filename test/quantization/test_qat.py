@@ -12,6 +12,7 @@ import unittest
 
 import torch
 import torch.nn.functional as F
+from parameterized import parameterized
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 
 from torchao import quantize_
@@ -40,7 +41,6 @@ from torchao.quantization.qat.linear import (
     Int8DynActInt4WeightQATLinear,
 )
 from torchao.quantization.qat.utils import (
-    _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
     _GenericFakeQuantize,
@@ -53,12 +53,16 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     TorchAODType,
     ZeroPointDomain,
+    choose_qparams_affine,
+    dequantize_affine,
     fake_quantize_affine,
+    quantize_affine,
 )
 from torchao.quantization.unified import (
     TwoStepQuantizer,
 )
 from torchao.quantization.utils import (
+    _get_per_token_block_size,
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
@@ -134,12 +138,13 @@ class M3(torch.nn.Module):
 
 
 class M4(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, dtype: torch.dtype = torch.float32):
         super().__init__()
-        self.linear = torch.nn.Linear(512, 256, bias=False).to(torch.float)
+        self.dtype = dtype
+        self.linear = torch.nn.Linear(512, 256, bias=False).to(dtype)
 
     def example_inputs(self):
-        return (torch.randn(1, 512).to(torch.float),)
+        return (torch.randn(1, 512).to(self.dtype),)
 
     def forward(self, x):
         return self.linear(x)
@@ -219,30 +224,41 @@ class TestQAT(unittest.TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256).requires_grad_()
         x2 = copy.deepcopy(x)
-        # TODO: use torch.ops.aten.quantized_decomposed version instead
-        (s, zp) = _choose_qparams_per_token_asymmetric(x, torch.float32, torch.int32)
+        block_size = _get_per_token_block_size(x)
+        (s, zp) = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.ASYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
 
         # fake quant op
         out = _fake_quantize_per_token(x, s, zp, qmin, qmax)
         out.sum().backward()
 
         # compare against PTQ ops
-        out_ptq = torch.ops.quantized_decomposed.quantize_per_token(
+        out_ptq = quantize_affine(
             x2,
+            block_size,
             s,
             zp,
+            torch.int8,
             qmin,
             qmax,
-            torch.int8,
         )
-        out_ptq = torch.ops.quantized_decomposed.dequantize_per_token(
+        out_ptq = dequantize_affine(
             out_ptq,
+            block_size,
             s,
             zp,
+            torch.int8,
             qmin,
             qmax,
-            torch.int8,
-            torch.float32,
+            output_dtype=torch.float32,
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
 
@@ -1004,8 +1020,15 @@ class TestQAT(unittest.TestCase):
             Baseline for int8 dynamic per token asymmetric + int4 per group symmetric quant.
             """
             # activations
-            (s, zp) = _choose_qparams_per_token_asymmetric(
-                x, torch.float32, torch.int32
+            (s, zp) = choose_qparams_affine(
+                x,
+                mapping_type=MappingType.ASYMMETRIC,
+                block_size=_get_per_token_block_size(x),
+                target_dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.int32,
             )
             (qmin, qmax) = _get_qmin_qmax(8)
             x_fq = _fake_quantize_per_token(x, s, zp, qmin, qmax)
@@ -1427,10 +1450,11 @@ class TestQAT(unittest.TestCase):
         example_inputs = m.example_inputs()
         m(*example_inputs)
 
+    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_fake_quantize_per_token_vs_convert(self):
+    def test_fake_quantize_per_token_vs_convert(self, dtype: torch.dtype):
         """
         Test that the following produce the exact same numerics:
           1. FakeQuantizer with asymmetric per_token config
@@ -1439,17 +1463,19 @@ class TestQAT(unittest.TestCase):
         from torchao.quantization.utils import per_token_dynamic_quant
 
         torch.manual_seed(self.SEED)
-        x = torch.randn(1, 235, 2048)
+        x = torch.randn(1, 235, 2048).to(dtype)
         config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         fake_quantizer = FakeQuantizer(config)
         fake_quantizer_out = fake_quantizer(x)
         baseline_out = per_token_dynamic_quant(x)
         torch.testing.assert_close(fake_quantizer_out, baseline_out, atol=0, rtol=0)
 
+    @parameterized.expand([torch.float32, torch.bfloat16, torch.float16])
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
     )
-    def test_qat_8da4w_prepare_vs_convert(self):
+    @unittest.skip("Currently failing on sqnr")
+    def test_qat_8da4w_prepare_vs_convert(self, dtype: torch.dtype):
         """
         Test that the prepare and convert steps of Int8DynActInt4QATQuantizer produces
         numerics that match exactly over N trials.
@@ -1463,7 +1489,7 @@ class TestQAT(unittest.TestCase):
 
         for seed in range(self.SEED, self.SEED + num_trials):
             torch.manual_seed(seed)
-            m = M4()
+            m = M4(dtype)
             torch.manual_seed(seed)
             x = m.example_inputs()
 

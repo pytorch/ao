@@ -94,9 +94,9 @@ def export_memory_snapshot(prefix) -> None:
 
 @contextmanager
 def memory_recorder(file_name="cuda_memory_snapshot", export=False) -> None:
-    assert (
-        torch.cuda.is_available()
-    ), "Memory profiler requires GPU, check torch.cuda.is_available()"
+    assert torch.cuda.is_available(), (
+        "Memory profiler requires GPU, check torch.cuda.is_available()"
+    )
     try:
         logger.info("Starting snapshot record_memory_history")
         torch.cuda.memory._record_memory_history(

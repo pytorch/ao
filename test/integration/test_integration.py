@@ -314,9 +314,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         sqnr_fq = compute_error(y_smooth_fq_only, y_dynamic_q)
         # print('sqnr_smooth', sqnr_smooth_fq, 'sqnr_dynamic', sqnr_dynamic_q, 'sqnr_fq', sqnr_fq)
 
-        assert torch.allclose(
-            y_ref, y_smooth_nocalib
-        ), "y_ref not close to y_smooth_nocalib"
+        assert torch.allclose(y_ref, y_smooth_nocalib), (
+            "y_ref not close to y_smooth_nocalib"
+        )
         # after https://github.com/pytorch-labs/ao_benchmarks/pull/32,
         # numerics do not match exactly between production c++ code
         # and this Python code
@@ -1338,9 +1338,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, ref_q) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, ref_q) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
 
         # load model structure
         with torch.device("meta"):
@@ -1360,9 +1360,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, test) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, test) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
