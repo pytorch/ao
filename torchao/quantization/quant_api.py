@@ -1959,18 +1959,28 @@ def _fpx_weight_only_transform(
 
 @dataclass
 class AOPerModuleConfig(AOBaseConfig):
-    module_name_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+    """Per module configurations for torchao quantize_ API
+
+    Args:
+        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
+         Also has a special key: "_default", if "_default" is present in the dictionary,
+         the config for "_default" will be applied to all the remaining modules that does not have
+         per module configuration specified.
+    """
+
+    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
         default_factory=dict
     )
 
 
 def _ao_per_module_config_handler(
-    module: torch.nn.Module, module_name: str, config: AOPerModuleConfig
+    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
 ):
-    c = config.module_name_to_config.get(module_name, None)
+    c = config.module_fqn_to_config.get(module_fqn, None)
     # Maybe: we can add module type specific config in the future, in needed
     # fallback to use default if no module specific config is provided
-    default_c = config.module_name_to_config.get("_default", None)
+    default_c = config.module_fqn_to_config.get("_default", None)
     if default_c is not None and c is None:
         c = default_c
 
