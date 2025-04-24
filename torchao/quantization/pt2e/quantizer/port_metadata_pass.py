@@ -18,10 +18,13 @@ from torchao.quantization.pt2e import (
 )
 from torchao.quantization.pt2e.quantizer import (
     QuantizationSpecBase,
-    _is_valid_annotation,
 )
 from torchao.quantization.quant_primitives import quant_lib  # noqa: F401
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+from .utils import (
+    _is_valid_annotation,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)

@@ -15,7 +15,8 @@ from torch.fx.passes.infra.pass_base import PassBase, PassResult
 from torchao.quantization.pt2e import (
     _filter_sym_size_users,
 )
-from torchao.quantization.pt2e.quantizer import (
+
+from .utils import (
     _is_valid_annotation,
 )
 
