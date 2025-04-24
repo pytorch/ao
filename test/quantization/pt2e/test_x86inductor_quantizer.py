@@ -25,7 +25,7 @@ from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e import ObserverBase
-from torchao.quantization.pt2e.pt2e.lowering import lower_pt2e_quantized_to_x86
+from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,

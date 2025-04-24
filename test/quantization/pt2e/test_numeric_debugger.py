@@ -255,7 +255,7 @@ class TestNumericDebugger(TestCase):
         ref = m(*example_inputs)
         res = m_logger(*example_inputs)
 
-        from torchao.quantization.pt2e.pt2e._numeric_debugger import OutputLogger
+        from torchao.quantization.pt2e._numeric_debugger import OutputLogger
 
         loggers = [m for m in m_logger.modules() if isinstance(m, OutputLogger)]
         self.assertEqual(len(loggers), 3)
