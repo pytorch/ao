@@ -129,9 +129,9 @@ class MemoryAttention(nn.Module):
                 curr_pos[0],
             )
 
-        assert (
-            curr.shape[1] == memory.shape[1]
-        ), "Batch size must be the same for curr and memory"
+        assert curr.shape[1] == memory.shape[1], (
+            "Batch size must be the same for curr and memory"
+        )
 
         output = curr
         if self.pos_enc_at_input and curr_pos is not None:

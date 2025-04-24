@@ -44,28 +44,28 @@ class MXLinearRecipeName(Enum):
 
 
 def _validate_elem_dtype(elem_dtype):
-    assert (
-        elem_dtype in SUPPORTED_ELEM_DTYPES
-    ), f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {elem_dtype}"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, (
+        f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {elem_dtype}"
+    )
 
 
 def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
     if gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
-        assert (
-            block_size == 32
-        ), f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
+        assert block_size == 32, (
+            f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
+        )
         valid_dtypes = [torch.float8_e4m3fn, DTYPE_FP4]
-        assert (
-            elem_dtype in valid_dtypes
-        ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        assert elem_dtype in valid_dtypes, (
+            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        )
     elif gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
-        assert (
-            block_size == 32
-        ), f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {block_size}"
+        assert block_size == 32, (
+            f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {block_size}"
+        )
         valid_dtypes = [torch.float8_e4m3fn]
-        assert (
-            elem_dtype in valid_dtypes
-        ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        assert elem_dtype in valid_dtypes, (
+            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        )
 
 
 @dataclass
@@ -117,9 +117,9 @@ class MXLinearConfig(AOBaseConfig):
         """
         if type(recipe_name) == str:
             valid_names = [n.value for n in MXLinearRecipeName]
-            assert (
-                recipe_name in valid_names
-            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            assert recipe_name in valid_names, (
+                f"recipe_name {recipe_name} not in valid names {valid_names}"
+            )
             recipe_name = MXLinearRecipeName(recipe_name)
 
         if recipe_name is MXLinearRecipeName.MXFP8_EMULATED:
