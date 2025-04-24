@@ -222,6 +222,7 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_print_quantized_module(self):
         for device in self.GPU_DEVICES:
