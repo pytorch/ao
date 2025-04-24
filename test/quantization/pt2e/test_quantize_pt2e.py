@@ -2494,7 +2494,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
         from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
         )
 
@@ -2581,7 +2581,7 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
             PerChannelMinMaxObserver,
             PerToken,
         )
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMovingAverageMinMaxObserver,
         )
 
@@ -2670,7 +2670,7 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
         from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         # TODO: merge into torchao observer
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
         )

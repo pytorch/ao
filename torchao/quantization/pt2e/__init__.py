@@ -14,7 +14,7 @@ from torchao.quantization.pt2e.export_utils import (
 from torchao.quantization.pt2e.export_utils import (
     _move_exported_model_to_train as move_exported_model_to_train,
 )
-from torchao.quantization.pt2e.pt2e._numeric_debugger import (  # noqa: F401
+from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
     compare_results,
