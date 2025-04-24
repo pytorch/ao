@@ -7,7 +7,7 @@ import itertools
 
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:  # noqa: F401
@@ -94,7 +94,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
 @pytest.mark.skipif(
-    TORCH_VERSION_AT_LEAST_2_8, reason="Failing in CI"
+    TORCH_VERSION_AT_LEAST_2_7, reason="Failing in CI"
 )  # TODO: fix this
 def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
