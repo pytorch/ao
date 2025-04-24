@@ -52,14 +52,6 @@ class UnifTorchaoQuantizer(Quantizer):
         self.zero_point_domain = zero_point_domain
         self.config = config
 
-    @property
-    def q_kwargs(self) -> dict[str, Union[int, float]]:
-        return {
-            "quant_min": self.quant_min,
-            "quant_max": self.quant_max,
-            "zero_point_domain": self.zero_point_domain,
-        }
-
     def _init_quant_min_max(self, b: int) -> None:
         if self.quant_min is None or self.quant_max is None:
             assert b in _BIT_WIDTH_TO_DTYPE, f"Unsupported bitwidth {b}"
@@ -89,11 +81,26 @@ class UnifTorchaoQuantizer(Quantizer):
             self.target_dtype,
             eps=self.eps,
             preserve_zero=self.preserve_zero,
-            **self.q_kwargs,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            zero_point_domain=self.zero_point_domain,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
-        q = quantize_affine(p, *q_args, **self.q_kwargs)
-        q = dequantize_affine(q, *q_args, output_dtype=p.dtype, **self.q_kwargs)
+        q = quantize_affine(
+            p,
+            *q_args,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            zero_point_domain=self.zero_point_domain,
+        )
+        q = dequantize_affine(
+            q,
+            *q_args,
+            output_dtype=p.dtype,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            zero_point_domain=self.zero_point_domain,
+        )
 
         Q = torch.arange(
             self.quant_min, self.quant_max + 1, dtype=self.target_dtype, device=p.device
@@ -105,6 +112,12 @@ class UnifTorchaoQuantizer(Quantizer):
             block_size = Q.shape
 
         Q = dequantize_affine(
-            Q, block_size, *q_args[1:], output_dtype=p.dtype, **self.q_kwargs
+            Q,
+            block_size,
+            *q_args[1:],
+            output_dtype=p.dtype,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            zero_point_domain=self.zero_point_domain,
         )
         return q, Q

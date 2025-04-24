@@ -13,6 +13,8 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
+from torchao import quantize_
+
 from ..quant import Quantizer
 from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
@@ -105,6 +107,28 @@ class QuantOptimizer(Optimizer):
         q, Q = quantizer.quantize(p, b, dim=dim)  # pyre-ignore[28]
         quants.copy_(Q)
         return q
+
+    @torch.no_grad()
+    def torchao_quantize_(self, model):
+        assert hasattr(self.quantizer, "config"), "Missing self.quantizer.config"
+
+        self.restore_latent_params()
+        param_set = {
+            p.data_ptr()
+            for group in self.regularized_param_groups()
+            for p in group["params"]
+        }
+
+        def inner_quantize_(model):
+            for module in model.children():
+                for param in module.parameters(recurse=False):
+                    if param.data_ptr() in param_set:
+                        quantize_(module, self.quantizer.config)
+                        break
+
+                inner_quantize_(module)
+
+        inner_quantize_(model)
 
     def regularized_param_groups(self):  # pyre-ignore[3]
         """Yield parameter groups that need to be quantized."""

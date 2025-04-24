@@ -248,9 +248,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         # equivalent to torchao's convert step
         model.eval()
-        with torch.no_grad():
-            optimizer.restore_latent_params()
-        quantize_(model, quantizer.config)
+        optimizer.torchao_quantize_(model)
 
         for n, module in model.named_modules():
             if not _is_linear(module):
