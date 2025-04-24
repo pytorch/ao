@@ -36,7 +36,7 @@ class UnifTorchaoQuantizer(Quantizer):
         quant_max: Optional[Union[int, float]] = None,
         eps: Optional[float] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.NONE,
         config: Optional[AOBaseConfig] = None,
     ) -> None:
         super().__init__(center=False)

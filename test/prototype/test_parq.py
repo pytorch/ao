@@ -11,6 +11,7 @@ from torch import nn
 from torch.testing._internal import common_utils
 
 from torchao import quantize_
+from torchao.dtypes import Int4CPULayout
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
     ProxPARQ,
@@ -24,12 +25,16 @@ from torchao.prototype.parq.quant import (
 from torchao.prototype.parq.quant.uniform_torchao import _BIT_WIDTH_TO_DTYPE
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_api import (
-    Int4WeightOnlyConfig,
     IntxWeightOnlyConfig,
     _is_linear,
+    int4_weight_only,
 )
 from torchao.quantization.quant_primitives import ZeroPointDomain
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_6,
+    check_cpu_version,
+)
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -66,8 +71,8 @@ class M(nn.Module):
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
 
-    def example_inputs(self):
-        return torch.randint(1, 10, (1, 256))
+    def example_inputs(self, device=None):
+        return torch.randint(1, 10, (1, 256), device=device)
 
     def forward(self, x):
         x = self.embedding(x)
@@ -78,19 +83,18 @@ class M(nn.Module):
         return x
 
 
-def train_loop(model, optimizer, update=True, steps=1):
-    for _ in range(steps):
-        x = model.example_inputs().to(_DEVICE)
-        out = model(x)
-        out.sum().backward()
-        optimizer.step()
-
-
 class TestPARQuantization(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.model = M(bias=True).to(_DEVICE)
         self.params_quant, self.params_no_quant = split_param_groups(self.model)
+
+    def train_loop(self, optimizer, steps=1):
+        for _ in range(steps):
+            x = self.model.example_inputs(device=_DEVICE)
+            out = self.model(x)
+            out.sum().backward()
+            optimizer.step()
 
     def test_2bit_unif_quantizer_hard_prox(self):
         b = 2
@@ -102,7 +106,7 @@ class TestPARQuantization(common_utils.TestCase):
         base_optimizer = torch.optim.AdamW(param_groups)
         quantizer = UnifQuantizer()
         optimizer = QuantOptimizer(base_optimizer, quantizer, ProxHardQuant())
-        train_loop(self.model, optimizer)
+        self.train_loop(optimizer)
 
         for child in self.model.children():
             if isinstance(child, nn.Linear):
@@ -122,7 +126,7 @@ class TestPARQuantization(common_utils.TestCase):
         optimizer = QuantOptimizer(
             base_optimizer, quantizer, ProxPARQ(anneal_start=0, anneal_end=2)
         )
-        train_loop(self.model, optimizer, steps=3)
+        self.train_loop(optimizer, steps=3)
 
         for child in self.model.children():
             if isinstance(child, nn.Linear):
@@ -136,7 +140,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         torch.manual_seed(123)
 
     @staticmethod
-    def int4_torchao_quantizer(b: int = 4, config=None):
+    def int4_torchao_quantizer(config, b: int = 4):
         # based off torchao.quantization.quant_api._int4_weight_only_transform
         return UnifTorchaoQuantizer(
             symmetric=False,
@@ -145,6 +149,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             quant_max=2**b - 1,
             eps=1e-6,
             preserve_zero=False,
+            zero_point_domain=ZeroPointDomain.FLOAT,
             config=config,
         )
 
@@ -173,17 +178,19 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             self.assertTrue(q.equal(ref))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
         model.reset_parameters()
 
-        m_ref = copy.deepcopy(model)
-        quantize_(m_ref, Int4WeightOnlyConfig(group_size))
+        m_ref = copy.deepcopy(model).eval().to(_DEVICE)
+        config = int4_weight_only(group_size=group_size)
+        if check_cpu_version(_DEVICE):
+            config.layout = Int4CPULayout()
+        quantize_(m_ref, config)
 
         b = 4
-        quantizer = self.int4_torchao_quantizer()
+        quantizer = self.int4_torchao_quantizer(config)
         self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
@@ -193,7 +200,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model = M(m=512, n=512).to(_DEVICE)
         model.reset_parameters()
 
-        m_ref = copy.deepcopy(model)
+        m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         quantize_(
             m_ref,
             IntxWeightOnlyConfig(
@@ -214,8 +221,10 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         model = M(m=512, n=512).to(torch.bfloat16).to(_DEVICE)
         model.reset_parameters()
 
-        m_ref = copy.deepcopy(model)
-        config = Int4WeightOnlyConfig(group_size)
+        m_ref = copy.deepcopy(model).eval().to(_DEVICE)
+        config = int4_weight_only(group_size=group_size)
+        if check_cpu_version(_DEVICE):
+            config.layout = Int4CPULayout()
         quantize_(m_ref, config)
 
         b = 4
@@ -226,7 +235,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         ]
         base_optimizer = torch.optim.AdamW(param_groups)
 
-        quantizer = self.int4_torchao_quantizer(config=config)
+        quantizer = self.int4_torchao_quantizer(config)
         optimizer = QuantOptimizer(
             base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
         )
@@ -238,6 +247,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
 
         # equivalent to torchao's convert step
+        model.eval()
         with torch.no_grad():
             optimizer.restore_latent_params()
         quantize_(model, quantizer.config)
@@ -254,8 +264,8 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             self.assertTrue(p.equal(p_ref))
 
 
-for test_cls in (TestPARQuantization, TestUnifTorchaoQuantizer):
-    common_utils.instantiate_parametrized_tests(test_cls)
+common_utils.instantiate_parametrized_tests(TestPARQuantization)
+common_utils.instantiate_parametrized_tests(TestUnifTorchaoQuantizer)
 
 
 if __name__ == "__main__":
