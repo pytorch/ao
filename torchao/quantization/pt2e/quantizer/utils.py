@@ -6,8 +6,9 @@
 
 # mypy: allow-untyped-defs
 
+import typing
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, NamedTuple, Optional
 
 import torch
 from torch.fx import Node
@@ -27,6 +28,24 @@ class QuantizationConfig:
     bias: Optional[QuantizationSpec]
     # TODO: remove, since we can use observer_or_fake_quant_ctr to express this
     is_qat: bool = False
+
+
+# Use Annotated because list[Callable].__module__ is read-only.
+OperatorPatternType = typing.Annotated[list[Callable], None]
+OperatorPatternType.__module__ = "torchao.quantization.pt2e.quantizer.utils"
+
+
+class OperatorConfig(NamedTuple):
+    # fix List[str] with List[List[Union[nn.Module, FunctionType, BuiltinFunctionType]]]
+    # Basically we are mapping a quantization config to some list of patterns.
+    # a pattern is defined as a list of nn module, function or builtin function names
+    # e.g. [nn.Conv2d, torch.relu, torch.add]
+    # We have not resolved whether fusion can be considered internal details of the
+    # quantizer hence it does not need communication to user.
+    # Note this pattern is not really informative since it does not really
+    # tell us the graph structure resulting from the list of ops.
+    config: QuantizationConfig
+    operators: list[OperatorPatternType]
 
 
 def get_input_act_qspec(quantization_config: Optional[QuantizationConfig]):

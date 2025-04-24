@@ -31,12 +31,6 @@ from torchao.quantization.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
-from torchao.quantization.pt2e.utils import (
-    _filter_sym_size_users,
-    _find_q_dq_node_for_user,
-    _is_sym_size_node,
-    _node_only_used_for_sym_size,
-)
 
 from .fake_quantize import (
     FakeQuantize,
@@ -75,10 +69,12 @@ from .observer import (
     _PartialWrapper,
     get_block_size,
 )
-
-# ensure __module__ is set correctly for public APIs
-ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
-ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
+from .utils import (
+    _filter_sym_size_users,
+    _find_q_dq_node_for_user,
+    _is_sym_size_node,
+    _node_only_used_for_sym_size,
+)
 
 for _f in [
     compare_results,
@@ -89,15 +85,16 @@ for _f in [
     _f.__module__ = "torchao.quantization.pt2e"
 
 
+# ensure __module__ is set correctly for public APIs
+ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
+ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
+
 _ObserverOrFakeQuantizeConstructor = Union[
     _PartialWrapper, type[ObserverBase], type[FakeQuantizeBase]
 ]
 
+
 __all__ = [
-    # top level quantization flow API
-    "prepare_pt2e",
-    "prepare_qat_pt2e",
-    "convert_pt2e",
     # old fake quantizers
     "FakeQuantize",
     "FakeQuantizeBase",

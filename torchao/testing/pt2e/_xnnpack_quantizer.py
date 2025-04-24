@@ -17,11 +17,9 @@ import torch._dynamo as torchdynamo
 import torch.nn.functional as F
 from torch.fx._compatibility import compatibility
 
-from torchao.quantization.pt2e.fake_quantize import (
+from torchao.quantization.pt2e import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
-)
-from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     MinMaxObserver,
     MovingAverageMinMaxObserver,
@@ -29,9 +27,12 @@ from torchao.quantization.pt2e.observer import (
     PerChannelMinMaxObserver,
     PlaceholderObserver,
 )
-from torchao.quantization.pt2e.quantizer import QuantizationSpec, Quantizer
-from torchao.quantization.pt2e.quantizer.utils import _get_module_name_filter
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
+from torchao.quantization.pt2e.quantizer import (
+    QuantizationSpec,
+    Quantizer,
+    _get_module_name_filter,
+)
+from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     OperatorConfig,
     OperatorPatternType,
