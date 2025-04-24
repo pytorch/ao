@@ -9,20 +9,17 @@ import torch
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_7:
-    from .pt2e.constant_fold import constant_fold
+    from .constant_fold import constant_fold
 
 from torch.fx import GraphModule, Node
 from torch.fx.passes.infra.pass_manager import PassManager
 
-from torchao.quantization.pt2e.pt2e.convert import (
+from torchao.quantization.pt2e.convert import (
     _convert_to_reference_decomposed_fx,
 )
-from torchao.quantization.pt2e.pt2e.duplicate_dq_pass import DuplicateDQPass
-from torchao.quantization.pt2e.pt2e.port_metadata_pass import PortNodeMetaForQDQ
-from torchao.quantization.pt2e.pt2e.prepare import prepare
-from torchao.quantization.pt2e.pt2e.representation import (
-    reference_representation_rewrite,
-)
+from torchao.quantization.pt2e.duplicate_dq_pass import DuplicateDQPass
+from torchao.quantization.pt2e.port_metadata_pass import PortNodeMetaForQDQ
+from torchao.quantization.pt2e.prepare import prepare
 from torchao.quantization.pt2e.qat_utils import (
     _fold_conv_bn_qat,
     _fuse_conv_bn_qat,
@@ -35,6 +32,9 @@ from torchao.quantization.pt2e.quantizer import (  # noqa: F401
     QuantizationSpecBase,
     Quantizer,
     SharedQuantizationSpec,
+)
+from torchao.quantization.pt2e.representation import (
+    reference_representation_rewrite,
 )
 from torchao.quantization.pt2e.utils import (
     _disallow_eval_train,
@@ -254,7 +254,7 @@ def convert_pt2e(
         # for detailed explanation of output quantized model
         quantized_model = convert_pt2e(prepared_model)
 
-    """  # flake8: noqa
+    """
     torch._C._log_api_usage_once("quantization_api.quantize_pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(
