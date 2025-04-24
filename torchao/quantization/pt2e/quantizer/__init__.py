@@ -1,3 +1,4 @@
+from .composable_quantizer import ComposableQuantizer
 from .quantizer import (
     DerivedQuantizationSpec,
     EdgeOrNode,
@@ -8,14 +9,37 @@ from .quantizer import (
     Quantizer,
     SharedQuantizationSpec,
 )
+from .utils import (
+    QuantizationConfig,
+    _annotate_input_qspec_map,
+    _annotate_output_qspec,
+    _get_module_name_filter,
+    _is_valid_annotation,
+    get_bias_qspec,
+    get_input_act_qspec,
+    get_output_act_qspec,
+    get_weight_qspec,
+)
 
 __all__ = [
-    "EdgeOrNode",
+    # basic classes for quantizer and annotations
     "Quantizer",
-    "QuantizationSpecBase",
+    "ComposableQuantizer",
+    "EdgeOrNode",
     "QuantizationSpec",
+    "QuantizationSpecBase",
+    "DerivedQuantizationSpec",
     "FixedQParamsQuantizationSpec",
     "SharedQuantizationSpec",
-    "DerivedQuantizationSpec",
     "QuantizationAnnotation",
+    # utils
+    "_annotate_input_qspec_map",
+    "_annotate_output_qspec",
+    "_get_module_name_filter",
+    "_is_valid_annotation",
+    "QuantizationConfig",
+    "get_input_act_qspec",
+    "get_output_act_qspec",
+    "get_weight_qspec",
+    "get_bias_qspec",
 ]

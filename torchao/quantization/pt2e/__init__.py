@@ -22,12 +22,28 @@ from torchao.quantization.pt2e.export_utils import (
 from torchao.quantization.pt2e.export_utils import (
     _move_exported_model_to_train as move_exported_model_to_train,
 )
+from torchao.quantization.pt2e.export_utils import (
+    _WrapperModule,
+)
+from torchao.quantization.pt2e.graph_utils import (
+    bfs_trace_with_node_process,
+    find_sequential_partitions,
+    get_equivalent_types,
+    update_equivalent_types_dict,
+)
+from torchao.quantization.pt2e.utils import (
+    _filter_sym_size_users,
+    _find_q_dq_node_for_user,
+    _is_sym_size_node,
+    _node_only_used_for_sym_size,
+)
 
 from .fake_quantize import (
     FakeQuantize,
     FakeQuantizeBase,
     FixedQParamsFakeQuantize,
     FusedMovingAvgObsFakeQuantize,
+    default_dynamic_fake_quant,
     default_fake_quant,
     enable_fake_quant,
     enable_observer,
@@ -78,11 +94,17 @@ _ObserverOrFakeQuantizeConstructor = Union[
 ]
 
 __all__ = [
+    # top level quantization flow API
+    "prepare_pt2e",
+    "prepare_qat_pt2e",
+    "convert_pt2e",
+    # old fake quantizers
     "FakeQuantize",
     "FakeQuantizeBase",
     "FixedQParamsFakeQuantize",
     "FixedQParamsObserver",
     "FusedMovingAvgObsFakeQuantize",
+    # old observers
     "HistogramObserver",
     "MinMaxObserver",
     "MovingAverageMinMaxObserver",
@@ -90,17 +112,32 @@ __all__ = [
     "NoopObserver",
     "ObserverBase",
     "ObserverOrFakeQuantize",
-    "_ObserverOrFakeQuantizeConstructor",
     "PerChannelMinMaxObserver",
     "PlaceholderObserver",
     "RecordingObserver",
     "ReuseInputObserver",
     "UniformQuantizationObserverBase",
+    "_ObserverOrFakeQuantizeConstructor",
+    # utils
     "enable_fake_quant",
     "enable_observer",
+    "_get_aten_graph_module_for_pattern",
+    "_is_conv_node",
+    "_is_conv_transpose_node",
+    "_is_sym_size_node",
+    "_filter_sym_size_users",
+    "_node_only_used_for_sym_size",
+    "_find_q_dq_node_for_user",
+    # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",
     "allow_exported_model_train_eval",
+    "_WrapperModule",
+    # graph_utils
+    "find_sequential_partitions",
+    "get_equivalent_types",
+    "update_equivalent_types_dict",
+    "bfs_trace_with_node_process",
     # pt2e numeric debugger
     "generate_numeric_debug_handle",
     "CUSTOM_KEY",
@@ -123,6 +160,7 @@ __all__ = [
     "ZeroPointDomain",
     "get_block_size",
     "default_fake_quant",
+    "default_dynamic_fake_quant",
 ]
 
 
