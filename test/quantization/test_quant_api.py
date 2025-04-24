@@ -973,6 +973,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch 2.6+")
     def test_ao_per_module_config_embedding_linear(self):
         weight_dtype = torch.int8
         granularity = PerGroup(8)
