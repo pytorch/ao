@@ -20,9 +20,6 @@ from torchao.quantization.pt2e.convert import (
 from torchao.quantization.pt2e.duplicate_dq_pass import DuplicateDQPass
 from torchao.quantization.pt2e.port_metadata_pass import PortNodeMetaForQDQ
 from torchao.quantization.pt2e.prepare import prepare
-from torchao.quantization.pt2e.representation import (
-    reference_representation_rewrite,
-)
 from torchao.quantization.pt2e.qat_utils import (
     _fold_conv_bn_qat,
     _fuse_conv_bn_qat,
@@ -35,6 +32,9 @@ from torchao.quantization.pt2e.quantizer import (  # noqa: F401
     QuantizationSpecBase,
     Quantizer,
     SharedQuantizationSpec,
+)
+from torchao.quantization.pt2e.representation import (
+    reference_representation_rewrite,
 )
 from torchao.quantization.pt2e.utils import (
     _disallow_eval_train,
@@ -254,7 +254,7 @@ def convert_pt2e(
         # for detailed explanation of output quantized model
         quantized_model = convert_pt2e(prepared_model)
 
-    """  # flake8: noqa
+    """
     torch._C._log_api_usage_once("quantization_api.quantize_pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(
