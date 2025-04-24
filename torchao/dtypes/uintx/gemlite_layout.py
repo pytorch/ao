@@ -63,7 +63,7 @@ def scale_activations_int8(x):
     return out_x.view(x_shape), scaled_x
 
 
-def get_gemlite_quant_kwargs(bit_width, group_size):
+def get_gemlite_quant_kwargs(bit_width, group_size, dtype):
     from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 
     kwargs = {}
@@ -75,7 +75,7 @@ def get_gemlite_quant_kwargs(bit_width, group_size):
         kwargs["quant_min"] = 0
         kwargs["quant_max"] = (2**bit_width) - 1
         kwargs["eps"] = 1e-6
-        kwargs["zero_point_dtype"] = torch.float16
+        kwargs["zero_point_dtype"] = dtype
         kwargs["zero_point_domain"] = ZeroPointDomain.FLOAT
     elif bit_width == 8:
         kwargs["mapping_type"] = MappingType.SYMMETRIC
@@ -110,9 +110,10 @@ def get_gemlite_aqt_kwargs(
         8,
         16,
         32,
+        None,
     ], f"gemlite needs packing_bitwidth in [8, 16, 32] but got {packing_bitwidth}"
-    assert weight.dtype == torch.float16, (
-        f"gemlite only works with dtype torch.float16 but got {weight.dtype}"
+    assert weight.dtype in [torch.float16, torch.bfloat16], (
+        f"gemlite only works with dtype torch.float16 or torch.bfloat16 but got {weight.dtype}"
     )
     assert group_size in [32, 64, 128, 256, 512, 1024, None]
     assert group_size is None or bit_width != 8, (
@@ -122,7 +123,7 @@ def get_gemlite_aqt_kwargs(
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
 
-    aqt_kwargs = get_gemlite_quant_kwargs(bit_width, group_size)
+    aqt_kwargs = get_gemlite_quant_kwargs(bit_width, group_size, weight.dtype)
     aqt_kwargs["_layout"] = GemlitePackedLayout(
         group_size=group_size,
         bit_width=bit_width,
@@ -395,7 +396,7 @@ def _linear_fp_act_int4_weight_gemlite_check(input_tensor, weight_tensor, bias):
     return (
         # input is native fp16 tensor
         not is_traceable_wrapper_subclass(input_tensor)
-        # and input_tensor.dtype == torch.float16
+        # and input_tensor.dtype in [torch.float16, torch.bfloat16]
         # weight is gemlite layout
         and isinstance(weight_tensor, AffineQuantizedTensor)
         and isinstance(weight_tensor._layout, GemlitePackedLayout)

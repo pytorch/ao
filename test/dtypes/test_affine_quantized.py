@@ -355,7 +355,7 @@ class TestAffineQuantizedBasic(TestCase):
         _ = dummy.weight.narrow(1, 0, 128)
 
     @common_utils.parametrize("device", ["cuda"])
-    @common_utils.parametrize("dtype", [torch.float16])
+    @common_utils.parametrize("dtype", [torch.float16, torch.bfloat16])
     @skip_if_no_cuda()
     @skip_if_no_gemlite()
     def test_slice_gemlite(self, device, dtype):
