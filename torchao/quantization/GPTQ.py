@@ -18,7 +18,6 @@ import torch.nn.functional as F
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from torchao.dtypes.utils import is_device
-from torchao.quantization.quant_api import _int8_asymm_per_token_quant
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -936,7 +935,12 @@ def linear_forward_8da4w(
 ):
     # uses fp32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant
     # and activation_scale_dtype in QAT configs
-    x = _int8_asymm_per_token_quant(x).dequantize()
+    # TODO: in future add ability to specify activation_scale_dtype to PTQ configs
+    # and enable similar change here
+    x = per_token_dynamic_quant(
+        x, scale_dtype=torch.float32, zero_point_dtype=torch.float32
+    )
+
     # TODO: verify and remove following reshape code
     # origin_x_size = x.size()
     # x = x.reshape(-1, origin_x_size[-1])
