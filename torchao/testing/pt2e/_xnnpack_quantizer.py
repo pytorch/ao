@@ -30,7 +30,7 @@ from torchao.quantization.pt2e import (
 from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
-    _get_module_name_filter,
+    get_module_name_filter,
 )
 from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
@@ -237,7 +237,7 @@ def _get_not_module_type_or_name_filter(
     tp_list: list[Callable], module_name_list: list[str]
 ) -> Callable[[Node], bool]:
     module_type_filters = [_get_module_type_filter(tp) for tp in tp_list]
-    module_name_list_filters = [_get_module_name_filter(m) for m in module_name_list]
+    module_name_list_filters = [get_module_name_filter(m) for m in module_name_list]
 
     def not_module_type_or_name_filter(n: Node) -> bool:
         return not any(f(n) for f in module_type_filters + module_name_list_filters)
@@ -409,7 +409,7 @@ class XNNPACKQuantizer(Quantizer):
         module_name_list = list(self.module_name_config.keys())
         for module_name, config in self.module_name_config.items():
             self._annotate_all_static_patterns(
-                model, config, _get_module_name_filter(module_name)
+                model, config, get_module_name_filter(module_name)
             )
 
         tp_list = list(self.module_type_config.keys())
@@ -431,7 +431,7 @@ class XNNPACKQuantizer(Quantizer):
         module_name_list = list(self.module_name_config.keys())
         for module_name, config in self.module_name_config.items():
             self._annotate_all_dynamic_patterns(
-                model, config, _get_module_name_filter(module_name)
+                model, config, get_module_name_filter(module_name)
             )
 
         tp_list = list(self.module_type_config.keys())
