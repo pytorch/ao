@@ -22,27 +22,23 @@ from torch.fx.passes.utils.source_matcher_utils import (
 )
 from typing_extensions import TypeAlias
 
-from torchao.quantization.pt2e.fake_quantize import (
+from torchao.quantization.pt2e import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
-)
-from torchao.quantization.pt2e.graph_utils import find_sequential_partitions
-from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     MovingAverageMinMaxObserver,
     MovingAveragePerChannelMinMaxObserver,
     PerChannelMinMaxObserver,
     PlaceholderObserver,
+    find_sequential_partitions,
 )
-from torchao.quantization.pt2e.quantizer.quantizer import (
+from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
+    QuantizationConfig,
     QuantizationSpec,
     Quantizer,
     SharedQuantizationSpec,
-)
-from torchao.quantization.pt2e.quantizer.utils import _get_module_name_filter
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
-    QuantizationConfig,
+    _get_module_name_filter,
     get_bias_qspec,
     get_input_act_qspec,
     get_output_act_qspec,
