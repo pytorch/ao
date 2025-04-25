@@ -86,6 +86,7 @@ def _find_choose_qparams_node(node: torch.fx.Node) -> Optional[torch.fx.Node]:
             queue.append(k)
     return None
 
+
 def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
     """
     Assuming dest is one of the ops inserted by quant workflow, this function
@@ -101,6 +102,7 @@ def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
             )
         dest = dest.args[0]
     return dest == source
+
 
 def _find_q_dq_node_for_user(
     produer: torch.fx.Node, user: torch.fx.Node
