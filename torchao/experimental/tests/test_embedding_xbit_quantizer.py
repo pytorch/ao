@@ -32,6 +32,7 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.utils import compute_error
 
 
 class TestEmbeddingQuantizer(unittest.TestCase):
@@ -254,7 +255,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             for granularity in [PerGroup(32), PerGroup(128), PerAxis(0)]
             for mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32, torch.bfloat16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
@@ -292,7 +293,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             IntXQuantizationAwareTrainingConfig(weight_config=weight_config),
             embedding_filter,
         )
-        expected_out = model(indices)
+        prepared_out = model(indices)
 
         quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
         quantize_(
@@ -305,8 +306,14 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             ),
             embedding_filter,
         )
-        actual_out = model(indices)
-        self.assertTrue(torch.allclose(expected_out, actual_out))
+        converted_out = model(indices)
+        sqnr = compute_error(prepared_out, converted_out).item()
+
+        # For torch.int1, sometimes sqnr is nan because both tensors are all 0
+        # so we check torch.equal as well
+        self.assertTrue(
+            sqnr == float("inf") or torch.equal(prepared_out, converted_out)
+        )
 
     @parameterized.expand(
         [
@@ -317,7 +324,7 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             )
             for granularity in [PerGroup(32), PerGroup(128), PerAxis(0)]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32, torch.bfloat16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
@@ -346,7 +353,8 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             zero_point_precision=torch.int32,
         )
         model = qat_quantizer.prepare(model)
-        expected_out = model(indices)
+        prepared_model_copy = copy.deepcopy(model)
+        prepared_out = model(indices)
 
         # Convert model method 1
         quantize_(model, FromIntXQuantizationAwareTrainingConfig(), embedding_filter)
@@ -360,15 +368,15 @@ class TestEmbeddingQuantizer(unittest.TestCase):
             ),
             embedding_filter,
         )
-        actual_out1 = model(indices)
-        self.assertTrue(torch.allclose(expected_out, actual_out1))
+        converted_out1 = model(indices)
+        sqnr1 = compute_error(prepared_out, converted_out1).item()
+        self.assertTrue(sqnr1 == float("inf"))
 
-        # TODO: method 2 does not work because the converted embedding op
-        # incorrectly casts output of to indices.dtype
         # Convert model method 2
-        # qat_quantizer.convert(prepared_model_copy)
-        # actual_out2 = prepared_model_copy(indices)
-        # self.assertTrue(torch.allclose(expected_out, actual_out2))
+        qat_quantizer.convert(prepared_model_copy)
+        converted_out2 = prepared_model_copy(indices)
+        sqnr2 = compute_error(prepared_out, converted_out2).item()
+        self.assertTrue(sqnr2 == float("inf"))
 
 
 if __name__ == "__main__":

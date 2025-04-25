@@ -931,9 +931,16 @@ def linear_forward_8da4w(
     zeros,
     out_features,
     groupsize,
-    precision,
+    output_precision,
 ):
-    x = per_token_dynamic_quant(x, scale_dtype=precision, zero_point_dtype=precision)
+    # uses fp32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant
+    # and activation_scale_dtype in QAT configs
+    # TODO: in future add ability to specify activation_scale_dtype to PTQ configs
+    # and enable similar change here
+    x = per_token_dynamic_quant(
+        x, scale_dtype=torch.float32, zero_point_dtype=torch.float32
+    )
+
     # TODO: verify and remove following reshape code
     # origin_x_size = x.size()
     # x = x.reshape(-1, origin_x_size[-1])
@@ -953,7 +960,7 @@ def linear_forward_8da4w(
         torch.int8,
         quant_min,
         quant_max,
-        output_dtype=precision,
+        output_dtype=output_precision,
     )
 
     # x = x.to(torch.float16)
