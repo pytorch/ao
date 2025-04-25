@@ -12,7 +12,7 @@ import torch
 import torch._dynamo as torchdynamo
 from torch.testing._internal.common_utils import IS_WINDOWS, TestCase, run_tests
 
-from torchao.quantization.pt2e.pt2e.graph_utils import (
+from torchao.quantization.pt2e.graph_utils import (
     find_sequential_partitions,
     get_equivalent_types,
     update_equivalent_types_dict,

@@ -17,15 +17,14 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.subgraph_rewriter import ReplacedPatterns, replace_pattern_with_filters
 
-from torchao.quantization.pt2e.pt2e.export_utils import _WrapperModule
+from torchao.quantization.pt2e.export_utils import _WrapperModule
 from torchao.quantization.pt2e.quantizer import (
     DerivedQuantizationSpec,
     EdgeOrNode,
     QuantizationSpecBase,
     SharedQuantizationSpec,
 )
-
-from .utils import (
+from torchao.quantization.pt2e.utils import (
     _get_aten_graph_module_for_pattern,
     _is_bn_node,
     _is_conv_or_conv_transpose_node,

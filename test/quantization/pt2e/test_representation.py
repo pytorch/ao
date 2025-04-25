@@ -23,7 +23,7 @@ from torch.testing._internal.common_utils import run_tests
 
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer import Quantizer
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )

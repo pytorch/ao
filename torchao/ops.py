@@ -7,7 +7,7 @@ import functools
 from typing import Optional
 
 import torch
-from torch import Tensor
+from torch import Tensor, dtype
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
@@ -39,6 +39,12 @@ lib.define(
 lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
 )
+lib.define(
+    "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
+)
+lib.define(
+    "swizzle_scaled_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled, Tensor scale_a, Tensor scale_b, Tensor? bias=None, Tensor? scale_result=None, ScalarType? out_dtype=None) -> Tensor"
+)
 # Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
 # to honor the layout constraints for `b` in the two ops below.
 lib.define(
@@ -48,9 +54,6 @@ lib.define(
 lib.define(
     "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
     tags=[torch._C.Tag.needs_fixed_stride_order],
-)
-lib.define(
-    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float scale=0.0, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
 
 
@@ -154,94 +157,6 @@ def _(
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
-
-
-def scaled_dot_product_int8(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
-    attn_mask: Optional[Tensor] = None,
-    dropout_p: float = 0.0,
-    is_causal: bool = False,
-    scale: float = 0.0,
-    q_scale: float = 1.0,
-    q_zp: int = 0,
-    k_scale: float = 1.0,
-    k_zp: int = 0,
-    v_scale: float = 1.0,
-    v_zp: int = 0,
-    a_scale: float = 1.0,
-    a_zp: int = 0,
-    o_scale: float = 1.0,
-    o_zp: int = 0,
-) -> Tensor:
-    """
-    Quantized SDPA with uint8 inputs and outputs.
-
-    Arguments
-        query: input query tensor,
-        key: input key tensor,
-        value: input value tensor,
-        attn_mask: attention mask tensor,
-        dropout_p: dropout probability,
-        is_causal: causal flag,
-        scale: scaling factor applied prior to softmax,
-        q_scale: scale for query from linear quantization,
-        q_zp: zero point for query from linear quantization,
-        k_scale: scale for key from linear quantization,
-        k_zp: zero point of key from linear quantization,
-        v_scale: zero point for value from linear quantization,
-        v_zp: zero point of value from linear quantization,
-        a_scale: scale for attention from softmax quantization,
-        a_zp: zero point for attention from softmax quantization,
-        o_scale: scale for output from linear quantization,
-        o_zp: zero point for output from linear quantization,
-
-    Returns
-        output of quantized SDPA
-    """
-    return torch.ops.torchao.scaled_dot_product_int8.default(
-        query,
-        key,
-        value,
-        attn_mask,
-        dropout_p,
-        is_causal,
-        scale,
-        q_scale,
-        q_zp,
-        k_scale,
-        k_zp,
-        v_scale,
-        v_zp,
-        a_scale,
-        a_zp,
-        o_scale,
-        o_zp,
-    )
-
-
-@register_custom_op("torchao::scaled_dot_product_int8")
-def _(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
-    attn_mask: Optional[Tensor] = None,
-    dropout_p: float = 0.0,
-    is_causal: bool = False,
-    scale: float = 0.0,
-    q_scale: float = 1.0,
-    q_zp: int = 0,
-    k_scale: float = 1.0,
-    k_zp: int = 0,
-    v_scale: float = 1.0,
-    v_zp: int = 0,
-    a_scale: float = 1.0,
-    a_zp: int = 0,
-    o_scale: float = 1.0,
-    o_zp: int = 0,
-) -> Tensor:
-    return query
 
 
 def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
@@ -818,6 +733,68 @@ def _(
         weight.new_empty(weight[0], weight[1] // 2),
         weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
     )
+
+
+def swizzle_mm(
+    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
+) -> Tensor:
+    """
+    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
+
+    """
+    return torch.ops.torchao.swizzle_mm.default(
+        mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
+    )
+
+
+@register_custom_op("torchao::swizzle_mm")
+def _(
+    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
+) -> Tensor:
+    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
+
+
+def swizzle_scaled_mm(
+    mat1: Tensor,
+    mat2: Tensor,
+    mat1_is_swizzled: bool,
+    mat2_is_swizzled: bool,
+    scale_a: Tensor,
+    scale_b: Tensor,
+    bias: Optional[Tensor],
+    scale_result: Optional[Tensor],
+    out_dtype: Optional[dtype],
+) -> Tensor:
+    """
+    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
+
+    """
+    return torch.ops.torchao.swizzle_scaled_mm.default(
+        mat1,
+        mat2,
+        mat1_is_swizzled,
+        mat2_is_swizzled,
+        scale_a,
+        scale_b,
+        bias,
+        scale_result,
+        out_dtype,
+    )
+
+
+@register_custom_op("torchao::swizzle_scaled_mm")
+def _(
+    mat1: Tensor,
+    mat2: Tensor,
+    mat1_is_swizzled: bool,
+    mat2_is_swizzled: bool,
+    scale_a: Tensor,
+    scale_b: Tensor,
+    bias: Optional[Tensor],
+    scale_result: Optional[Tensor],
+    out_dtype: Optional[dtype],
+) -> Tensor:
+    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
 
 
 @functools.lru_cache()

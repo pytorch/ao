@@ -22,9 +22,9 @@ from torchao.quantization.pt2e import (
     generate_numeric_debug_handle,
     prepare_for_propagation_comparison,
 )
-from torchao.quantization.pt2e.pt2e.graph_utils import bfs_trace_with_node_process
+from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
@@ -255,7 +255,7 @@ class TestNumericDebugger(TestCase):
         ref = m(*example_inputs)
         res = m_logger(*example_inputs)
 
-        from torchao.quantization.pt2e.pt2e._numeric_debugger import OutputLogger
+        from torchao.quantization.pt2e._numeric_debugger import OutputLogger
 
         loggers = [m for m in m_logger.modules() if isinstance(m, OutputLogger)]
         self.assertEqual(len(loggers), 3)

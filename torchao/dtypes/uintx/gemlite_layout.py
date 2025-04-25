@@ -70,13 +70,13 @@ def get_gemlite_aqt_kwargs(
         16,
         32,
     ], f"gemlite needs packing_bitwidth in [8, 16, 32] but got {packing_bitwidth}"
-    assert (
-        weight.dtype == torch.float16
-    ), f"gemlite only works with dtype torch.float16 but got {weight.dtype}"
+    assert weight.dtype == torch.float16, (
+        f"gemlite only works with dtype torch.float16 but got {weight.dtype}"
+    )
     assert group_size in [32, 64, 128, 256, 512, 1024, None]
-    assert (
-        group_size is None or bit_width != 8
-    ), "gemlite only works with group_size=None for bit_width=8"
+    assert group_size is None or bit_width != 8, (
+        "gemlite only works with group_size=None for bit_width=8"
+    )
 
     out_features, in_features = weight.shape
     group_size = in_features if group_size is None else group_size
@@ -174,9 +174,9 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
     ):
         from gemlite.core import DType, GemLiteLinearTriton, set_autotune
 
-        assert isinstance(
-            _layout, GemlitePackedLayout
-        ), f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
+        assert isinstance(_layout, GemlitePackedLayout), (
+            f"GemliteAQTTensorImpl only works with GemliteLinearTriton but got {_layout}"
+        )
         group_size, bit_width = _layout.group_size, _layout.bit_width
 
         torch._dynamo.config.inline_inbuilt_nn_modules = False

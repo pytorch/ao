@@ -101,9 +101,9 @@ class AWQObserver(AffineQuantizedObserverBase):
     def calculate_qparams(self):
         # import pdb
         # pdb.set_trace()
-        assert (
-            self.outputs != None
-        ), "calibrate observer first by running model on exemplar data"
+        assert self.outputs != None, (
+            "calibrate observer first by running model on exemplar data"
+        )
         self.average /= self.calibration_token_count
         for i in range(self.n_validation_examples):
             self.inputs[i] = self.inputs[i].to(self.device)

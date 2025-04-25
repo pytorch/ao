@@ -57,11 +57,71 @@ class TestBenchmarkRunner(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
 
     def test_get_shapes_for_config(self):
+        # Test custom shapes
         shapes = get_shapes_for_config(
             self.test_config["model_params"][0]["matrix_shapes"]
         )
         self.assertEqual(len(shapes), 1)
         self.assertEqual(shapes[0], ("custom", [1024, 1024, 1024]))
+
+        # Test llama shapes
+        llama_shapes = get_shapes_for_config([{"name": "llama"}])
+        self.assertEqual(len(llama_shapes), 4)  # 4 LLaMa shapes
+        self.assertTrue(
+            any(name.startswith("llama_attn.wqkv") for name, _ in llama_shapes)
+        )
+        self.assertTrue(
+            any(name.startswith("llama_attn.w0") for name, _ in llama_shapes)
+        )
+        self.assertTrue(
+            any(name.startswith("llama_ffn.w13") for name, _ in llama_shapes)
+        )
+        self.assertTrue(
+            any(name.startswith("llama_ffn.w2") for name, _ in llama_shapes)
+        )
+
+        # Test pow2 shapes
+        pow2_shapes = get_shapes_for_config(
+            [{"name": "pow2", "min_power": 10, "max_power": 12}]
+        )
+        self.assertEqual(len(pow2_shapes), 3)  # 3 powers of 2 (10, 11, 12)
+        self.assertEqual(pow2_shapes[0], ("pow2_0", [1024, 1024, 1024]))  # 2^10
+        self.assertEqual(pow2_shapes[1], ("pow2_1", [2048, 2048, 2048]))  # 2^11
+        self.assertEqual(pow2_shapes[2], ("pow2_2", [4096, 4096, 4096]))  # 2^12
+
+        # Test pow2_extended shapes
+        pow2_extended_shapes = get_shapes_for_config(
+            [{"name": "pow2_extended", "min_power": 10, "max_power": 11}]
+        )
+        self.assertEqual(
+            len(pow2_extended_shapes), 4
+        )  # 2 powers of 2, each with 2 variants
+        self.assertEqual(
+            pow2_extended_shapes[0], ("pow2_extended_0", [1024, 1024, 1024])
+        )  # 2^10
+        self.assertEqual(
+            pow2_extended_shapes[1], ("pow2_extended_1", [1536, 1536, 1536])
+        )  # 2^10 + 2^9
+        self.assertEqual(
+            pow2_extended_shapes[2], ("pow2_extended_2", [2048, 2048, 2048])
+        )  # 2^11
+        self.assertEqual(
+            pow2_extended_shapes[3], ("pow2_extended_3", [3072, 3072, 3072])
+        )  # 2^11 + 2^10
+
+        # Test sweep shapes (limited to a small range for testing)
+        sweep_shapes = get_shapes_for_config(
+            [{"name": "sweep", "min_power": 8, "max_power": 9}]
+        )
+        # For min_power=8, max_power=9, we should have 8 shapes (2^3 = 8 combinations)
+        self.assertEqual(len(sweep_shapes), 8)
+        # Check that all shapes have the expected format
+        for name, shape in sweep_shapes:
+            self.assertTrue(name.startswith("sweep_"))
+            self.assertEqual(len(shape), 3)  # [M, K, N]
+            # Check that all dimensions are powers of 2 between 2^8 and 2^9
+            for dim in shape:
+                self.assertTrue(dim in [256, 512])  # 2^8, 2^9
 
     def test_get_param_combinations(self):
         model_param = self.test_config["model_params"][0]

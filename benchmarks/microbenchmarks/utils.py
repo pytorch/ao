@@ -137,30 +137,6 @@ class BenchmarkResult:
         return result_dict
 
 
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        return x
-
-
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
-
-
 def string_to_config(
     quantization: Optional[str], sparsity: Optional[str], **kwargs
 ) -> AOBaseConfig:
@@ -267,9 +243,9 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        assert (
-            high_precision_dtype == torch.float32
-        ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        assert high_precision_dtype == torch.float32, (
+            "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        )
 
         from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
         from torchao.quantization.granularity import PerAxis, PerGroup
@@ -335,34 +311,6 @@ def model_inference_time_in_ms(model, input_data):
 
     # Convert to microseconds
     return res * 1e6
-
-
-def create_model_and_input(
-    model_type: str,
-    m: int,
-    k: int,
-    n: int,
-    high_precision_dtype: torch.dtype = torch.bfloat16,
-    device: str = get_default_device(),
-):
-    """Create a model and input data for benchmarking.
-
-    Args:
-        model_type (str): type of the model to be created
-        batch_size (int): batch size of the input data
-        device (str): device to run the model on
-        high_precision_dtype (torch.dtype): data type of the model
-        m, k, n (int): dimensions of the model and input data
-    """
-    if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    elif model_type == "ln_linear_sigmoid":
-        model = LNLinearSigmoid(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-    return model, input_data
 
 
 def clean_caches():

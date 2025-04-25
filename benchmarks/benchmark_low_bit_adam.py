@@ -185,12 +185,12 @@ if __name__ == "__main__":
     if args.full_bf16:
         assert args.amp == "none", "When --full_bf16 is set, --amp must be none"
     if args.optim_cpu_offload == "deepspeed":
-        assert (
-            args.amp == "none"
-        ), "When using DeepSpeed ZeRO-Offload, --amp must be none"
-        assert (
-            args.optim == "AdamW"
-        ), "When using DeepSpeed ZeRO-Offload, --optim must be AdamW"
+        assert args.amp == "none", (
+            "When using DeepSpeed ZeRO-Offload, --amp must be none"
+        )
+        assert args.optim == "AdamW", (
+            "When using DeepSpeed ZeRO-Offload, --optim must be AdamW"
+        )
     if args.profile:
         args.n_epochs = 1
     if args.seed is not None:

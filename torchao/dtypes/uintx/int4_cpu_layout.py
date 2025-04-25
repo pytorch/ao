@@ -122,16 +122,16 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
             )
         elif TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert (
-                int_data.dtype == torch.uint8
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            assert int_data.dtype == torch.uint8, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            )
             packed_weight = torch.ops.aten._convert_weight_to_int4pack(
                 int_data, _layout.inner_k_tiles
             )
         else:
-            assert (
-                int_data.dtype == torch.int32
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            assert int_data.dtype == torch.int32, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            )
             packed_weight = torch.ops.aten._convert_weight_to_int4pack(
                 int_data, _layout.inner_k_tiles
             )
@@ -315,15 +315,15 @@ def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
-    assert (
-        TORCH_VERSION_AT_LEAST_2_6
-    ), f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
-    assert is_device(
-        input_tensor.device.type, "cpu"
-    ), f"For CPU device only but got: {input_tensor.device}"
-    assert (
-        weight_tensor.block_size[0] == 1
-    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert TORCH_VERSION_AT_LEAST_2_6, (
+        f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
+    )
+    assert is_device(input_tensor.device.type, "cpu"), (
+        f"For CPU device only but got: {input_tensor.device}"
+    )
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "

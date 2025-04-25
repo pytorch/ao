@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import itertools
-import math
 import sys
 
 import pytest
@@ -15,7 +14,6 @@ from torch.testing._internal.common_utils import (
     parametrize,
 )
 from torch.testing._internal.optests import opcheck
-from torch.utils.cpp_extension import IS_WINDOWS
 
 import torchao
 from torchao.dtypes.floatx import from_scaled_tc_floatx
@@ -25,14 +23,10 @@ from torchao.quantization.marlin_qqq import (
 )
 from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    TORCH_VERSION_AT_LEAST_2_7,
-    compute_max_diff,
-)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
 
-if torch.version.hip is not None:
-    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
+IS_CUDA = torch.cuda.is_available() and torch.version.cuda
+IS_ROCM = torch.cuda.is_available() and torch.version.hip
 
 try:
     import torchao.ops
@@ -58,7 +52,7 @@ class TestOps(TestCase):
         fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     def test_quant_llm_linear(self, ebits, mbits, dtype):
@@ -88,7 +82,7 @@ class TestOps(TestCase):
             test_utils=test_utils,
         )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -114,135 +108,6 @@ class TestOps(TestCase):
         relative_error = error / gt
         rtol = 1e-2 if dtype == torch.bfloat16 else 1e-3
         assert relative_error < rtol
-
-    def _scaled_dot_product_int8_op_ref(
-        self,
-        q,
-        k,
-        v,
-        attn_mask=None,
-        dropout_p=0,
-        is_causal=False,
-        q_scale=1.0,
-        q_zp=0,
-        k_scale=1.0,
-        k_zp=0,
-        v_scale=1.0,
-        v_zp=0,
-        a_scale=1.0,
-        a_zp=0,
-        o_scale=1.0,
-        o_zp=0,
-    ):
-        q = (q.to(torch.float) - q_zp) * q_scale
-        k = (k.to(torch.float) - k_zp) * k_scale
-        v = (v.to(torch.float) - v_zp) * v_scale
-        scale_factor = 1 / math.sqrt(q.size(-1))
-        attn = q @ k.transpose(-2, -1)
-        attn = attn * scale_factor
-        if attn_mask is not None:
-            attn = attn + attn_mask.to(torch.float)
-        attn_max = attn.max(dim=-1, keepdim=True).values
-        attn = attn - attn_max
-        attn = torch.exp(attn)
-        attn_sum = torch.sum(attn, dim=-1, keepdim=True)
-        attn = attn / attn_sum
-        attn = torch.clamp(torch.round(attn / a_scale) + a_zp, min=0, max=255)
-        attn = (attn - a_zp) * a_scale
-        out = attn @ v
-        out = torch.clamp(torch.round(out / o_scale) + o_zp, min=0, max=255)
-        return out.to(torch.uint8)
-
-    @pytest.mark.skipif(
-        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
-    )
-    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
-    @parametrize("batch_size", [56, 120])
-    @parametrize("n_head", [2, 16])
-    @parametrize("q_seq_len", [18, 89])
-    @parametrize("kv_seq_len", [100, 253])
-    @parametrize("head_dim", [32, 64])
-    @parametrize("mask_dtype", [None, torch.float32, torch.bfloat16])
-    def test_scaled_dot_product_int8_op(
-        self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype
-    ):
-        torch.manual_seed(1234)
-        device = "cpu"
-        q_scale = float(1.7907238006591797)
-        q_zp = int(127)
-        k_scale = float(1.8039721250534058)
-        k_zp = int(125)
-        v_scale = float(1.839004635810852)
-        v_zp = int(127)
-        a_scale = float(0.003919653594493866)
-        a_zp = int(120)
-        o_scale = float(1.8191684484481812)
-        o_zp = int(128)
-        q_shape = [batch_size, q_seq_len, n_head, head_dim]
-        kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
-        mask_shape = [batch_size, 1, 1, kv_seq_len]
-        q = torch.randn(q_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
-        k = (
-            torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
-            * 100
-        )
-        v = (
-            torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
-            * 100
-        )
-        q = q.to(torch.uint8)
-        k = k.to(torch.uint8)
-        v = v.to(torch.uint8)
-        attn_mask = (
-            torch.randn(mask_shape, dtype=mask_dtype, device=device)
-            if mask_dtype is not None
-            else None
-        )
-        q2, k2, v2, attn_mask_2 = (
-            q.clone(),
-            k.clone(),
-            v.clone(),
-            attn_mask.clone() if mask_dtype is not None else None,
-        )
-
-        math_ref = self._scaled_dot_product_int8_op_ref(
-            q2,
-            k2,
-            v2,
-            attn_mask=attn_mask,
-            dropout_p=0.0,
-            is_causal=False,
-            q_scale=q_scale,
-            q_zp=q_zp,
-            k_scale=k_scale,
-            k_zp=k_zp,
-            v_scale=v_scale,
-            v_zp=v_zp,
-            a_scale=a_scale,
-            a_zp=a_zp,
-            o_scale=o_scale,
-            o_zp=o_zp,
-        )
-        actual = torch.ops.torchao.scaled_dot_product_int8(
-            q,
-            k,
-            v,
-            attn_mask=attn_mask_2,
-            dropout_p=0.0,
-            is_causal=False,
-            q_scale=q_scale,
-            q_zp=q_zp,
-            k_scale=k_scale,
-            k_zp=k_zp,
-            v_scale=v_scale,
-            v_zp=v_zp,
-            a_scale=a_scale,
-            a_zp=a_zp,
-            o_scale=o_scale,
-            o_zp=o_zp,
-        )
-
-        self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)
 
 
 instantiate_parametrized_tests(TestOps)
@@ -274,7 +139,7 @@ def make_test_id(param):
         return f"tiles_{param}"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
@@ -292,7 +157,7 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
 
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
@@ -338,7 +203,7 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     return dq.reshape(n, k)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -406,7 +271,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(
 
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -472,7 +337,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
     assert diff_op_ao < 1e-1
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -583,7 +448,7 @@ def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 @pytest.mark.parametrize(
     "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
     MARLIN_TEST_PARAMS,
@@ -673,7 +538,7 @@ MARLIN_TEST_PARAMS = list(
 )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
 @pytest.mark.parametrize(
     "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
     MARLIN_TEST_PARAMS,
@@ -748,6 +613,28 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
     opcheck(
         torch.ops.torchao.marlin_qqq_gemm,
         fn_inputs,
+        test_utils=test_utils,
+    )
+
+
+@pytest.mark.skipif(not IS_ROCM, reason="ROCm not available")
+def test_swizzle_mm():
+    test_utils = [
+        "test_schema",
+        "test_autograd_registration",
+        "test_faketensor",
+    ]
+
+    # TODO: Figure out why test fails unless torch >= 2.5
+    if TORCH_VERSION_AT_LEAST_2_5:
+        test_utils.append("test_aot_dispatch_dynamic")
+
+    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16, 32), device="cuda")
+    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32, 16), device="cuda")
+
+    opcheck(
+        torch.ops.torchao.swizzle_mm,
+        (mat1, mat2, False, False),
         test_utils=test_utils,
     )
 

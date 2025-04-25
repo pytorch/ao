@@ -158,13 +158,13 @@ def export_model(
         set_furious(mask_generator)
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     if task_type in ["sps", "amg"]:
-        assert (
-            points_per_batch is not None
-        ), f"Specify points_per_batch for task {task_type}"
+        assert points_per_batch is not None, (
+            f"Specify points_per_batch for task {task_type}"
+        )
     if task_type == "sps":
-        assert (
-            points_per_batch == 1
-        ), f"Expected points_per_batch set to 1 for {task_type} but got {points_per_batch}"
+        assert points_per_batch == 1, (
+            f"Expected points_per_batch set to 1 for {task_type} but got {points_per_batch}"
+        )
 
     example_input = torch.empty(batch_size, 3, 1024, 1024)
     example_input = example_input.to(mask_generator.predictor._image_dtype)
