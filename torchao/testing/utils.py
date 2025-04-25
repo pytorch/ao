@@ -91,13 +91,13 @@ def skip_if_rocm(message=None):
 
 
 def skip_if_no_cuda():
-    import pytest
+    import unittest
 
     def decorator(test_func):
         @functools.wraps(test_func)
         def wrapper(*args, **kwargs):
             if not torch.cuda.is_available():
-                raise pytest.skip("No cuda available")
+                raise unittest.SkipTest("No cuda available")
             return test_func(*args, **kwargs)
 
         return wrapper
@@ -106,15 +106,15 @@ def skip_if_no_cuda():
 
 
 def skip_if_no_gemlite():
-    import pytest
+    import unittest
 
     def decorator(test_func):
         @functools.wraps(test_func)
         def wrapper(*args, **kwargs):
             try:
-                pass
+                import gemlite
             except:
-                raise pytest.skip("No cuda available")
+                raise unittest.SkipTest("No gemlite available")
             return test_func(*args, **kwargs)
 
         return wrapper
