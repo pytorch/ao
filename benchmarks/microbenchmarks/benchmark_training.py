@@ -226,6 +226,12 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
 
         # Compile if requested
         if config.use_torch_compile:
+            # Inductor settings
+            torch._dynamo.config.cache_size_limit = 1000
+            torch._dynamo.config.automatic_dynamic_shapes = False
+            # torch._dynamo.config.recompile_limit = 10000
+            # torch._dynamo.config.accumulated_recompile_limit = 10000
+
             print("Compiling reference model...")
             ref_forw_backward_compiled = torch.compile(ref_forw_backward_repeated)
 
@@ -364,6 +370,12 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
 
             # Compile if requested
             if config.use_torch_compile:
+                # Inductor settings
+                torch._dynamo.config.cache_size_limit = 1000
+                torch._dynamo.config.automatic_dynamic_shapes = False
+                # torch._dynamo.config.recompile_limit = 10000
+                # torch._dynamo.config.accumulated_recompile_limit = 10000
+
                 print("Compiling Float8 model...")
                 float8_forw_backward_compiled = torch.compile(
                     float8_forw_backward_repeated
@@ -406,7 +418,7 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
             result.forward_time_ms = forward_time
             result.backward_time_ms = backward_time
             result.total_time_ms = total_time
-            result.speedup = ref_total_time / total_time
+            result.speedup = ref_forward_time / forward_time
 
             # Calculate TOPS metrics for float8 model directly
             if total_time > 0:
@@ -436,7 +448,9 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
                         model=float8_model,
                         input_data=input_data,
                         profile_file_path=os.path.join(
-                            config.output_dir, "profiler", f"{config.name}_profile.json"
+                            config.output_dir,
+                            "profiler",
+                            f"{config._file_name}_profile.json",
                         ),
                     )
                     result.profiler_json_path = profiler_json_path
@@ -454,7 +468,7 @@ def run(config: TrainingBenchmarkConfig) -> TrainingBenchmarkResult:
                             profile_file_path=os.path.join(
                                 config.output_dir,
                                 "memory_profiler/pickle",
-                                f"{config.name}_quant_{config.quantization}_memory_profile.pickle",
+                                f"{config._file_name}_memory_profile.pickle",
                             ),
                         )
                     )

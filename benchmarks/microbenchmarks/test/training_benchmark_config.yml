@@ -6,7 +6,7 @@ output_dir: "benchmarks/microbenchmarks/results/training"
 quantization_config_recipe_names:
   - "float8dq-tensor"
   # - "float8dq-row"
-  - "baseline"  # Always include baseline for comparison
+  # - "baseline"  # Always include baseline for comparison
 
 # Training specific configurations
 scaling_type_input: "dynamic"

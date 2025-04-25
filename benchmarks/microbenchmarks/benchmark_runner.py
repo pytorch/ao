@@ -112,7 +112,9 @@ def get_param_combinations(model_param):
 
 
 def get_quantization_sparsity_recipes(
-    quantization_recipes: List[str], sparsity_recipes: List[str]
+    quantization_recipes: List[str],
+    sparsity_recipes: List[str],
+    benchmark_mode: str = "inference",
 ) -> Set[Tuple[str, Optional[str]]]:
     """Generate valid quantization and sparsity recipes.
 
@@ -127,8 +129,9 @@ def get_quantization_sparsity_recipes(
     """
     config_recipes = set()
 
-    # Always include baseline without sparsity
-    config_recipes.add(("baseline", None))
+    if benchmark_mode == "inference":
+        # If inference, include baseline without sparsity
+        config_recipes.add(("baseline", None))
 
     # Add all quantization techniques without sparsity
     for quant_config in quantization_recipes:
@@ -171,6 +174,7 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[Any]:
     quantization_sparsity_recipes = get_quantization_sparsity_recipes(
         config.get("quantization_config_recipe_names", []),
         config.get("sparsity_config_recipe_names", []),
+        benchmark_mode,
     )
     for model_param in config["model_params"]:
         shapes, params = get_param_combinations(model_param)
@@ -204,8 +208,8 @@ def load_benchmark_configs(cli_args: argparse.Namespace) -> List[Any]:
                 # Determine scaling granularity based on quantization string
                 # If quantization contains "-row", use "rowwise", otherwise use the config value
                 default_granularity = config.get("scaling_granularity", "tensorwise")
-                if quant_config and "-row" in quant_config:
-                    scaling_granularity = "rowwise"  # This will be mapped to AXISWISE in create_float8_config
+                if quant_config and ("row" in quant_config or "axis" in quant_config):
+                    scaling_granularity = "axiswise"  # This will be mapped to AXISWISE in create_float8_config
                 else:
                     scaling_granularity = default_granularity
 
@@ -277,7 +281,9 @@ def run_training_benchmarks_from_config(configs: List[Any]) -> None:
     for config in configs:
         print("----------------------------------------")
         try:
-            print(f"Running: {config.name} for Quantization: {config.quantization}")
+            print(
+                f"Running: {config.name} for Quantization: {config.quantization} and shape: {config.shape_name}: ({config.m}, {config.k}, {config.n})"
+            )
             result = run_training(config)  # Pass the config object directly
             if result is not None:  # Only add successful results
                 results.append(result)

@@ -105,9 +105,7 @@ class BenchmarkConfig:
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
         file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
-        self.profiler_file_name = os.path.join(
-            profiler_dir, f"{file_name}_profile.json"
-        )
+        self._file_name = os.path.join(profiler_dir, f"{file_name}")
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
