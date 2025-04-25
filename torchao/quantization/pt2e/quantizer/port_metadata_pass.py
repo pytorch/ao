@@ -6,7 +6,7 @@
 
 # mypy: allow-untyped-defs
 import logging
-from typing import Optional, Any
+from typing import Any, Optional
 
 import torch
 from torch._export.error import InternalError

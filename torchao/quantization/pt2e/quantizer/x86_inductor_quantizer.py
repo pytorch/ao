@@ -38,9 +38,9 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
     SharedQuantizationSpec,
-    get_module_name_filter,
     get_bias_qspec,
     get_input_act_qspec,
+    get_module_name_filter,
     get_output_act_qspec,
     get_weight_qspec,
 )

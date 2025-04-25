@@ -12,6 +12,9 @@ from .quantizer import (
     SharedQuantizationSpec,
 )
 from .utils import (
+    OperatorConfig,
+    OperatorPatternType,
+    QuantizationConfig,
     annotate_input_qspec_map,
     annotate_output_qspec,
     get_bias_qspec,
@@ -20,9 +23,6 @@ from .utils import (
     get_output_act_qspec,
     get_weight_qspec,
     is_valid_annotation,
-    OperatorConfig,
-    OperatorPatternType,
-    QuantizationConfig,
 )
 
 __all__ = [

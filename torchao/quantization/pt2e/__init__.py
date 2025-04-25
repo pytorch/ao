@@ -6,18 +6,24 @@ import torch
 from torch import Tensor
 
 from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
-    compare_results,
     CUSTOM_KEY,
+    NUMERIC_DEBUG_HANDLE_KEY,
+    compare_results,
     extract_results_from_loggers,
     generate_numeric_debug_handle,
-    NUMERIC_DEBUG_HANDLE_KEY,
     prepare_for_propagation_comparison,
 )
 from torchao.quantization.pt2e.export_utils import (
-    _allow_exported_model_train_eval as allow_exported_model_train_eval,
-    _move_exported_model_to_eval as move_exported_model_to_eval,
-    _move_exported_model_to_train as move_exported_model_to_train,
     WrapperModule,
+)
+from torchao.quantization.pt2e.export_utils import (
+    _allow_exported_model_train_eval as allow_exported_model_train_eval,
+)
+from torchao.quantization.pt2e.export_utils import (
+    _move_exported_model_to_eval as move_exported_model_to_eval,
+)
+from torchao.quantization.pt2e.export_utils import (
+    _move_exported_model_to_train as move_exported_model_to_train,
 )
 from torchao.quantization.pt2e.graph_utils import (
     bfs_trace_with_node_process,
@@ -25,20 +31,20 @@ from torchao.quantization.pt2e.graph_utils import (
     get_equivalent_types,
     update_equivalent_types_dict,
 )
+
 from .fake_quantize import (
-    default_dynamic_fake_quant,
-    default_fake_quant,
-    enable_fake_quant,
-    enable_observer,
     FakeQuantize,
     FakeQuantizeBase,
     FixedQParamsFakeQuantize,
     FusedMovingAvgObsFakeQuantize,
+    default_dynamic_fake_quant,
+    default_fake_quant,
+    enable_fake_quant,
+    enable_observer,
 )
 from .observer import (
     AffineQuantizedObserverBase,
     FixedQParamsObserver,
-    get_block_size,
     Granularity,
     HistogramObserver,
     MappingType,
@@ -61,6 +67,7 @@ from .observer import (
     TorchAODType,
     UniformQuantizationObserverBase,
     ZeroPointDomain,
+    get_block_size,
 )
 
 for _f in [

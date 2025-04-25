@@ -24,16 +24,16 @@ from torch.fx.node import Argument
 from torchao.quantization.pt2e import (
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
-    ObserverOrFakeQuantize,
     DerivedObserverOrFakeQuantize,
+    ObserverOrFakeQuantize,
 )
 from torchao.quantization.pt2e.fake_quantize import (
     FixedQParamsFakeQuantize,
 )
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
-    _is_activation_post_process,
     PartialWrapper,
+    _is_activation_post_process,
 )
 from torchao.quantization.pt2e.quantizer import (
     DerivedQuantizationSpec,
