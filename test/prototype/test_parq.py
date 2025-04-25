@@ -18,6 +18,7 @@ from torchao.prototype.parq.optim import (
     QuantOptimizer,
 )
 from torchao.prototype.parq.quant import (
+    Int4UnifTorchaoQuantizer,
     LSBQuantizer,
     UnifQuantizer,
     UnifTorchaoQuantizer,
@@ -29,7 +30,6 @@ from torchao.quantization.quant_api import (
     _is_linear,
     int4_weight_only,
 )
-from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -139,20 +139,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
-    @staticmethod
-    def int4_torchao_quantizer(config, b: int = 4):
-        # based off torchao.quantization.quant_api._int4_weight_only_transform
-        return UnifTorchaoQuantizer(
-            symmetric=False,
-            target_dtype=torch.int32,
-            quant_min=0,
-            quant_max=2**b - 1,
-            eps=1e-6,
-            preserve_zero=False,
-            zero_point_domain=ZeroPointDomain.FLOAT,
-            config=config,
-        )
-
     def compare_quantized_models(
         self,
         model: nn.Module,
@@ -190,8 +176,9 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config)
 
         b = 4
-        quantizer = self.int4_torchao_quantizer(config)
-        self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
+        self.compare_quantized_models(
+            model, m_ref, Int4UnifTorchaoQuantizer(), b, group_size
+        )
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("b", [2, 3, 4, 8])
@@ -208,11 +195,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ),
         )
 
-        quantizer = UnifTorchaoQuantizer(
-            symmetric=True,
-            preserve_zero=True,
-            zero_point_domain=ZeroPointDomain.INT,
-        )
+        quantizer = UnifTorchaoQuantizer(symmetric=True)
         self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
@@ -235,9 +218,11 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         ]
         base_optimizer = torch.optim.AdamW(param_groups)
 
-        quantizer = self.int4_torchao_quantizer(config)
         optimizer = QuantOptimizer(
-            base_optimizer, quantizer, ProxHardQuant(), quant_per_channel=True
+            base_optimizer,
+            Int4UnifTorchaoQuantizer(),
+            ProxHardQuant(),
+            quant_per_channel=True,
         )
 
         # do not update model weights, just quantize
@@ -248,7 +233,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         # equivalent to torchao's convert step
         model.eval()
-        optimizer.torchao_quantize_(model)
+        optimizer.torchao_quantize_(model, config)
 
         for n, module in model.named_modules():
             if not _is_linear(module):

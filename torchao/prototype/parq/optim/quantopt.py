@@ -14,6 +14,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 
 from torchao import quantize_
+from torchao.core.config import AOBaseConfig
 
 from ..quant import Quantizer
 from ..utils import HAS_DTENSOR, is_dtensor
@@ -109,9 +110,8 @@ class QuantOptimizer(Optimizer):
         return q
 
     @torch.no_grad()
-    def torchao_quantize_(self, model):
-        assert hasattr(self.quantizer, "config"), "Missing self.quantizer.config"
-
+    def torchao_quantize_(self, model: torch.nn.Module, config: AOBaseConfig):
+        """Recursively call torchao.quantize_ on model using given config."""
         self.restore_latent_params()
         param_set = {
             p.data_ptr()
@@ -123,7 +123,7 @@ class QuantOptimizer(Optimizer):
             for module in model.children():
                 for param in module.parameters(recurse=False):
                     if param.data_ptr() in param_set:
-                        quantize_(module, self.quantizer.config)
+                        quantize_(module, config)
                         break
 
                 inner_quantize_(module)

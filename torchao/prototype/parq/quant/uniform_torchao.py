@@ -9,7 +9,6 @@ from typing import Optional, Union
 import torch
 from torch import Tensor
 
-from torchao.core.config import AOBaseConfig
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
@@ -36,8 +35,7 @@ class UnifTorchaoQuantizer(Quantizer):
         quant_max: Optional[Union[int, float]] = None,
         eps: Optional[float] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.NONE,
-        config: Optional[AOBaseConfig] = None,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> None:
         super().__init__(center=False)
 
@@ -50,7 +48,6 @@ class UnifTorchaoQuantizer(Quantizer):
         self.eps = eps
         self.preserve_zero = preserve_zero
         self.zero_point_domain = zero_point_domain
-        self.config = config
 
     def _init_quant_min_max(self, b: int) -> None:
         if self.quant_min is None or self.quant_max is None:
@@ -121,3 +118,18 @@ class UnifTorchaoQuantizer(Quantizer):
             zero_point_domain=self.zero_point_domain,
         )
         return q, Q
+
+
+class Int4UnifTorchaoQuantizer(UnifTorchaoQuantizer):
+    """Based on torchao.quantization.quant_api._int4_weight_only_transform"""
+
+    def __init__(self) -> None:
+        super().__init__(
+            symmetric=False,
+            target_dtype=torch.int32,
+            quant_min=0,
+            quant_max=15,
+            eps=1e-6,
+            preserve_zero=False,
+            zero_point_domain=ZeroPointDomain.FLOAT,
+        )
