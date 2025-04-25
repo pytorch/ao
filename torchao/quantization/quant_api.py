@@ -18,8 +18,8 @@ and mixed GEMM kernels
 import logging
 import types
 import warnings
-from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -307,6 +307,52 @@ def _replace_with_custom_fn_if_matches_filter(
         return model
 
 
+def _replace_with_custom_fn_if_matches_filter_with_name(
+    model,
+    replacement_fn,
+    filter_fn,
+    cur_fqn="",
+    device=None,
+    extra_args: Optional[Tuple[Any, ...]] = (),
+) -> None:
+    """
+    A variant of _replace_with_custom_fn_if_matches_filter where replacement_fn takes module name as well
+        ...
+        replacement_fn (Callable[[torch.nn.Module, str], torch.nn.Module]): The function to replace matching modules.
+        ...
+
+    Returns:
+        None
+    """
+    if isinstance(model, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
+    if filter_fn(model, cur_fqn[:-1]):
+        if device is not None:
+            model.to(device=device)  # move to device before quantization
+        model = replacement_fn(model, cur_fqn[:-1], *extra_args)
+        return model
+    else:
+        named_children_list = list(model.named_children())
+        for name, child in named_children_list:
+            new_child = _replace_with_custom_fn_if_matches_filter_with_name(
+                child,
+                replacement_fn,
+                filter_fn,
+                f"{cur_fqn}{name}.",
+                device,
+                extra_args,
+            )
+            if new_child is not child:
+                setattr(model, name, new_child)
+        if device is not None:
+            model.to(device=device)  # move parent module to device
+        return model
+
+
 def _is_linear(mod, *args):
     # avoid circular dependencies
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
@@ -547,13 +593,24 @@ def quantize_(
         quantize_(m, int4_weight_only(group_size=32))
 
     """
+    filter_fn = _is_linear if filter_fn is None else filter_fn
+    if isinstance(config, AOPerModuleConfig):
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _ao_per_module_config_handler,
+            filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
+        return
+
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
         _replace_with_custom_fn_if_matches_filter(
             model,
             handler,
-            _is_linear if filter_fn is None else filter_fn,
+            filter_fn,
             device=device,
             extra_args=(config,),
         )
@@ -1898,6 +1955,40 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
+
+
+@dataclass
+class AOPerModuleConfig(AOBaseConfig):
+    """Per module configurations for torchao quantize_ API
+
+    Args:
+        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
+         Also has a special key: "_default", if "_default" is present in the dictionary,
+         the config for "_default" will be applied to all the remaining modules that does not have
+         per module configuration specified.
+    """
+
+    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
+
+
+def _ao_per_module_config_handler(
+    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
+):
+    c = config.module_fqn_to_config.get(module_fqn, None)
+    # Maybe: we can add module type specific config in the future, in needed
+    # fallback to use default if no module specific config is provided
+    default_c = config.module_fqn_to_config.get("_default", None)
+    if default_c is not None and c is None:
+        c = default_c
+
+    if c is not None:
+        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+        return handler(module, c)
+
+    return handler(module, c)
 
 
 if TORCH_VERSION_AT_LEAST_2_5:

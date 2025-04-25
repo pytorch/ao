@@ -32,30 +32,11 @@ from torch.utils._pytree import LeafSpec
 
 from torchao.utils import _assert_and_get_unique_device
 
-from .quant_type import QuantType
-
 __all__ = [
-    "NodePattern",
-    "Pattern",
-    "MatchAllNode",
-    "check_node",
-    "get_combined_dict",
     "is_per_tensor",
     "is_per_channel",
     "getattr_from_fqn",
     "get_qparam_dict",
-    "get_swapped_custom_module_class",
-    "activation_dtype",
-    "weight_dtype",
-    "activation_is_statically_quantized",
-    "activation_is_dynamically_quantized",
-    "activation_is_int8_quantized",
-    "activation_is_int32_quantized",
-    "weight_is_quantized",
-    "weight_is_statically_quantized",
-    "op_is_int8_dynamically_quantized",
-    "get_qconfig_dtypes",
-    "get_quant_type",
     "check_min_max_valid",
     "calculate_qmin_qmax",
     "has_no_children_ignoring_parametrizations",
@@ -65,148 +46,13 @@ __all__ = [
     "validate_qmin_qmax",
     "get_new_attr_name_with_prefix",
     "create_getattr_from_value",
+    "_get_aten_graph_module_for_pattern",
+    "_is_conv_node",
+    "_is_conv_transpose_node",
 ]
+
 
 # TODO: remove unused
-
-NodePattern = Union[tuple[Node, Node], tuple[Node, tuple[Node, Node]], Any]
-NodePattern.__module__ = "torchao.quantization.pt2e.utils"
-
-# This is the Quantizer class instance from torch/quantization/fx/quantize.py.
-# Define separately to prevent circular imports.
-# TODO(future PR): improve this.
-# make this public once fixed (can't be public as is because setting the module directly
-# doesn't work)
-QuantizerCls = Any
-
-# Type for fusion patterns, it can be more complicated than the following actually,
-# see pattern.md for docs
-# TODO: not sure if typing supports recursive data types
-Pattern = Union[
-    Callable, tuple[Callable, Callable], tuple[Callable, tuple[Callable, Callable]], Any
-]
-Pattern.__module__ = "torchao.quantization.pt2e.utils"
-
-
-# TODO: maybe rename this to MatchInputNode
-class MatchAllNode:
-    """A node pattern that matches all nodes, used in defining
-    fusion patterns in FX Graph Mode Quantization
-    """
-
-
-module_type_list = {
-    torch.nn.ReLU,
-    torch.nn.ReLU6,
-    torch.nn.AdaptiveAvgPool1d,
-    torch.nn.AdaptiveAvgPool2d,
-    torch.nn.AdaptiveAvgPool3d,
-    torch.nn.AvgPool1d,
-    torch.nn.AvgPool2d,
-    torch.nn.AvgPool3d,
-    torch.nn.MaxPool1d,
-    torch.nn.MaxPool2d,
-    torch.nn.MaxPool3d,
-    torch.nn.Identity,
-    torch.nn.Hardsigmoid,
-    torch.nn.Sigmoid,
-    torch.nn.Tanh,
-}
-func_list = {
-    torch.nn.functional.adaptive_avg_pool1d,
-    torch.nn.functional.adaptive_avg_pool2d,
-    torch.nn.functional.adaptive_avg_pool3d,
-    torch.nn.functional.elu,
-    torch.nn.functional.hardswish,
-    torch.nn.functional.instance_norm,
-    torch.nn.functional.layer_norm,
-    torch.nn.functional.leaky_relu,
-    torch.nn.functional.silu,
-    torch.nn.functional.mish,
-    torch.nn.functional.dropout,
-    torch.nn.functional.max_pool1d,
-    torch.nn.functional.max_pool2d,
-    torch.nn.functional.max_pool3d,
-    torch.nn.functional.relu,
-    torch.nn.functional.hardtanh,
-    torch.nn.functional.hardtanh_,
-    torch.nn.functional.hardsigmoid,
-    torch.nn.functional.sigmoid,
-    torch.transpose,
-    torch.repeat_interleave,
-    torch.sigmoid,
-    torch.squeeze,
-    torch.stack,
-    torch.sum,
-    torch.tanh,
-    torch.unsqueeze,
-    torch.cat,
-}
-method_list = {
-    torch.mean,
-    "relu",
-    "relu_",
-    "contiguous",
-    "detach",
-    "detach_",
-    "hardsigmoid",
-    "hardsigmoid_",
-    "permute",
-    "repeat",
-    "repeat_interleave",
-    "reshape",
-    "resize_",
-    "shape",
-    "sigmoid",
-    "sigmoid_",
-    "size",
-    "squeeze",
-    "squeeze_",
-    "tanh",
-    "tanh_",
-    "transpose",
-    "unsqueeze",
-    "unsqueeze_",
-    "view",
-}
-
-
-# TODO: not used now, remove
-def check_node(node, modules):
-    # TODO: reuse is_fixed_qparam_node after we move this function to _lower_to_native_backend.py
-    is_call_function = node.op == "call_function" and node.target in func_list
-    is_call_method = node.op == "call_method" and node.target in method_list
-    is_call_module = (
-        node.op == "call_module" and type(modules[str(node.target)]) in module_type_list
-    )
-    return is_call_function, is_call_method, is_call_module
-
-
-def get_combined_dict(default_dict, additional_dict):
-    """
-    Combines two dictionaries.
-
-    This function takes two dictionaries as input and returns a new dictionary
-    that contains all the key-value pairs from both input dictionaries.
-    If there are any duplicate keys in the `additional_dict`, the values
-    from the `additional_dict` will overwrite those in the `default_dict`.
-    Args:
-        default_dict (dict): The main dictionary that will be used as the base
-        additional_dict (dict): The dictionary used to update `default_dict`
-
-    Returns:
-        dict: The resulting dictionary
-    Example:
-        >>> x = dict(a=1, b=1)
-        >>> y = dict(b=2, c=3)
-        >>> get_combined_dict(x, y)
-        {'a': 1, 'b': 2, 'c': 3}
-    """
-    d = default_dict.copy()
-    d.update(additional_dict)
-    return d
-
-
 def is_per_tensor(qscheme):
     return qscheme == torch.per_tensor_affine or qscheme == torch.per_tensor_symmetric
 
@@ -279,172 +125,6 @@ def get_qparam_dict(observer_or_fake_quant):
         qparams["quant_max"] = observer_or_fake_quant.quant_max
 
     return qparams
-
-
-def get_swapped_custom_module_class(
-    custom_module, custom_module_class_mapping, qconfig
-):
-    """Get the observed/quantized custom module class that we need
-    to swap `custom_module` to
-    Input:
-        custom_module: input, can be an instance of either a float or observed custom module
-        custom_module_class_mapping: the float to observed or observed to quantized custom module class mapping
-        qconfig: qconfig configured for the custom module
-
-    Output:
-        corresponding observed/quantized custom module class for input custom module instance
-    """
-    quant_type = get_quant_type(qconfig)
-    class_mapping = custom_module_class_mapping.get(quant_type, {})
-    assert type(custom_module) in class_mapping, (
-        "did not find corresponding observed "
-        f"module class for {type(custom_module)} in mapping: {class_mapping}"
-    )
-    return class_mapping[type(custom_module)]
-
-
-def activation_dtype(qconfig):
-    assert qconfig is not None
-    activation = qconfig.activation()
-    return activation.dtype
-
-
-def weight_dtype(qconfig):
-    assert qconfig is not None
-    weight = qconfig.weight()
-    return weight.dtype
-
-
-def activation_is_statically_quantized(qconfig):
-    """Given a qconfig, decide if the activation needs to be
-    quantized or not, this includes quantizing to quint8, qint8 and qint32 and float16
-    """
-    return activation_dtype(qconfig) in [
-        torch.quint8,
-        torch.qint8,
-        torch.qint32,
-        torch.float16,
-        torch.uint8,
-        torch.int8,
-        torch.int16,
-        torch.int32,
-        torch.float8_e5m2,
-        torch.float8_e4m3fn,
-    ] and (not activation_is_dynamically_quantized(qconfig))
-
-
-def activation_is_dynamically_quantized(qconfig):
-    """Given a qconfig, decide if the activation needs to be
-    dynamically quantized or not, this includes dynamically quantizing to
-    quint8, qint8 and float16
-    """
-    _activation_dtype, _, activation_is_dynamic = get_qconfig_dtypes(qconfig)
-    return activation_is_dynamic
-
-
-def activation_is_int8_quantized(qconfig):
-    """Given a qconfig, decide if the activation needs to be
-    quantized to int8 or not, this includes quantizing to quint8, qint8
-    """
-    return activation_dtype(qconfig) in [
-        torch.quint8,
-        torch.qint8,
-        torch.uint8,
-        torch.int8,
-    ]
-
-
-def activation_is_int32_quantized(qconfig):
-    """Given a qconfig, decide if the activation needs to be
-    quantized to int32 or not
-    """
-    return activation_dtype(qconfig) in [torch.qint32, torch.int32]
-
-
-def weight_is_quantized(qconfig):
-    """Given a qconfig, decide if the weight needs to be
-    quantized or not
-    """
-    return weight_dtype(qconfig) in [
-        torch.quint8,
-        torch.qint8,
-        torch.float16,
-        torch.quint4x2,
-        torch.uint8,
-        torch.int8,
-        torch.int16,
-        torch.int32,
-        torch.float8_e5m2,
-        torch.float8_e4m3fn,
-    ]
-
-
-def weight_is_statically_quantized(qconfig):
-    """Given a qconfig, decide if the weight needs to be statically
-    quantized or not
-    """
-    return weight_dtype(qconfig) in [torch.quint8, torch.qint8, torch.uint8, torch.int8]
-
-
-def op_is_int8_dynamically_quantized(qconfig) -> bool:
-    """Given a qconfig, returns True if this op is using int8 dynamic
-    quantization
-    """
-    activation_dtype, weight_dtype, activation_is_dynamic = get_qconfig_dtypes(qconfig)
-    return (
-        activation_dtype in [torch.quint8, torch.uint8]
-        and
-        # for now, the lines below assume fbgemm or qnnpack
-        weight_dtype in [torch.qint8, torch.int8]
-        and activation_is_dynamic
-    )
-
-
-def get_qconfig_dtypes(qconfig):
-    r"""returns the qconfig tuple for qconfig:
-    (activation_dtype, weight_dtype, activation_is_dynamic)
-    """
-    assert qconfig is not None
-    activation = qconfig.activation()
-    weight = qconfig.weight()
-    act_is_dynamic = getattr(activation, "is_dynamic", False)
-    return (activation.dtype, weight.dtype, act_is_dynamic)
-
-
-def get_quant_type(qconfig):
-    assert qconfig is not None
-    activation = qconfig.activation()
-    weight = qconfig.weight()
-    static_dtypes = [
-        torch.quint8,
-        torch.qint8,
-        torch.quint4x2,
-        torch.qint32,
-        torch.uint8,
-        torch.int8,
-        torch.int16,
-        torch.int32,
-        torch.float8_e5m2,
-        torch.float8_e4m3fn,
-    ]
-    if weight.dtype in static_dtypes:
-        if hasattr(activation, "is_dynamic") and activation.is_dynamic:
-            return QuantType.DYNAMIC
-        elif activation.dtype in static_dtypes:
-            return QuantType.STATIC
-        else:
-            return QuantType.WEIGHT_ONLY
-
-    if weight.dtype == torch.float16:
-        if hasattr(activation, "is_dynamic") and activation.is_dynamic:
-            return QuantType.DYNAMIC
-        elif activation.dtype == torch.float16:
-            return QuantType.STATIC
-
-    raise Exception(  # noqa: TRY002
-        f"Unrecognized dtype combination in get_quant_type: activation({activation.dtype}),"
-        f"weight({weight.dtype})"
-    )
 
 
 def check_min_max_valid(min_val: torch.Tensor, max_val: torch.Tensor) -> bool:
@@ -934,21 +614,6 @@ def _find_q_dq_node_for_user(
     return (q_node, dq_node)
 
 
-def _is_sym_size_node(node: Node):
-    return (
-        node.op == "call_function"
-        and node.target == torch.ops.aten.sym_size.default
-        or node.target == torch.ops.aten.sym_numel.default
-        or node.target == torch.ops.aten.sym_numel
-        or node.target == torch.ops.aten.sym_size
-    )
-
-
-def _filter_sym_size_users(node: torch.fx.Node) -> list[torch.fx.Node]:
-    node_users = list(filter((lambda x: (_is_sym_size_node(x) is False)), node.users))
-    return node_users
-
-
 def _get_tensor_constant_from_node(node, m):
     if node is None:
         return None
@@ -992,7 +657,6 @@ def _is_supported_batch_norm_for_training(node: Node):
     return node.target in supported_ops
 
 
-# TODO: move this to torch/ao/quantization/utils.py
 def _is_conv_node(n: Node):
     """
     Return whether the node refers to an aten conv op.
@@ -1441,3 +1105,43 @@ def _disallow_eval_train(model: GraphModule):
     model.train = types.MethodType(_train, model)  # type: ignore[method-assign]
     model.eval = types.MethodType(_eval, model)  # type: ignore[method-assign]
     return model
+
+
+def _is_sym_size_node(node: Node):
+    return (
+        node.op == "call_function"
+        and node.target == torch.ops.aten.sym_size.default
+        or node.target == torch.ops.aten.sym_numel.default
+        or node.target == torch.ops.aten.sym_numel
+        or node.target == torch.ops.aten.sym_size
+    )
+
+
+def _filter_sym_size_users(node: torch.fx.Node) -> list[torch.fx.Node]:
+    node_users = list(filter((lambda x: (_is_sym_size_node(x) is False)), node.users))
+    return node_users
+
+
+def _node_only_used_for_sym_size(node: Node, partition_nodes: list[Node]):
+    """
+    This utility is used to handle cases when dynami_shape=True tracing leads
+    to symint nodes in the pattern of linear module. In those cases, we need to
+    distinguish between the nodes that are in input for just extracting value of
+    some dimentions (and symint nodes) vs. the one that is activation.
+    For example:
+    graph(x, y, weight):
+       size_0 = torch.ops.aten.sym_size([x], [0])
+       size_1 = torch.ops.aten.sym_size([y], [1])
+       view_size = size_0 * size_1
+       size_3 = torch.ops.aten.sym_size([x], [2])
+       vie_out = torch.ops.aten.view(x, [view_size, size_3])
+       return mm(view_out, weight)
+    In the example above y node is not actual input. It exist only to extract size_1
+    """
+    if _is_sym_size_node(node):
+        return True
+
+    return all(
+        ((user not in partition_nodes) or _is_sym_size_node(user))
+        for user in node.users
+    )

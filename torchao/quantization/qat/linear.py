@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 import torch.nn.functional as F
@@ -198,33 +198,6 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         self._convert_qat_linear_8da4w(model)
         return model
 
-    @staticmethod
-    def quantize_weights(
-        weight: torch.Tensor,
-        group_size: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Helper function to quantize weights
-        """
-        # Load weights and qparams into quantized linear
-        n_bit = 4
-        (qmin, qmax) = _get_qmin_qmax(n_bit)
-        (s, zp) = get_group_qparams_symmetric(weight, n_bit, group_size)
-        from torchao._executorch_ops import (
-            _quantized_decomposed_quantize_per_channel_group_wrapper,
-        )
-
-        q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
-            weight,
-            s,
-            zp,
-            qmin,
-            qmax,
-            torch.int8,
-            group_size,
-        )
-        return (q_weight, s, zp)
-
     def _convert_qat_linear_8da4w(self, module: torch.nn.Module):
         """
         Replace all `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`.
@@ -242,12 +215,28 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 )
                 setattr(module, name, quantized_linear)
 
-                q_weight, scales, zeros = self.quantize_weights(
-                    child.weight, config.group_size
+                # Load weights and qparams into quantized linear
+                n_bit = 4
+                (qmin, qmax) = _get_qmin_qmax(n_bit)
+                (s, zp) = get_group_qparams_symmetric(
+                    child.weight, n_bit, config.group_size
+                )
+                from torchao._executorch_ops import (
+                    _quantized_decomposed_quantize_per_channel_group_wrapper,
+                )
+
+                q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
+                    child.weight,
+                    s,
+                    zp,
+                    qmin,
+                    qmax,
+                    torch.int8,
+                    config.group_size,
                 )
                 quantized_linear.weight = q_weight
-                quantized_linear.scales = scales
-                quantized_linear.zeros = zeros
+                quantized_linear.scales = s
+                quantized_linear.zeros = zp
                 if child.bias is not None:
                     quantized_linear.bias = child.bias
             else:
