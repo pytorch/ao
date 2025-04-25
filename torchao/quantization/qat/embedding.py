@@ -240,6 +240,7 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
                     group_size,
                     precision=scale_precision,
                 )
+                zp = zp.to(zero_point_precision)
                 q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
                     child.weight,
                     s,
