@@ -112,9 +112,9 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         assert isinstance(_layout, Int4CPULayout)
 
         if TORCH_VERSION_AT_LEAST_2_6:
-            assert (
-                int_data.dtype in [torch.int32, torch.int8]
-            ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` or `int8` dtype"
+            assert int_data.dtype in [torch.int32, torch.int8], (
+                "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` or `int8` dtype"
+            )
             int_data = int_data.to(torch.int32)
             packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                 int_data,
