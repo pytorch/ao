@@ -19,7 +19,7 @@ __all__ = [
 _EXPORTED_TRAINING_ATTR = "_exported_training"
 
 
-class _WrapperModule(torch.nn.Module):
+class WrapperModule(torch.nn.Module):
     """Class to wrap a callable in an :class:`torch.nn.Module`. Use this if you
     are trying to export a callable.
     """
@@ -72,20 +72,20 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
         example_inputs = (torch.randn(1),)
         if train_to_eval:
             match_pattern = _get_aten_graph_module_for_pattern(
-                _WrapperModule(dropout_train),
+                WrapperModule(dropout_train),
                 example_inputs,
             )
             replacement_pattern = _get_aten_graph_module_for_pattern(
-                _WrapperModule(dropout_eval),
+                WrapperModule(dropout_eval),
                 example_inputs,
             )
         else:
             match_pattern = _get_aten_graph_module_for_pattern(
-                _WrapperModule(dropout_eval),
+                WrapperModule(dropout_eval),
                 example_inputs,
             )
             replacement_pattern = _get_aten_graph_module_for_pattern(
-                _WrapperModule(dropout_train),
+                WrapperModule(dropout_train),
                 example_inputs,
             )
 
@@ -153,12 +153,12 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
     device = _assert_and_get_unique_device(m)
     is_cuda = device is not None and device.type == "cuda"
     bn_train_aten = _get_aten_graph_module_for_pattern(
-        _WrapperModule(bn_train),
+        WrapperModule(bn_train),
         example_inputs,
         is_cuda,
     )
     bn_eval_aten = _get_aten_graph_module_for_pattern(
-        _WrapperModule(bn_eval),
+        WrapperModule(bn_eval),
         example_inputs,
         is_cuda,
     )
