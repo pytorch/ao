@@ -625,14 +625,16 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """This is defined here instead of local function to support serialization"""
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
+    scale_dtype = torch.float32
+    zero_point_dtype = torch.int8
     if TORCH_VERSION_AT_LEAST_2_6:
         return to_affine_quantized_intx(
             x,
             mapping_type,
             _get_per_token_block_size(x),
             target_dtype,
-            scale_dtype=torch.float64,
-            zero_point_dtype=torch.int64,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
         )
     else:
         return to_affine_quantized_intx(
@@ -706,7 +708,6 @@ def _int8_dynamic_activation_int4_weight_transform(
     # weight settings
     block_size = (1, group_size)
     target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
     quant_min = -8
     quant_max = 7
 
@@ -737,7 +738,6 @@ def _int8_dynamic_activation_int4_weight_transform(
             target_dtype,
             quant_min,
             quant_max,
-            eps,
             _layout=layout,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
@@ -858,7 +858,6 @@ def _int8_dynamic_activation_intx_weight_transform(
         target_dtype=torch.int8,
         quant_min=quant_min,
         quant_max=quant_max,
-        eps=torch.finfo(torch.float32).eps,
         scale_dtype=weight_scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=(weight_mapping_type == MappingType.SYMMETRIC),
@@ -1895,7 +1894,6 @@ def _intx_weight_only_transform(
         target_dtype=torch.int8,
         quant_min=quant_min,
         quant_max=quant_max,
-        eps=torch.finfo(torch.float32).eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=(mapping_type == MappingType.SYMMETRIC),
