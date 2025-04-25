@@ -12,17 +12,17 @@ from .quantizer import (
     SharedQuantizationSpec,
 )
 from .utils import (
+    annotate_input_qspec_map,
+    annotate_output_qspec,
+    get_bias_qspec,
+    get_input_act_qspec,
+    get_module_name_filter,
+    get_output_act_qspec,
+    get_weight_qspec,
+    is_valid_annotation,
     OperatorConfig,
     OperatorPatternType,
     QuantizationConfig,
-    _annotate_input_qspec_map,
-    _annotate_output_qspec,
-    _get_module_name_filter,
-    _is_valid_annotation,
-    get_bias_qspec,
-    get_input_act_qspec,
-    get_output_act_qspec,
-    get_weight_qspec,
 )
 
 __all__ = [
@@ -37,10 +37,10 @@ __all__ = [
     "SharedQuantizationSpec",
     "QuantizationAnnotation",
     # utils
-    "_annotate_input_qspec_map",
-    "_annotate_output_qspec",
-    "_get_module_name_filter",
-    "_is_valid_annotation",
+    "annotate_input_qspec_map",
+    "annotate_output_qspec",
+    "get_module_name_filter",
+    "is_valid_annotation",
     "QuantizationConfig",
     "OperatorPatternType",
     "OperatorConfig",

@@ -6,15 +6,14 @@
 
 # mypy: allow-untyped-defs
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 import torch
 from torch._export.error import InternalError
 from torch.fx.passes.infra.pass_base import PassBase, PassResult
 
-from torchao.quantization.pt2e import (
+from torchao.quantization.pt2e.utils import (
     _filter_sym_size_users,
-    _find_q_dq_node_for_user,
 )
 from torchao.quantization.quant_primitives import quant_lib  # noqa: F401
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
@@ -23,7 +22,7 @@ from .quantizer import (
     QuantizationSpecBase,
 )
 from .utils import (
-    _is_valid_annotation,
+    is_valid_annotation,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +85,61 @@ def _find_choose_qparams_node(node: torch.fx.Node) -> Optional[torch.fx.Node]:
         for k in n.users.keys():
             queue.append(k)
     return None
+
+def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
+    """
+    Assuming dest is one of the ops inserted by quant workflow, this function
+    finds if source and dest are connected. Assumption is that only quant workflow
+    inserted ops exist between source and dest
+    """
+    quant_workflow_ops = _QUANTIZE_OPS + _DEQUANTIZE_OPS
+    quant_workflow_ops.append(torch.ops.quantized_decomposed.choose_qparams.tensor)
+    while dest.target in quant_workflow_ops:
+        if not isinstance(dest.args[0], torch.fx.Node):
+            raise ValueError(
+                f"expected arg[0] of quant workflow ops to be a node but found {dest.args[0]}"
+            )
+        dest = dest.args[0]
+    return dest == source
+
+def _find_q_dq_node_for_user(
+    produer: torch.fx.Node, user: torch.fx.Node
+) -> tuple[Any, Any]:
+    """
+    Find q, dq pair corresponding to [producer -> q -> dq -> user]
+    Utils works by finding dq arg of user and ensuring it is connected to
+    producer
+    """
+    dq_node = None
+    for n in user.args:
+        if (
+            isinstance(n, torch.fx.Node)
+            and n.op == "call_function"
+            and n.target in _DEQUANTIZE_OPS
+        ):
+            if _is_connected(produer, n):
+                dq_node = n
+                break
+    if dq_node is None:
+        for n in user.kwargs:
+            if (
+                isinstance(n, torch.fx.Node)
+                and n.op == "call_function"
+                and n.target in _DEQUANTIZE_OPS
+            ):
+                if _is_connected(produer, n):
+                    dq_node = n
+                    break
+    if dq_node is None:
+        return (None, None)
+
+    q_node = None
+    if (
+        dq_node.args[0].op == "call_function"  # type: ignore[union-attr]
+        and dq_node.args[0].target in _QUANTIZE_OPS  # type: ignore[union-attr]
+    ):
+        q_node = dq_node.args[0]
+    return (q_node, dq_node)
 
 
 def _port_metadata_for_input_quant_nodes(
@@ -226,7 +280,7 @@ class PortNodeMetaForQDQ(PassBase):
     def call(self, graph_module: torch.fx.GraphModule) -> PassResult:
         for node in graph_module.graph.nodes:
             annotation = node.meta.get("quantization_annotation", None)
-            if _is_valid_annotation(annotation):
+            if is_valid_annotation(annotation):
                 input_qspec_map = node.meta["quantization_annotation"].input_qspec_map
                 output_qspec = node.meta["quantization_annotation"].output_qspec
                 for input_node, qspec in input_qspec_map.items():

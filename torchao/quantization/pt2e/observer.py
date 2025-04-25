@@ -81,7 +81,7 @@ __all__ = [
 ]
 
 
-class _PartialWrapper:
+class PartialWrapper:
     def __init__(self, p):
         self.p = p
         self.callable_args = {}
@@ -101,7 +101,7 @@ class _PartialWrapper:
         return _with_args(self, **kwargs)
 
     def with_callable_args(self, **kwargs):
-        result = _PartialWrapper(p=self.p)
+        result = PartialWrapper(p=self.p)
         result.callable_args = {**self.callable_args, **kwargs}
         return result
 
@@ -123,7 +123,7 @@ def _with_args(cls_or_self, **kwargs):
         >>> id(foo_instance1) == id(foo_instance2)
         False
     """
-    r = _PartialWrapper(partial(cls_or_self, **kwargs))
+    r = PartialWrapper(partial(cls_or_self, **kwargs))
     return r
 
 
@@ -147,7 +147,7 @@ def _with_callable_args(cls_or_self, **kwargs):
         >>> id(foo_instance1.creation_time) == id(foo_instance2.creation_time)
         False
     """
-    r = _PartialWrapper(partial(cls_or_self))
+    r = PartialWrapper(partial(cls_or_self))
     return r.with_callable_args(**kwargs)
 
 

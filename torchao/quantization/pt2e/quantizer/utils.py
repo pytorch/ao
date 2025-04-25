@@ -13,10 +13,7 @@ from typing import Callable, NamedTuple, Optional
 import torch
 from torch.fx import Node
 
-from .quantizer import (
-    QuantizationAnnotation,
-    QuantizationSpec,
-)
+from .quantizer import QuantizationAnnotation, QuantizationSpec
 
 
 # In the absence of better name, just winging it with QuantizationConfig
@@ -99,13 +96,13 @@ def get_bias_qspec(quantization_config: Optional[QuantizationConfig]):
     if quantization_config.bias is None:
         return None
     quantization_spec: QuantizationSpec = quantization_config.bias
-    assert quantization_spec.dtype == torch.float, (
-        "Only float dtype for bias is supported for bias right now"
-    )
+    assert (
+        quantization_spec.dtype == torch.float
+    ), "Only float dtype for bias is supported for bias right now"
     return quantization_spec
 
 
-def _annotate_input_qspec_map(node: Node, input_node: Node, qspec):
+def annotate_input_qspec_map(node: Node, input_node: Node, qspec):
     quantization_annotation = node.meta.get(
         "quantization_annotation", QuantizationAnnotation()
     )
@@ -115,7 +112,7 @@ def _annotate_input_qspec_map(node: Node, input_node: Node, qspec):
     node.meta["quantization_annotation"] = quantization_annotation
 
 
-def _annotate_output_qspec(node: Node, qspec):
+def annotate_output_qspec(node: Node, qspec):
     quantization_annotation = node.meta.get(
         "quantization_annotation", QuantizationAnnotation()
     )
@@ -123,7 +120,7 @@ def _annotate_output_qspec(node: Node, qspec):
     node.meta["quantization_annotation"] = quantization_annotation
 
 
-def _get_module_name_filter(module_name: str):
+def get_module_name_filter(module_name: str):
     """Get the module_name_filter function for a given module name, the filter accepts
     a node and checks if the node comes from a module that has certain module name
 
@@ -157,7 +154,7 @@ def _get_module_name_filter(module_name: str):
     return module_name_filter
 
 
-def _is_valid_annotation(annotation: QuantizationAnnotation) -> bool:
+def is_valid_annotation(annotation: QuantizationAnnotation) -> bool:
     if annotation is None:
         return False
     input_qspec_map = annotation.input_qspec_map

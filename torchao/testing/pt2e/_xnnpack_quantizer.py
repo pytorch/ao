@@ -30,7 +30,7 @@ from torchao.quantization.pt2e import (
 from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
-    _get_module_name_filter,
+    get_module_name_filter,
 )
 from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,

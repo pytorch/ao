@@ -49,6 +49,8 @@ __all__ = [
     "_get_aten_graph_module_for_pattern",
     "_is_conv_node",
     "_is_conv_transpose_node",
+    "_is_sym_size_node",
+    "_filter_sym_size_users",
 ]
 
 
@@ -149,9 +151,9 @@ def check_min_max_valid(min_val: torch.Tensor, max_val: torch.Tensor) -> bool:
 
         assert min_val <= max_val, f"min {min_val} should be less than max {max_val}"
     else:
-        assert torch.all(min_val <= max_val), (
-            f"min {min_val} should be less than max {max_val}"
-        )
+        assert torch.all(
+            min_val <= max_val
+        ), f"min {min_val} should be less than max {max_val}"
 
     return True
 
@@ -186,13 +188,13 @@ def calculate_qmin_qmax(
 
         qrange_len = initial_quant_max - initial_quant_min + 1
         if dtype in [torch.qint8, torch.int8]:
-            assert 0 < qrange_len <= 256, (
-                "quantization range should be positive and not exceed the maximum bit range (=256)."
-            )
+            assert (
+                0 < qrange_len <= 256
+            ), "quantization range should be positive and not exceed the maximum bit range (=256)."
         elif dtype in [torch.qint32, torch.int32]:
-            assert 0 < qrange_len <= 2**32, (
-                "quantization range should be positive and not exceed the maximum bit range (=4294967296)."
-            )
+            assert (
+                0 < qrange_len <= 2**32
+            ), "quantization range should be positive and not exceed the maximum bit range (=4294967296)."
         if reduce_range:
             quant_min, quant_max = quant_min // 2, quant_max // 2
     else:
@@ -340,12 +342,12 @@ def validate_qmin_qmax(quant_min: int, quant_max: int) -> None:
     """
     # The variable names are prefixed with "initial" because their values (qmin and qmax) might be adjusted
     # based on whether quantization range is reduced and the datatype (signed/unsigned) used by the observer.
-    assert quant_min <= 0 <= quant_max, (
-        "Used-specified quantization range must include 0."
-    )
-    assert quant_min < quant_max, (
-        "qmin must be strictly less than qmax for user-specified quantization range."
-    )
+    assert (
+        quant_min <= 0 <= quant_max
+    ), "Used-specified quantization range must include 0."
+    assert (
+        quant_min < quant_max
+    ), "qmin must be strictly less than qmax for user-specified quantization range."
 
 
 # Functionally equivalent to '_calculate_qparams' in observer.py. Observers must be torchscriptable however and qscheme
@@ -572,46 +574,6 @@ def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
             )
         dest = dest.args[0]
     return dest == source
-
-
-def _find_q_dq_node_for_user(
-    produer: torch.fx.Node, user: torch.fx.Node
-) -> tuple[Any, Any]:
-    """
-    Find q, dq pair corresponding to [producer -> q -> dq -> user]
-    Utils works by finding dq arg of user and ensuring it is connected to
-    producer
-    """
-    dq_node = None
-    for n in user.args:
-        if (
-            isinstance(n, torch.fx.Node)
-            and n.op == "call_function"
-            and n.target in _DEQUANTIZE_OPS
-        ):
-            if _is_connected(produer, n):
-                dq_node = n
-                break
-    if dq_node is None:
-        for n in user.kwargs:
-            if (
-                isinstance(n, torch.fx.Node)
-                and n.op == "call_function"
-                and n.target in _DEQUANTIZE_OPS
-            ):
-                if _is_connected(produer, n):
-                    dq_node = n
-                    break
-    if dq_node is None:
-        return (None, None)
-
-    q_node = None
-    if (
-        dq_node.args[0].op == "call_function"  # type: ignore[union-attr]
-        and dq_node.args[0].target in _QUANTIZE_OPS  # type: ignore[union-attr]
-    ):
-        q_node = dq_node.args[0]
-    return (q_node, dq_node)
 
 
 def _get_tensor_constant_from_node(node, m):
@@ -1120,28 +1082,3 @@ def _is_sym_size_node(node: Node):
 def _filter_sym_size_users(node: torch.fx.Node) -> list[torch.fx.Node]:
     node_users = list(filter((lambda x: (_is_sym_size_node(x) is False)), node.users))
     return node_users
-
-
-def _node_only_used_for_sym_size(node: Node, partition_nodes: list[Node]):
-    """
-    This utility is used to handle cases when dynami_shape=True tracing leads
-    to symint nodes in the pattern of linear module. In those cases, we need to
-    distinguish between the nodes that are in input for just extracting value of
-    some dimentions (and symint nodes) vs. the one that is activation.
-    For example:
-    graph(x, y, weight):
-       size_0 = torch.ops.aten.sym_size([x], [0])
-       size_1 = torch.ops.aten.sym_size([y], [1])
-       view_size = size_0 * size_1
-       size_3 = torch.ops.aten.sym_size([x], [2])
-       vie_out = torch.ops.aten.view(x, [view_size, size_3])
-       return mm(view_out, weight)
-    In the example above y node is not actual input. It exist only to extract size_1
-    """
-    if _is_sym_size_node(node):
-        return True
-
-    return all(
-        ((user not in partition_nodes) or _is_sym_size_node(user))
-        for user in node.users
-    )

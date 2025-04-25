@@ -25,7 +25,7 @@ from torchao.quantization.pt2e import (
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
     ObserverOrFakeQuantize,
-    _DerivedObserverOrFakeQuantize,
+    DerivedObserverOrFakeQuantize,
 )
 from torchao.quantization.pt2e.fake_quantize import (
     FixedQParamsFakeQuantize,
@@ -33,7 +33,7 @@ from torchao.quantization.pt2e.fake_quantize import (
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
     _is_activation_post_process,
-    _PartialWrapper,
+    PartialWrapper,
 )
 from torchao.quantization.pt2e.quantizer import (
     DerivedQuantizationSpec,
@@ -101,7 +101,7 @@ def _create_obs_or_fq_from_qspec(
         edge_or_nodes = quantization_spec.derived_from
         obs_or_fqs = [obs_or_fq_map[k] for k in edge_or_nodes]
         kwargs["obs_or_fqs"] = obs_or_fqs
-        return _DerivedObserverOrFakeQuantize.with_args(**kwargs)()
+        return DerivedObserverOrFakeQuantize.with_args(**kwargs)()
     elif isinstance(quantization_spec, FixedQParamsQuantizationSpec):
         kwargs = _get_observer_kwargs(quantization_spec)
         observer_ctr = FixedQParamsObserver.with_args(**kwargs)
@@ -119,7 +119,7 @@ def _create_obs_or_fq_from_qspec(
     # we will remove is_dynamic from QuantizationSpec because
     # it seems that dynamic range quantization
     obs_or_fq_class = observer_or_fake_quant_ctr
-    if isinstance(observer_or_fake_quant_ctr, _PartialWrapper):
+    if isinstance(observer_or_fake_quant_ctr, PartialWrapper):
         obs_or_fq_class = observer_or_fake_quant_ctr.p.func  # type: ignore[union-attr, assignment]
     if "PerChannel" not in obs_or_fq_class.__name__:  # type: ignore[operator, union-attr]
         kwargs.pop("ch_axis")
