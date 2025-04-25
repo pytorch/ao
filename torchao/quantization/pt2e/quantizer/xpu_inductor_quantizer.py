@@ -15,19 +15,19 @@ from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     PerChannelMinMaxObserver,
 )
-from torchao.quantization.pt2e.quantizer.quantizer import QuantizationSpec
+from torchao.quantization.pt2e.quantizer import (
+    QuantizationConfig,
+    QuantizationSpec,
+)
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     FilterFn,
     X86InductorQuantizer,
     _is_any_annotated,
     int8_in_int8_out_ops,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
-    QuantizationConfig,
-)
 
 if TYPE_CHECKING:
-    from torchao.quantization.pt2e.qconfig import _ObserverOrFakeQuantizeConstructor
+    from torchao.quantization.pt2e import _ObserverOrFakeQuantizeConstructor
 
 __all__ = [
     "XPUInductorQuantizer",

@@ -16,10 +16,10 @@ from torch.testing._internal.common_utils import IS_WINDOWS, run_tests
 
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer import QuantizationAnnotation, Quantizer
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import OP_TO_ANNOTATOR
+from torchao.testing.pt2e._xnnpack_quantizer_utils import OP_TO_ANNOTATOR
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 

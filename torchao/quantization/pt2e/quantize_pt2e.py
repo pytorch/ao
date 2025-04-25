@@ -14,19 +14,15 @@ if TORCH_VERSION_AT_LEAST_2_7:
 from torch.fx import GraphModule, Node
 from torch.fx.passes.infra.pass_manager import PassManager
 
-from torchao.quantization.pt2e.convert import (
-    _convert_to_reference_decomposed_fx,
-)
-from torchao.quantization.pt2e.duplicate_dq_pass import DuplicateDQPass
-from torchao.quantization.pt2e.port_metadata_pass import PortNodeMetaForQDQ
-from torchao.quantization.pt2e.prepare import prepare
 from torchao.quantization.pt2e.qat_utils import (
     _fold_conv_bn_qat,
     _fuse_conv_bn_qat,
 )
 from torchao.quantization.pt2e.quantizer import (  # noqa: F401
     DerivedQuantizationSpec,
+    DuplicateDQPass,
     FixedQParamsQuantizationSpec,
+    PortNodeMetaForQDQ,
     QuantizationAnnotation,
     QuantizationSpec,
     QuantizationSpecBase,
@@ -41,6 +37,11 @@ from torchao.quantization.pt2e.utils import (
     _fuse_conv_bn_,
     _get_node_name_to_scope,
 )
+
+from .convert import (
+    _convert_to_reference_decomposed_fx,
+)
+from .prepare import prepare
 
 __all__ = [
     "prepare_pt2e",

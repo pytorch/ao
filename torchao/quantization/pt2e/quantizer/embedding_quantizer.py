@@ -13,15 +13,13 @@ import torch
 import torch.nn.functional as F
 
 from torchao.quantization.pt2e.observer import PerChannelMinMaxObserver
-from torchao.quantization.pt2e.quantizer.quantizer import (
-    QuantizationAnnotation,
-    QuantizationSpec,
-    Quantizer,
-)
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
+from torchao.quantization.pt2e.quantizer import (
     OperatorConfig,
     OperatorPatternType,
+    QuantizationAnnotation,
     QuantizationConfig,
+    QuantizationSpec,
+    Quantizer,
 )
 
 __all__ = [

@@ -47,7 +47,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
