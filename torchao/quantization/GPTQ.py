@@ -933,7 +933,11 @@ def linear_forward_8da4w(
     groupsize,
     precision,
 ):
-    x = per_token_dynamic_quant(x, scale_dtype=precision, zero_point_dtype=precision)
+    x = per_token_dynamic_quant(
+        x,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.int8,
+    )
     # TODO: verify and remove following reshape code
     # origin_x_size = x.size()
     # x = x.reshape(-1, origin_x_size[-1])
