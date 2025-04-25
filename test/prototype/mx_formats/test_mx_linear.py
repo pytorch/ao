@@ -25,6 +25,7 @@ from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
 )
+from torchao.prototype.mx_formats.mx_subclass import MXFPInferenceConfig
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
@@ -372,3 +373,34 @@ def test_inference_print_str():
     s = str(m)
     assert "bl_sz=32" in s
     assert "kernel=emulated" in s
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(not is_sm_at_least_100, reason="Reqs sm100")
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@torch.no_grad()
+def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
+    """
+    Smoke test for inference compile
+    """
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        if not is_sm_at_least_89():
+            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+
+    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m_mx = copy.deepcopy(m)
+    config = MXFPInferenceConfig()
+    quantize_(m_mx, config=config)
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True)
+
+    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    y_ref = m(x)
+    y_mx = m_mx(x)
+    sqnr = compute_error(y_ref, y_mx)
+    assert sqnr >= 25.0, f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
