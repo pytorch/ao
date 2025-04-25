@@ -17,7 +17,7 @@ then the ops in this file are used under the hood to properly route
 the underlying data fields to the MX matmul.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 from torch.utils._pytree import tree_map
@@ -69,13 +69,29 @@ def mx_desugar_op(aten_op, args, kwargs=None):
     return new
 
 
+def _get_gemm_choice(
+    choice_a: Optional[MXGemmKernelChoice], choice_b: Optional[MXGemmKernelChoice]
+) -> MXGemmKernelChoice:
+    if choice_a is not None and choice_b is not None:
+        assert choice_a == choice_b, (
+            "Both MXTensor inputs must have the same gemm config if specified"
+        )
+        return choice_a
+
+    # Assert that at least one is set and return that one
+    assert choice_a is not None or choice_b is not None, (
+        "At least one gemm choice must be specified"
+    )
+    return choice_a if choice_a is not None else choice_b
+
+
 @implements([aten.mm.default, aten.matmul.default])
 def mx_mm(aten_op, args, kwargs=None):
     a = args[0]
     b = args[1]
     assert isinstance(a, MXTensor) and isinstance(b, MXTensor)
-    assert a._gemm_kernel_choice == b._gemm_kernel_choice, "unsupported"
-    if a._gemm_kernel_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
+    gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
+    if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a._data.is_contiguous()
@@ -88,7 +104,7 @@ def mx_mm(aten_op, args, kwargs=None):
         b_scale_block = to_blocked(b_scale)
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            assert a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS, (
+            assert gemm_choice is MXGemmKernelChoice.CUBLAS, (
                 "CUBLAS is the only supported kernel choice for MX FP8 operations"
             )
             res = torch._scaled_mm(
@@ -101,7 +117,7 @@ def mx_mm(aten_op, args, kwargs=None):
         else:
             assert a._elem_dtype == DTYPE_FP4
             assert b._elem_dtype == DTYPE_FP4
-            assert a._gemm_kernel_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
+            assert gemm_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             res = torchao.ops.mx_fp4_bf16(
                 a._data, b._data, a_scale_block, b_scale_block
             )
