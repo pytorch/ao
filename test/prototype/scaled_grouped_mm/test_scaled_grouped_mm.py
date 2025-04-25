@@ -29,8 +29,10 @@ from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
     _scaled_grouped_mm,
 )
+from torchao.testing.utils import skip_if_rocm
 
 
+@skip_if_rocm("ROCm enablement in progress")
 def test_valid_scaled_grouped_mm_2d_3d():
     out_dtype = torch.bfloat16
     device = "cuda"

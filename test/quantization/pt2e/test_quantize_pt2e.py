@@ -57,11 +57,11 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
+from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )
@@ -1328,6 +1328,40 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with self.assertRaises(Exception):
             m = prepare_pt2e(m, BackendAQuantizer())
 
+    def _quantize(self, m, quantizer, example_inputs, is_qat: bool = False):
+        # resetting dynamo cache
+        torch._dynamo.reset()
+
+        m = export_for_training(
+            m,
+            example_inputs,
+        ).module()
+        if is_qat:
+            m = prepare_qat_pt2e(m, quantizer)
+        else:
+            m = prepare_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m)
+        return m
+
+    def _get_pt2e_quantized_linear(self, is_per_channel=False) -> torch.fx.GraphModule:
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(2, 2)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        quantizer = XNNPACKQuantizer()
+        operator_config = get_symmetric_quantization_config(
+            is_per_channel=is_per_channel
+        )
+        quantizer.set_global(operator_config)
+        example_inputs = (torch.randn(2, 2),)
+        m = M().eval()
+        return self._quantize(m, quantizer, example_inputs)
+
     def test_fold_quantize(self):
         """Test to make sure the quantized model gets quantized weight (quantize_per_tensor op is folded)"""
         m = self._get_pt2e_quantized_linear()
@@ -2493,10 +2527,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
-        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
         )
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
@@ -2576,13 +2610,13 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_affine_act_per_channel_weights(self):
         import operator
 
+        from torchao.quantization.pt2e._affine_quantization import (
+            AffineQuantizedMovingAverageMinMaxObserver,
+        )
         from torchao.quantization.pt2e.observer import (
             MappingType,
             PerChannelMinMaxObserver,
             PerToken,
-        )
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
-            AffineQuantizedMovingAverageMinMaxObserver,
         )
 
         class BackendAQuantizer(Quantizer):
@@ -2667,13 +2701,12 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_per_tok_act_per_group_weights(self):
         import operator
 
-        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
-
         # TODO: merge into torchao observer
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
         )
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:

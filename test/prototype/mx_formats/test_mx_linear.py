@@ -28,6 +28,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_7,
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -35,7 +36,7 @@ from torchao.utils import (
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -222,6 +223,8 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
     if recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
+        if not TORCH_VERSION_AT_LEAST_2_8:
+            pytest.skip("torch.compile requires PyTorch 2.8+")
         if not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX gemms")
 
@@ -308,6 +311,9 @@ def test_inference_linear(elem_dtype, bias, input_shape):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_inference_compile_simple(elem_dtype):
     """
