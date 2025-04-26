@@ -39,6 +39,7 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    AOPerModuleConfig,
     CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
@@ -52,7 +53,6 @@ from .quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
-    AOPerModuleConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
