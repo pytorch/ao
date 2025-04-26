@@ -24,7 +24,7 @@ from torchao.quantization.quant_api import to_linear_activation_quantized
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_100
 
 
 @dataclass
@@ -115,3 +115,9 @@ def _mx_inference_linear_transform(module: torch.nn.Module, config: MXFPConfig):
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals(
+        [MXTensor, MXGemmKernelChoice, _input_activation_quant_func_mxfp]
+    )

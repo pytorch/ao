@@ -4,6 +4,7 @@ from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     MXLinearRecipeName,
 )
+from torchao.prototype.mx_formats.mx_subclass import MXFPConfig
 
 # import mx_linear here to register the quantize_ transform logic
 # ruff: noqa: I001
@@ -14,4 +15,5 @@ __all__ = [
     "MXInferenceLinearConfig",
     "MXLinearConfig",
     "MXLinearRecipeName",
+    "MXFPConfig",
 ]

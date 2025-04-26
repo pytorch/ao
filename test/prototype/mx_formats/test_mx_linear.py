@@ -381,7 +381,10 @@ def test_inference_print_str():
 )
 @pytest.mark.skipif(not is_sm_at_least_100, reason="Reqs sm100")
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn])
-def test_inference_subclass(elem_dtype):
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@torch.no_grad()
+def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
     """
     Smoke test for inference compile
     """
@@ -389,18 +392,15 @@ def test_inference_subclass(elem_dtype):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    m = nn.Sequential(nn.Linear(32, 128, bias=False, dtype=torch.bfloat16))
-    m = m.cuda()
+    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
     config = MXFPConfig()
     quantize_(m_mx, config=config)
-    m_mx = torch.compile(m_mx, fullgraph=True)
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True)
 
     x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
     y_ref = m(x)
     y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
-    if elem_dtype is torch.float8_e4m3fn:
-        assert sqnr >= 20.0
-    else:
-        assert sqnr >= 11.5
+    assert sqnr >= 25.0, f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
