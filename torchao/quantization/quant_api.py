@@ -594,6 +594,7 @@ def quantize_(
 
     """
     filter_fn = _is_linear if filter_fn is None else filter_fn
+
     if isinstance(config, AOPerModuleConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
@@ -1975,18 +1976,19 @@ class AOPerModuleConfig(AOBaseConfig):
 def _ao_per_module_config_handler(
     module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
 ):
-    c = config.module_fqn_to_config.get(module_fqn, None)
-    # Maybe: we can add module type specific config in the future, in needed
-    # fallback to use default if no module specific config is provided
-    default_c = config.module_fqn_to_config.get("_default", None)
-    if default_c is not None and c is None:
-        c = default_c
+    c = None
+    if module_fqn in config.module_fqn_to_config:
+        # Maybe: we can add module type specific config in the future, in needed
+        c = config.module_fqn_to_config[module_fqn]
+    else:
+        # fallback to use default if no module specific config is provided
+        c = config.module_fqn_to_config.get("_default", None)
 
     if c is not None:
         handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
         return handler(module, c)
 
-    return handler(module, c)
+    return module
 
 
 if TORCH_VERSION_AT_LEAST_2_5:
