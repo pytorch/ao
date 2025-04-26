@@ -1003,6 +1003,7 @@
 
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span>
+
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOPerModuleConfig</span><span class="p">):</span>
         <span class="n">_replace_with_custom_fn_if_matches_filter_with_name</span><span class="p">(</span>
             <span class="n">model</span><span class="p">,</span>
@@ -2384,18 +2385,19 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_ao_per_module_config_handler</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AOPerModuleConfig</span>
 <span class="p">):</span>
-    <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">module_fqn</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-    <span class="c1"># Maybe: we can add module type specific config in the future, in needed</span>
-    <span class="c1"># fallback to use default if no module specific config is provided</span>
-    <span class="n">default_c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">default_c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">c</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">default_c</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">module_fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">:</span>
+        <span class="c1"># Maybe: we can add module type specific config in the future, in needed</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">[</span><span class="n">module_fqn</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># fallback to use default if no module specific config is provided</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
         <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">module</span>
 
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
