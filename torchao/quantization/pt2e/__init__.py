@@ -14,6 +14,9 @@ from torchao.quantization.pt2e._numeric_debugger import (  # noqa: F401
     prepare_for_propagation_comparison,
 )
 from torchao.quantization.pt2e.export_utils import (
+    WrapperModule,
+)
+from torchao.quantization.pt2e.export_utils import (
     _allow_exported_model_train_eval as allow_exported_model_train_eval,
 )
 from torchao.quantization.pt2e.export_utils import (
@@ -21,9 +24,6 @@ from torchao.quantization.pt2e.export_utils import (
 )
 from torchao.quantization.pt2e.export_utils import (
     _move_exported_model_to_train as move_exported_model_to_train,
-)
-from torchao.quantization.pt2e.export_utils import (
-    _WrapperModule,
 )
 from torchao.quantization.pt2e.graph_utils import (
     bfs_trace_with_node_process,
@@ -53,6 +53,7 @@ from .observer import (
     MovingAveragePerChannelMinMaxObserver,
     NoopObserver,
     ObserverBase,
+    PartialWrapper,
     PerAxis,
     PerBlock,
     PerChannelMinMaxObserver,
@@ -66,14 +67,7 @@ from .observer import (
     TorchAODType,
     UniformQuantizationObserverBase,
     ZeroPointDomain,
-    _PartialWrapper,
     get_block_size,
-)
-from .utils import (
-    _filter_sym_size_users,
-    _find_q_dq_node_for_user,
-    _is_sym_size_node,
-    _node_only_used_for_sym_size,
 )
 
 for _f in [
@@ -89,9 +83,10 @@ for _f in [
 ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
 ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
 
-_ObserverOrFakeQuantizeConstructor = Union[
-    _PartialWrapper, type[ObserverBase], type[FakeQuantizeBase]
+ObserverOrFakeQuantizeConstructor = Union[
+    PartialWrapper, type[ObserverBase], type[FakeQuantizeBase]
 ]
+ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"
 
 
 __all__ = [
@@ -114,22 +109,16 @@ __all__ = [
     "RecordingObserver",
     "ReuseInputObserver",
     "UniformQuantizationObserverBase",
-    "_ObserverOrFakeQuantizeConstructor",
+    "ObserverOrFakeQuantizeConstructor",
+    "DerivedObserverOrFakeQuantize",
     # utils
     "enable_fake_quant",
     "enable_observer",
-    "_get_aten_graph_module_for_pattern",
-    "_is_conv_node",
-    "_is_conv_transpose_node",
-    "_is_sym_size_node",
-    "_filter_sym_size_users",
-    "_node_only_used_for_sym_size",
-    "_find_q_dq_node_for_user",
     # export_utils
     "move_exported_model_to_eval",
     "move_exported_model_to_train",
     "allow_exported_model_train_eval",
-    "_WrapperModule",
+    "WrapperModule",
     # graph_utils
     "find_sequential_partitions",
     "get_equivalent_types",
@@ -142,8 +131,7 @@ __all__ = [
     "prepare_for_propagation_comparison",
     "extract_results_from_loggers",
     "compare_results",
-    # from torchao, should be merged with torchao
-    # in the future
+    # should be merged with torchao/quantization/observer.py in the future
     "AffineQuantizedObserverBase",
     "Granularity",
     "MappingType",
@@ -161,17 +149,7 @@ __all__ = [
 ]
 
 
-def default_eval_fn(model, calib_data):
-    r"""Define the default evaluation function.
-
-    Default evaluation function takes a torch.utils.data.Dataset or a list of
-    input Tensors and run the model on the dataset
-    """
-    for data, _target in calib_data:
-        model(data)
-
-
-class _DerivedObserverOrFakeQuantize(ObserverBase):
+class DerivedObserverOrFakeQuantize(ObserverBase):
     r"""This observer is used to describe an observer whose quantization parameters
     are derived from other observers
     """
