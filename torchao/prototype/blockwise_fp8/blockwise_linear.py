@@ -34,9 +34,9 @@ class BlockwiseQuantLinear(nn.Module):
             torch.float8_e4m3fn,
             torch.float8_e5m2,
         ]
-        assert (
-            dtype in supported_dtypes
-        ), f"Unsupported dtype: {dtype}. Supported dtypes: {supported_dtypes}"
+        assert dtype in supported_dtypes, (
+            f"Unsupported dtype: {dtype}. Supported dtypes: {supported_dtypes}"
+        )
         scale_in_features = (in_features + block_size - 1) // block_size
         scale_out_features = (out_features + block_size - 1) // block_size
         self.weight = nn.Parameter(torch.empty(out_features, in_features, dtype=dtype))

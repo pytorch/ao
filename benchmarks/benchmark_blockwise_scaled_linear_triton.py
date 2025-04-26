@@ -38,9 +38,9 @@ def get_rowwise_problem(m: int, n: int, k: int, device):
 def get_blockwise_problem(
     m: int, n: int, k: int, block_size: int, dtype: torch.dtype, device
 ):
-    assert (
-        n % block_size == 0 and k % block_size == 0
-    ), "N and K dims must be divisible by block_size"
+    assert n % block_size == 0 and k % block_size == 0, (
+        "N and K dims must be divisible by block_size"
+    )
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,

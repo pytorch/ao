@@ -47,9 +47,9 @@ def fp8_blockwise_act_quant(
             - A tensor of scaling factors with dtype `torch.float32`.
     """
     assert x.is_contiguous(), "Input tensor must be contiguous"
-    assert (
-        x.size(-1) % block_size == 0
-    ), f"Last dimension size must be divisible by block_size (block_size={block_size})"
+    assert x.size(-1) % block_size == 0, (
+        f"Last dimension size must be divisible by block_size (block_size={block_size})"
+    )
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,
@@ -109,9 +109,9 @@ def fp8_blockwise_weight_quant(
     """
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.dim() == 2, "Input tensor must have 2 dimensions"
-    assert (
-        x.size(0) % block_size == 0 and x.size(1) % block_size == 0
-    ), f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
+    assert x.size(0) % block_size == 0 and x.size(1) % block_size == 0, (
+        f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
+    )
     assert dtype in [
         torch.float8_e4m3fn,
         torch.float8_e5m2,
