@@ -52,6 +52,7 @@ from .quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    AOPerModuleConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -140,6 +141,7 @@ __all__ = [
     "UIntXWeightOnlyConfig",
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
+    "AOPerModuleConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
