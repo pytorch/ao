@@ -107,7 +107,7 @@ void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
   using StrideD   = typename Gemm::GemmKernel::StrideD;
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using Sm100BlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+  using Sm100BlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   // Initialize strides using packed stride configuration
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, make_shape(M, K, 1));
