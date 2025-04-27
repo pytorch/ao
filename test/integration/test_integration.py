@@ -19,8 +19,7 @@ from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 
 import torchao
-from torchao.dtypes import Int4CPULayout, TensorCoreTiledLayout
-from torchao.dtypes.utils import is_device
+from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
@@ -84,6 +83,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -146,15 +147,17 @@ def _int8da_int8w_api(
 
 
 def _int4wo_api(mod, use_hqq=False):
-    if (
-        is_device(next(mod.parameters()).device.type, "cpu")
-        and TORCH_VERSION_AT_LEAST_2_6
-    ):
+    if check_cpu_version(next(mod.parameters()).device):
         quantize_(
             mod,
             int4_weight_only(
                 layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
             ),
+        )
+        unwrap_tensor_subclass(mod)
+    elif check_xpu_version(next(mod.parameters()).device):
+        quantize_(
+            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
@@ -311,9 +314,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         sqnr_fq = compute_error(y_smooth_fq_only, y_dynamic_q)
         # print('sqnr_smooth', sqnr_smooth_fq, 'sqnr_dynamic', sqnr_dynamic_q, 'sqnr_fq', sqnr_fq)
 
-        assert torch.allclose(
-            y_ref, y_smooth_nocalib
-        ), "y_ref not close to y_smooth_nocalib"
+        assert torch.allclose(y_ref, y_smooth_nocalib), (
+            "y_ref not close to y_smooth_nocalib"
+        )
         # after https://github.com/pytorch-labs/ao_benchmarks/pull/32,
         # numerics do not match exactly between production c++ code
         # and this Python code
@@ -1129,8 +1132,10 @@ class TestSubclass(unittest.TestCase):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         layout_list = []
-        if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(device):
             layout_list.append(Int4CPULayout())
+        elif check_xpu_version(device):
+            layout_list.append(Int4XPULayout())
         else:
             for inner_k_tiles in [4, 2]:
                 layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))
@@ -1333,9 +1338,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, ref_q) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, ref_q) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
 
         # load model structure
         with torch.device("meta"):
@@ -1355,9 +1360,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, test) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, test) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -2029,15 +2034,17 @@ class TestExport(unittest.TestCase):
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
         if TORCH_VERSION_AT_LEAST_2_5:
-            model = torch.export.export_for_training(model, example_inputs).module()
+            model = torch.export.export_for_training(
+                model, example_inputs, strict=True
+            ).module()
         else:
             model = torch._export.capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int4w_api:
             targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.quant.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.quant.quantize_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
 

@@ -93,7 +93,7 @@ class UintxTensor(TorchAOBaseTensor):
         return [getattr(self, i) for i in self.__class__.bits_to_shard[self.bit_width]]
 
     def __repr__(self):
-        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, dim = self.pack_dim)})"
+        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, dim=self.pack_dim)})"
 
     def __tensor_flatten__(self):
         return self.__class__.bits_to_shard[self.bit_width], [
@@ -129,9 +129,9 @@ class UintxTensor(TorchAOBaseTensor):
 
     @classmethod
     def from_uint8(cls, int_data: torch.Tensor, dtype: torch.dtype, pack_dim: int = -1):
-        assert (
-            dtype in _DTYPE_TO_BIT_WIDTH.keys()
-        ), "Expected dtype to be one of {_DTYPE_TO_BIT_WIDTH.keys()}"
+        assert dtype in _DTYPE_TO_BIT_WIDTH.keys(), (
+            "Expected dtype to be one of {_DTYPE_TO_BIT_WIDTH.keys()}"
+        )
         bit_width = _DTYPE_TO_BIT_WIDTH[dtype]
         shards = pack(int_data, bit_width, dim=pack_dim)
         shape = list(int_data.shape)
@@ -228,8 +228,14 @@ class UintxLayout(Layout):
     dtype: torch.dtype
     pack_dim: int = -1
 
-    def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        return to_uintx(input, self.dtype, self.pack_dim)
+    def post_process(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return to_uintx(input, self.dtype, self.pack_dim), scale, zero_point
 
 
 @register_layout(UintxLayout)

@@ -40,18 +40,18 @@ def quantize_codebook(
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported input dtype: {input.dtype}"
-    assert (
-        codebook.dim() == input.dim() + 1
-    ), f"codebook dim ({codebook.dim()}) must be input dim + 1 ({input.dim() + 1})"
+    assert codebook.dim() == input.dim() + 1, (
+        f"codebook dim ({codebook.dim()}) must be input dim + 1 ({input.dim() + 1})"
+    )
 
     k = codebook.shape[0]
     block_size = codebook.shape[1:]
     input_size = input.shape
     D = input.dim()
     for i in range(D):
-        assert (
-            (input_size[i] % block_size[i]) == 0
-        ), f"dimension {i} of input ({input_size[i]}) must be divisible by block_size ({block_size[i]})."
+        assert (input_size[i] % block_size[i]) == 0, (
+            f"dimension {i} of input ({input_size[i]}) must be divisible by block_size ({block_size[i]})."
+        )
 
     num_scale_blocks = scales.shape[-2]
 
@@ -180,13 +180,13 @@ def choose_qparams_codebook(
     input_size = input_tensor.shape
     D = input_tensor.dim()
     for i in range(D):
-        assert (
-            input_size[i] % block_size[i] == 0
-        ), f"Dimension {i} must be divisible by block_size {block_size[i]}."
+        assert input_size[i] % block_size[i] == 0, (
+            f"Dimension {i} must be divisible by block_size {block_size[i]}."
+        )
 
-    assert (
-        input_tensor.shape[-1] % scale_block_size == 0
-    ), f"input_features ({input_tensor.shape[-1]}) must be divisible by scale_block_size ({scale_block_size})."
+    assert input_tensor.shape[-1] % scale_block_size == 0, (
+        f"input_features ({input_tensor.shape[-1]}) must be divisible by scale_block_size ({scale_block_size})."
+    )
     num_scale_blocks = input_tensor.shape[-1] // scale_block_size
 
     new_shape = list(input_size[:-1]) + [num_scale_blocks, scale_block_size]
@@ -363,17 +363,17 @@ def _reshape_into_blocks(
     """
     Reshape an N-D input tensor into a 2D tensor where each row corresponds to one block.
     """
-    assert (
-        len(block_size) == input.dim()
-    ), f"block_size {block_size} must match the input dimension {input.dim()}"
+    assert len(block_size) == input.dim(), (
+        f"block_size {block_size} must match the input dimension {input.dim()}"
+    )
     input_size = input.shape
 
     # Create shape with alternating (num_blocks_along_dim, block_size_dim)
     reshaped_dims = []
     for i in range(input.dim()):
-        assert (
-            input_size[i] % block_size[i] == 0
-        ), f"Input size at dim {i} ({input_size[i]}) must be divisible by block_size[i] ({block_size[i]})."
+        assert input_size[i] % block_size[i] == 0, (
+            f"Input size at dim {i} ({input_size[i]}) must be divisible by block_size[i] ({block_size[i]})."
+        )
         reshaped_dims.extend([input_size[i] // block_size[i], block_size[i]])
 
     input_reshaped = input.view(*reshaped_dims)  # Shape: [g1, b1, g2, b2, ..., gD, bD]

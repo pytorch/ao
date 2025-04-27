@@ -67,9 +67,9 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
         kwargs = {}
 
     if device_type is None:
-        assert isinstance(
-            model, torch.nn.Module
-        ), "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        assert isinstance(model, torch.nn.Module), (
+            "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        )
         device_type = _assert_and_get_unique_device(model).type
 
     if device_type == "cuda":
@@ -210,12 +210,12 @@ def _register_custom_op(lib):
 
             # expecting fn.__name__ starts with `_` and we want to take the rest
             # to be the name of the custom op
-            assert (
-                fn.__name__[0] == "_"
-            ), f"Expecting function name starts with `_`, got {fn.__name__}"
-            assert not any(
-                c in fn.__name__ for c in ".<>"
-            ), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+            assert fn.__name__[0] == "_", (
+                f"Expecting function name starts with `_`, got {fn.__name__}"
+            )
+            assert not any(c in fn.__name__ for c in ".<>"), (
+                f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+            )
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
@@ -314,6 +314,8 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             and type(child.weight) is not torch.nn.Parameter
             and isinstance(child.weight, torch.Tensor)
             and issubclass(type(child.weight), torch.Tensor)
+            and isinstance(child.weight, TorchAOBaseTensor)
+            and not parametrize.is_parametrized(child)
         ):
             parametrize.register_parametrization(
                 child, "weight", UnwrapTensorSubclass()
@@ -674,6 +676,18 @@ def is_sm_at_least_100():
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (10, 0)
     )
+
+
+def check_cpu_version(device, version="2.6.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "cpu" and compare_versions(torch.__version__, version) >= 0
+
+
+def check_xpu_version(device, version="2.8.0"):
+    if isinstance(device, torch.device):
+        device = device.type
+    return device == "xpu" and compare_versions(torch.__version__, version) >= 0
 
 
 TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")

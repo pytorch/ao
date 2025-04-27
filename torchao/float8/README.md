@@ -1,17 +1,14 @@
 # torchao.float8
 
-This is a workflow for accelerating training with float8 in native PyTorch
-according to the recipes laid out in https://arxiv.org/pdf/2209.05433.pdf.
-The codebase strives to stay small, easily hackable, debuggable with native PyTorch tooling,
+This is a workflow for accelerating training with [float8](https://arxiv.org/pdf/2209.05433.pdf) in native PyTorch.
+With ``torch.compile`` on, we demonstrate e2e pretraining throughput speedups of up to [**1.5x at 512 GPU / 405B parameter count scale**](https://pytorch.org/blog/training-using-float8-fsdp2/),
+and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks).
+The codebase strives to stay small, hackable, debuggable with native PyTorch tooling
 and composable with key systems such as autograd, ```torch.compile``` and distributed.
-With ``torch.compile`` on, initial results show
-throughput speedups of up to 1.5x on 128 GPU LLaMa 3 70B pretraining jobs.
 
-:warning: <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) for upcoming features.</em>
+ℹ️ <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) for upcoming features.</em>
 
-:warning: <em>The codebase is stable, but backwards compatibility is not yet guaranteed.</em>
-
-:warning: <em>These APIs are training-only and float8-only, and we plan to [unify them with the rest of torchao](https://github.com/pytorch/ao/issues/894) in the future.</em>
+ℹ️ <em>These APIs are training-only and float8-only, and we plan to [unify them with the rest of torchao](https://github.com/pytorch/ao/issues/894) in the future.</em>
 
 # Single GPU User API
 
@@ -65,8 +62,6 @@ for _ in range(10):
 
 This is a more accurate recipe compared to tensorwise, with more granular scaling.
 
-:warning: <em>The composability of float8 with rowwise scaling with Tensor Parallelism is WIP, please see https://github.com/pytorch/ao/issues/1732 for more details.</em>
-
 ```python
 import torch
 import torch.nn as nn
@@ -115,10 +110,8 @@ for _ in range(10):
 # Multi GPU User API
 
 We compose with the `DTensor` based [distributed APIs](https://pytorch.org/docs/stable/distributed.tensor.parallel.html),
-such as FSDP, TP and SP. Please see the [torchtitan](https://github.com/pytorch/torchtitan) repository for e2e examples
+such as FSDP, TP and SP. Please see the [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md) repository for e2e examples
 on using `torchao.float8` in a distributed setting.
-
-:warning: <em>When using FSDP, it's recommended to enable `config.force_recompute_fp8_weight_in_bwd`, which prevents the un-sharded fp8 weights to be saved for backward. If you are using customized activation checkpoiting, you may ignore this config and handle the recomputation of fp8 weights in the customized AC code. </em>
 
 # Performance
 
@@ -162,10 +155,6 @@ There are three observations we can make about the formula above:
 * RHS > 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations
 
 For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior.  For large shapes, (1) leads to speedup > 1.
-
-## torch.compile behavior vs speedup
-
-There are a couple of limitations in how torch.compile generates float8 scaling and casting kernels (see the performance section of https://github.com/pytorch/ao/issues/556).  As the limitations get resolved, we expect to reach improved performance.
 
 # Testing
 

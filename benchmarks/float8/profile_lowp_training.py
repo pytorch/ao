@@ -299,22 +299,21 @@ def main(
         "lowp",
         "ref",
     ), "experiment_filter must be one of `both`, `lowp`, `ref`"
-    assert (
-        mode_filter
-        in (
-            "fwd_bwd",
-            "fwd",
-            "cast_only",
-            "cast_with_to_blocked",
-            "cast_only_dim0_dim1",
-        )
-    ), "mode_filter must be one of `fwd_bwd`, `fwd`, `cast_only`, `cast_with_to_blocked`, `cast_only_dim0_dim1`"
+    assert mode_filter in (
+        "fwd_bwd",
+        "fwd",
+        "cast_only",
+        "cast_with_to_blocked",
+        "cast_only_dim0_dim1",
+    ), (
+        "mode_filter must be one of `fwd_bwd`, `fwd`, `cast_only`, `cast_with_to_blocked`, `cast_only_dim0_dim1`"
+    )
     if mode_filter == "cast_only":
         assert experiment_filter == "lowp", "unsupported"
 
-    assert not (
-        float8_recipe_name is not None and mx_recipe_name is not None
-    ), "either float8_recipe_name or mx_recipe_name can be specified, but not both"
+    assert not (float8_recipe_name is not None and mx_recipe_name is not None), (
+        "either float8_recipe_name or mx_recipe_name can be specified, but not both"
+    )
 
     if float8_recipe_name is None and mx_recipe_name is None:
         config = Float8LinearConfig()

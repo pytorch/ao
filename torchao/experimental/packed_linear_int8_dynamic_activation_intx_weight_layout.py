@@ -14,14 +14,9 @@ logging.warning(
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     Target,
-    to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight,
 )
 
-to_affine_quantized_intx_experimental = (
-    to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight
-)
 __all__ = [
-    "to_affine_quantized_intx_experimental",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "Target",
 ]

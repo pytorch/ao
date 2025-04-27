@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
 from typing import Any, Optional
@@ -11,15 +13,14 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
-from ..quant import LSBQuantizer, Quantizer
+from ..quant import Quantizer
+from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
-try:
-    from torch.distributed.tensor import DTensor
-
-    HAS_DTENSOR = True
-except ImportError:
-    HAS_DTENSOR = False
+if HAS_DTENSOR:
+    from torch.distributed.tensor import distribute_tensor
+    from torch.distributed.tensor.experimental import local_map
+    from torch.distributed.tensor.placement_types import Shard
 
 
 class QuantOptimizer(Optimizer):
@@ -31,7 +32,7 @@ class QuantOptimizer(Optimizer):
     a proximal mapping (e.g, HardQuant/STE, PARQ, BinaryRelax)
         - update model parameters based on the above two updates
     Other parameters:
-        - warmup_steps: int > 0
+        - warmup_steps: int >= 0
         - quant_period: int > 0
         - quant_per_channel: True or False
         - quant_shrink: True or False
@@ -86,23 +87,23 @@ class QuantOptimizer(Optimizer):
         extra_repr = "\n  ".join(("(", base_optimizer, f"{quantizer=}", f"{prox_map=}"))
         return f"{self.__class__.__name__} {extra_repr}\n)"
 
+    @property
+    def state(self) -> defaultdict[Tensor, Any]:  # pyre-ignore[3]
+        return self._state if hasattr(self, "_state") else self.base_optimizer.state
+
     @staticmethod
     def quantize_(
         p: Tensor,
         quants: Tensor,
         quantizer: Quantizer,
         b: int,
-        quant_update: bool,
         dim: Optional[int] = None,
     ) -> Optional[Tensor]:
         """Optionally update the quantization targets `quants` in place.
         Return the quantized `p` as a by-product if `quant_update=True`.
         """
-        if quant_update:  # update Q for each channel
-            q, Q = quantizer.quantize(p, b, dim=dim)  # pyre-ignore[28]
-            quants.copy_(Q)
-        else:
-            q = None
+        q, Q = quantizer.quantize(p, b, dim=dim)  # pyre-ignore[28]
+        quants.copy_(Q)
         return q
 
     def regularized_param_groups(self):  # pyre-ignore[3]
@@ -122,12 +123,13 @@ class QuantOptimizer(Optimizer):
     def load_state_dict(
         self, state_dict: dict[str, Any], start_step: Optional[int] = None
     ) -> None:
-        qat_state = state_dict.pop("qat_state")
+        qat_state = state_dict.get("qat_state")
         # resume from check points usually not corresponds to saved num_steps
         # so allow explicit start_step computed from epochs * steps_per_epoc
         if start_step is not None:
             self.num_steps = start_step
-        else:  # hope discrepancy in num_steps does not cause major problem!
+        elif qat_state is not None:
+            # hope discrepancy in num_steps does not cause major problem!
             self.num_steps = qat_state["num_steps"]
         self.base_optimizer.load_state_dict(state_dict)
 
@@ -144,15 +146,22 @@ class QuantOptimizer(Optimizer):
             self.num_steps += 1
             return loss
 
-        # call base optimizer step() method to update latent parameters
-        loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
-
         if self.num_steps == self.warmup_steps:
             # first step of qat, save latent params, instead of restore
             self.save_latent_params()
         else:
             # qat: restore latent params for update by the base optimizer
             self.restore_latent_params()
+
+        # call base optimizer step() method to update latent parameters
+        loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
+
+        if hasattr(self, "_state"):
+            assert self.warmup_steps == 0
+            # restore the temporary state to the base optimizer's state
+            for p in self._state.keys():
+                self.base_optimizer.state[p]["latent"] = self._state[p]["latent"]
+            del self._state
 
         # check if it is time to update set of quantization values Q
         if (self.num_steps - self.warmup_steps) % self.quant_period == 0:
@@ -165,6 +174,7 @@ class QuantOptimizer(Optimizer):
             group["cumu_lr"] += group["lr"]
             gamma = max(1.0, group["cumu_lr"])
             b = group["quant_bits"]
+            block_size = group.get("quant_block_size")
             inv_slope = 0.0
             for p in group["params"]:
                 if not p.requires_grad:
@@ -177,44 +187,66 @@ class QuantOptimizer(Optimizer):
                 if self.quant_shrink:
                     p.div_(gamma)
 
+                # reshape p according to block size if specified
+                if block_size is not None:
+                    assert p.size(-1) % block_size == 0, (
+                        f"{p.size(-1)=} is not divisible by {block_size=}"
+                    )
+                    assert p.dim() <= 2, f"Invalid {p.dim()=} for {block_size=}"
+                    if p.dim() == 1:
+                        p = p.unsqueeze(0)
+
+                    # row-major ordering ensures this is correct
+                    p = p.view(-1, block_size)
+
                 # quantization by channel or by layer
                 # update quantization targets periodically
                 per_channel = self.quant_per_channel and p.dim() > 1
                 if quant_update:
-                    quants_size = 3 if b == 0 else 2**b
-                    if per_channel:
-                        quants_size = (p.size(0), quants_size)
-                    state["quants"] = torch.empty(
-                        quants_size, device=p.device
-                    )  # pyre-ignore[6]
+                    quant_size = self.quantizer.get_quant_size(b)
 
-                # avoid type mismatch between sharded and full tensors
-                if HAS_DTENSOR and isinstance(p, DTensor):
-                    p = p.full_tensor()
+                    if per_channel:
+                        quant_size = (p.size(0), quant_size)
+                    state["quants"] = torch.empty(quant_size, device=p.device)
+                    if is_dtensor(p):
+                        state["quants"] = distribute_tensor(
+                            state["quants"],
+                            device_mesh=p.device_mesh,
+                            placements=p.placements,
+                        )
 
                 dim = -1 if per_channel else None
                 if per_channel and p.dim() > 2:
                     p = p.flatten(start_dim=1)
 
-                # NOTE: for LSBQ and optimal=False, use faster per-channel
-                # implementation instead of vmap
-                if isinstance(self.quantizer, LSBQuantizer) and self.quantizer.optimal:
+                q = None
+                if quant_update:
                     qfunc = partial(
-                        self.quantize_,
-                        quantizer=self.quantizer,
-                        b=b,
-                        quant_update=quant_update,
+                        self.quantize_, quantizer=self.quantizer, b=b, dim=dim
                     )
-                    q = torch.vmap(qfunc, in_dims=0, out_dims=0)(p, state["quants"])
-                else:
-                    q = self.quantize_(
-                        p, state["quants"], self.quantizer, b, quant_update, dim=dim
-                    )
+                    if is_dtensor(p):
+                        qfunc = local_map(
+                            qfunc,
+                            out_placements=[*p.placements],
+                            in_placements=([Shard(0)], [Shard(0)]),
+                        )
+                    q = qfunc(p, state["quants"])
 
                 # apply (step-dependent) proximal mapping in place
-                inv_slope = self.prox_map.apply_(  # pyre-ignore[28]
-                    p, q, state["quants"], self.num_steps, dim=dim
+                pfunc = partial(
+                    self.prox_map.apply_, step_count=self.num_steps, dim=dim
                 )
+                if is_dtensor(p):
+                    pfunc = local_map(
+                        pfunc,
+                        out_placements=None,
+                        in_placements=(
+                            [Shard(0)],
+                            None if q is None else [Shard(0)],
+                            [Shard(0)],
+                        ),
+                    )
+                inv_slope = pfunc(p, q, state["quants"])
 
             # quantized parameters share the same PARQ inverse slope
             if inv_slope:
@@ -239,6 +271,12 @@ class QuantOptimizer(Optimizer):
     @torch._disable_dynamo
     def save_latent_params(self) -> None:
         """Save updated latent parameters before applying prox-map"""
+        if self.warmup_steps == 0:
+            assert len(self.state) == 0, "Expected empty state at first step()"
+            # Maintain the invariant that `len(self.state) == 0` before first
+            # self.base_optimizer.step() call by using a temporary state buffer
+            self._state = defaultdict(dict)
+
         for group in self.regularized_param_groups():
             for p in group["params"]:
                 if p.requires_grad:

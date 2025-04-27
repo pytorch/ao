@@ -42,6 +42,7 @@ add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 $
 
 if(TORCHAO_BUILD_KLEIDIAI)
   add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 endif()
 
 if(TORCHAO_BUILD_ARM_I8MM)
@@ -119,6 +120,14 @@ target_link_libraries(
     dep
 )
 
+add_executable(test_qmatmul test_qmatmul.cpp)
+target_link_libraries(
+  test_qmatmul
+    PRIVATE
+    GTest::gtest_main
+    dep
+)
+
 include(GoogleTest)
 gtest_discover_tests(test_quantization)
 gtest_discover_tests(test_reduction)
@@ -127,3 +136,4 @@ gtest_discover_tests(test_linear)
 gtest_discover_tests(test_valpacking)
 gtest_discover_tests(test_embedding)
 gtest_discover_tests(test_weight_packing)
+gtest_discover_tests(test_qmatmul)

@@ -78,9 +78,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(
-                input, torch.Tensor
-            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            assert isinstance(input, torch.Tensor), (
+                f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            )
             self.count += 1
             self.values.append(input)
         return self
@@ -583,9 +583,9 @@ class GPTQQuantizer(Quantizer):
         assert self.get_qparams_func is not None, "get_qparams_func must be set"
         assert self.quantize_func is not None, "quantize_func must be set"
         assert self.dequantize_func is not None, "dequantize_func must be set"
-        assert (
-            self.combine_qparams_list_func is not None
-        ), "combine_qparams_list_func must be set"
+        assert self.combine_qparams_list_func is not None, (
+            "combine_qparams_list_func must be set"
+        )
         assert self.make_qtensor is not None, "make_qtensor must be set"
         assert self.skip_layer_func is not None, "skip_layer_func must be set"
 

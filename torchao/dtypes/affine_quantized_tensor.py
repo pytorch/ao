@@ -284,7 +284,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data = _layout.post_process(data)
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -316,9 +318,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
         if target_dtype not in FP8_TYPES:
-            assert (
-                zero_point is not None
-            ), "zero_point must be specified for non-fp8 types"
+            assert zero_point is not None, (
+                "zero_point must be specified for non-fp8 types"
+            )
         original_shape = input_float.shape
         input_float, scale, zero_point = _layout.pre_process_static(
             input_float, scale, zero_point, block_size
@@ -335,7 +337,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
         )
 
-        int_data = _layout.post_process(int_data)
+        int_data, scale, zero_point = _layout.post_process(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
@@ -416,9 +423,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
-        assert isinstance(
-            _layout, FloatxTensorCoreLayout
-        ), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
+        assert isinstance(_layout, FloatxTensorCoreLayout), (
+            f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
+        )
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
         # per axis quantization, where axis = 1
@@ -429,7 +436,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
         scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
+        floatx_packed, scale, _ = _layout.post_process(
+            floatx_unpacked, scale, None, block_size
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)

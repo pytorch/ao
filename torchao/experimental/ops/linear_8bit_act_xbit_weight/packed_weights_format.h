@@ -53,10 +53,10 @@ struct PackedWeightsFormat {
   }
 };
 
-template <int weight_nbit>
-void check_format(
+inline void check_format(
     PackedWeightsFormat format,
-    torchao::ops::PackedWeightsType type) {
+    torchao::ops::PackedWeightsType type,
+    int weight_nbit) {
   if (format.type != type) {
     throw std::runtime_error(
         "Kernel expects packed_weights type=" +

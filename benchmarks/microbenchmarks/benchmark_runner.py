@@ -48,9 +48,50 @@ def get_shapes_for_config(
         name = shape_config["name"]
         if name == "custom":
             shapes.extend([(name, shape) for shape in shape_config["shapes"]])
+        elif name == "llama":
+            # LLaMa 2 70B single-node weight shapes
+            # assumes fused attn.wqkv and ffn.w13
+            bsz, seq_len = 4, 4096
+            M = bsz * seq_len
+            llama_shapes = {
+                "attn.wqkv": (M, 8192, 1280),
+                "attn.w0": (M, 1024, 8192),
+                "ffn.w13": (M, 8192, 7168),
+                "ffn.w2": (M, 3584, 8192),
+            }
+            shapes.extend([(f"{name}_{k}", v) for k, v in llama_shapes.items()])
+        elif name == "pow2":
+            # Generate shapes with dimensions that are powers of 2
+            min_power_of_2 = shape_config.get("min_power", 10)  # 1024
+            max_power_of_2 = shape_config.get("max_power", 14)  # 16,384
+            for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
+                val = 2**power_of_2
+                shapes.append((f"{name}_{idx}", [val, val, val]))
+        elif name == "pow2_extended":
+            # Generate shapes with dimensions that are powers of 2 and powers of 2 + half
+            min_power_of_2 = shape_config.get("min_power", 10)  # 1024
+            max_power_of_2 = shape_config.get("max_power", 14)  # 16,384
+            for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
+                val1 = 2**power_of_2
+                val2 = 2**power_of_2 + 2 ** (power_of_2 - 1)
+                shapes.append((f"{name}_{idx * 2}", [val1, val1, val1]))
+                shapes.append((f"{name}_{idx * 2 + 1}", [val2, val2, val2]))
+        elif name == "sweep":
+            # Generate a sweep of shapes with different powers of 2 for M, K, N
+            min_p2 = shape_config.get("min_power", 8)  # 256
+            max_p2 = shape_config.get("max_power", 15)  # 32,768
+            counter = 0
+            for M_p2 in range(min_p2, max_p2 + 1):
+                M = 2**M_p2
+                for K_p2 in range(min_p2, max_p2 + 1):
+                    K = 2**K_p2
+                    for N_p2 in range(min_p2, max_p2 + 1):
+                        N = 2**N_p2
+                        shapes.append((f"{name}_{counter}", [M, K, N]))
+                        counter += 1
         else:
             raise NotImplementedError(
-                f"Shape config {name} not supported. Currently only supports custom shapes."
+                f"Shape config {name} not supported. Supported options: custom, llama, pow2, pow2_extended, sweep."
             )
     return shapes
 
@@ -164,16 +205,19 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
                 f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
             )
             result = run_inference(config)  # Pass the config object directly
-            results.append(result)
-        except Exception:
-            print(f"Error running benchmark {config.name}")
+            if result is not None:  # Only add successful results
+                results.append(result)
+        except Exception as e:
+            print(f"Error running benchmark {config.name} with error: {e}")
             continue
 
-    # Add results to csv
-    generate_results_csv(results, configs[0].output_dir)
-
-    # Print results
-    print_results(results)
+    # Add results to csv if there are any
+    if results:
+        generate_results_csv(results, configs[0].output_dir)
+        # Print results
+        print_results(results)
+    else:
+        print("No benchmark results were collected. All benchmarks failed.")
 
     # TODO: Process results: Speedups:
     # 1. For different shapes for same model and quantization

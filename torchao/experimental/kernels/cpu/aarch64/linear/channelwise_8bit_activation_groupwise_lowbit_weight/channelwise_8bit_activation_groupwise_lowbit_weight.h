@@ -49,15 +49,21 @@ inline size_t packed_activations_offset(
   return (m_idx / mr) * packed_activations_size_mr_rows;
 }
 
-template <int mr, int kr, int sr>
+template <int mr_, int kr_, int sr_>
 void pack_activations(
     void* packed_activations,
     int m,
     int k,
     int group_size,
     const float* activations,
-    bool has_weight_zeros) {
-  activation_packing::pack_activations<mr, kr, sr>(
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
+  activation_packing::pack_activations<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
 }
 
@@ -93,7 +99,7 @@ inline size_t packed_weights_offset(
   return (n_idx / nr) * packed_weights_size_nr_cols;
 }
 
-template <int weight_nbit, int nr, int kr, int sr>
+template <int weight_nbit, int nr_, int kr_, int sr_>
 void pack_weights(
     void* packed_weights,
     int n,
@@ -102,8 +108,14 @@ void pack_weights(
     const int8_t* weight_qvals,
     const float* weight_scales,
     const int8_t* weight_zeros,
-    const float* bias) {
-  weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
+    const float* bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)nr; // unused
+  (void)kr; // unused
+  (void)sr; // unused
+  weight_packing::pack_weights<weight_nbit, nr_, kr_, sr_>(
       packed_weights,
       n,
       k,
@@ -112,6 +124,69 @@ void pack_weights(
       weight_scales,
       weight_zeros,
       bias);
+}
+
+template <int weight_nbit, int nr, int kr, int sr>
+void pack_weights_with_lut(
+    // Output
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qval_idxs,
+    int n_luts,
+    const int8_t* luts,
+    const float* weight_scales,
+    // weight_zeros not packed if nullptr
+    const int8_t* weight_zeros,
+    // bias not packed if nullptr
+    const float* bias) {
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          pack_weights_with_lut<weight_nbit, nr, kr, sr>(
+              packed_weights,
+              n,
+              k,
+              group_size,
+              weight_qval_idxs,
+              n_luts,
+              luts,
+              weight_scales,
+              weight_zeros,
+              bias);
+}
+
+inline size_t packed_weights_with_lut_size(
+    int n,
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    int nr,
+    int kr,
+    int sr) {
+  (void)kr; // unused
+  (void)sr; // unused
+  return weight_packing::packed_weights_with_lut_size(
+      n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr);
+}
+
+inline size_t packed_weights_with_lut_offset(
+    int n_idx,
+    int k,
+    int group_size,
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_bias,
+    int nr,
+    int kr,
+    int sr) {
+  assert(n_idx % nr == 0);
+  auto packed_weights_size_nr_cols = packed_weights_with_lut_size(
+      nr, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr);
+  return (n_idx / nr) * packed_weights_size_nr_cols;
 }
 
 template <int weight_nbit>
@@ -182,7 +257,7 @@ void kernel_1x4x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -197,10 +272,11 @@ void kernel_1x8x16_f32_neondot(
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max,
-    bool has_weight_zeros,
+    bool has_weight_zeros_,
     bool has_bias,
     bool has_clamp) {
-  kernel::kernel_1x8x16_f32_neondot<weight_nbit>(
+  (void)has_weight_zeros_; // unused
+  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
       output,
       output_m_stride,
       m,
@@ -211,7 +287,6 @@ void kernel_1x8x16_f32_neondot(
       packed_activations,
       clamp_min,
       clamp_max,
-      has_weight_zeros,
       has_bias,
       has_clamp);
 }

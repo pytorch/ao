@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 from typing import Optional
 
 import torch
@@ -41,7 +42,6 @@ class ProxBinaryRelax(ProxMap):
 
         if step_count >= self.anneal_end:
             p.copy_(q)
-            return
         else:
             # linear annealing of relaxation coefficient
             theta = (step_count - self.anneal_start) / (

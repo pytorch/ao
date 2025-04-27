@@ -236,7 +236,6 @@ def to_mx(
         # Calculate the scale for different modes
         max_abs_int32 = (max_abs + eps).view(hp_int_dtype)
         extracted_pow2 = ((max_abs_int32 >> hp_mbits) & 0b11111111) - hp_exp_bias
-        extracted_pow2 = extracted_pow2.to(data_hp.dtype)
 
         if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
             scale_e8m0_unbiased = extracted_pow2 - target_max_pow2
@@ -467,65 +466,6 @@ def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
     return new_size
 
 
-@torch._dynamo.allow_in_graph
-class ToMXConstrFunc(torch.autograd.Function):
-    """
-    Differentiable cast to MX, no-op in backward
-    """
-
-    @staticmethod
-    def forward(
-        ctx,
-        data_hp,
-        elem_dtype,
-        block_size,
-        scaling_mode,
-        use_fp4_custom_triton_dequant_kernel,
-        gemm_kernel_choice,
-        pack_fp6,
-    ):
-        scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6=pack_fp6
-        )
-        return MXTensor(
-            scale_e8m0_biased,
-            data_lp,
-            elem_dtype,
-            block_size,
-            data_hp.dtype,
-            use_fp4_custom_triton_dequant_kernel,
-            gemm_kernel_choice,
-            pack_fp6,
-        )
-
-    @staticmethod
-    def backward(ctx, g):
-        return g, None, None, None, None, None, None
-
-
-@torch._dynamo.allow_in_graph
-class FromMXConstrFunc(torch.autograd.Function):
-    """
-    Differentiable cast from MX, no-op in backward
-    """
-
-    @staticmethod
-    def forward(ctx, tensor_lp, target_dtype):
-        return to_dtype(
-            tensor_lp._data,
-            tensor_lp._scale_e8m0,
-            tensor_lp._elem_dtype,
-            tensor_lp._block_size,
-            target_dtype,
-            tensor_lp._use_fp4_custom_triton_dequant_kernel,
-            tensor_lp._pack_fp6,
-        )
-
-    @staticmethod
-    def backward(ctx, g):
-        return g, None, None
-
-
 class MXTensor(torch.Tensor):
     def __new__(
         cls,
@@ -564,9 +504,9 @@ class MXTensor(torch.Tensor):
             dtype=orig_dtype,
             device=data_bits.device,
         )
-        assert (
-            scale_e8m0_bits.dtype == torch.float8_e8m0fnu
-        ), f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
+        assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
+            f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
+        )
         assert len(scale_e8m0_bits.shape) == 1, "unsupported"
         assert data_bits.dtype in (
             torch.float8_e4m3fn,
@@ -594,9 +534,9 @@ class MXTensor(torch.Tensor):
         ):
             # this check is sometimes broken for FakeTensor
             # TODO investigate
-            assert (
-                target_numel == data_bits.numel()
-            ), f"{target_numel} != {data_bits.numel()}"
+            assert target_numel == data_bits.numel(), (
+                f"{target_numel} != {data_bits.numel()}"
+            )
 
         # `_scale_e8m0` has rank 1 and applies to a row-major memory layout of
         # `_data`
@@ -627,7 +567,15 @@ class MXTensor(torch.Tensor):
         raise NotImplementedError(f"{func} not implemented")
 
     def to_dtype(self, target_dtype):
-        return FromMXConstrFunc.apply(self, target_dtype)
+        return to_dtype(
+            self._data,
+            self._scale_e8m0,
+            self._elem_dtype,
+            self._block_size,
+            target_dtype,
+            self._use_fp4_custom_triton_dequant_kernel,
+            self._pack_fp6,
+        )
 
     @staticmethod
     @torch._dynamo.allow_in_graph
@@ -640,11 +588,15 @@ class MXTensor(torch.Tensor):
         gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
         pack_fp6: bool = False,
     ):
-        return ToMXConstrFunc.apply(
-            data_hp,
+        scale_e8m0_biased, data_lp = to_mx(
+            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6
+        )
+        return MXTensor(
+            scale_e8m0_biased,
+            data_lp,
             elem_dtype,
             block_size,
-            scaling_mode,
+            data_hp.dtype,
             use_fp4_custom_triton_dequant_kernel,
             gemm_kernel_choice,
             pack_fp6,

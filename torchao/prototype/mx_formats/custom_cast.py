@@ -14,7 +14,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_7
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -1087,7 +1087,7 @@ else:
         raise AssertionError("fp6 packing unsupported without torch >= 2.4")
 
 
-if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
+if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -1126,7 +1126,9 @@ if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
         scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
         scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
-        # TODO(future PR): add NaN handling here
+        # TODO(future PR): add NaN handling here,
+        # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
+        # get proper NaN propagation working
 
         # Calculate the scale in floating point.
         scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(

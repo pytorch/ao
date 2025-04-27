@@ -9,9 +9,11 @@
 torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training.
 
 From the team that brought you the fast series
-* 9.5x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
-* 10x speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
-* 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+* 9.5x inference speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
+* 10x inference speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
+* 3x inference speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+
+torchao works for training too, with [up to 1.5x e2e speedups](https://pytorch.org/blog/training-using-float8-fsdp2/) on large scale (512 GPU / 405B parameter count) pretraining jobs with `torchao.float8`!
 
 torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models on Huggingface out of the box.
 
@@ -19,13 +21,13 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model.
 
-For inference, we have the option of
-1. Quantize only the weights: works best for memory bound models
-2. Quantize the weights and activations: works best for compute bound models
-2. Quantize the activations and weights and sparsify the weight
+There are 2 methods of post-training quantization, shown in the code snippets below:
+1. Using torchao APIs directly.
+2. Loading a huggingface model with a quantization config.
 
+#### Quantizing for inference with torchao APIs
 ```python
 from torchao.quantization.quant_api import (
     quantize_,
@@ -35,6 +37,17 @@ from torchao.quantization.quant_api import (
 )
 quantize_(m, Int4WeightOnlyConfig())
 ```
+
+You can find a more comprehensive usage instructions for quantization [here](torchao/quantization/) and for sparsity [here](/torchao/_models/sam/README.md).
+
+#### Quantizing for inference with huggingface configs
+
+See [docs](https://huggingface.co/docs/transformers/main/en/quantization/torchao) for more details.
+
+For inference, we have the option of
+1. Quantize only the weights: works best for memory bound models
+2. Quantize the weights and activations: works best for compute bound models
+2. Quantize the activations and weights and sparsify the weight
 
 For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
 
@@ -47,6 +60,22 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 ```
 
 We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
+
+### Evaluation
+
+You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
+quantized with post training quantization, by following these steps:
+
+1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
+2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
+3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
+4. Run an evaluation. Example:
+
+```bash
+lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
+```
+
+Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
 
 ### KV Cache Quantization
 
@@ -90,14 +119,20 @@ quantize_(my_model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 
 [torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
 
-With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on 128 H100 GPU LLaMa 3 70B pretraining jobs** ([details](https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359))
+With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on up to 512 GPU / 405B parameter count scale** ([details](https://pytorch.org/blog/training-using-float8-fsdp2/))
 
 ```python
 from torchao.float8 import convert_to_float8_training
 convert_to_float8_training(m, module_filter_fn=...)
 ```
 
-And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md)
+And for an end-to-minimal training recipe of pretraining with float8, you can check out [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md).
+
+#### Blog posts about float8 training
+
+* [Supercharging Training using float8 and FSDP2](https://pytorch.org/blog/training-using-float8-fsdp2/)
+* [Efficient Pre-training of Llama 3-like model architectures using torchtitan on Amazon SageMaker](https://aws.amazon.com/blogs/machine-learning/efficient-pre-training-of-llama-3-like-model-architectures-using-torchtitan-on-amazon-sagemaker/)
+* [Float8 in PyTorch](https://dev-discuss.pytorch.org/t/float8-in-pytorch-1-x/1815)
 
 
 ### Sparse Training

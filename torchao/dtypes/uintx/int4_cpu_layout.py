@@ -112,25 +112,25 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         assert isinstance(_layout, Int4CPULayout)
 
         if TORCH_VERSION_AT_LEAST_2_6:
-            assert (
-                int_data.dtype == torch.int32
-            ), "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+            assert int_data.dtype == torch.int32, (
+                "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
+            )
             packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                 int_data,
                 1,  # TODO:remove
             )
         elif TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert (
-                int_data.dtype == torch.uint8
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            assert int_data.dtype == torch.uint8, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            )
             packed_weight = torch.ops.aten._convert_weight_to_int4pack(
                 int_data, _layout.inner_k_tiles
             )
         else:
-            assert (
-                int_data.dtype == torch.int32
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            assert int_data.dtype == torch.int32, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            )
             packed_weight = torch.ops.aten._convert_weight_to_int4pack(
                 int_data, _layout.inner_k_tiles
             )
@@ -192,16 +192,9 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim == 0:
-                int_data, scale, zero_point = self.get_plain()
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                # this is to handle padding
-                int_data = self._layout.post_process(int_data)
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return return_and_correct_aliasing(func, args, kwargs, sliced)
-            elif dim == 1:
-                int_data, scale, zero_point = self.get_plain()
+            if dim in [0, 1]:
                 assert step == 1, "Only step == 1 is supported in slicing right now"
+                int_data, scale, zero_point = self.get_plain()
                 data_len = int_data.shape[dim]
                 scale_len = scale.shape[dim]
                 ratio = data_len / scale_len
@@ -209,14 +202,16 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 end_scale = int(end / ratio)
 
                 int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                # this is to handle padding
-                int_data = self._layout.post_process(int_data)
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
                 zero_point = aten.slice.Tensor(
                     zero_point, dim, start_scale, end_scale, step
                 )
+                # this is to handle padding
+                int_data, scale, zero_point = self._layout.post_process(
+                    int_data, scale, zero_point, self.block_size
+                )
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return sliced
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
                     f"Int4CPUAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
@@ -227,6 +222,18 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @property
+    def block_size(self):
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+
+        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
+        cur_shape = self.shape
+        assert len(cur_shape) == 4
+        inner_k_tiles = cur_shape[-1] * 2
+        original_shape = (cur_shape[0] * 8, cur_shape[1] * (inner_k_tiles * 16))
+        groupsize = int(original_shape[1] / scale.shape[-2])
+        return (1, groupsize)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         from torchao.quantization.quant_primitives import (
@@ -307,15 +314,15 @@ def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
-    assert (
-        TORCH_VERSION_AT_LEAST_2_6
-    ), f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
-    assert is_device(
-        input_tensor.device.type, "cpu"
-    ), f"For CPU device only but got: {input_tensor.device}"
-    assert (
-        weight_tensor.block_size[0] == 1
-    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert TORCH_VERSION_AT_LEAST_2_6, (
+        f"Requires PyTorch version at least 2.6, but got: {torch.__version__}"
+    )
+    assert is_device(input_tensor.device.type, "cpu"), (
+        f"For CPU device only but got: {input_tensor.device}"
+    )
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "

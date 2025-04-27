@@ -3,8 +3,20 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 import torch
 from torch import Tensor
+
+try:
+    from torch.distributed.tensor import DTensor
+
+    HAS_DTENSOR = True
+except ImportError:
+    HAS_DTENSOR = False
+
+
+def is_dtensor(x):
+    return HAS_DTENSOR and isinstance(x, DTensor)
 
 
 def channel_bucketize(input: Tensor, boundaries: Tensor, right: bool = False) -> Tensor:
@@ -18,4 +30,4 @@ def channel_bucketize(input: Tensor, boundaries: Tensor, right: bool = False) ->
     boundaries = boundaries.unsqueeze(1)
     input = input.unsqueeze(-1)
     mask = input.ge(boundaries) if right else input.le(boundaries)
-    return mask.int().argmax(dim=-1)
+    return mask.to(torch.uint8).argmax(dim=-1)
