@@ -70,11 +70,12 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
     def forward(
         ctx,
         input_hp: torch.Tensor,
+        input_hp_col_major: torch.Tensor,
         weight_hp_t: torch.Tensor,
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
     ):
-        ctx.save_for_backward(input_hp, weight_hp_t)
+        ctx.save_for_backward(input_hp, input_hp_col_major, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
@@ -124,7 +125,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input_hp, weight_hp_t = ctx.saved_tensors
+        input_hp, input_hp_col_major, weight_hp_t = ctx.saved_tensors
+
         c = ctx.config
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -223,32 +225,38 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        if tensor_already_casted_to_fp8(input_hp_reshaped):
-            # TODO(future PR): var name is axiswise specific, fix it
-            input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
-        elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
-            input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+        # with all-gather using float8 rowwise scales we will receive row-major and col-major
+        # float8 input tensors. for grad_weight = grad_output_t @ input, we'll need 
+        if input_hp_col_major is not None and tensor_already_casted_to_fp8(input_hp_col_major):
+            input_hp_col_major_orig_shape = input_hp_col_major.shape
+            input_hp_col_major = input_hp_col_major.reshape(-1, input_hp_col_major_orig_shape[-1])
+            input_reshaped_maybe_fp8_dim1 = input_hp_col_major 
         else:
-            input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
-                input_hp_reshaped,
-                c.cast_config_input_for_grad_weight.target_dtype,
-                ctx.linear_mm_config,
-                gemm_input_role=GemmInputRole.INPUT,
-                scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
-                axiswise_dim=get_maybe_axiswise_dim(
-                    0, c.cast_config_input_for_grad_weight.scaling_granularity
-                ),
-                round_scales_to_power_of_2=c.round_scales_to_power_of_2,
-            )
+            if tensor_already_casted_to_fp8(input_hp_reshaped):
+                # TODO(future PR): var name is axiswise specific, fix it
+                input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+            elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
+                input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+            else:
+                input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
+                    input_hp_reshaped,
+                    c.cast_config_input_for_grad_weight.target_dtype,
+                    ctx.linear_mm_config,
+                    gemm_input_role=GemmInputRole.INPUT,
+                    scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
+                    axiswise_dim=get_maybe_axiswise_dim(
+                        0, c.cast_config_input_for_grad_weight.scaling_granularity
+                    ),
+                    round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                )
 
         grad_weight = torch.mm(
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
 
-        empty_grads = None, None
 
-        return grad_input, grad_weight.t(), *empty_grads
+        return grad_input, None, grad_weight.t(), None, None
 
 
 class Float8Linear(torch.nn.Linear):
@@ -299,14 +307,14 @@ class Float8Linear(torch.nn.Linear):
             ),
         )
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_row_major: torch.Tensor, input_col_major: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
         if torch.is_autocast_enabled():
             # For now, hardcode to GPU's autocast dtype
             # if we need CPU support in the future, we can add it
             autocast_dtype = torch.get_autocast_gpu_dtype()
-            input = input.to(autocast_dtype)
+            input_row_major = input_row_major.to(autocast_dtype)
 
         has_any_axiswise_scaling = any(
             cc.scaling_granularity is ScalingGranularity.AXISWISE
@@ -350,7 +358,8 @@ class Float8Linear(torch.nn.Linear):
             weight_maybe_fp8_t = weight_fp8_t
 
         output = matmul_with_hp_or_float8_args.apply(
-            input,
+            input_row_major,
+            input_col_major,
             weight_maybe_fp8_t,
             self.linear_mm_config,
             self.config,
