@@ -37,10 +37,17 @@ from torch.testing._internal.common_utils import (
 from torch.testing._internal.inductor_utils import (
     HAS_CPU,
     _check_has_dynamic_shape,
-    clone_preserve_strides_offset,
 )
 
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_6,
+)
 from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
+
+if TORCH_VERSION_AT_LEAST_2_6:
+    from torch.testing._internal.common_utils import TEST_ACL
+else:
+    TEST_ACL = False
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -173,10 +180,6 @@ class TestPatternMatcherBase(TestCase):
             device = self.device
 
         mod = mod.to(device=device)
-        if device != "cpu":
-            inputs = tuple(
-                clone_preserve_strides_offset(x, device=device) for x in inputs
-            )
         counters.clear()
         torch._dynamo.reset()
         if check_autocast == torch.bfloat16 and (
