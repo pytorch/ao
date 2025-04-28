@@ -17,7 +17,7 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.subgraph_rewriter import ReplacedPatterns, replace_pattern_with_filters
 
-from torchao.quantization.pt2e.export_utils import _WrapperModule
+from torchao.quantization.pt2e.export_utils import WrapperModule
 from torchao.quantization.pt2e.quantizer import (
     DerivedQuantizationSpec,
     EdgeOrNode,
@@ -82,7 +82,7 @@ def _get_conv_bn_pattern(conv_fn: Callable) -> Callable:
         )
         return x
 
-    return _WrapperModule(_conv_bn_pattern)
+    return WrapperModule(_conv_bn_pattern)
 
 
 # TODO: merge this with the `no_conv_bias` case
@@ -126,7 +126,7 @@ def _get_qat_conv_bn_pattern(conv_fn: Callable) -> Callable:
         )
         return x
 
-    return _WrapperModule(_qat_conv_bn_pattern)
+    return WrapperModule(_qat_conv_bn_pattern)
 
 
 def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable) -> Callable:
@@ -166,7 +166,7 @@ def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable) -> Callable:
         )
         return x
 
-    return _WrapperModule(_qat_conv_bn_pattern_no_conv_bias)
+    return WrapperModule(_qat_conv_bn_pattern_no_conv_bias)
 
 
 def _append_qdq(x, is_per_channel, is_bias, kwargs):
@@ -262,7 +262,7 @@ def _get_quantized_qat_conv_bn_pattern(
         )
         return x
 
-    return _WrapperModule(_quantized_qat_conv_bn_pattern)
+    return WrapperModule(_quantized_qat_conv_bn_pattern)
 
 
 def _get_folded_quantized_qat_conv_bn_pattern(
@@ -316,7 +316,7 @@ def _get_folded_quantized_qat_conv_bn_pattern(
         )
         return x
 
-    return _WrapperModule(_folded_quantized_qat_conv_bn_pattern)
+    return WrapperModule(_folded_quantized_qat_conv_bn_pattern)
 
 
 def _has_conv_bias_filter(

@@ -3,7 +3,6 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -216,8 +215,10 @@ class TestUtils(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             generate_results_csv(results, tmp_dir)
-            csv_path = os.path.join(tmp_dir, "results.csv")
-            self.assertTrue(os.path.exists(csv_path))
+
+            # Check if any CSV file with the timestamp-based naming pattern was created
+            csv_files = list(Path(tmp_dir).glob("results_*.csv"))
+            self.assertTrue(len(csv_files) > 0, "No results CSV file was created")
 
     def test_clean_caches(self):
         # Just test that it runs without error

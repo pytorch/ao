@@ -26,6 +26,7 @@ from torchao.quantization.quant_api import (
     MappingType,
     quantize_,
 )
+from torchao.quantization.utils import compute_error
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -360,7 +361,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         expected_lines = [
-            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
+            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float32, torch.int8)",
             "torch.ops.torchao.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default",
@@ -475,7 +476,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             ),
         )
         with torch.no_grad():
-            torch.allclose(model(activations), model_copy(activations))
+            sqnr = compute_error(model(activations), model_copy(activations)).item()
+            self.assertTrue(sqnr == float("inf"))
 
     @parameterized.expand(
         [
@@ -492,7 +494,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             for mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
             for act_mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32, torch.bfloat16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
@@ -508,11 +510,6 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         # TODO: the QAT logic for asymmetric mapping is very different from PTQ, so we don't test that case here
         # Unify the two?
         if mapping_type == MappingType.ASYMMETRIC:
-            return
-
-        # TODO: QAT logic for non-float32 models does not match PTQ right now
-        # QAT's default scale-precision is float32, but PTQ's is None (which defaults to input's dtype)
-        if model_dtype != torch.float32:
             return
 
         assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
@@ -550,7 +547,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
         )
         try:
-            expected_out = model(activations)
+            prepared_out = model(activations)
         except NotImplementedError as e:
             # QAT does not support act_mapping_type == MappingType.SYMMETRIC yet
             if act_mapping_type == MappingType.SYMMETRIC:
@@ -568,8 +565,10 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 act_mapping_type=act_mapping_type,
             ),
         )
-        actual_out = model(activations)
-        self.assertTrue(torch.allclose(expected_out, actual_out))
+        converted_out = model(activations)
+
+        sqnr = compute_error(prepared_out, converted_out).item()
+        self.assertTrue(sqnr == float("inf"))
 
     @parameterized.expand(
         [
@@ -580,20 +579,13 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             )
             for group_size in [32, 64, 128]
             for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32, torch.bfloat16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
         name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
     )
     def test_identical_to_Int8DynActInt4WeightQATQuantizer(
         self, group_size, scale_dtype, model_dtype
     ):
-        # Currently this does not match
-        # TODO: investigat
-        if scale_dtype != torch.float32:
-            return
-        if model_dtype != torch.float32:
-            return
-
         k0 = 512
         k1 = 256
         layers = [
@@ -611,9 +603,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
             groupsize=group_size, precision=model_dtype, scales_precision=scale_dtype
         )
         model = qat_quantizer.prepare(model)
-        expected_out = model(activations)
-
         prepared_model_copy = copy.deepcopy(model)
+
+        prepared_out = model(activations)
 
         # Convert model method 1
         quantize_(model, FromIntXQuantizationAwareTrainingConfig())
@@ -627,13 +619,15 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 act_mapping_type=MappingType.ASYMMETRIC,
             ),
         )
-        actual_out1 = model(activations)
-        self.assertTrue(torch.allclose(expected_out, actual_out1))
+        converted_out1 = model(activations)
+        sqnr1 = compute_error(prepared_out, converted_out1).item()
+        self.assertTrue(sqnr1 == float("inf"))
 
         # Convert model method 2
         qat_quantizer.convert(prepared_model_copy)
-        actual_out2 = prepared_model_copy(activations)
-        self.assertTrue(torch.allclose(expected_out, actual_out2))
+        converted_out2 = prepared_model_copy(activations)
+        sqnr2 = compute_error(prepared_out, converted_out2).item()
+        self.assertTrue(sqnr2 == float("inf"))
 
 
 if __name__ == "__main__":
