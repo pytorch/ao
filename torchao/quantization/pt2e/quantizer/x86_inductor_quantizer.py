@@ -38,9 +38,9 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
     SharedQuantizationSpec,
-    _get_module_name_filter,
     get_bias_qspec,
     get_input_act_qspec,
+    get_module_name_filter,
     get_output_act_qspec,
     get_weight_qspec,
 )
@@ -131,7 +131,7 @@ def _create_module_name_filter(module_name: str) -> FilterFn:
     # True  # These two nodes are determined by `_annotate_linear_unary` function and from "sub".
     """
 
-    filter_fn = _get_module_name_filter(module_name)
+    filter_fn = get_module_name_filter(module_name)
 
     def check_all_nodes_from_module(nodes: list[Node]) -> bool:
         all_nodes_from_module_name: bool = all(filter_fn(n) for n in nodes)

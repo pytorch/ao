@@ -1030,6 +1030,18 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.emb.weight._layout, QDQLayout)
         assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_skip(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config = AOPerModuleConfig({"_default": config1, "linear2": None})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
+
 
 class TestMultiTensorFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
