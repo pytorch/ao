@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -79,7 +80,7 @@ class BenchmarkConfig:
         )
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
-        self.output_dir = output_dir
+        self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
@@ -89,10 +90,7 @@ class BenchmarkConfig:
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
-        file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
-        self.profiler_file_name = os.path.join(
-            profiler_dir, f"{file_name}_profile.json"
-        )
+        self._file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -251,9 +249,9 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        assert (
-            high_precision_dtype == torch.float32
-        ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        assert high_precision_dtype == torch.float32, (
+            "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        )
 
         from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
         from torchao.quantization.granularity import PerAxis, PerGroup
@@ -338,7 +336,7 @@ def clean_caches():
 def generate_results_csv(
     results: List[BenchmarkResult],
     output_dir: str,
-    file_name: str = "results.csv",
+    file_name: Optional[str] = None,
 ):
     """Generate a CSV file with the results of the benchmarking.
 
@@ -354,6 +352,10 @@ def generate_results_csv(
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    # Generate the filename with the current date and time in the specified format
+    if file_name is None:
+        file_name = datetime.now().strftime("results_%d%m%Y_%H%M%S.csv")
+
     file_path = os.path.join(output_dir, file_name)
 
     # Create a CSV file with the results

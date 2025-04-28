@@ -30,11 +30,12 @@ python -m benchmarks.microbenchmarks.benchmark_runner --config path/to/config.ym
 
 ```yaml
 # Sample configuration for inference benchmarks
+benchmark_mode: "inference"
 quantization_config_recipe_names:
   - "baseline"
   - "int8wo"
-  - "int4wo-128"
-  - "int4wo-128-hqq"
+  - "float8wo"
+  - "float8dq-tensor"
 
 output_dir: "benchmarks/microbenchmarks/results"
 
