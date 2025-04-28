@@ -23,7 +23,7 @@ from torchao.dtypes.utils import (
 )
 from torchao.quantization import (
     MappingType,
-    choose_qparams_affine,
+    choose_qparams_affine_int,
     dequantize_affine,
     quantize_affine,
 )
@@ -154,7 +154,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
         dtype = torch.int16
-        scale, zero_point = choose_qparams_affine(
+        scale, zero_point = choose_qparams_affine_int(
             input_float, mapping_type, block_size, dtype
         )
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)

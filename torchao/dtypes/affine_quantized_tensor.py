@@ -18,8 +18,10 @@ from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
     ZeroPointDomain,
-    choose_qparams_affine,
+    choose_qparams_affine_float,
     choose_qparams_affine_floatx,
+    choose_qparams_affine_int,
+    choose_qparams_affine_none,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_floatx,
@@ -256,19 +258,42 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             data = data.to(target_dtype)
         else:
-            scale, zero_point = choose_qparams_affine(
-                input_float,
-                mapping_type,
-                block_size,
-                target_dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype,
-                zero_point_dtype,
-                preserve_zero,
-                zero_point_domain,
-            )
+            if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
+                scale, zero_point = choose_qparams_affine_float(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
+            elif zero_point_domain == ZeroPointDomain.NONE and preserve_zero:
+                scale, zero_point = choose_qparams_affine_none(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
+            else:  # Default case: zero_point_domain == ZeroPointDomain.INT and preserve_zero
+                scale, zero_point = choose_qparams_affine_int(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None

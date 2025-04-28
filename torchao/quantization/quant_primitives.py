@@ -795,6 +795,148 @@ def choose_qparams_affine(
     )
 
 
+@torch.no_grad()
+def choose_qparams_affine_int(
+    input: torch.Tensor,
+    mapping_type: MappingType,
+    block_size: Tuple[int, ...],
+    target_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    eps: Optional[float] = None,
+    scale_dtype: Optional[torch.dtype] = None,
+    zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Specialized version of choose_qparams_affine with zero_point_domain=ZeroPointDomain.INT and preserve_zero=True.
+
+    This is the default case used in most quantization scenarios where zero point is in integer domain
+    and zero needs to be exactly representable.
+
+    Args:
+        input (torch.Tensor): fp32, bf16, fp16 input Tensor
+        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        target_dtype (torch.dtype): dtype for target quantized Tensor
+        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
+        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
+        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
+        scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+
+    Output:
+        Tuple of scales and zero_points Tensor with requested dtype
+    """
+    return _choose_qparams_affine(
+        input,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        True,  # preserve_zero=True
+        ZeroPointDomain.INT.name,
+    )
+
+
+@torch.no_grad()
+def choose_qparams_affine_float(
+    input: torch.Tensor,
+    mapping_type: MappingType,
+    block_size: Tuple[int, ...],
+    target_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    eps: Optional[float] = None,
+    scale_dtype: Optional[torch.dtype] = None,
+    zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Specialized version of choose_qparams_affine with zero_point_domain=ZeroPointDomain.FLOAT and preserve_zero=False.
+
+    This is used for tinygemm int4mm kernel where zero point is in floating point domain
+    and zero does not have to be exactly representable.
+
+    Args:
+        input (torch.Tensor): fp32, bf16, fp16 input Tensor
+        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        target_dtype (torch.dtype): dtype for target quantized Tensor
+        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
+        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
+        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
+        scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+
+    Output:
+        Tuple of scales and zero_points Tensor with requested dtype
+    """
+    return _choose_qparams_affine(
+        input,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        False,  # preserve_zero=False
+        ZeroPointDomain.FLOAT.name,
+    )
+
+
+@torch.no_grad()
+def choose_qparams_affine_none(
+    input: torch.Tensor,
+    mapping_type: MappingType,
+    block_size: Tuple[int, ...],
+    target_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    eps: Optional[float] = None,
+    scale_dtype: Optional[torch.dtype] = None,
+    zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Specialized version of choose_qparams_affine with zero_point_domain=ZeroPointDomain.NONE and preserve_zero=True.
+
+    This is used for quantization scenarios where no zero point is needed, such as in certain
+    symmetric quantization schemes.
+
+    Args:
+        input (torch.Tensor): fp32, bf16, fp16 input Tensor
+        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        target_dtype (torch.dtype): dtype for target quantized Tensor
+        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
+        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
+        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
+        scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+
+    Output:
+        Tuple of scales and zero_points Tensor with requested dtype. zero_points will be None.
+    """
+    scale, _ = _choose_qparams_affine(
+        input,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        True,  # preserve_zero=True
+        ZeroPointDomain.NONE.name,
+    )
+    return scale, None
+
+
 def choose_qparams_affine_with_min_max(
     min_val: torch.Tensor,
     max_val: torch.Tensor,

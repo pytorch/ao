@@ -15,7 +15,9 @@ from torchao.kernel import (
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
-    choose_qparams_affine,
+    choose_qparams_affine_float,
+    choose_qparams_affine_int,
+    choose_qparams_affine_none,
     dequantize_affine,
     quantize_affine,
 )
@@ -159,7 +161,7 @@ def quantize_activation_per_token_absmax(t):
     quant_max = 127
     scale_dtype = torch.float32 if t.dtype == torch.float16 else None
 
-    scale, zero_point = choose_qparams_affine(
+    scale, zero_point = choose_qparams_affine_int(
         t,
         mapping_type,
         block_size,
@@ -272,7 +274,7 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     zero_point_dtype = torch.int64
 
     mapping_type = MappingType.SYMMETRIC
-    scale, zero_point = choose_qparams_affine(
+    scale, zero_point = choose_qparams_affine_int(
         x,
         mapping_type,
         block_size,
@@ -343,19 +345,42 @@ def get_groupwise_affine_qparams(
         dtype if zero_point_domain != ZeroPointDomain.INT else torch.int32
     )
 
-    scale, zero_point = choose_qparams_affine(
-        w,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min,
-        quant_max,
-        eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-        preserve_zero=preserve_zero,
-        zero_point_domain=zero_point_domain,
-    )
+    if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
+        scale, zero_point = choose_qparams_affine_float(
+            w,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    elif zero_point_domain == ZeroPointDomain.NONE and preserve_zero:
+        scale, zero_point = choose_qparams_affine_none(
+            w,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:  # Default case: zero_point_domain == ZeroPointDomain.INT and preserve_zero
+        scale, zero_point = choose_qparams_affine_int(
+            w,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
         dtype=zero_point_dtype
@@ -546,7 +571,7 @@ def get_group_qparams_symmetric(
     for i in range(2, 9):
         ranges[i] = (-(2 ** (i - 1)), 2 ** (i - 1) - 1)
     quant_min, quant_max = ranges[n_bit]
-    scale, zero_point = choose_qparams_affine(
+    scale, zero_point = choose_qparams_affine_int(
         w,
         mapping_type,
         block_size,
@@ -598,7 +623,7 @@ def per_token_dynamic_quant(
     quant_dtype = torch.int8
     output_dtype = input.dtype
 
-    scales, zero_points = choose_qparams_affine(
+    scales, zero_points = choose_qparams_affine_int(
         input,
         mapping_type,
         block_size,
