@@ -227,7 +227,7 @@ def generate_memory_profile(model, input_data, profile_file_path):
             except ValueError as e:
                 import time
 
-                print(f"Attempt {i+1}/5: {e}, retrying...")
+                print(f"Attempt {i + 1}/5: {e}, retrying...")
                 time.sleep(3.0)
 
         # If all attempts failed, create a minimal valid JSON file for testing
@@ -328,10 +328,10 @@ def visualize_memory_profile(profile_file_path):
                 <h1>Memory Profile Visualization</h1>
                 <div class="section">
                     <h2>Model Information</h2>
-                    <p>Name: {data.get('model_info', {}).get('name', 'Unknown')}</p>
-                    <p>Device: {data.get('model_info', {}).get('device', 'Unknown')}</p>
-                    <p>Parameters: {data.get('model_info', {}).get('num_parameters', 'Unknown')}</p>
-                    <p>Timestamp: {data.get('timestamp', 'Unknown')}</p>
+                    <p>Name: {data.get("model_info", {}).get("name", "Unknown")}</p>
+                    <p>Device: {data.get("model_info", {}).get("device", "Unknown")}</p>
+                    <p>Parameters: {data.get("model_info", {}).get("num_parameters", "Unknown")}</p>
+                    <p>Timestamp: {data.get("timestamp", "Unknown")}</p>
                 </div>
                 <div class="section">
                     <h2>Memory Usage</h2>
@@ -344,7 +344,7 @@ def visualize_memory_profile(profile_file_path):
             for i, block in enumerate(before_blocks):
                 size_mb = block.get("size", 0) / (1024 * 1024)
                 html_content += (
-                    f'<div class="block">Block {i+1}: {size_mb:.2f} MB</div>\n'
+                    f'<div class="block">Block {i + 1}: {size_mb:.2f} MB</div>\n'
                 )
 
             html_content += """
@@ -358,7 +358,7 @@ def visualize_memory_profile(profile_file_path):
             for i, block in enumerate(after_blocks):
                 size_mb = block.get("size", 0) / (1024 * 1024)
                 html_content += (
-                    f'<div class="block">Block {i+1}: {size_mb:.2f} MB</div>\n'
+                    f'<div class="block">Block {i + 1}: {size_mb:.2f} MB</div>\n'
                 )
 
             html_content += """
