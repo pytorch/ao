@@ -15,7 +15,7 @@ import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
 from torch._dynamo import config as dynamo_config
 from torch._dynamo.utils import counters
 from torch._inductor import config
-from torch._inductor.test_case import run_tests, TestCase
+from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
 from torch.ao.quantization.quantizer.x86_inductor_quantizer import X86InductorQuantizer
 from torch.testing._internal.common_quantization import (
@@ -25,22 +25,22 @@ from torch.testing._internal.common_quantization import (
     skipIfNoONEDNNBF16,
 )
 from torch.testing._internal.common_utils import (
-    instantiate_parametrized_tests,
     IS_FBCODE,
     IS_LINUX,
     IS_X86,
+    TEST_ACL,
+    instantiate_parametrized_tests,
     parametrize,
     skipIfRocm,
-    TEST_ACL,
     xfailIfACL,
 )
 from torch.testing._internal.inductor_utils import (
+    HAS_CPU,
     _check_has_dynamic_shape,
     clone_preserve_strides_offset,
-    HAS_CPU,
 )
-from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 
+from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {

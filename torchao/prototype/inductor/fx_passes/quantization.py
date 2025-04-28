@@ -3,24 +3,20 @@
 import copy
 import functools
 import itertools
-import math
-import operator
 from typing import Any
 
 import torch
 from torch._dynamo.utils import counters
-from torch.fx.experimental.symbolic_shapes import has_free_symbols
-from torch.fx.node import map_arg
-
+from torch._inductor.fx_passes.freezing_patterns import register_freezing_graph_pattern
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
-    filter_nodes,
     KeywordArg,
     Match,
+    filter_nodes,
 )
-from torch._inductor.fx_passes.freezing_patterns import register_freezing_graph_pattern
-
+from torch.fx.experimental.symbolic_shapes import has_free_symbols
+from torch.fx.node import map_arg
 
 aten = torch.ops.aten
 prims = torch.ops.prims
@@ -2421,6 +2417,8 @@ def _register_qlinear_post_op_fusion_pass(
 def _register_qlinear_unary_fusion():
     from torch._inductor.fx_passes.mkldnn_fusion import (
         _gelu_fusion_1 as _gelu_fusion_erf,
+    )
+    from torch._inductor.fx_passes.mkldnn_fusion import (
         _gelu_fusion_2 as _gelu_fusion_tanh,
     )
 

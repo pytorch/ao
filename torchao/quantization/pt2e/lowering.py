@@ -4,10 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Optional
+
 import torch
 from torch._inductor.constant_folding import constant_fold
 from torch._inductor.fx_passes.freezing_patterns import freezing_passes
-from typing import Optional
 
 __all__ = [
     "lower_pt2e_quantized_to_x86",
@@ -39,11 +40,12 @@ def lower_pt2e_quantized_to_x86(
         global FUSION_PATH_REGISTERED
         if not FUSION_PATH_REGISTERED:
             global torch
+            import torch._inductor.config
+
             from torchao.prototype.inductor.fx_passes.quantization import (
                 _register_quantization_weight_pack_pass,
                 quant_lift_up,
             )
-            import torch._inductor.config
 
             torch._inductor.config.pre_grad_custom_pass = quant_lift_up
             _register_quantization_weight_pack_pass()
