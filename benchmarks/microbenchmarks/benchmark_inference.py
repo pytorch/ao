@@ -10,13 +10,16 @@ This script runs inference benchmarks and generates a micro-benchmarking report 
 - run() function is the main entry point for running inference benchmarks.
 """
 
+import os
 from copy import deepcopy
 from pathlib import Path
 
 import torch
 
 from benchmarks.microbenchmarks.profiler import (
+    generate_memory_profile,
     generate_model_profile,
+    visualize_memory_profile,
 )
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
@@ -98,11 +101,49 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_profiler:
             print("Running profiler...")
             try:
-                result.profiler_json_path = generate_model_profile(
-                    m_copy, input_data, config.profiler_file_name
+                profiler_json_path = generate_model_profile(
+                    model=m_copy,
+                    input_data=input_data,
+                    profile_file_path=os.path.join(
+                        config.output_dir,
+                        "profiler",
+                        f"{config._file_name}_profile.json",
+                    ),
                 )
+                result.profiler_json_path = profiler_json_path
             except Exception as e:
-                print(f"Error running profiler for {config.name} with error: {e}")
+                print(f"Error running profiler: {e}")
+
+        # Run memory profiler if enabled
+        if config.enable_memory_profiler:
+            print("Running memory profiler...")
+            try:
+                result.memory_profile_path, result.memory_stats = (
+                    generate_memory_profile(
+                        model=m_copy,
+                        input_data=input_data,
+                        profile_file_path=os.path.join(
+                            config.output_dir,
+                            "memory_profiler/pickle",
+                            f"{config._file_name}_memory_profile.pickle",
+                        ),
+                    )
+                )
+
+                if result.memory_profile_path:
+                    result.memory_visualization_path = visualize_memory_profile(
+                        result.memory_profile_path
+                    )
+            except ValueError as e:
+                if "not enough values to unpack" in e:
+                    print(
+                        "Failed due to existing bugs, re-run the code to generate memory profile. Please raise an issue if it persists."
+                    )
+            except Exception as e:
+                print(f"Error running memory profiler: {e}")
+                import traceback
+
+                traceback.print_exc()
 
         return result
     except Exception as e:
