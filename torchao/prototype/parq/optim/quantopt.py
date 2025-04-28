@@ -112,6 +112,27 @@ class QuantOptimizer(Optimizer):
             if group.get("quant_bits", 16) < 16:
                 yield group
 
+    @property
+    def _param_set(self) -> set[int]:
+        return {
+            p.data_ptr()
+            for group in self.regularized_param_groups()
+            for p in group["params"]
+        }
+
+    def get_filter_fn(
+        self, module: torch.nn.Module
+    ) -> Callable[[torch.nn.Module], bool]:
+        param_set = self._param_set
+
+        def _filter_fn(module: torch.nn.Module, *args) -> bool:
+            for p in module.parameters(recurse=False):
+                if p.data_ptr() in param_set:
+                    return True
+            return False
+
+        return _filter_fn
+
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
         state_dict = self.base_optimizer.state_dict()
@@ -261,6 +282,7 @@ class QuantOptimizer(Optimizer):
         return loss
 
     @torch._disable_dynamo
+    @torch.no_grad()
     def restore_latent_params(self) -> None:
         """Restore latent parameters as optimizer parameters"""
         for group in self.regularized_param_groups():
@@ -269,6 +291,7 @@ class QuantOptimizer(Optimizer):
                     p.copy_(self.state[p]["latent"])
 
     @torch._disable_dynamo
+    @torch.no_grad()
     def save_latent_params(self) -> None:
         """Save updated latent parameters before applying prox-map"""
         if self.warmup_steps == 0:
