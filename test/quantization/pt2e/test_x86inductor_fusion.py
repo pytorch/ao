@@ -2570,5 +2570,6 @@ if __name__ == "__main__":
     if IS_LINUX and (HAS_CPU) and torch.backends.mkldnn.is_available():
         # set weight_prepack = False to skip fusion passes in pytorch core
         import torch._inductor.config
+
         torch._inductor.config.cpp.weight_prepack = False
         run_tests()
