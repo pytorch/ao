@@ -41,7 +41,7 @@ from torch.testing._internal.inductor_utils import (
     clone_preserve_strides_offset,
     HAS_CPU,
 )
-from torchao.quantization.pt2e.pt2e.lowering import lower_pt2e_quantized_to_x86
+from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 
 
 # The dict value is match_nodes(computation_op+unary_op)
