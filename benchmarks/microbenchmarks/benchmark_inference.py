@@ -118,16 +118,20 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_memory_profiler:
             print("Running memory profiler...")
             try:
-                result.memory_profile_path, result.memory_stats = (
-                    generate_memory_profile(
-                        model=m_copy,
-                        input_data=input_data,
-                        profile_file_path=os.path.join(
-                            config.output_dir,
-                            "memory_profiler/pickle",
-                            f"{config._file_name}_memory_profile.pickle",
-                        ),
-                    )
+                # Create memory profiler directory if it doesn't exist
+                memory_profiler_dir = os.path.join(
+                    config.output_dir, "memory_profiler/pickle"
+                )
+                os.makedirs(memory_profiler_dir, exist_ok=True)
+
+                # Save memory profile with .pickle extension
+                result.memory_profile_path = generate_memory_profile(
+                    model=m_copy,
+                    input_data=input_data,
+                    profile_file_path=os.path.join(
+                        memory_profiler_dir,
+                        f"{config._file_name}_memory_profile.pickle",
+                    ),
                 )
 
                 if result.memory_profile_path:
