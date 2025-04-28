@@ -21,6 +21,7 @@ from torchao.prototype.parq.optim import (
 from torchao.prototype.parq.quant import (
     Int4UnifTorchaoQuantizer,
     LSBQuantizer,
+    TernaryUnifQuantizer,
     UnifQuantizer,
     UnifTorchaoQuantizer,
 )
@@ -102,14 +103,14 @@ class TestPARQuantization(common_utils.TestCase):
     @common_utils.parametrize("unif_quant", [True, False])
     @common_utils.parametrize("hard_prox", [True, False])
     def test_parq_train_loop(self, b: int = 2, unif_quant=True, hard_prox=True):
-        if unif_quant and b == 0:
-            self.skipTest("Ternary uniform quantization not yet supported")
-
         self.model.reset_parameters()
         param_groups = build_param_groups(self.model, b)
         base_optimizer = torch.optim.AdamW(param_groups)
 
-        quantizer = UnifQuantizer() if unif_quant else LSBQuantizer()
+        if unif_quant:
+            quantizer = TernaryUnifQuantizer() if b == 0 else UnifQuantizer()
+        else:
+            quantizer = LSBQuantizer()
         prox_map = (
             ProxHardQuant() if hard_prox else ProxPARQ(anneal_start=0, anneal_end=2)
         )
@@ -171,7 +172,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         # equivalent to torchao's convert step
         model.eval()
         optimizer.restore_latent_params()
-        quantize_(model, config, filter_fn=optimizer._get_filter_fn(model))
+        quantize_(model, config, filter_fn=optimizer.get_filter_fn(model))
 
         for n, module in model.named_modules():
             if not _is_linear(module):

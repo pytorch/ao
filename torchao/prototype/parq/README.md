@@ -48,6 +48,7 @@ optimizer = QuantOptimizer(
 <td valign="top">
 
 ```python
+from torchao.quantization import quantize_
 from torchao.quantization.qat import (
     FakeQuantizeConfig,
     intx_quantization_aware_training,
@@ -67,16 +68,20 @@ quantize_(
 <td valign="top">
 
 ```python
-config = IntXWeightOnlyConfig(
+from torchao.quantization import IntxWeightOnlyConfig, quantize_
+
+config = IntxWeightOnlyConfig(
     weight_dtype=torch.int4, granularity=PerGroup(32)
 )
-optimizer.torchao_quantize_(model, config)
+optimizer.restore_latent_params()
+quantize_(model, config, filter_fn=optimizer.get_filter_fn(model))
 ```
 
 </td>
 <td valign="top">
 
 ```python
+from torchao.quantization import quantize_
 from torchao.quantization.qat import from_intx_quantization_aware_training
 
 quantize_(model, from_intx_quantization_aware_training())

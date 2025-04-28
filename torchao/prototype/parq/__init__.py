@@ -11,4 +11,12 @@ from .optim import (  # noqa: F401
     ProxPARQ,
     QuantOptimizer,
 )
-from .quant import LSBQuantizer, Quantizer, UnifQuantizer  # noqa: F401
+from .quant import (  # noqa: F401
+    Int4UnifTorchaoQuantizer,
+    LSBQuantizer,
+    MaxUnifQuantizer,
+    Quantizer,
+    TernaryUnifQuantizer,
+    UnifQuantizer,
+    UnifTorchaoQuantizer,
+)

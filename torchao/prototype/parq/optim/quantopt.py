@@ -120,7 +120,7 @@ class QuantOptimizer(Optimizer):
             for p in group["params"]
         }
 
-    def _get_filter_fn(
+    def get_filter_fn(
         self, module: torch.nn.Module
     ) -> Callable[[torch.nn.Module], bool]:
         param_set = self._param_set
