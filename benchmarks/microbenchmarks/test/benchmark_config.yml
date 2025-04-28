@@ -9,12 +9,9 @@ output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
-      - name: "custom"
-        shapes: [
-          [1024, 1024, 1024],  # [m, k, n]
-          [2048, 4096, 1024],
-          [4096, 4096, 1024]
-        ]
+      - name: "small_sweep"
+        min_power: 10   # 1024
+        max_power: 15   # 32,768
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
