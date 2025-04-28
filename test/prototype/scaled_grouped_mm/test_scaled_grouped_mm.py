@@ -1,5 +1,23 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import pytest
 import torch
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+# We need to skip before doing any imports which would use triton, since
+# triton won't be available on CPU builds and torch < 2.5
+if not (
+    TORCH_VERSION_AT_LEAST_2_5
+    and torch.cuda.is_available()
+    and torch.cuda.get_device_capability()[0] >= 9
+):
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
 
 from torchao.float8.config import (
     Float8LinearConfig,
@@ -11,9 +29,10 @@ from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.scaled_grouped_mm.scaled_grouped_mm import (
     _scaled_grouped_mm,
 )
+from torchao.testing.utils import skip_if_rocm
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_rocm("ROCm enablement in progress")
 def test_valid_scaled_grouped_mm_2d_3d():
     out_dtype = torch.bfloat16
     device = "cuda"
@@ -67,7 +86,6 @@ def test_valid_scaled_grouped_mm_2d_3d():
     assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])

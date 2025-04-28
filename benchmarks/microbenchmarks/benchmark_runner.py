@@ -76,8 +76,8 @@ def get_shapes_for_config(
             for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
                 val1 = 2**power_of_2
                 val2 = 2**power_of_2 + 2 ** (power_of_2 - 1)
-                shapes.append((f"{name}_{idx*2}", [val1, val1, val1]))
-                shapes.append((f"{name}_{idx*2+1}", [val2, val2, val2]))
+                shapes.append((f"{name}_{idx * 2}", [val1, val1, val1]))
+                shapes.append((f"{name}_{idx * 2 + 1}", [val2, val2, val2]))
         elif name == "sweep":
             # Generate a sweep of shapes with different powers of 2 for M, K, N
             min_p2 = shape_config.get("min_power", 8)  # 256

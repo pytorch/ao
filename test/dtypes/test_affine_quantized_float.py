@@ -138,9 +138,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             output_quantized = quantized_model(input_tensor)
 
             error = compute_error(output_original, output_quantized)
-            assert (
-                compute_error(output_original, output_quantized) > 20
-            ), f"Quantization error is too high got a SQNR of {error}"
+            assert compute_error(output_original, output_quantized) > 20, (
+                f"Quantization error is too high got a SQNR of {error}"
+            )
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
@@ -247,9 +247,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     )
                 )
 
-            assert torch.allclose(
-                original_weight, new_weight
-            ), f"Weights do not match for {layer_name}"
+            assert torch.allclose(original_weight, new_weight), (
+                f"Weights do not match for {layer_name}"
+            )
 
             # Compare scales
             if hasattr(original_layer.weight, "scale"):

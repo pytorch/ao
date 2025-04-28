@@ -105,7 +105,9 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                     model=m_copy,
                     input_data=input_data,
                     profile_file_path=os.path.join(
-                        config.output_dir, "profiler", f"{config.name}_profile.json"
+                        config.output_dir,
+                        "profiler",
+                        f"{config._file_name}_profile.json",
                     ),
                 )
                 result.profiler_json_path = profiler_json_path
@@ -123,7 +125,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                         profile_file_path=os.path.join(
                             config.output_dir,
                             "memory_profiler/pickle",
-                            f"{config.name}_quant_{config.quantization}_sparsity_{config.sparsity}_memory_profile.pickle",
+                            f"{config._file_name}_memory_profile.pickle",
                         ),
                     )
                 )

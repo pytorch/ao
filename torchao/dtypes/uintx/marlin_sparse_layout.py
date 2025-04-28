@@ -274,9 +274,9 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features
-        assert (
-            group_size <= in_features
-        ), "Group size must be less than or equal to in_features."
+        assert group_size <= in_features, (
+            "Group size must be less than or equal to in_features."
+        )
 
         if group_size not in const.SUPPORTED_GROUP_SIZES:
             raise ValueError(

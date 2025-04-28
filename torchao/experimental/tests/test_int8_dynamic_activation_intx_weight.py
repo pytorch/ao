@@ -14,11 +14,19 @@ from torch.testing import FileCheck
 
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
+from torchao.quantization.qat import (
+    FakeQuantizeConfig,
+    FromIntXQuantizationAwareTrainingConfig,
+    Int8DynActInt4WeightQATQuantizer,
+    IntXQuantizationAwareTrainingConfig,
+)
 from torchao.quantization.quant_api import (
+    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     MappingType,
     quantize_,
 )
+from torchao.quantization.utils import compute_error
 
 
 class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
@@ -353,7 +361,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         expected_lines = [
-            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float64, torch.int64)",
+            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float32, torch.int8)",
             "torch.ops.torchao.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default",
@@ -417,6 +425,209 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
                 weight_dtype=torch.int4,
                 granularity=PerGroup(64),
             )
+
+    @parameterized.expand(
+        [
+            param(
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+            )
+            for group_size, mapping_type, act_mapping_type in zip(
+                [32, 64],
+                [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+                [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
+            )
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_Int8DynamicActivationInt4WeightConfig(
+        self, group_size, mapping_type, act_mapping_type
+    ):
+        """
+        Checks that Int8DynamicActivationIntxWeightConfig with weight_dtype=torch.int4 is identical to Int8DynamicActivationInt4WeightConfig
+        """
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(3, 1, k0)
+
+        model_copy = copy.deepcopy(model)
+
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=None,
+                act_mapping_type=act_mapping_type,
+            ),
+        )
+        quantize_(
+            model_copy,
+            Int8DynamicActivationInt4WeightConfig(
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+            ),
+        )
+        with torch.no_grad():
+            sqnr = compute_error(model(activations), model_copy(activations)).item()
+            self.assertTrue(sqnr == float("inf"))
+
+    @parameterized.expand(
+        [
+            param(
+                weight_dtype=weight_dtype,
+                group_size=group_size,
+                mapping_type=mapping_type,
+                act_mapping_type=act_mapping_type,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
+            for group_size in [32, 64, 128]
+            for mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+            for act_mapping_type in [MappingType.ASYMMETRIC, MappingType.SYMMETRIC]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_IntXQuantizationAwareTrainingConfig(
+        self,
+        weight_dtype,
+        group_size,
+        mapping_type,
+        act_mapping_type,
+        scale_dtype,
+        model_dtype,
+    ):
+        # TODO: the QAT logic for asymmetric mapping is very different from PTQ, so we don't test that case here
+        # Unify the two?
+        if mapping_type == MappingType.ASYMMETRIC:
+            return
+
+        assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+        assert act_mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+        is_symmetric = mapping_type == MappingType.SYMMETRIC
+        is_act_symmetric = act_mapping_type == MappingType.SYMMETRIC
+
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        activation_config = FakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=is_act_symmetric,
+        )
+        weight_config = FakeQuantizeConfig(
+            weight_dtype,
+            group_size=group_size,
+            is_symmetric=is_symmetric,
+            scale_precision=scale_dtype,
+        )
+
+        quantize_(
+            model,
+            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+        )
+        try:
+            prepared_out = model(activations)
+        except NotImplementedError as e:
+            # QAT does not support act_mapping_type == MappingType.SYMMETRIC yet
+            if act_mapping_type == MappingType.SYMMETRIC:
+                return
+            raise e
+
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=act_mapping_type,
+            ),
+        )
+        converted_out = model(activations)
+
+        sqnr = compute_error(prepared_out, converted_out).item()
+        self.assertTrue(sqnr == float("inf"))
+
+    @parameterized.expand(
+        [
+            param(
+                group_size=group_size,
+                scale_dtype=scale_dtype,
+                model_dtype=model_dtype,
+            )
+            for group_size in [32, 64, 128]
+            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
+            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
+        ],
+        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
+    )
+    def test_identical_to_Int8DynActInt4WeightQATQuantizer(
+        self, group_size, scale_dtype, model_dtype
+    ):
+        k0 = 512
+        k1 = 256
+        layers = [
+            torch.nn.Linear(k0, k1),
+        ]
+        model = torch.nn.Sequential(*layers)
+        activations = torch.randn(
+            k0,
+        )
+
+        model = model.to(model_dtype)
+        activations = activations.to(model_dtype)
+
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(
+            groupsize=group_size, precision=model_dtype, scales_precision=scale_dtype
+        )
+        model = qat_quantizer.prepare(model)
+        prepared_model_copy = copy.deepcopy(model)
+
+        prepared_out = model(activations)
+
+        # Convert model method 1
+        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(
+            model,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=torch.int4,
+                weight_granularity=PerGroup(group_size),
+                weight_mapping_type=MappingType.SYMMETRIC,
+                weight_scale_dtype=scale_dtype,
+                act_mapping_type=MappingType.ASYMMETRIC,
+            ),
+        )
+        converted_out1 = model(activations)
+        sqnr1 = compute_error(prepared_out, converted_out1).item()
+        self.assertTrue(sqnr1 == float("inf"))
+
+        # Convert model method 2
+        qat_quantizer.convert(prepared_model_copy)
+        converted_out2 = prepared_model_copy(activations)
+        sqnr2 = compute_error(prepared_out, converted_out2).item()
+        self.assertTrue(sqnr2 == float("inf"))
 
 
 if __name__ == "__main__":

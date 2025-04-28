@@ -22,29 +22,25 @@ from torch.fx.passes.utils.source_matcher_utils import (
 )
 from typing_extensions import TypeAlias
 
-from torchao.quantization.pt2e.fake_quantize import (
+from torchao.quantization.pt2e import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
-)
-from torchao.quantization.pt2e.observer import (
     HistogramObserver,
     MovingAverageMinMaxObserver,
     MovingAveragePerChannelMinMaxObserver,
     PerChannelMinMaxObserver,
     PlaceholderObserver,
+    find_sequential_partitions,
 )
-from torchao.quantization.pt2e.pt2e.graph_utils import find_sequential_partitions
-from torchao.quantization.pt2e.quantizer.quantizer import (
+from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
+    QuantizationConfig,
     QuantizationSpec,
     Quantizer,
     SharedQuantizationSpec,
-)
-from torchao.quantization.pt2e.quantizer.utils import _get_module_name_filter
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
-    QuantizationConfig,
     get_bias_qspec,
     get_input_act_qspec,
+    get_module_name_filter,
     get_output_act_qspec,
     get_weight_qspec,
 )
@@ -93,6 +89,7 @@ default_quantizable_ops = propagation_quantizable_ops | {
     torch.ops.aten.conv1d.default,
     torch.ops.aten.conv2d.default,
     torch.ops.aten.linear.default,
+    torch.ops.aten.mul.Tensor,
 }
 
 # A superset of default_quantizable_ops includes operators support the int8 data type
@@ -134,7 +131,7 @@ def _create_module_name_filter(module_name: str) -> FilterFn:
     # True  # These two nodes are determined by `_annotate_linear_unary` function and from "sub".
     """
 
-    filter_fn = _get_module_name_filter(module_name)
+    filter_fn = get_module_name_filter(module_name)
 
     def check_all_nodes_from_module(nodes: list[Node]) -> bool:
         all_nodes_from_module_name: bool = all(filter_fn(n) for n in nodes)
@@ -218,6 +215,12 @@ def _map_module_function_to_aten_operator_type():
                 torch.matmul,
             ],
             torch.ops.aten.matmul.default,
+        ),
+        (
+            [
+                torch.mul,
+            ],
+            torch.ops.aten.mul.Tensor,
         ),
     )
     for map_item in map_list:
@@ -735,6 +738,7 @@ class X86InductorQuantizer(Quantizer):
         self._annotate_conv2d_fusion_pattern(model, quantization_config, filter_fn)
         self._annotate_linear_fusion_pattern(model, quantization_config, filter_fn)
         self._annotate_matmul(model, quantization_config, filter_fn)
+        self._annotate_mul_tensor(model, quantization_config, filter_fn)
 
         # Step2: Recipe to propagate annotation for patterns beside conv/linear.
         # Go through all the nodes from start to end.
@@ -1576,6 +1580,48 @@ class X86InductorQuantizer(Quantizer):
                             _is_output_of_quantized_pattern=True,
                         )
                     )
+
+    def _annotate_mul_tensor(
+        self,
+        model: torch.fx.GraphModule,
+        quantization_config: Optional[QuantizationConfig],
+        filter_fn: Optional[FilterFn] = None,
+    ):
+        def _is_tensor(n: Node):
+            return isinstance(n, Node) and isinstance(
+                n.meta["val"], torch._subclasses.fake_tensor.FakeTensor
+            )
+
+        def _same_shape(n1: Node, n2: Node):
+            return n1.meta["val"].shape == n2.meta["val"].shape
+
+        for node in model.graph.nodes:
+            if node.target != torch.ops.aten.mul.Tensor:
+                continue
+
+            if _skip_annotate([node], filter_fn):
+                continue
+
+            if quantization_config is None:
+                _annotate_nodes_not_quantize(node)
+                continue
+
+            assert len(node.args) == 2
+            if not (_is_tensor(node.args[0]) and _is_tensor(node.args[1])):
+                continue
+
+            if not _same_shape(node.args[0], node.args[1]):
+                continue
+
+            input_qspec_map = {}
+            mul_node = node
+            for input_node in mul_node.args:
+                input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
+            mul_node.meta[QUANT_ANNOTATION_KEY] = _X86InductorQuantizationAnnotation(
+                input_qspec_map=input_qspec_map,
+                _annotated=True,
+                _is_output_of_quantized_pattern=True,
+            )
 
     def validate(self, model: torch.fx.GraphModule) -> None:
         pass

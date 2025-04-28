@@ -146,8 +146,14 @@ class TestBenchmarkRunner(unittest.TestCase):
             argparse.Namespace(config=str(self.config_path))
         )
         run_inference_benchmarks_from_config(configs)
-        results_file = Path(self.temp_dir) / "results.csv"
-        self.assertTrue(results_file.exists())
+
+        # The results file is saved in the inference subdirectory with a timestamp-based name
+        inference_dir = Path(self.temp_dir) / "inference"
+        self.assertTrue(inference_dir.exists(), "Inference directory was not created")
+
+        # Check if any CSV file was created in the inference directory
+        csv_files = list(inference_dir.glob("results_*.csv"))
+        self.assertTrue(len(csv_files) > 0, "No results CSV file was created")
 
     def test_get_quantization_sparsity_recipes(self):
         """Test generation of valid quantization and sparsity recipe combinations"""

@@ -247,7 +247,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
 
         # Check that visualization file exists
         self.assertTrue(os.path.exists(viz_path))
-        self.assertTrue(viz_path.endswith("_viz.png"))
+        self.assertTrue(viz_path.endswith(".html"))
 
     def test_memory_profiler_cuda_unavailable(self):
         """Test memory profiler behavior when CUDA is not available"""
