@@ -124,7 +124,9 @@ class BenchmarkResult:
     ):
         self.config = config
         self.output_dir = config.output_dir
+        self.baseline_inference_time_in_ms = 0.0
         self.model_inference_time_in_ms = 0.0
+        self.speedup = 0.0
         self.profiler_json_path: Optional[str] = None
         self.memory_profile_path: Optional[str] = None
         self.memory_visualization_path: Optional[str] = None
@@ -134,7 +136,9 @@ class BenchmarkResult:
         """Convert result to dictionary for main function"""
         result_dict = {
             **self.config.to_dict(),
+            "baseline_inference_time_in_ms": self.baseline_inference_time_in_ms,
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
+            "speedup": self.speedup,
             "profiler_json_path": self.profiler_json_path,
             "memory_profile_path": self.memory_profile_path,
             "memory_visualization_path": self.memory_visualization_path,
@@ -386,7 +390,9 @@ def print_results(results: List[BenchmarkResult]):
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
             f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
+            f"{result.baseline_inference_time_in_ms:.2f}",
             f"{result.model_inference_time_in_ms:.2f}",
+            f"{result.speedup:.2f}x",
             str(result.config.enable_profiler),
         ]
 
@@ -398,7 +404,9 @@ def print_results(results: List[BenchmarkResult]):
         "Quantization",
         "Sparsity",
         "Shape",
+        "Baseline Inference Time (ms)",
         "Inference Time (ms)",
+        "Speedup",
         "Profiler Enabled",
     ]
 

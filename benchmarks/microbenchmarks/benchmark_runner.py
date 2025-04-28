@@ -216,7 +216,7 @@ def run_inference_benchmarks_from_config(configs: List[BenchmarkConfig]) -> None
         print("----------------------------------------")
         try:
             print(
-                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity}"
+                f"Running: {config.name} for Quantization: {config.quantization} and Sparsity: {config.sparsity} for {config.shape_name}: {config.m, config.k, config.n}"
             )
             result = run_inference(config)  # Pass the config object directly
             if result is not None:  # Only add successful results
