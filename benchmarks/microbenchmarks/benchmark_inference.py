@@ -124,7 +124,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                 )
                 os.makedirs(memory_profiler_dir, exist_ok=True)
 
-                # Save memory profile with .json extension instead of .pickle
+                # Save memory profile with .pickle extension
                 result.memory_profile_path = generate_memory_profile(
                     model=m_copy,
                     input_data=input_data,
