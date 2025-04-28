@@ -40,6 +40,7 @@ from torch.testing._internal.inductor_utils import (
 from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_8,
 )
 
 if TORCH_VERSION_AT_LEAST_2_6:
@@ -251,6 +252,7 @@ class TestPatternMatcherBase(TestCase):
                 torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
 
 
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8+")
 class TestPatternMatcher(TestPatternMatcherBase):
     def _qconv2d_test_helper(self, device="cpu", int8_mixed_bf16=False):
         class M(torch.nn.Module):
@@ -2404,6 +2406,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         "specialize_float": True,
     }
 )
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8+")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""
