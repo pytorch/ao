@@ -166,9 +166,9 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                     ),
                 )
             elif dim == 1:
-                assert (
-                    len(self.scale.shape) == 1
-                ), f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                assert len(self.scale.shape) == 1, (
+                    f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                )
                 return PlainAQTTensorImpl(
                     aten.slice.Tensor(self.int_data, dim, start, end, step),
                     self.scale.view(-1),

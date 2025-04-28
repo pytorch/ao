@@ -109,13 +109,13 @@ def test_reconstructable_dict_file_round_trip(config):
                     hasattr(original_value, "__module__")
                     and original_value.__module__ == "torch"
                 ):
-                    assert (
-                        str(original_value) == str(reconstructed_value)
-                    ), f"Attribute {attr_name} mismatch after file round trip for {config.__class__.__name__}"
+                    assert str(original_value) == str(reconstructed_value), (
+                        f"Attribute {attr_name} mismatch after file round trip for {config.__class__.__name__}"
+                    )
                 else:
-                    assert (
-                        original_value == reconstructed_value
-                    ), f"Attribute {attr_name} mismatch after file round trip for {config.__class__.__name__}"
+                    assert original_value == reconstructed_value, (
+                        f"Attribute {attr_name} mismatch after file round trip for {config.__class__.__name__}"
+                    )
 
     finally:
         # Clean up the temporary file

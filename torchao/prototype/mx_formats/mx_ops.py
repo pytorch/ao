@@ -185,9 +185,9 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     tensor.
     """
     assert isinstance(args[0], MXTensor)
-    assert (
-        len(kwargs) == 1 and "dtype" in kwargs
-    ), "Only support dtype kwarg for autocast"
+    assert len(kwargs) == 1 and "dtype" in kwargs, (
+        "Only support dtype kwarg for autocast"
+    )
     assert kwargs["dtype"] in {
         torch.float16,
         torch.bfloat16,

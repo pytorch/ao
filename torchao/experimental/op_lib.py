@@ -13,9 +13,9 @@ from torch.library import impl
 # Load C++ ops
 lib_path = Path(__file__).parent.parent
 libs = list(lib_path.glob("libtorchao_ops_aten.*"))
-assert (
-    len(libs) == 1
-), f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
+assert len(libs) == 1, (
+    f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
+)
 torch.ops.load_library(str(libs[0]))
 
 

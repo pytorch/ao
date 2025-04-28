@@ -141,7 +141,7 @@ def build_datapoint(
 ):
     img = coco.loadImgs(imgId)[0]
 
-    file_location = f'{coco_root_dir}/{coco_slice_name}/{img["file_name"]}'
+    file_location = f"{coco_root_dir}/{coco_slice_name}/{img['file_name']}"
     I = io.imread(file_location)
     if len(I.shape) == 2:
         # some images, like img_id==61418, are grayscale

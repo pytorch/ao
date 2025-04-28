@@ -14,7 +14,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_8
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_7
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -1087,7 +1087,7 @@ else:
         raise AssertionError("fp6 packing unsupported without torch >= 2.4")
 
 
-if TORCH_VERSION_AT_LEAST_2_8 and has_triton():
+if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton

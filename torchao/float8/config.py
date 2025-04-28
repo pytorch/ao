@@ -91,9 +91,9 @@ class CastConfig:
 
     def __post_init__(self):
         if self.scaling_granularity is ScalingGranularity.AXISWISE:
-            assert (
-                self.scaling_type is ScalingType.DYNAMIC
-            ), "only dynamic scaling type is supported for axiswise scaling granularity"
+            assert self.scaling_type is ScalingType.DYNAMIC, (
+                "only dynamic scaling type is supported for axiswise scaling granularity"
+            )
         assert self.target_dtype is None or (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
@@ -239,7 +239,9 @@ class Float8LinearConfig:
 
         # float8 all-gather only supports tensorwise, in the future may support blockwise
         if self.cast_config_weight.scaling_granularity != ScalingGranularity.TENSORWISE:
-            assert not self.enable_fsdp_float8_all_gather, f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
+            assert not self.enable_fsdp_float8_all_gather, (
+                f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
+            )
 
         # save some characters in the compatibility checks below
         cc_i = self.cast_config_input
@@ -258,9 +260,9 @@ class Float8LinearConfig:
         ):
             is_disabled_1 = cc1.scaling_type is ScalingType.DISABLED
             is_disabled_2 = cc1.scaling_type is ScalingType.DISABLED
-            assert (
-                is_disabled_1 == is_disabled_2
-            ), f"incompatible operand precision for {gemm_name}"
+            assert is_disabled_1 == is_disabled_2, (
+                f"incompatible operand precision for {gemm_name}"
+            )
 
         for cc1, cc2, operand_name, default_dtype in [
             (cc_i, cc_i_gw, "input", e4m3_dtype),
@@ -272,9 +274,9 @@ class Float8LinearConfig:
                 object.__setattr__(cc1, "target_dtype", default_dtype)
             if cc2.target_dtype is None:
                 object.__setattr__(cc2, "target_dtype", default_dtype)
-            assert (
-                cc1.target_dtype == cc2.target_dtype
-            ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
+            assert cc1.target_dtype == cc2.target_dtype, (
+                f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
+            )
 
         # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
         if (
@@ -295,9 +297,9 @@ class Float8LinearConfig:
         """
         if type(recipe_name) == str:
             valid_names = [n.value for n in Float8LinearRecipeName]
-            assert (
-                recipe_name in valid_names
-            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            assert recipe_name in valid_names, (
+                f"recipe_name {recipe_name} not in valid names {valid_names}"
+            )
             recipe_name = Float8LinearRecipeName(recipe_name)
 
         if recipe_name is Float8LinearRecipeName.TENSORWISE:

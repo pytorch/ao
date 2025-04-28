@@ -189,9 +189,9 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
                 GGMLInt4LinearWeight.from_float(model.lin_mod.weight)
             )
         """
-        assert (
-            target_dtype == torch.uint4
-        ), "only uint4 quantization is supported right now"
+        assert target_dtype == torch.uint4, (
+            "only uint4 quantization is supported right now"
+        )
         block_size = (1, _QK_K // n_blocks_per_superblock)
         (
             super_block_scale_scale,
