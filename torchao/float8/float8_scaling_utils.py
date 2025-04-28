@@ -91,7 +91,7 @@ def get_maybe_axiswise_dim(
 class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     """
     Forward: no-op
-    Backward: convert to float8_e5m2 with dynamic scaling
+    Backward: convert to target float8 dtype with dynamic scaling
     """
 
     @staticmethod
@@ -100,9 +100,11 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
         tensor,
         linear_mm_config: LinearMMConfig,
         target_dtype: torch.dtype,
+        axiswise_dim: int,
     ):
         ctx.linear_mm_config = linear_mm_config
         ctx.target_dtype = target_dtype
+        ctx.axiswise_dim = axiswise_dim
         return tensor
 
     @staticmethod
@@ -116,5 +118,6 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
             ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
+            axiswise_dim=ctx.axiswise_dim,
         )
         return fp8_tensor, None, None
