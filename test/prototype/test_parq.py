@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 import copy
 import unittest
+from typing import Optional
 
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao import quantize_
+from torchao.core.config import AOBaseConfig
 from torchao.dtypes import Int4CPULayout
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
@@ -29,6 +30,7 @@ from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
     _is_linear,
     int4_weight_only,
+    quantize_,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -44,16 +46,24 @@ def split_param_groups(model):
 
     def get_param_groups(model):
         for module in model.children():
-            is_linear = isinstance(module, nn.Linear)
-            for n, p in module.named_parameters(recurse=False):
+            is_linear = _is_linear(module)
+            for n, p in module.named_parameters():
                 if is_linear and n == "weight":
                     params_quant.append(p)
                 else:
                     params_no_quant.append(p)
-            get_param_groups(module)
 
     get_param_groups(model)
     return params_quant, params_no_quant
+
+
+def build_param_groups(model, b: int = 2, group_size: Optional[int] = None):
+    params_quant, params_no_quant = split_param_groups(model)
+    quant_kwargs = {"quant_block_size": group_size} if group_size else {}
+    return [
+        {"params": params_quant, "quant_bits": b, **quant_kwargs},
+        {"params": params_no_quant},
+    ]
 
 
 class M(nn.Module):
@@ -87,46 +97,28 @@ class TestPARQuantization(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
         self.model = M(bias=True).to(_DEVICE)
-        self.params_quant, self.params_no_quant = split_param_groups(self.model)
 
-    def train_loop(self, optimizer, steps=1):
-        for _ in range(steps):
+    @common_utils.parametrize("b", [0, 1, 2, 4])
+    @common_utils.parametrize("unif_quant", [True, False])
+    @common_utils.parametrize("hard_prox", [True, False])
+    def test_parq_train_loop(self, b: int = 2, unif_quant=True, hard_prox=True):
+        if unif_quant and b == 0:
+            self.skipTest("Ternary uniform quantization not yet supported")
+
+        self.model.reset_parameters()
+        param_groups = build_param_groups(self.model, b)
+        base_optimizer = torch.optim.AdamW(param_groups)
+
+        quantizer = UnifQuantizer() if unif_quant else LSBQuantizer()
+        prox_map = (
+            ProxHardQuant() if hard_prox else ProxPARQ(anneal_start=0, anneal_end=2)
+        )
+        optimizer = QuantOptimizer(base_optimizer, quantizer, prox_map)
+        for _ in range(3):
             x = self.model.example_inputs(device=_DEVICE)
             out = self.model(x)
             out.sum().backward()
             optimizer.step()
-
-    def test_2bit_unif_quantizer_hard_prox(self):
-        b = 2
-        self.model.reset_parameters()
-        param_groups = [
-            {"params": self.params_quant, "quant_bits": b},
-            {"params": self.params_no_quant},
-        ]
-        base_optimizer = torch.optim.AdamW(param_groups)
-        quantizer = UnifQuantizer()
-        optimizer = QuantOptimizer(base_optimizer, quantizer, ProxHardQuant())
-        self.train_loop(optimizer)
-
-        for child in self.model.children():
-            if isinstance(child, nn.Linear):
-                self.assertEqual(
-                    child.weight.unique().numel(), quantizer.get_quant_size(b)
-                )
-
-    def test_ternarybit_lsbq_parq_prox(self):
-        b = 0
-        self.model.reset_parameters()
-        param_groups = [
-            {"params": self.params_quant, "quant_bits": b},
-            {"params": self.params_no_quant},
-        ]
-        base_optimizer = torch.optim.AdamW(param_groups)
-        quantizer = LSBQuantizer()
-        optimizer = QuantOptimizer(
-            base_optimizer, quantizer, ProxPARQ(anneal_start=0, anneal_end=2)
-        )
-        self.train_loop(optimizer, steps=3)
 
         for child in self.model.children():
             if isinstance(child, nn.Linear):
@@ -163,6 +155,35 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ref = getattr(m_ref, n).weight.dequantize()
             self.assertTrue(q.equal(ref))
 
+    def compare_parq_convert(
+        self,
+        model: nn.Module,
+        m_ref: nn.Module,
+        optimizer: QuantOptimizer,
+        config: AOBaseConfig,
+    ):
+        # do not update model weights, just quantize
+        optimizer.zero_grad()
+        optimizer.step()
+
+        orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
+
+        # equivalent to torchao's convert step
+        model.eval()
+        optimizer.restore_latent_params()
+        quantize_(model, config, filter_fn=optimizer._get_filter_fn(model))
+
+        for n, module in model.named_modules():
+            if not _is_linear(module):
+                continue
+
+            p_orig = getattr(orig_model, n).weight  # PARQ weight
+            p = module.weight.dequantize()  # PARQ weight after quantize_
+            p_ref = getattr(m_ref, n).weight.dequantize()  # native quantize_
+
+            self.assertTrue(p_orig.equal(p_ref))
+            self.assertTrue(p.equal(p_ref))
+
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
@@ -195,7 +216,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
             ),
         )
 
-        quantizer = UnifTorchaoQuantizer(symmetric=True)
+        quantizer = UnifTorchaoQuantizer()
         self.compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
@@ -211,40 +232,36 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantize_(m_ref, config)
 
         b = 4
-        params_quant, params_no_quant = split_param_groups(model)
-        param_groups = [
-            {"params": params_quant, "quant_bits": b, "quant_block_size": group_size},
-            {"params": params_no_quant},
-        ]
-        base_optimizer = torch.optim.AdamW(param_groups)
-
+        base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
         optimizer = QuantOptimizer(
             base_optimizer,
             Int4UnifTorchaoQuantizer(),
             ProxHardQuant(),
             quant_per_channel=True,
         )
+        self.compare_parq_convert(model, m_ref, optimizer, config)
 
-        # do not update model weights, just quantize
-        optimizer.zero_grad()
-        optimizer.step()
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
+    @unittest.skipIf(_DEVICE == "cpu", "Need GPU available")
+    @common_utils.parametrize("b", [2, 3, 4, 8])
+    def test_intx_weight_only_e2e(self, b: int = 2, group_size: int = 32):
+        model = M(m=512, n=512).to(_DEVICE)
+        model.reset_parameters()
 
-        orig_model = copy.deepcopy(model)  # save copy of PARQ quantized model
+        m_ref = copy.deepcopy(model).eval().to(_DEVICE)
+        config = IntxWeightOnlyConfig(
+            weight_dtype=_BIT_WIDTH_TO_DTYPE[b], granularity=PerGroup(group_size)
+        )
+        quantize_(m_ref, config)
 
-        # equivalent to torchao's convert step
-        model.eval()
-        optimizer.torchao_quantize_(model, config)
-
-        for n, module in model.named_modules():
-            if not _is_linear(module):
-                continue
-
-            p_orig = getattr(orig_model, n).weight  # PARQ weight
-            p = module.weight.dequantize()  # PARQ weight after quantize_
-            p_ref = getattr(m_ref, n).weight.dequantize()  # natively quantize_
-
-            self.assertTrue(p_orig.equal(p_ref))
-            self.assertTrue(p.equal(p_ref))
+        base_optimizer = torch.optim.AdamW(build_param_groups(model, b, group_size))
+        optimizer = QuantOptimizer(
+            base_optimizer,
+            UnifTorchaoQuantizer(),
+            ProxHardQuant(),
+            quant_per_channel=True,
+        )
+        self.compare_parq_convert(model, m_ref, optimizer, config)
 
 
 common_utils.instantiate_parametrized_tests(TestPARQuantization)

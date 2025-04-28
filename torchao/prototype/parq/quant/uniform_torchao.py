@@ -29,8 +29,8 @@ class UnifTorchaoQuantizer(Quantizer):
 
     def __init__(
         self,
-        symmetric: bool,
-        target_dtype: Optional[torch.dtype] = None,
+        mapping_type: MappingType = MappingType.SYMMETRIC,
+        target_dtype: torch.dtype = torch.int8,
         quant_min: Optional[Union[int, float]] = None,
         quant_max: Optional[Union[int, float]] = None,
         eps: Optional[float] = None,
@@ -39,9 +39,7 @@ class UnifTorchaoQuantizer(Quantizer):
     ) -> None:
         super().__init__(center=False)
 
-        self.mapping_type = (
-            MappingType.SYMMETRIC if symmetric else MappingType.ASYMMETRIC
-        )
+        self.mapping_type = mapping_type
         self.target_dtype = target_dtype
         self.quant_min = quant_min
         self.quant_max = quant_max
@@ -55,8 +53,6 @@ class UnifTorchaoQuantizer(Quantizer):
             self.quant_min, self.quant_max = _DTYPE_TO_QVALUE_BOUNDS[
                 _BIT_WIDTH_TO_DTYPE[b]
             ]
-        if self.target_dtype is None:
-            self.target_dtype = torch.int8
 
     def get_quant_size(self, b: int) -> int:
         self._init_quant_min_max(b)
@@ -125,7 +121,7 @@ class Int4UnifTorchaoQuantizer(UnifTorchaoQuantizer):
 
     def __init__(self) -> None:
         super().__init__(
-            symmetric=False,
+            mapping_type=MappingType.ASYMMETRIC,
             target_dtype=torch.int32,
             quant_min=0,
             quant_max=15,

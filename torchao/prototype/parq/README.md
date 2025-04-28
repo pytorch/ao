@@ -38,7 +38,7 @@ param_groups = [
 base_optimizer = torch.optim.AdamW(param_groups, ...)
 optimizer = QuantOptimizer(
     base_optimizer,
-    UnifTorchaoQuantizer(symmetric=True),
+    UnifTorchaoQuantizer(),
     ProxHardQuant(),
     quant_per_channel=True,
 )
