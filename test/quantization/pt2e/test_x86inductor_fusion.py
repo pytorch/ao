@@ -31,7 +31,6 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
     skipIfRocm,
-    xfailIfACL,
 )
 from torch.testing._internal.inductor_utils import (
     HAS_CPU,
@@ -2406,7 +2405,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     }
 )
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
-    @xfailIfACL
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""
         This testcase will quantize a single Conv2d->Maxpool2d->Linear module
@@ -2569,7 +2567,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
 instantiate_parametrized_tests(TestPatternMatcher)
 if __name__ == "__main__":
-    if IS_LINUX and (HAS_CPU) and torch.backends.mkldnn.is_available():
+    if IS_LINUX and HAS_CPU and torch.backends.mkldnn.is_available():
         # set weight_prepack = False to skip fusion passes in pytorch core
         import torch._inductor.config
 
