@@ -39,10 +39,10 @@ from torch.testing._internal.inductor_utils import (
     _check_has_dynamic_shape,
 )
 
+from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
-from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
 
 if TORCH_VERSION_AT_LEAST_2_6:
     from torch.testing._internal.common_utils import TEST_ACL
