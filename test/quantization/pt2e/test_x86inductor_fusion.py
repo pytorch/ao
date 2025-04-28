@@ -29,10 +29,8 @@ from torch.testing._internal.common_utils import (
     IS_FBCODE,
     IS_LINUX,
     IS_X86,
-    MI300_ARCH,
     parametrize,
     skipIfRocm,
-    skipIfRocmArch,
     TEST_ACL,
     xfailIfACL,
 )
@@ -312,7 +310,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfRocmArch(MI300_ARCH)
+    @skipIfRocm
     def test_qconv2d_int8_mixed_bf16(self):
         r"""
         This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
@@ -1740,8 +1738,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     check_quantization=True,
                     num_include_ops=[2, 2],
                 )
-                print("time 2:", time.time() - t0)
-                t0 = time.time()
             else:
                 # For python wrapper
                 self._test_code_common(
