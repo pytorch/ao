@@ -17,10 +17,10 @@ from torch.distributed.tensor.parallel import (
 from torchao.float8.config import ScalingGranularity, ScalingType, e4m3_dtype
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
+    NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig
-from torchao.float8.float8_utils import is_row_major
 
 # subclass the ColwiseParallel and RowwiseParallel classes
 # to add the float8 support
@@ -55,38 +55,38 @@ class Float8ColwiseParallel(ColwiseParallel):
             input_tensor = DTensor.from_local(
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
-        if tensor_already_casted_to_fp8(input_tensor):
-            if is_row_major(input_tensor):
-                return input_tensor, None
-            else:
-                return None, input_tensor
+        if not tensor_already_casted_to_fp8(input_tensor):
+            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+                scaling_granularity=ScalingGranularity.AXISWISE,
+                axiswise_dim=-1,
+            )  # DTensor(Float8Tensor)
 
-        input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
-        )  # DTensor(Float8Tensor)
-
-        input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=0,
-        )  # DTensor(Float8Tensor) 
+            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+                scaling_granularity=ScalingGranularity.AXISWISE,
+                axiswise_dim=0,
+            )  # DTensor(Float8Tensor) 
+        else:
+            input_tensor_row_major_rowwise_scales = input_tensor if is_row_major(input_tensor) else None
+            input_tensor_col_major_colwise_scales = input_tensor if not is_row_major(input_tensor) else None
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
-            input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
-                placements=desired_input_layouts, async_op=True
-            )
-            input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
-                placements=desired_input_layouts, async_op=True
-            )
+            if input_tensor_row_major_rowwise_scales is not None:
+                input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
+                    placements=desired_input_layouts, async_op=True
+                )
+            if input_tensor_col_major_colwise_scales is not None:
+                input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
+                    placements=desired_input_layouts, async_op=True
+                )
         return input_tensor_row_major_rowwise_scales, input_tensor_col_major_colwise_scales
 
     @staticmethod
@@ -103,7 +103,11 @@ class Float8ColwiseParallel(ColwiseParallel):
         #     mod.config.cast_config_grad_output.target_dtype,
         #     -1, # axiswise_dim
         # )
-
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs,
+            mod.linear_mm_config,
+            mod.config.cast_config_grad_output.target_dtype,
+        )
         # back to local tensor
         return outputs.to_local() if use_local_output else outputs
 
@@ -131,41 +135,44 @@ class Float8RowwiseParallel(RowwiseParallel):
     def _prepare_input_fn(
         input_layouts, desired_input_layouts, mod, inputs, device_mesh,
     ):
+        # annotate module input placements/sharding with input_layouts
         input_tensor = inputs[0]
         if not isinstance(input_tensor, DTensor):
             input_tensor = DTensor.from_local(
                 input_tensor, device_mesh, input_layouts, run_check=False
             )
-        if tensor_already_casted_to_fp8(input_tensor):
-            if is_row_major(input_tensor):
-                return input_tensor, None
-            else:
-                return None, input_tensor
+        if not tensor_already_casted_to_fp8(input_tensor):
+            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+                scaling_granularity=ScalingGranularity.AXISWISE,
+                axiswise_dim=-1,
+            )  # DTensor(Float8Tensor)
 
-        input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-            axiswise_dim=-1,
-        )  # DTensor(Float8Tensor)
-
-        input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-            input_tensor,
-            mod.config.cast_config_input.target_dtype,
-            mod.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-            axiswise_dim=0,
-        )  # DTensor(Float8Tensor) 
+            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
+                input_tensor,
+                mod.config.cast_config_input.target_dtype,
+                mod.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+                scaling_granularity=ScalingGranularity.AXISWISE,
+                axiswise_dim=0,
+            )  # DTensor(Float8Tensor) 
+        else:
+            input_tensor_row_major_rowwise_scales = input_tensor if is_row_major(input_tensor) else None
+            input_tensor_col_major_colwise_scales = input_tensor if not is_row_major(input_tensor) else None
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
-            input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
-                placements=desired_input_layouts, async_op=True
-            )
-            input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
-                placements=desired_input_layouts, async_op=True
-            )
+            if input_tensor_row_major_rowwise_scales is not None:
+                input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
+                    placements=desired_input_layouts, async_op=True
+                )
+            if input_tensor_col_major_colwise_scales is not None:
+                input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
+                    placements=desired_input_layouts, async_op=True
+                )
         return input_tensor_row_major_rowwise_scales, input_tensor_col_major_colwise_scales
 
     @staticmethod
@@ -182,6 +189,11 @@ class Float8RowwiseParallel(RowwiseParallel):
         #     mod.config.cast_config_grad_output.target_dtype,
         #     -1,
         # )
+        outputs = NoopFwToFloat8BwDynamic.apply(
+            outputs,
+            mod.linear_mm_config,
+            mod.config.cast_config_grad_output.target_dtype,
+        )
 
         # back to local tensor if use_local_output is True
         return outputs.to_local() if use_local_output else outputs
@@ -203,7 +215,8 @@ class Float8RowwiseParallel(RowwiseParallel):
 
 class PrepareFloat8ModuleInput(PrepareModuleInput):
     """
-    Like `PrepareModuleInput`, but with all-gather in float8 with rowwise scales.
+    Like `PrepareModuleInput`, but with all-gather in float8. This
+    currently assumes tensorwise scaling.
 
     The only difference from `PrepareModuleInput` is that
     after we prepare the input DTensor, we cast the input to DTensor(Float8Tensor)
@@ -262,14 +275,18 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                     input, mesh, (input_layout,), run_check=False
                 )
 
-            dt_inp = Float8RowwiseFwdColwiseBwd.apply(input, mod)
+            dt_inp = hp_tensor_to_float8_dynamic(
+                dt_inp,
+                e4m3_dtype,
+                self.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+            )  # DTensor(Float8Tensor)
             if desired_layout is not None and input_layout != desired_layout:
                 dt_inp = dt_inp.redistribute(placements=(desired_layout,))
 
-            final_dt_inp = dt_inp.to_local() if self.use_local_output else dt_inp
-            return final_dt_inp, _to_column_major(final_dt_inp)
+            return dt_inp.to_local() if self.use_local_output else dt_inp
         else:
-            return input, _to_column_major(input)
+            return input
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
         from torchao.float8.float8_linear import Float8Linear
@@ -292,8 +309,6 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
         assert self.linear_mm_config is not None
         super()._apply(module, device_mesh)
         return module
-
-
 
 
 @torch._dynamo.allow_in_graph
@@ -329,3 +344,9 @@ class NoopFwToFloat8RowwiseBwDynamic(torch.autograd.Function):
             axiswise_dim=ctx.axiswise_dim,
         )
         return fp8_tensor, None, None, None
+
+
+
+def is_row_major(tensor: torch.Tensor) -> bool:
+    assert tensor.dim() >= 2
+    return tensor.stride(-2) > tensor.stride(-1) and tensor.stride(-1) == 1
