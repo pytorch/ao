@@ -28,7 +28,6 @@ from torch.testing._internal.common_utils import (
     IS_FBCODE,
     IS_LINUX,
     IS_X86,
-    TEST_ACL,
     instantiate_parametrized_tests,
     parametrize,
     skipIfRocm,
