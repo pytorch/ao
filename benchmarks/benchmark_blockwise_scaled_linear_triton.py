@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import torch
 
 if torch.cuda.is_available():
@@ -6,33 +12,18 @@ if torch.cuda.is_available():
     from triton.testing import do_bench
 
     from torchao.float8.float8_utils import compute_error
-    from torchao.ops import rowwise_scaled_linear_cutlass_s8s4
-    from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import (
-        blockwise_fp8_gemm,
-    )
     from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+        blockwise_fp8_gemm,
         fp8_blockwise_act_quant,
         fp8_blockwise_weight_quant,
     )
-    from torchao.quantization.quant_api import (
-        _int4_symm_per_token_quant_cutlass,
-        _int8_symm_per_token_reduced_range_quant_cutlass,
-    )
     from torchao.utils import is_sm_at_least_89
+else:
+    raise RuntimeError("This benchmark is only avaible on CUDA hardware")
 
 
 def benchmark_microseconds(f, *args):
     return do_bench(lambda: f(*args), return_mode="median") * 1e3
-
-
-def get_rowwise_problem(m: int, n: int, k: int, device):
-    A = torch.randint(-128, 127, (m, k), dtype=torch.int8, device=device)
-    A_scale = torch.randn((m,), dtype=torch.half, device=device)
-    B = torch.randint(-128, 127, size=(n, 4 * k // 8), dtype=torch.int8, device=device)
-    B_scale = torch.randn((n,), dtype=torch.half, device=device)
-    C = None
-
-    return A, A_scale, B, B_scale, C
 
 
 def get_blockwise_problem(
@@ -63,11 +54,6 @@ def benchmark_latency(
     B_ref = torch.randn((n, k), dtype=torch.half, device=device)
     fp16_time = benchmark_microseconds(torch.nn.functional.linear, A_ref, B_ref)
 
-    A, A_scale, B, B_scale, C = get_rowwise_problem(m, n, k, device)
-    rowwise_time = benchmark_microseconds(
-        rowwise_scaled_linear_cutlass_s8s4, A, A_scale, B, B_scale, C
-    )
-
     A, A_scale, B, B_scale = get_blockwise_problem(m, n, k, block_size, dtype, device)
     blockwise_time = benchmark_microseconds(blockwise_fp8_gemm, A, A_scale, B, B_scale)
 
@@ -78,9 +64,7 @@ def benchmark_latency(
         "block_size": block_size,
         "dtype": dtype,
         "fp16_latency (ms)": fp16_time,
-        "rowwise_latency (ms)": rowwise_time,
         "blockwise_latency (ms)": blockwise_time,
-        "rowwise_speedup": fp16_time / rowwise_time,
         "blockwise_speedup": fp16_time / blockwise_time,
     }
 
@@ -97,23 +81,12 @@ def benchmark_precision(
     W_q, W_s = fp8_blockwise_weight_quant(W, block_size, dtype)
     output_blockwise = blockwise_fp8_gemm(A_q, A_s, W_q, W_s)
 
-    qact = _int8_symm_per_token_reduced_range_quant_cutlass(A)
-    qweight = _int4_symm_per_token_quant_cutlass(W)
-    output_rowwise = rowwise_scaled_linear_cutlass_s8s4(
-        qact.tensor_impl.int_data,
-        qact.tensor_impl.scale,
-        qweight.tensor_impl.int_data,
-        qweight.tensor_impl.scale,
-        None,
-    )
-
     return {
         "m": m,
         "k": k,
         "n": n,
         "block_size": block_size,
         "dtype": dtype,
-        "error_rowwise (dB)": compute_error(output, output_rowwise),
         "error_blockwise (dB)": compute_error(output, output_blockwise),
     }
 

@@ -1,10 +1,16 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import pytest
 import torch
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
-from torchao.prototype.blockwise_fp8.blockwise_fp8_gemm_triton import blockwise_fp8_gemm
 from torchao.prototype.blockwise_fp8.blockwise_quantization import (
+    blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_dequant,
     fp8_blockwise_weight_quant,
