@@ -18,11 +18,11 @@ from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
     ZeroPointDomain,
-    choose_qparams_affine_float,
+    choose_qparams_affine,
+    choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
-    choose_qparams_affine_int,
-    choose_qparams_affine_none,
+    choose_qparams_affine_tiny_gemm,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_float8,
@@ -265,7 +265,21 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             data = data.to(target_dtype)
         else:
             if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-                scale, zero_point = choose_qparams_affine_float(
+                scale, zero_point = (
+                    choose_qparams_affine_tiny_gemm(  # TODO: Rename to tiny_gemm
+                        input_float,
+                        mapping_type,
+                        block_size,
+                        target_dtype,
+                        quant_min,
+                        quant_max,
+                        eps,
+                        scale_dtype,
+                        zero_point_dtype,
+                    )
+                )
+            elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
+                scale, zero_point = choose_qparams_affine_dont_preserve_zero(
                     input_float,
                     mapping_type,
                     block_size,
@@ -276,20 +290,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                     scale_dtype,
                     zero_point_dtype,
                 )
-            elif zero_point_domain == ZeroPointDomain.NONE and preserve_zero:
-                scale, zero_point = choose_qparams_affine_none(
-                    input_float,
-                    mapping_type,
-                    block_size,
-                    target_dtype,
-                    quant_min,
-                    quant_max,
-                    eps,
-                    scale_dtype,
-                    zero_point_dtype,
-                )
-            else:  # Default case: zero_point_domain == ZeroPointDomain.INT and preserve_zero
-                scale, zero_point = choose_qparams_affine_int(
+            else:  # Default case: zero_point_domain == ZeroPointDomain.INT/NONE and preserve_zero
+                scale, zero_point = choose_qparams_affine(
                     input_float,
                     mapping_type,
                     block_size,
@@ -348,10 +350,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             raise ValueError("please use ZeroPointDomain.NONE instead of None")
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
-        if target_dtype not in FP8_TYPES:
-            assert zero_point is not None, (
-                "zero_point must be specified for non-fp8 types"
-            )
         original_shape = input_float.shape
         input_float, scale, zero_point = _layout.pre_process_static(
             input_float, scale, zero_point, block_size

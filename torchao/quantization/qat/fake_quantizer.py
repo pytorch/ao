@@ -17,7 +17,7 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    choose_qparams_affine_int,
+    choose_qparams_affine,
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
@@ -74,7 +74,7 @@ class FakeQuantizer(torch.nn.Module):
 
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         if self._should_compute_qparams():
-            self.scale, self.zero_point = choose_qparams_affine_int(
+            self.scale, self.zero_point = choose_qparams_affine(
                 x,
                 mapping_type=MappingType.ASYMMETRIC,
                 block_size=_get_per_token_block_size(x),

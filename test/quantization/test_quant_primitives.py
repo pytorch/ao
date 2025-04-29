@@ -17,6 +17,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
+    choose_qparams_affine_tiny_gemm,
     dequantize_affine,
     dequantize_affine_float8,
     fake_quantize_affine,
@@ -650,35 +651,6 @@ class TestQuantPrimitives(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
 
-    def test_not_preserve_zero_not_supported(self):
-        """Making sure preserve_zero == False is not supported for symmetric quant"""
-        input = torch.randn(10, 256)
-        n_bit = 4
-        mapping_type = MappingType.SYMMETRIC
-        dtype = torch.int8
-        block_size = (1, 128)
-        quant_min = 0
-        quant_max = 2**n_bit - 1
-        eps = 1e-6
-        scale_dtype = torch.bfloat16
-        zero_point_dtype = torch.bfloat16
-        with self.assertRaisesRegex(
-            ValueError,
-            "preserve_zero == False is not supported for symmetric quantization",
-        ):
-            choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=False,
-            )
-
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
         n_bit = 4
@@ -702,22 +674,33 @@ class TestQuantPrimitives(unittest.TestCase):
                 dtype=torch.bfloat16,
                 zero_point_domain=zero_point_domain,
             )
-            scale, zero_point = choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=zero_point_domain == ZeroPointDomain.INT,
-                zero_point_domain=zero_point_domain,
-            )
+            if zero_point_domain == ZeroPointDomain.FLOAT:
+                scale, zero_point = choose_qparams_affine_tiny_gemm(
+                    input,
+                    mapping_type,
+                    block_size,
+                    dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype=scale_dtype,
+                    zero_point_dtype=zero_point_dtype,
+                )
+            else:
+                scale, zero_point = choose_qparams_affine(
+                    input,
+                    mapping_type,
+                    block_size,
+                    dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype=scale_dtype,
+                    zero_point_dtype=zero_point_dtype,
+                )
 
-        self.assertTrue(torch.equal(scale, scale_ref))
-        self.assertTrue(torch.equal(zero_point, zero_point_ref))
+            self.assertTrue(torch.equal(scale, scale_ref))
+            self.assertTrue(torch.equal(zero_point, zero_point_ref))
 
     def test_groupwise_affine_quantize_tensor_from_qparams(self):
         input = torch.randn(10, 256)
@@ -846,55 +829,6 @@ class TestQuantPrimitives(unittest.TestCase):
         expected_mask = torch.full(input.shape, True)
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
-
-    def test_none_zero_point_domain(self):
-        """A None value for a ZeroPointDomain should not work, but ZeroPointDomain.NONE should"""
-        input = torch.randn(10, 256)
-        mapping_type = MappingType.SYMMETRIC
-        dtype = torch.int8
-        block_size = (1, 128)
-        quant_min = None
-        quant_max = None
-        eps = 1e-6
-        scale_dtype = torch.float32
-        zero_point_dtype = torch.int64
-        try:
-            _, zero_point = choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=True,
-                zero_point_domain=None,
-            )
-        except ValueError:
-            # This exception was expected
-            # Now test for ZeroPointDomain.NONE
-            _, zero_point = choose_qparams_affine(
-                input,
-                mapping_type,
-                block_size,
-                dtype,
-                quant_min,
-                quant_max,
-                eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=True,
-                zero_point_domain=ZeroPointDomain.NONE,
-            )
-            self.assertTrue(zero_point is None)
-        else:
-            # An exception should have been thrown for zero_point_domain None
-            self.assertTrue(
-                False,
-                msg="A runtime exception should have been thrown for zero_point_domain None",
-            )
 
     @parameterized.expand(
         [

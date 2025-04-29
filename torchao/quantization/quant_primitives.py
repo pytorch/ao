@@ -735,7 +735,7 @@ def _do_fake_quantize_affine(
 def choose_qparams_affine(
     input: torch.Tensor,
     mapping_type: MappingType,
-    block_size: Tuple[int, ...],
+    block_size: Tuple[int],
     target_dtype: torch.dtype,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
@@ -773,7 +773,7 @@ def choose_qparams_affine(
 
 
 @torch.no_grad()
-def choose_qparams_affine_float(
+def choose_qparams_affine_tiny_gemm(
     input: torch.Tensor,
     mapping_type: MappingType,
     block_size: Tuple[int, ...],
@@ -843,46 +843,37 @@ def choose_qparams_affine_float(
     return scale.to(dtype=scale_dtype), zero_point
 
 
-@torch.no_grad()
-def choose_qparams_affine_no_zero_point(
+def choose_qparams_affine_dont_preserve_zero(
     input: torch.Tensor,
     mapping_type: MappingType,
-    block_size: Tuple[int, ...],
+    block_size: List[int],
     target_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    """
-    Specialized version of choose_qparams_affine with zero_point_domain=ZeroPointDomain.NONE and preserve_zero=True.
-
-    This is used for quantization scenarios where no zero point is needed, such as in certain
-    symmetric quantization schemes.
+    zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Specialized version of choose_qparams_affine with zero_point_domain=ZeroPointDomain.INT and preserve_zero=False.
 
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
-        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        mapping_type (MappingType): determines how the qparams are calculated, asymmetric only
         block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
         quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
         eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
         scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
 
     Output:
-        Tuple of scales and zero_points Tensor with requested dtype. zero_points will be None.
+        Tuple of scales and zero_points Tensor with requested dtype
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type in [
-        MappingType.SYMMETRIC,
-        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-        MappingType.ASYMMETRIC,
-    ], f"Unsupported mapping type: {mapping_type}"
-    if target_dtype in FP8_TYPES:
-        assert mapping_type == MappingType.SYMMETRIC, (
-            f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
-        )
+    assert mapping_type == MappingType.ASYMMETRIC.name, (
+        f"Unsupported mapping type: {mapping_type}"
+    )
 
     if scale_dtype is None:
         scale_dtype = input.dtype
@@ -900,32 +891,18 @@ def choose_qparams_affine_no_zero_point(
     min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
     max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
-    # For preserve_zero=True, we ensure zero is exactly representable
-    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+    # For no preserve zero, we don't ensure zero is exactly representable
+    min_val_neg = min_val
+    max_val_pos = max_val
 
-    if (
-        mapping_type == MappingType.SYMMETRIC
-        or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
-    ):
-        # scales
-        if mapping_type == MappingType.SYMMETRIC:
-            max_val_pos = torch.max(-min_val_neg, max_val_pos)
-            scale = max_val_pos / (float(quant_max - quant_min) / 2)
-        else:
-            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
-            smin = min_val_neg / float(quant_min)
-            smax = max_val_pos / float(quant_max)
-            mask = smin > smax
-            scale = torch.where(mask, smin, smax)
-
-        scale = torch.clamp(scale, min=eps)
-    else:
-        assert mapping_type == MappingType.ASYMMETRIC
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
-        scale = torch.clamp(scale, min=eps)
-
-    return scale.to(dtype=scale_dtype), None
+    scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+    scale = torch.clamp(scale, min=eps)
+    # Zero point is int
+    zero_point = quant_min - torch.round(min_val_neg / scale)
+    zero_point = torch.clamp(zero_point, quant_min, quant_max)
+    if zero_point_dtype is None:
+        zero_point_dtype = torch.int32
+    return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
 
 def choose_qparams_affine_with_min_max(
@@ -1056,7 +1033,9 @@ def _choose_qparams_affine(
     quant_max: Optional[Union[int, float, bool]] = None,
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
-    zero_point_dtype: torch.dtype = torch.int32,
+    zero_point_dtype: Optional[torch.dtype] = None,
+    preserve_zero: bool = True,
+    zero_point_domain: Optional[str] = "INT",
     min_val: Optional[torch.Tensor] = None,
     max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1065,7 +1044,8 @@ def _choose_qparams_affine(
     The op does the following:
     1. figure out the dimension for reduction based on block_size
     2. find min_val/max_val based on the dimension for reduction
-    3. calculate quantization parameters based on min_val/max_val for preserve_zero=True and zero_point_domain=INT
+    3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
+       and `zero_point_domain`
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [
@@ -1073,41 +1053,23 @@ def _choose_qparams_affine(
         MappingType.SYMMETRIC_NO_CLIPPING_ERR.name,
         MappingType.ASYMMETRIC.name,
     ], f"Unsupported mapping type: {mapping_type}"
-    if target_dtype in FP8_TYPES:
-        assert mapping_type == MappingType.SYMMETRIC.name, (
-            f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
-        )
 
-    if input is not None:
-        if scale_dtype is None:
-            scale_dtype = input.dtype
-        if eps is None:
-            eps = torch.finfo(input.dtype).eps
+    if scale_dtype is None:
+        scale_dtype = input.dtype
+    if eps is None:
+        eps = torch.finfo(input.dtype).eps
 
-        assert len(block_size) == input.dim(), (
-            f"Got input dim:{input.dim()}, block_size: {block_size}"
-        )
-        shape_for_reduction, reduction_dims = _get_reduction_params(
-            block_size, input.size()
-        )
-        input = input.view(shape_for_reduction)
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    input = input.view(shape_for_reduction)
 
-        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
-    else:
-        assert min_val is not None and max_val is not None, (
-            "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
-        )
-        assert min_val.dtype == max_val.dtype, (
-            "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
-        )
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
-        if scale_dtype is None:
-            scale_dtype = min_val.dtype
-        if eps is None:
-            eps = torch.finfo(min_val.dtype).eps
-
-    # For preserve_zero=True, we ensure zero is exactly representable
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
 
@@ -1132,18 +1094,16 @@ def _choose_qparams_affine(
             smax = max_val_pos / float(quant_max)
             mask = smin > smax
             scale = torch.where(mask, smin, smax)
-
-        # For zero_point_domain=INT in symmetric quantization
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
         scale = torch.clamp(scale, min=eps)
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-
-        # For zero_point_domain=INT in asymmetric quantization
         zero_point = quant_min - torch.round(min_val_neg / scale)
         zero_point = torch.clamp(zero_point, quant_min, quant_max)
+        if zero_point_dtype is None:
+            zero_point_dtype = torch.int32
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
