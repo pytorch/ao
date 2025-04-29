@@ -57,11 +57,11 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
+from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )
@@ -365,9 +365,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                         def derive_qparams_fn(
                             obs_or_fqs: list[ObserverOrFakeQuantize],
                         ) -> tuple[Tensor, Tensor]:
-                            assert (
-                                len(obs_or_fqs) == 2
-                            ), f"Expecting two obs/fqs, one for activation and one for weight, got: {len(obs_or_fqs)}"
+                            assert len(obs_or_fqs) == 2, (
+                                f"Expecting two obs/fqs, one for activation and one for weight, got: {len(obs_or_fqs)}"
+                            )
                             act_obs_or_fq = obs_or_fqs[0]
                             weight_obs_or_fq = obs_or_fqs[1]
                             act_scale, act_zp = act_obs_or_fq.calculate_qparams()
@@ -468,9 +468,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                         def derive_qparams_fn(
                             obs_or_fqs: list[ObserverOrFakeQuantize],
                         ) -> tuple[Tensor, Tensor]:
-                            assert (
-                                len(obs_or_fqs) == 1
-                            ), f"Expecting one weight obs/fq, got: {len(obs_or_fqs)}"
+                            assert len(obs_or_fqs) == 1, (
+                                f"Expecting one weight obs/fq, got: {len(obs_or_fqs)}"
+                            )
                             weight_obs_or_fq = obs_or_fqs[0]
                             (
                                 weight_scale,
@@ -809,9 +809,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 obs_ins0 = getattr(m, input0.target)
                 obs_ins1 = getattr(m, input1.target)
                 assert obs_ins0 == obs_ins1
-        assert (
-            len(conv_output_obs) == 2
-        ), "expecting two observer that follows conv2d ops"
+        assert len(conv_output_obs) == 2, (
+            "expecting two observer that follows conv2d ops"
+        )
         # checking that the output observers for the two convs are shared as well
         assert conv_output_obs[0] == conv_output_obs[1]
 
@@ -876,9 +876,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 obs_ins2 = getattr(m, output_obs.target)
                 assert obs_ins0 == obs_ins2, "input observer does not match output"
 
-        assert (
-            len(conv_output_obs) == 2
-        ), "expecting two observer that follows conv2d ops"
+        assert len(conv_output_obs) == 2, (
+            "expecting two observer that follows conv2d ops"
+        )
         # checking that the output observers for the two convs are shared as well
         assert conv_output_obs[0] == conv_output_obs[1]
 
@@ -1327,6 +1327,40 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         m = export_for_training(m, (example_inputs,), strict=True).module()
         with self.assertRaises(Exception):
             m = prepare_pt2e(m, BackendAQuantizer())
+
+    def _quantize(self, m, quantizer, example_inputs, is_qat: bool = False):
+        # resetting dynamo cache
+        torch._dynamo.reset()
+
+        m = export_for_training(
+            m,
+            example_inputs,
+        ).module()
+        if is_qat:
+            m = prepare_qat_pt2e(m, quantizer)
+        else:
+            m = prepare_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m)
+        return m
+
+    def _get_pt2e_quantized_linear(self, is_per_channel=False) -> torch.fx.GraphModule:
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(2, 2)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        quantizer = XNNPACKQuantizer()
+        operator_config = get_symmetric_quantization_config(
+            is_per_channel=is_per_channel
+        )
+        quantizer.set_global(operator_config)
+        example_inputs = (torch.randn(2, 2),)
+        m = M().eval()
+        return self._quantize(m, quantizer, example_inputs)
 
     def test_fold_quantize(self):
         """Test to make sure the quantized model gets quantized weight (quantize_per_tensor op is folded)"""
@@ -2077,14 +2111,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         exported_gm = export_for_training(m, example_inputs, strict=True).module()
         fx_traced_gm = torch.fx.symbolic_trace(m, example_inputs)
         self.assertTrue(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(exported_gm)
+            torchao.quantization.pt2e.export_utils.model_is_exported(exported_gm)
         )
         self.assertFalse(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(fx_traced_gm)
+            torchao.quantization.pt2e.export_utils.model_is_exported(fx_traced_gm)
         )
-        self.assertFalse(
-            torchao.quantization.pt2e.pt2e.export_utils.model_is_exported(m)
-        )
+        self.assertFalse(torchao.quantization.pt2e.export_utils.model_is_exported(m))
 
     def test_reentrant(self):
         """Test we can safely call quantization apis multiple times"""
@@ -2495,10 +2527,10 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_channel_group_quantization(self):
-        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
         )
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
@@ -2578,13 +2610,13 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_affine_act_per_channel_weights(self):
         import operator
 
+        from torchao.quantization.pt2e._affine_quantization import (
+            AffineQuantizedMovingAverageMinMaxObserver,
+        )
         from torchao.quantization.pt2e.observer import (
             MappingType,
             PerChannelMinMaxObserver,
             PerToken,
-        )
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
-            AffineQuantizedMovingAverageMinMaxObserver,
         )
 
         class BackendAQuantizer(Quantizer):
@@ -2669,13 +2701,12 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
     def test_dynamic_per_tok_act_per_group_weights(self):
         import operator
 
-        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
-
         # TODO: merge into torchao observer
-        from torchao.quantization.pt2e.pt2e._affine_quantization import (
+        from torchao.quantization.pt2e._affine_quantization import (
             AffineQuantizedMinMaxObserver,
             AffineQuantizedPlaceholderObserver,
         )
+        from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 
         class BackendAQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:

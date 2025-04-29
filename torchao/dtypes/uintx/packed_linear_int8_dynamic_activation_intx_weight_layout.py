@@ -156,48 +156,111 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         layout: Layout,
         bias: Optional[torch.Tensor] = None,
+        *,
+        validate_inputs: bool = True,
     ):
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
-        assert layout.has_params_set(), "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
-        assert layout.target in [
-            t for t, _ in _TARGET_AND_STR
-        ], f"Unexpected target: {layout.target}"
+        assert layout.target in [t for t, _ in _TARGET_AND_STR], (
+            f"Unexpected target: {layout.target}"
+        )
+        assert layout.has_params_set(), (
+            "PackedLinearInt8DynamicActivationIntxWeightLayout params must be set before calling from_plain"
+        )
+
+        if layout.target != Target.ATEN:
+            _check_torchao_ops_loaded()
+        else:
+            assert TORCH_VERSION_AT_LEAST_2_6, (
+                "aten target is requires torch version > 2.6.0"
+            )
+            assert torch.backends.kleidiai.is_available(), (
+                "ATEN target requires torch.backends.kleidiai.is_available()"
+            )
+            layout.bit_width == 4, "ATEN target only supports torch.int4"
+            assert not layout.has_weight_zeros, "ATEN target does not support zeros"
+
+        data_dtype = getattr(torch, f"int{layout.bit_width}")
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[data_dtype]
 
         int_types = [torch.int8, torch.int16, torch.int32, torch.int64]
 
+        # Check int_data
+        assert int_data.device == torch.device("cpu")
+        assert int_data.dtype in int_types
         n, k = int_data.shape
-        assert int_data.dtype in int_types, f"int_data.dtype must be {int_types}"
         assert k % layout.group_size == 0, "k must be divisible by group_size"
+        if validate_inputs:
+            assert int_data.min().item() >= qmin
+            assert int_data.max().item() <= qmax
         int_data = int_data.to(torch.int8)
 
-        assert scale.dtype == torch.float32, "scale must be float32"
-        assert (
-            scale.numel() * layout.group_size == int_data.numel()
-        ), "must have 1 scale per group"
+        # Check scale
+        assert scale.device == torch.device("cpu")
+        if scale.dtype != torch.float32:
+            logging.info(f"scale has dtype {scale.dtype}, converting to torch.float32")
+            scale = scale.to(torch.float32)
+        n_, _ = scale.shape
+        assert n_ == n
+        assert scale.numel() * layout.group_size == int_data.numel(), (
+            "must have 1 scale per group"
+        )
+        if validate_inputs:
+            assert scale.min().item() > 0
+            # Some targets round scales to bfloat16, give warning if scales are at higher precision
+            scale_is_rounded_to_bf16 = torch.allclose(
+                scale, scale.to(torch.bfloat16).to(torch.float32)
+            )
+            if not scale_is_rounded_to_bf16:
+                if layout.target == Target.ATEN and (layout.group_size < k):
+                    logging.warning(
+                        "When using Target.ATEN with group_size < k, scales will be rounded to bfloat16"
+                    )
+                if layout.target in [Target.AUTO, Target.KLEIDIAI]:
+                    logging.warning(
+                        "When using [Target.AUTO, Target.KLEIDIAI], scales will be rounded to bfloat16"
+                    )
 
-        assert (zero_point is not None) == (
-            layout.has_weight_zeros
-        ), "zero_point being None must be consistent with layout.has_weight_zeros"
-        if zero_point is not None:
-            assert (
-                zero_point.dtype in int_types
-            ), f"zero_point.dtype must be {int_types}"
-            assert (
-                zero_point.numel() * layout.group_size == int_data.numel()
-            ), "must have 1 zero_point per group"
+        # Check zero_point
+        if zero_point is None:
+            assert not layout.has_weight_zeros, (
+                "zero_point must be provided if has_weight_zeros=True"
+            )
+        else:
+            assert zero_point.device == torch.device("cpu")
+            assert zero_point.shape == scale.shape
+            assert zero_point.dtype in int_types
+            assert zero_point.numel() * layout.group_size == int_data.numel(), (
+                "must have 1 zero_point per group"
+            )
+            if validate_inputs:
+                zero_point_min = zero_point.min().item()
+                zero_point_max = zero_point.max().item()
+                assert zero_point.min().item() >= qmin
+                assert zero_point.max().item() <= qmax
+                has_weight_zeros = True
+                if zero_point_min == 0 and zero_point_max == 0:
+                    has_weight_zeros = False
+                assert has_weight_zeros == layout.has_weight_zeros, (
+                    "zero_point being all zeros must be consistent with layout.has_weight_zeros"
+                )
             zero_point = zero_point.to(torch.int8)
 
-        assert (bias is not None) == (
-            layout.has_bias
-        ), "bias being None must be consistent with layout.has_bias"
-        if bias is not None:
-            assert bias.dtype == torch.float32, "bias.dtype must be float32"
-            assert bias.shape == (n,), "bias must have shape n"
+        # Check bias
+        has_bias = bias is not None
+        assert has_bias == layout.has_bias, (
+            "bias being None must be consistent with layout.has_bias"
+        )
+        if has_bias:
+            assert bias.device == torch.device("cpu")
+            if bias.dtype != torch.float32:
+                logging.info(
+                    f"bias has dtype {bias.dtype}, converting to torch.float32"
+                )
+                bias = bias.to(torch.float32)
+            assert bias.shape == (n,)
 
+        # Construct packed_weight
         if layout.target == Target.ATEN:
-            assert (
-                TORCH_VERSION_AT_LEAST_2_6
-            ), "aten target is requires torch version > 2.6.0"
             int_data = int_data.add(8)
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
 
@@ -213,12 +276,11 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         args = [
             int_data,
             scale.reshape(-1),
-            zero_point.reshape(-1) if zero_point is not None else None,
+            zero_point.reshape(-1) if layout.has_weight_zeros else None,
             layout.group_size,
             bias,
             target_to_str(layout.target) if layout.target != Target.AUTO else None,
         ]
-
         packed_weight = getattr(
             torch.ops.torchao,
             f"_pack_8bit_act_{layout.bit_width}bit_weight",
@@ -307,9 +369,9 @@ def _linear_impl(input_tensor, weight_tensor, bias):
     target = weight_tensor.tensor_impl.get_layout().target
 
     if weight_tensor.tensor_impl.get_layout().has_bias:
-        assert (
-            bias is None
-        ), "bias should be None because it is already packed with the weights (has_bias=True)"
+        assert bias is None, (
+            "bias should be None because it is already packed with the weights (has_bias=True)"
+        )
 
     if target == Target.ATEN:
         assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
@@ -355,82 +417,40 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     from plain data.
     """
     # TORCH_VERSION_AT_LEAST_2_6 is needed for torch.intx with x < 8
-    assert TORCH_VERSION_AT_LEAST_2_6, "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
+    assert TORCH_VERSION_AT_LEAST_2_6, (
+        "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
+    )
 
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
-    if layout.target != Target.ATEN:
-        _check_torchao_ops_loaded()
-    else:
-        assert (
-            torch.backends.kleidiai.is_available()
-        ), "ATEN target requires torch.backends.kleidiai.is_available()"
-        assert data_dtype == torch.int4, "ATEN target only supports torch.int4"
-        assert zero_point is None, "ATEN target does not support zeros"
 
-    assert data_dtype in [getattr(torch, f"int{x}") for x in range(1, 9)]
-    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[data_dtype]
     bit_width = _DTYPE_TO_BIT_WIDTH[data_dtype]
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[data_dtype]
 
-    int_types = [torch.int8, torch.int16, torch.int32, torch.int64]
-
-    # Check int_data
-    assert int_data.device == torch.device("cpu")
-    assert int_data.dtype in int_types
     n, k = int_data.shape
-    if validate_inputs:
-        assert int_data.min().item() >= qmin
-        assert int_data.max().item() <= qmax
-
-    # Check scale
-    assert scale.device == torch.device("cpu")
-    if scale.dtype != torch.float32:
-        logging.info(f"scale has dtype {scale.dtype}, converting to torch.float32")
-        scale = scale.to(torch.float32)
     n_, groups_per_k = scale.shape
-    assert n_ == n
     assert k % groups_per_k == 0
     group_size = k // groups_per_k
-    if validate_inputs:
-        assert scale.min().item() > 0
 
-    if validate_inputs:
-        # Some targets round scales to bfloat16, give warning if scales are at higher precision
-        scale_is_rounded_to_bf16 = torch.allclose(
-            scale, scale.to(torch.bfloat16).to(torch.float32)
-        )
-        if not scale_is_rounded_to_bf16:
-            if layout.target == Target.ATEN and (group_size < k):
-                logging.warning(
-                    "When using Target.ATEN with group_size < k, scales will be rounded to bfloat16"
-                )
-            if layout.target in [Target.AUTO, Target.KLEIDIAI]:
-                logging.warning(
-                    "When using [Target.AUTO, Target.KLEIDIAI], scales will be rounded to bfloat16"
-                )
+    has_weight_zeros = True
+    if zero_point is None:
+        has_weight_zeros = False
+    else:
+        zero_point_min = zero_point.min().item()
+        zero_point_max = zero_point.max().item()
+        if zero_point_min == 0 and zero_point_max == 0:
+            has_weight_zeros = False
 
-    # Check zero_point
-    has_weight_zeros = zero_point is not None
-    if has_weight_zeros:
-        assert zero_point.device == torch.device("cpu")
-        assert zero_point.shape == scale.shape
-        assert zero_point.dtype in int_types
-        if validate_inputs:
-            assert zero_point.min().item() >= qmin
-            assert zero_point.max().item() <= qmax
-
-    # Check bias
     has_bias = bias is not None
-    if has_bias:
-        assert bias.device == torch.device("cpu")
-        if bias.dtype != torch.float32:
-            logging.info(f"bias has dtype {bias.dtype}, converting to torch.float32")
-            bias = bias.to(torch.float32)
-        assert bias.shape == (n,)
 
     layout.set_params(bit_width, group_size, has_weight_zeros, has_bias)
     assert layout.has_params_set()
     tensor_impl = PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl.from_plain(
-        int_data, scale, zero_point, layout, bias
+        int_data,
+        scale,
+        zero_point,
+        layout,
+        bias,
+        validate_inputs=validate_inputs,
     )
 
     return AffineQuantizedTensor(
@@ -439,7 +459,5 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
         shape=int_data.shape,
         quant_min=qmin,
         quant_max=qmax,
-        zero_point_domain=ZeroPointDomain.INT
-        if has_weight_zeros
-        else ZeroPointDomain.NONE,
+        zero_point_domain=ZeroPointDomain.INT,
     )

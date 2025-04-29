@@ -10,9 +10,9 @@ from torchao.float8.float8_utils import compute_error
 from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
 from torchao.prototype.mx_formats.mx_tensor import DTYPE_FP4, MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8, is_sm_at_least_100
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7, is_sm_at_least_100
 
-if not TORCH_VERSION_AT_LEAST_2_8:
+if not TORCH_VERSION_AT_LEAST_2_7:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -74,6 +74,6 @@ def test_matrix_multiplication(size, format):
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format)
     threshold = 80.0
-    assert (
-        sqnr >= threshold
-    ), f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
+    assert sqnr >= threshold, (
+        f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
+    )

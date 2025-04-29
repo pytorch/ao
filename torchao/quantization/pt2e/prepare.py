@@ -24,16 +24,16 @@ from torch.fx.node import Argument
 from torchao.quantization.pt2e import (
     CUSTOM_KEY,
     NUMERIC_DEBUG_HANDLE_KEY,
+    DerivedObserverOrFakeQuantize,
     ObserverOrFakeQuantize,
-    _DerivedObserverOrFakeQuantize,
 )
 from torchao.quantization.pt2e.fake_quantize import (
     FixedQParamsFakeQuantize,
 )
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
+    PartialWrapper,
     _is_activation_post_process,
-    _PartialWrapper,
 )
 from torchao.quantization.pt2e.quantizer import (
     DerivedQuantizationSpec,
@@ -101,7 +101,7 @@ def _create_obs_or_fq_from_qspec(
         edge_or_nodes = quantization_spec.derived_from
         obs_or_fqs = [obs_or_fq_map[k] for k in edge_or_nodes]
         kwargs["obs_or_fqs"] = obs_or_fqs
-        return _DerivedObserverOrFakeQuantize.with_args(**kwargs)()
+        return DerivedObserverOrFakeQuantize.with_args(**kwargs)()
     elif isinstance(quantization_spec, FixedQParamsQuantizationSpec):
         kwargs = _get_observer_kwargs(quantization_spec)
         observer_ctr = FixedQParamsObserver.with_args(**kwargs)
@@ -110,16 +110,16 @@ def _create_obs_or_fq_from_qspec(
         else:
             return observer_ctr()
 
-    assert isinstance(
-        quantization_spec, QuantizationSpec
-    ), f"Expected QuantizationSpec got: {quantization_spec}"
+    assert isinstance(quantization_spec, QuantizationSpec), (
+        f"Expected QuantizationSpec got: {quantization_spec}"
+    )
     observer_or_fake_quant_ctr = quantization_spec.observer_or_fake_quant_ctr
     kwargs = _get_observer_kwargs(quantization_spec)
     kwargs.pop("observer_or_fake_quant_ctr")
     # we will remove is_dynamic from QuantizationSpec because
     # it seems that dynamic range quantization
     obs_or_fq_class = observer_or_fake_quant_ctr
-    if isinstance(observer_or_fake_quant_ctr, _PartialWrapper):
+    if isinstance(observer_or_fake_quant_ctr, PartialWrapper):
         obs_or_fq_class = observer_or_fake_quant_ctr.p.func  # type: ignore[union-attr, assignment]
     if "PerChannel" not in obs_or_fq_class.__name__:  # type: ignore[operator, union-attr]
         kwargs.pop("ch_axis")
@@ -445,9 +445,9 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     original_arg = arg
     while _is_activation_post_process_node(original_arg, named_modules):
         original_arg = original_arg.args[0]  # type: ignore[assignment]
-    assert isinstance(
-        original_arg, Node
-    ), f"expect original argument to be a Node, but got: {type(original_arg)}"
+    assert isinstance(original_arg, Node), (
+        f"expect original argument to be a Node, but got: {type(original_arg)}"
+    )
 
     input_edge = (original_arg, node)
     if input_edge not in obs_or_fq_map:

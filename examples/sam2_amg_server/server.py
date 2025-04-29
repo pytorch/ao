@@ -493,10 +493,12 @@ def main(
         set_furious(mask_generator)
 
     if save_fast != "":
-        assert (
-            load_fast == ""
-        ), "Can't save compiled models while loading them with --load-fast."
-        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        assert load_fast == "", (
+            "Can't save compiled models while loading them with --load-fast."
+        )
+        assert not baseline, (
+            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        )
         print(f"Saving compiled models under directory {save_fast}")
         export_model(
             mask_generator,
@@ -508,7 +510,9 @@ def main(
         )
 
     if fast:
-        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        assert not baseline, (
+            "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
+        )
         set_fast(mask_generator, "amg", load_fast)
 
     # since autoquant is replicating what furious mode is doing, don't use these two together

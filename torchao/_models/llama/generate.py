@@ -194,9 +194,9 @@ def generate(
     with torch.device(device):
         if cache_size is None:
             cache_size = max_seq_length
-        assert (
-            cache_size >= max_seq_length
-        ), "need cache_size to be greater than max_new_tokens + size-of-prompt"
+        assert cache_size >= max_seq_length, (
+            "need cache_size to be greater than max_new_tokens + size-of-prompt"
+        )
         model.setup_caches(
             max_batch_size=batch_size,
             max_seq_length=cache_size,
@@ -430,15 +430,14 @@ def main(
             if "hqq" in quantization:
                 use_hqq = True
             group_size = int(quantization.split("-")[1])
-            assert (
-                group_size
-                in [
-                    32,
-                    64,
-                    128,
-                    256,
-                ]
-            ), f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
+            assert group_size in [
+                32,
+                64,
+                128,
+                256,
+            ], (
+                f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
+            )
             quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
@@ -557,18 +556,17 @@ def main(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         elif "int8_dynamic_activation_intx_weight" in quantization:
-            assert (
-                TORCH_VERSION_AT_LEAST_2_6
-            ), "int8_dynamic_activation_intx_weight requires torch2.6+"
-            assert (
-                precision == torch.float32
-            ), "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
+            assert TORCH_VERSION_AT_LEAST_2_6, (
+                "int8_dynamic_activation_intx_weight requires torch2.6+"
+            )
+            assert precision == torch.float32, (
+                "int8_dynamic_activation_intx_weight requires using precision=torch.float32"
+            )
 
             from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
             from torchao.quantization.granularity import PerAxis, PerGroup
             from torchao.quantization.quant_api import (
                 Int8DynamicActivationIntxWeightConfig,
-                ZeroPointDomain,
             )
 
             # Quantize model
@@ -576,16 +574,15 @@ def main(
             weight_dtype = getattr(torch, f"int{_quant_args[1]}")
             group_size = int(_quant_args[2])
             granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
-            has_weight_zeros = bool(_quant_args[3])
+            is_asymmetric = bool(_quant_args[3])
             quantize_(
                 model,
                 Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=weight_dtype,
                     weight_granularity=granularity,
-                    weight_zero_point_domain=ZeroPointDomain.INT
-                    if has_weight_zeros
-                    else ZeroPointDomain.NONE,
-                    weight_mapping_type=MappingType.ASYMMETRIC,
+                    weight_mapping_type=MappingType.ASYMMETRIC
+                    if is_asymmetric
+                    else MappingType.SYMMETRIC,
                     weight_scale_dtype=torch.bfloat16,
                     layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
                 ),
@@ -1007,7 +1004,7 @@ def main(
         prefill_time = prefill_start_event.elapsed_time(prefill_end_event) / 1000
         aggregate_metrics["prefill_time"].append(prefill_time)
         print(
-            f"Sample {i+1} | overall time {t:.04f} s {tokens_sec:.02f} tokens/sec",
+            f"Sample {i + 1} | overall time {t:.04f} s {tokens_sec:.02f} tokens/sec",
             f"| prefill time {prefill_time:.04f} s decode {decode_tokens_sec:.02f} tokens/sec",
         )
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
@@ -1048,7 +1045,7 @@ def main(
         mem = torch.xpu.max_memory_reserved() / 1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     if batch_size > 1:
-        print(f"Average tokens/sec including batches {batch_size*tokpersec:.2f}")
+        print(f"Average tokens/sec including batches {batch_size * tokpersec:.2f}")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")

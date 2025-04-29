@@ -46,9 +46,9 @@ def preprocess_data(
         Preprocessed tensors A and B in the format for _scaled_mm.
     """
     if scaled_mm_config.pad_inner_dim:
-        assert a_data.size(1) == b_data.size(
-            0
-        ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
+        assert a_data.size(1) == b_data.size(0), (
+            f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
+        )
         a_data = pad_tensor_for_matmul(a_data, dims=1)
         b_data = pad_tensor_for_matmul(b_data, dims=0)
     if not is_row_major(a_data.stride()):

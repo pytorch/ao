@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -79,11 +80,17 @@ class BenchmarkConfig:
         )
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
-        self.output_dir = output_dir
+        self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
+        self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
+        # Create profiler directory path without leading slash
+        profiler_dir = os.path.join(self.output_dir, "profiler")
+        os.makedirs(profiler_dir, exist_ok=True)
+        self._file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -105,6 +112,8 @@ class BenchmarkConfig:
             "device": self.device,
             "model_type": self.model_type,
             "output_dir": self.output_dir,
+            "enable_profiler": self.enable_profiler,
+            "enable_memory_profiler": self.enable_memory_profiler,
         }
 
 
@@ -116,37 +125,22 @@ class BenchmarkResult:
         self.config = config
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
+        self.profiler_json_path: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_visualization_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
-        return {
+        result_dict = {
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
+            "profiler_json_path": self.profiler_json_path,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_visualization_path": self.memory_visualization_path,
+            "memory_stats": self.memory_stats,
         }
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        return x
-
-
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
+        return result_dict
 
 
 def string_to_config(
@@ -255,24 +249,30 @@ def string_to_config(
         group_size = int(_quant_args[2])
         return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
     elif "int8_dynamic_activation_intx_weight" in quantization:
-        from torchao.experimental.quant_api import (
+        assert high_precision_dtype == torch.float32, (
+            "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
+        )
+
+        from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout
+        from torchao.quantization.granularity import PerAxis, PerGroup
+        from torchao.quantization.quant_api import (
             Int8DynamicActivationIntxWeightConfig,
         )
-        from torchao.quantization.granularity import PerGroup
-
-        assert (
-            high_precision_dtype == torch.float32
-        ), "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
 
         # Quantize model
         _quant_args = quantization.split("-")
         weight_dtype = getattr(torch, f"int{_quant_args[1]}")
-        granularity = PerGroup(int(_quant_args[2]))
-        has_weight_zeros = bool(_quant_args[3])
+        group_size = int(_quant_args[2])
+        granularity = PerGroup(group_size) if group_size > 0 else PerAxis(0)
+        is_asymmetric = bool(_quant_args[3])
         return Int8DynamicActivationIntxWeightConfig(
             weight_dtype=weight_dtype,
-            granularity=granularity,
-            has_weight_zeros=has_weight_zeros,
+            weight_granularity=granularity,
+            weight_mapping_type=MappingType.ASYMMETRIC
+            if is_asymmetric
+            else MappingType.SYMMETRIC,
+            weight_scale_dtype=torch.bfloat16,
+            layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
         )
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
@@ -319,34 +319,6 @@ def model_inference_time_in_ms(model, input_data):
     return res * 1e6
 
 
-def create_model_and_input(
-    model_type: str,
-    m: int,
-    k: int,
-    n: int,
-    high_precision_dtype: torch.dtype = torch.bfloat16,
-    device: str = get_default_device(),
-):
-    """Create a model and input data for benchmarking.
-
-    Args:
-        model_type (str): type of the model to be created
-        batch_size (int): batch size of the input data
-        device (str): device to run the model on
-        high_precision_dtype (torch.dtype): data type of the model
-        m, k, n (int): dimensions of the model and input data
-    """
-    if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    elif model_type == "ln_linear_sigmoid":
-        model = LNLinearSigmoid(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-    return model, input_data
-
-
 def clean_caches():
     import gc
 
@@ -364,7 +336,7 @@ def clean_caches():
 def generate_results_csv(
     results: List[BenchmarkResult],
     output_dir: str,
-    file_name: str = "results.csv",
+    file_name: Optional[str] = None,
 ):
     """Generate a CSV file with the results of the benchmarking.
 
@@ -373,8 +345,17 @@ def generate_results_csv(
         output_dir (str): Directory to save the CSV file.
         file_name (str, optional): Name of the CSV file. Defaults to "results.csv".
     """
+    # Check if results list is empty
+    if len(results) == 0:
+        print("No results to save to CSV.")
+        return
+
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    # Generate the filename with the current date and time in the specified format
+    if file_name is None:
+        file_name = datetime.now().strftime("results_%d%m%Y_%H%M%S.csv")
+
     file_path = os.path.join(output_dir, file_name)
 
     # Create a CSV file with the results
@@ -390,68 +371,39 @@ def generate_results_csv(
 
 
 def print_results(results: List[BenchmarkResult]):
-    """Print benchmark results in a formatted table.
-
-    Args:
-        results (List[BenchmarkResult]): List of benchmark results
-    """
+    """Print results in a table format"""
     if not results:
         print("No results to display")
         return
 
-    # Extract relevant columns for display
-    display_columns = [
-        "quantization",
-        "sparsity",
-        "model_type",
-        "m",
-        "k",
-        "n",
-        "model_inference_time_in_ms",
-        "use_torch_compile",
-    ]
-
-    # Format data for tabulate
-    headers = {
-        "quantization": "Quantization",
-        "sparsity": "Sparsity",
-        "model_type": "Model Type",
-        "m": "M",
-        "k": "K",
-        "n": "N",
-        "model_inference_time_in_ms": "Time (μs)",
-        "use_torch_compile": "Compile Mode",
-    }
-
-    # Extract and format data
     table_data = []
     for result in results:
-        result_dict = result.to_dict()
-        row = []
-        for col in display_columns:
-            value = result_dict.get(col, "N/A")
-            if value is None:
-                value = "N/A"
-            if col == "model_inference_time_in_ms":
-                value = f"{value:.2f}" if isinstance(value, (int, float)) else value
-            elif col == "use_torch_compile":
-                # Show compile mode if compile is True, otherwise show False
-                value = (
-                    result_dict.get("torch_compile_mode", "default")
-                    if result_dict.get("use_torch_compile")
-                    else "False"
-                )
-            row.append(value)
+        if result is None:
+            continue
+
+        row = [
+            result.config.name,
+            result.config.quantization or "baseline",
+            result.config.sparsity or "none",
+            f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
+            f"{result.model_inference_time_in_ms:.2f}",
+            str(result.config.enable_profiler),
+        ]
+
         table_data.append(row)
 
-    # Print formatted table
-    print("\nBenchmark Results:")
-    print(
-        tabulate(
-            table_data,
-            headers=[headers[col] for col in display_columns],
-            tablefmt="grid",
-            floatfmt=".2f",
-        )
-    )
-    print()
+    # Define headers
+    headers = [
+        "Name",
+        "Quantization",
+        "Sparsity",
+        "Shape",
+        "Inference Time (ms)",
+        "Profiler Enabled",
+    ]
+
+    if table_data:
+        print("\nBenchmark Results:")
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    else:
+        print("\nNo valid results to display")

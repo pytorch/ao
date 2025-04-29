@@ -70,9 +70,9 @@ def swap_linear_layers(
         if isinstance(module, nn.Linear) and (
             module_filter_fn is None or module_filter_fn(module, cur_fqn)
         ):
-            assert (
-                parent_module is not None
-            ), f"Linear root module should return early: {module}"
+            assert parent_module is not None, (
+                f"Linear root module should return early: {module}"
+            )
             new_linear_module = from_float_func(module)
             cur_module_name = cur_fqn.split(".")[-1]
             setattr(parent_module, cur_module_name, new_linear_module)

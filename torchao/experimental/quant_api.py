@@ -41,7 +41,6 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 from torchao.quantization.quant_primitives import _DTYPE_TO_BIT_WIDTH
@@ -62,8 +61,8 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             "Int8DynamicActivationIntxWeightConfig has moved from torchao.experimental.quant_api to torchao.quantization.quant_api.\n"
             "Please migrate to using the new version.  The following args are renamed in the new version:\n"
             "* granularity -> weight_granularity\n"
-            "* has_weight_zeros=True -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.INT\n"
-            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.ZeroPointDomain.NONE\n"
+            "* has_weight_zeros=True -> weight_mapping_type=torchao.quantization.quant_api.MappingType.ASYMMETRIC\n"
+            "* has_weight_zeros=False -> weight_zero_point_domain=torchao.quantization.quant_api.MappingType.SYMMETRIC\n"
             "* round_weight_scale_to_bf16=True -> weight_scale_dtype=torch.bfloat16\n"
             "* layout default has changed to QDQLayout().  IF YOU WANT CPU PERFORMANCE, USE layout=PackedLinearInt8DynamicActivationIntxWeightLayout()."
         )
@@ -81,8 +80,7 @@ class QuantizedEmbedding(nn.Module):
         super().__init__()
         self.bit_width = bit_width
 
-    def quantize_and_pack_weights(self, weights, group_size, has_weight_zeros):
-        assert has_weight_zeros, "has_weight_zeros must be True for QuantizedEmbedding"
+    def quantize_and_pack_weights(self, weights, group_size, mapping_type):
         num_embeddings, embedding_dim = weights.shape
 
         embedding = torch.nn.Embedding(num_embeddings, embedding_dim)
@@ -92,16 +90,14 @@ class QuantizedEmbedding(nn.Module):
             IntxWeightOnlyConfig(
                 weight_dtype=getattr(torch, f"int{self.bit_width}"),
                 granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
-                zero_point_domain=ZeroPointDomain.INT
-                if has_weight_zeros
-                else ZeroPointDomain.NONE,
-                mapping_type=MappingType.ASYMMETRIC,
+                mapping_type=mapping_type,
             ),
             lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
         weight_qvals, weight_scales, weight_zeros = (
             embedding.weight.tensor_impl.get_plain()
         )
+        assert weight_zeros is not None
         weight_scales = weight_scales.reshape(num_embeddings, -1)
         weight_zeros = weight_zeros.reshape(num_embeddings, -1).to(torch.int8)
         self.register_buffer(
@@ -122,6 +118,7 @@ class QuantizedEmbedding(nn.Module):
             self.num_embeddings,
             self.embedding_dim,
             self.weight_scales,
+            # embedding op requires weight_zeros be passed, even if they are all 0
             self.weight_zeros,
             x.reshape(-1),
         ).reshape(*shape, -1)
@@ -135,7 +132,7 @@ class QuantizedEmbeddingFallback(nn.Module):
         super().__init__()
         self.bit_width = bit_width
 
-    def quantize_and_pack_weights(self, weights, group_size, has_weight_zeros):
+    def quantize_and_pack_weights(self, weights, group_size, mapping_type):
         self.embedding = torch.nn.Embedding(*weights.shape)
         self.embedding.weight = weights
         quantize_(
@@ -143,10 +140,7 @@ class QuantizedEmbeddingFallback(nn.Module):
             IntxWeightOnlyConfig(
                 weight_dtype=getattr(torch, f"int{self.bit_width}"),
                 granularity=PerGroup(group_size) if group_size > 0 else PerAxis(0),
-                zero_point_domain=ZeroPointDomain.INT
-                if has_weight_zeros
-                else ZeroPointDomain.NONE,
-                mapping_type=MappingType.ASYMMETRIC,
+                mapping_type=mapping_type,
             ),
             lambda m, fqn: isinstance(m, torch.nn.Embedding),
         )
@@ -189,7 +183,7 @@ def _replace_embedding_with_quantized_embedding(
     group_size = kwargs.get("group_size", None)
     bit_width = kwargs.get("bit_width", None)
     use_fallback = kwargs.get("use_fallback", None)
-    has_weight_zeros = kwargs.get("has_weight_zeros", None)
+    mapping_type = kwargs.get("mapping_type", None)
     embedding_fqn_to_quantized_unembedding = kwargs.get(
         "embedding_fqn_to_quantized_unembedding", None
     )
@@ -208,7 +202,9 @@ def _replace_embedding_with_quantized_embedding(
                 qembedding = QuantizedEmbeddingFallback(bit_width)
                 setattr(module, name, qembedding)
                 getattr(module, name).quantize_and_pack_weights(
-                    child.weight, group_size, has_weight_zeros
+                    child.weight,
+                    group_size,
+                    mapping_type,
                 )
             else:
                 _check_torchao_ops_loaded()
@@ -216,7 +212,9 @@ def _replace_embedding_with_quantized_embedding(
                     qembedding = QuantizedEmbedding(bit_width)
                     setattr(module, name, qembedding)
                     getattr(module, name).quantize_and_pack_weights(
-                        child.weight, group_size, has_weight_zeros
+                        child.weight,
+                        group_size,
+                        mapping_type,
                     )
                 else:
                     if child_fqn not in embedding_fqn_to_quantized_unembedding:
@@ -227,12 +225,12 @@ def _replace_embedding_with_quantized_embedding(
                     packed_weight = weight_tensor.tensor_impl.packed_weight
                     bit_width = weight_tensor.tensor_impl.get_layout().bit_width
 
-                    assert (
-                        n == child.num_embeddings
-                    ), "num_embeddings must match n in shared_unembedding"
-                    assert (
-                        k == child.embedding_dim
-                    ), "embedding_dim must match k in shared_unembedding"
+                    assert n == child.num_embeddings, (
+                        "num_embeddings must match n in shared_unembedding"
+                    )
+                    assert k == child.embedding_dim, (
+                        "embedding_dim must match k in shared_unembedding"
+                    )
                     qembedding = QuantizedSharedEmbedding(
                         bit_width,
                         packed_weight,
@@ -248,7 +246,7 @@ class EmbeddingQuantizer:
         self,
         weight_dtype: torch.dtype = torch.int4,
         granularity: Granularity = PerAxis(0),
-        has_weight_zeros: bool = True,
+        mapping_type: MappingType = MappingType.ASYMMETRIC,
         use_fallback: bool = False,
     ):
         assert weight_dtype in [getattr(torch, f"int{i}") for i in range(1, 9)]
@@ -265,7 +263,7 @@ class EmbeddingQuantizer:
         self.bit_width = bit_width
         self.group_size = group_size
         self.use_fallback = use_fallback
-        self.has_weight_zeros = has_weight_zeros
+        self.mapping_type = mapping_type
 
     def quantize(self, model: nn.Module) -> nn.Module:
         _replace_embedding_with_quantized_embedding(
@@ -274,7 +272,7 @@ class EmbeddingQuantizer:
                 "group_size": self.group_size,
                 "bit_width": self.bit_width,
                 "use_fallback": self.use_fallback,
-                "has_weight_zeros": self.has_weight_zeros,
+                "mapping_type": self.mapping_type,
             },
         )
         return model
@@ -371,11 +369,11 @@ class SharedEmbeddingQuantizer:
         self,
         weight_dtype: torch.dtype = torch.int4,
         granularity: Granularity = PerAxis(0),
-        has_weight_zeros: bool = True,
+        mapping_type: MappingType = MappingType.ASYMMETRIC,
     ):
         self.weight_dtype = weight_dtype
         self.granularity = granularity
-        self.has_weight_zeros = has_weight_zeros
+        self.mapping_type = mapping_type
 
     def quantize(
         self,
@@ -422,16 +420,18 @@ class SharedEmbeddingQuantizer:
 
         # Check that embeddings are shared, embeddings are embeddings, and unembeddings are linear ops
         for embedding_fqn, unembedding_fqn in embedding_to_unembedding.items():
-            assert (
-                embedding_fqn in embedding_fqns
-            ), f"Embedding {embedding_fqn} is not found in model"
-            assert (
-                unembedding_fqn in linear_fqns
-            ), f"Unembedding {unembedding_fqn} is not found in model"
+            assert embedding_fqn in embedding_fqns, (
+                f"Embedding {embedding_fqn} is not found in model"
+            )
+            assert unembedding_fqn in linear_fqns, (
+                f"Unembedding {unembedding_fqn} is not found in model"
+            )
             assert torch.allclose(
                 state_dict[embedding_fqn + ".weight"],
                 state_dict[unembedding_fqn + ".weight"],
-            ), f"Embedding {embedding_fqn} does not share weights with unembedding {unembedding_fqn}"
+            ), (
+                f"Embedding {embedding_fqn} does not share weights with unembedding {unembedding_fqn}"
+            )
 
         # Quantize unembeddings
         quantize_(
@@ -439,10 +439,7 @@ class SharedEmbeddingQuantizer:
             Int8DynamicActivationIntxWeightConfig_NonExperimental(
                 weight_dtype=self.weight_dtype,
                 weight_granularity=self.granularity,
-                weight_zero_point_domain=ZeroPointDomain.INT
-                if self.has_weight_zeros
-                else ZeroPointDomain.NONE,
-                weight_mapping_type=MappingType.ASYMMETRIC,
+                weight_mapping_type=self.mapping_type,
                 # Only universal layout is supported for shared embedding
                 layout=PackedLinearInt8DynamicActivationIntxWeightLayout(
                     target="universal"

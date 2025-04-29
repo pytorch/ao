@@ -68,9 +68,9 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
-    assert (
-        weight_tensor.block_size[0] == 1
-    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
@@ -167,9 +167,9 @@ class TensorCoreTiledLayout(Layout):
             input,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
-        assert (
-            len(block_size) == 2
-        ), f"TensorCoreTiledLayout only supports len(block_size) == 2, got: {block_size}"
+        assert len(block_size) == 2, (
+            f"TensorCoreTiledLayout only supports len(block_size) == 2, got: {block_size}"
+        )
         scale_pad_dim_0 = (out_features - orig_out_features) // block_size[0]
         scale_pad_dim_1 = (in_features - orig_in_features) // block_size[1]
         scale = torch.nn.functional.pad(scale, (0, scale_pad_dim_1, 0, scale_pad_dim_0))
@@ -265,13 +265,13 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
 
         if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert (
-                int_data.dtype == torch.uint8
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            assert int_data.dtype == torch.uint8, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            )
         else:
-            assert (
-                int_data.dtype == torch.int32
-            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            assert int_data.dtype == torch.int32, (
+                "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+            )
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(
             int_data, _layout.inner_k_tiles
         )

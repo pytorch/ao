@@ -109,7 +109,7 @@ def uintx_vs_fp16(nbits=[1, 2, 3, 4, 5, 6, 7], scales=[256, 512, 1024], repeats=
     for result in results:
         print(f"scale: {result[0]} fp16 time:{result[1]: .2f}ms speedups:")
         for i in range(2, len(result)):
-            print(f"int{nbits[i-2]}: {result[1]/result[i]: .2f}x")
+            print(f"int{nbits[i - 2]}: {result[1] / result[i]: .2f}x")
 
 
 if __name__ == "__main__":

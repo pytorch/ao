@@ -225,9 +225,9 @@ def run(
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
 
-    assert not (
-        (float8_recipe_name is not None) and (mx_recipe_name is not None)
-    ), "unsupported"
+    assert not ((float8_recipe_name is not None) and (mx_recipe_name is not None)), (
+        "unsupported"
+    )
     if float8_recipe_name is None and mx_recipe_name is None:
         float8_recipe_name = "tensorwise"
 

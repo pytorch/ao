@@ -365,12 +365,12 @@ def triton_mm_launcher(
         acc_dtype = [ab_dtype][0]
     else:
         assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
-        assert (
-            acc_dtype in TRITON_ACC_TYPES[a.dtype]
-        ), "acc_dtype not compatible with the type of a"
-        assert (
-            acc_dtype in TRITON_ACC_TYPES[b.dtype]
-        ), "acc_dtype not compatible with the type of b"
+        assert acc_dtype in TRITON_ACC_TYPES[a.dtype], (
+            "acc_dtype not compatible with the type of a"
+        )
+        assert acc_dtype in TRITON_ACC_TYPES[b.dtype], (
+            "acc_dtype not compatible with the type of b"
+        )
 
     acc_dtype = to_tl_type(acc_dtype)
     ab_dtype = to_tl_type(ab_dtype)
