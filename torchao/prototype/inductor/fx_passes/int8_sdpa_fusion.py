@@ -6,6 +6,7 @@ from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.fx_passes.post_grad import register_lowering_pattern
 from torch._inductor.lowering import lowerings as L
+from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
@@ -14,7 +15,13 @@ from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
 )
 
-from ..int8_sdpa_lowering import register_int8_sdpa  # noqa: F401
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
+if TORCH_VERSION_AT_LEAST_2_7:
+    # TORCH_VERSION_AT_LEAST_2_7 is needed for int8 sdpa lowering
+    from ..int8_sdpa_lowering import register_int8_sdpa  # noqa: F401
+else:
+    make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
 
 __all__ = [
     "_int8_sdpa_init",
