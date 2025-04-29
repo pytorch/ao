@@ -10,6 +10,8 @@ from torch._inductor.select_algorithm import (
     autotune_select_algorithm,
 )
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
 from .codegen.cpp_int8_sdpa_template import CppInt8SdpaTemplate
 
 op_int8_sdpa = ExternKernelChoice(
@@ -44,6 +46,9 @@ def register_int8_sdpa():
         o_scale: Optional[float] = 1.0,
         o_zp: Optional[int] = 0,
     ) -> TensorBox:
+        # TORCH_VERSION_AT_LEAST_2_7 is needed for int8 sdpa
+        assert TORCH_VERSION_AT_LEAST_2_7, "Int8 sdpa requires torch version >= 2.7.0"
+
         choices: list[ChoiceCaller] = []
 
         (
