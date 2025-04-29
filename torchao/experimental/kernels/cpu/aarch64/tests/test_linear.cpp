@@ -478,7 +478,10 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
       lut.data(),
       test_case.weight_scales.data(),
       has_weight_zeros ? test_case.weight_zeros.data() : nullptr,
-      has_bias ? test_case.bias.data() : nullptr);
+      has_bias ? test_case.bias.data() : nullptr,
+      nr,
+      kr,
+      sr);
 
   std::vector<float> output(m * n);
   kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, /*has_lut*/ true>(

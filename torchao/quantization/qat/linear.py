@@ -219,8 +219,12 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 n_bit = 4
                 (qmin, qmax) = _get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(
-                    child.weight, n_bit, config.group_size
+                    child.weight,
+                    n_bit,
+                    config.group_size,
+                    precision=config.scale_precision,
                 )
+                zp = zp.to(config.zero_point_precision)
                 from torchao._executorch_ops import (
                     _quantized_decomposed_quantize_per_channel_group_wrapper,
                 )
@@ -258,6 +262,10 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         groupsize: the number of elements in each quantized group for weights
         precision: precision of weights
         scales_precision: precision of per group scales and zero points
+
+    Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).
+    To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights
+    and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.
     """
 
     def __init__(
@@ -270,7 +278,9 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
-        activation_config = _get_8da4w_activation_config(scales_precision)
+        # Use torch.float32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant,
+        # which is used in PTQ routines
+        activation_config = _get_8da4w_activation_config(torch.float32)
         weight_config = _get_8da4w_weight_config(groupsize, scales_precision)
         super().__init__(
             in_features,

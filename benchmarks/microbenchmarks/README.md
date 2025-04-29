@@ -30,11 +30,12 @@ python -m benchmarks.microbenchmarks.benchmark_runner --config path/to/config.ym
 
 ```yaml
 # Sample configuration for inference benchmarks
+benchmark_mode: "inference"
 quantization_config_recipe_names:
   - "baseline"
   - "int8wo"
-  - "int4wo-128"
-  - "int4wo-128-hqq"
+  - "float8wo"
+  - "float8dq-tensor"
 
 output_dir: "benchmarks/microbenchmarks/results"
 
@@ -50,9 +51,19 @@ model_params:
   compile: "max-autotune" # Options: "default", "max-autotune", "false"
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
   model_type: "linear"  # Options: "linear", "ln_linear_sigmoid"
+  enable_profiler: true  # Enable standard profiling
+  enable_memory_profiler: true  # Enable CUDA memory profiling
 ```
 
 ## Configuration Options
+
+### Profiling Options
+- `enable_profiler`: Enable standard PyTorch profiling (default: false)
+- `enable_memory_profiler`: Enable CUDA memory profiling (default: false)
+  - Only works when device is set to "cuda"
+  - Generates memory snapshots before and after inference
+  - Creates visualizations of memory usage
+  - Outputs are saved in the memory_profiler subdirectory
 
 ### Quantization Methods
 Currently, quantization string is in same format as the one being passed in llama/generate.py.

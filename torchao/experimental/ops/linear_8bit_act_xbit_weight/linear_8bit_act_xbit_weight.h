@@ -27,6 +27,21 @@ void pack_weights_operator(
     const int8_t* weight_zeros,
     const float* bias);
 
+void pack_weights_with_lut_operator(
+    const UKernelConfig& uk,
+    // Outputs
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qval_idxs,
+    int n_luts,
+    const int8_t* luts,
+    const float* weight_scales,
+    const int8_t* weight_zeros,
+    const float* bias);
+
 // Linear functions
 struct LinearTilingParams {
   int mc{0};

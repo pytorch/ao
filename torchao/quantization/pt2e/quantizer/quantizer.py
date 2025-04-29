@@ -15,7 +15,7 @@ from torch.fx import Node
 
 from torchao.quantization.pt2e import (
     ObserverOrFakeQuantize,
-    _ObserverOrFakeQuantizeConstructor,
+    ObserverOrFakeQuantizeConstructor,
 )
 
 __all__ = [
@@ -47,7 +47,7 @@ class QuantizationSpec(QuantizationSpecBase):
     # MinMaxObserver, PerChannelHistogramObserver etc.
     # or we can attach some custom args to them
     # e.g. MinMaxObserver.with_args(eps=eps)
-    observer_or_fake_quant_ctr: _ObserverOrFakeQuantizeConstructor
+    observer_or_fake_quant_ctr: ObserverOrFakeQuantizeConstructor
     quant_min: Optional[int] = None
     quant_max: Optional[int] = None
     qscheme: Optional[torch.qscheme] = None

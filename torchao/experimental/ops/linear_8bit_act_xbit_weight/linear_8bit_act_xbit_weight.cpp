@@ -75,6 +75,61 @@ void pack_weights_operator(
   });
 }
 
+void pack_weights_with_lut_operator(
+    const UKernelConfig& uk,
+    // Outputs
+    void* packed_weights,
+    // Inputs
+    int n,
+    int k,
+    int group_size,
+    const int8_t* weight_qval_idxs,
+    int n_luts,
+    const int8_t* luts,
+    const float* weight_scales,
+    const int8_t* weight_zeros,
+    const float* bias) {
+  int n_step = uk.n_step;
+  int nc = std::min(n, n_step);
+  int num_nc_panels = (n + nc - 1) / nc;
+
+  torchao::parallel_1d(0, num_nc_panels, [&](int64_t idx) {
+    int nc_tile_idx = idx;
+    int n_idx = nc_tile_idx * nc;
+    int nc_tile_size = std::min(nc, n - n_idx);
+
+    auto packed_weights_offset = uk.packed_weights_offset(
+        n_idx,
+        k,
+        group_size,
+        uk.weight_nbit,
+        uk.has_weight_zeros,
+        uk.has_bias,
+        uk.nr,
+        uk.kr,
+        uk.sr);
+
+    int weight_qval_idxs_offset = n_idx * k;
+    int weight_scales_and_zeros_offset = (n_idx * k / group_size);
+    uk.pack_weights_with_lut(
+        (char*)packed_weights + packed_weights_offset,
+        /*n=*/nc_tile_size,
+        k,
+        group_size,
+        weight_qval_idxs + weight_qval_idxs_offset,
+        n_luts,
+        luts,
+        weight_scales + weight_scales_and_zeros_offset,
+        (weight_zeros == nullptr)
+            ? nullptr
+            : (weight_zeros + weight_scales_and_zeros_offset),
+        (bias == nullptr) ? nullptr : (bias + n_idx),
+        uk.nr,
+        uk.kr,
+        uk.sr);
+  });
+}
+
 LinearTilingParams LinearTilingParams::from_target_tiles_per_thread(
     int m,
     int m_step,

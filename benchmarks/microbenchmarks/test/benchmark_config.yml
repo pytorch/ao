@@ -1,15 +1,10 @@
 # Sample configuration for inference benchmarks
 benchmark_mode: "inference"
-quantization_config_recipe_names:
-  # Will run a baseline inference for model by default, without quantization for comparison
+quantization_config_recipe_names: # Will run a baseline inference for model by default, without quantization for comparison
   - "int8wo"
   - "int8dq"
   - "float8dq"
   - "float8wo"
-# sparsity_config_recipe_names:
-  # Will run a baseline inference for model by default, without sparsity for comparison
-  # - "semi-sparse"
-  # - "block"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
@@ -26,6 +21,7 @@ model_params:
     device: "cuda"
     model_type: "linear"
     enable_profiler: true  # Enable profiling for this model
+    enable_memory_profiler: true  # Enable memory profiling for this model
 
   - name: "ln_linear_sigmoid_cuda"
     matrix_shapes:
@@ -39,6 +35,7 @@ model_params:
     device: "cuda"
     model_type: "ln_linear_sigmoid"
     enable_profiler: true
+    enable_memory_profiler: true
 
   - name: "bf16_transformer_block"
     matrix_shapes:
@@ -52,6 +49,7 @@ model_params:
     device: "cuda"
     model_type: "transformer_block" # TODO: Add a custom model (Figure out how to do this, maybe pass a .py file with model definition)
     enable_profiler: true
+    enable_memory_profiler: true
 
   - name: "large_bf16_ln_linear"
     matrix_shapes:
@@ -70,4 +68,5 @@ model_params:
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
-    enable_profiler: true  # Enable profiling for this model
+    enable_profiler: true
+    enable_memory_profiler: true
