@@ -71,7 +71,7 @@ class Float8ColwiseParallel(ColwiseParallel):
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
+                axiswise_dim=-2,
             )  # DTensor(Float8Tensor) 
         else:
             input_tensor_row_major_rowwise_scales = input_tensor if is_row_major(input_tensor) else None
@@ -152,12 +152,12 @@ class Float8RowwiseParallel(RowwiseParallel):
             )  # DTensor(Float8Tensor)
 
             input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_tensor.reshape(-1, input_tensor.shape[-1]),
+                input_tensor,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
+                axiswise_dim=-2,
             )  # DTensor(Float8Tensor) 
         else:
             input_tensor_row_major_rowwise_scales = input_tensor if is_row_major(input_tensor) else None
