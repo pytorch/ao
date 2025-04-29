@@ -17,11 +17,15 @@ from torch._inductor.pattern_matcher import (
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
+if TORCH_VERSION_AT_LEAST_2_7:
+    # TORCH_VERSION_AT_LEAST_2_7 is needed for int8 sdpa lowering
+    from ..int8_sdpa_lowering import register_int8_sdpa  # noqa: F401
+else:
+    make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
+
 __all__ = [
     "_int8_sdpa_init",
 ]
-
-make_fallback(torch.ops.torchao.qscaled_dot_product.default)
 
 aten = torch.ops.aten
 
@@ -52,7 +56,7 @@ def _register_int8_sdpa_pattern(pattern, custom_pass_dict):
         query = kwargs["query"]
         key = kwargs["key"]
         value = kwargs["value"]
-        inv_scale = kwargs["inv_scale"]
+        scale = 1.0 / kwargs["inv_scale"] if "inv_scale" in kwargs else None
         attn_mask = kwargs["attn_mask"] if "attn_mask" in kwargs else None
         q_scale = kwargs["q_scale"]
         q_zp = kwargs["q_zp"]
@@ -77,7 +81,7 @@ def _register_int8_sdpa_pattern(pattern, custom_pass_dict):
             attn_mask,
             0.0,  # dropout
             False,  # is_causal
-            1.0 / inv_scale,  # scale
+            scale,  # scale
             q_scale,
             q_zp,
             k_scale,
