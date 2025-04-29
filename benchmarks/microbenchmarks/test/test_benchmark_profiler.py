@@ -6,9 +6,11 @@
 
 import json
 import os
+import pickle
 import unittest
 
 import torch
+import torch.cuda
 
 from benchmarks.microbenchmarks.profiler import (
     generate_memory_profile,
@@ -172,7 +174,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
         memory_profile_path = os.path.join(
             self.results_dir,
             "memory_profiler",
-            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.json",
+            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.pickle",
         )
 
         # Generate memory profile
@@ -184,14 +186,13 @@ class TestBenchmarkProfiler(unittest.TestCase):
         self.assertTrue(os.path.exists(result_path))
         self.assertGreater(os.path.getsize(result_path), 0)
 
-        # Verify it's valid JSON and contains expected fields
-        with open(result_path) as f:
-            profile_data = json.load(f)
-        self.assertIsInstance(profile_data, dict)
-        self.assertIn("before_snapshot", profile_data)
-        self.assertIn("after_snapshot", profile_data)
-        self.assertIn("timestamp", profile_data)
-        self.assertIn("model_info", profile_data)
+        # Verify it's a valid pickle file
+        try:
+            with open(result_path, "rb") as f:
+                pickle_data = pickle.load(f)
+            self.assertIsNotNone(pickle_data)
+        except Exception as e:
+            self.fail(f"Failed to load pickle file: {e}")
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_memory_profiler_visualization(self):
@@ -212,35 +213,27 @@ class TestBenchmarkProfiler(unittest.TestCase):
         memory_profile_path = os.path.join(
             self.results_dir,
             "memory_profiler",
-            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.json",
+            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.pickle",
         )
 
-        # Create a mock memory profile
+        # Create a simple mock memory profile as a pickle file
+        # This is a simplified structure that mimics what torch.cuda.memory._dump_snapshot produces
         mock_profile_data = {
-            "before_snapshot": {
-                "blocks": [
-                    {"size": 1024 * 1024},  # 1MB
-                    {"size": 2 * 1024 * 1024},  # 2MB
-                ]
-            },
-            "after_snapshot": {
-                "blocks": [
-                    {"size": 2 * 1024 * 1024},  # 2MB
-                    {"size": 3 * 1024 * 1024},  # 3MB
-                ]
-            },
-            "timestamp": "2024-01-01",
-            "model_info": {
-                "name": "TestModel",
-                "device": "cuda:0",
-                "num_parameters": 1000,
-            },
+            "segments": [
+                {
+                    "device": 0,
+                    "address": 1000,
+                    "size": 1024 * 1024,  # 1MB
+                    "stream": 0,
+                }
+            ],
+            "external_annotations": [],
         }
 
-        # Save mock profile
+        # Save mock profile as pickle
         os.makedirs(os.path.dirname(memory_profile_path), exist_ok=True)
-        with open(memory_profile_path, "w") as f:
-            json.dump(mock_profile_data, f)
+        with open(memory_profile_path, "wb") as f:
+            pickle.dump(mock_profile_data, f)
 
         # Generate visualization
         viz_path = visualize_memory_profile(memory_profile_path)
