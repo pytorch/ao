@@ -75,7 +75,11 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
     ):
-        ctx.save_for_backward(input_hp, input_hp_col_major, weight_hp_t)
+        if input_hp_col_major is None:
+            ctx.save_for_backward(input_hp, weight_hp_t)
+        else:
+            ctx.save_for_backward(input_hp_col_major, weight_hp_t)
+
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
@@ -125,7 +129,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input_hp, input_hp_col_major, weight_hp_t = ctx.saved_tensors
+        input_hp, weight_hp_t = ctx.saved_tensors
         c = ctx.config
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -161,6 +165,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
+            # skip workaround for fp8 all-gather with rowwise scales as the grad_output will be
+            # a Dtensor(Float8Tensor) whcih doesn't support aten.mul
             if (
                 c.cast_config_weight_for_grad_input.scaling_granularity is ScalingGranularity.AXISWISE
                 and not tensor_already_casted_to_fp8(grad_output)
@@ -188,6 +194,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
+        print("computing grad input with", type(grad_output_reshaped_maybe_fp8_dim0), "and", type(weight_t_maybe_fp8_dim0))
         grad_input = torch.mm(
             grad_output_reshaped_maybe_fp8_dim0,
             weight_t_maybe_fp8_dim0.t(),
@@ -196,6 +203,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
 
+        # reshape 3d+ input to 2d if necessary
         input_hp_orig_shape = input_hp.shape
         input_hp_reshaped = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
@@ -224,19 +232,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        # with all-gather using float8 rowwise scales we will receive row-major and col-major
-        # float8 input tensors. for grad_weight = grad_output_t @ input, we'll need 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
-            # if we already have input in col-major format with colwise scales from the all-gather, use it. 
-            if input_hp_col_major is not None:
-                torch.distributed.breakpoint()
-                input_hp_col_major_orig_shape = input_hp_col_major.shape
-                input_hp_col_major_reshaped = input_hp_col_major.reshape(-1, input_hp_col_major_orig_shape[-1])
-                input_reshaped_maybe_fp8_dim1 = input_hp_col_major_reshaped 
-            else:
-                # TODO(future PR): var name is axiswise specific, fix it
-                torch.distributed.breakpoint()
-                input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+            # TODO(future PR): var name is axiswise specific, fix it
+            input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
         elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
             input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
         else:
@@ -252,12 +250,14 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
+        print("computing grad weight with", type(grad_output_reshaped_maybe_fp8_dim1), "and", type(input_reshaped_maybe_fp8_dim1))
         grad_weight = torch.mm(
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
 
-
+        print("grad_input", type(grad_input))
+        print("grad_weight", type(grad_weight))
         return grad_input, None, grad_weight.t(), None, None
 
 

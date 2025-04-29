@@ -175,6 +175,8 @@ def float8_transpose(aten_op, args, kwargs=None):
 @implements([aten.view.default])
 def float8_view(aten_op, args, kwargs=None):
     t, new_shape = args[0], args[1]
+    print("t.shape", t.shape, "new shape", new_shape, "axiswise_dim", t._axiswise_dim)
+    print("scale shape", t._scale.shape)
     # if the new shape is the same as old, return an equivalent tensor
     # note that we have to create a new wrapper to make PyTorch internals happy
     if new_shape == list(t._data.shape):

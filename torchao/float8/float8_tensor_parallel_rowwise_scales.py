@@ -103,11 +103,11 @@ class Float8ColwiseParallel(ColwiseParallel):
         #     mod.config.cast_config_grad_output.target_dtype,
         #     -1, # axiswise_dim
         # )
-        outputs = NoopFwToFloat8BwDynamic.apply(
-            outputs,
-            mod.linear_mm_config,
-            mod.config.cast_config_grad_output.target_dtype,
-        )
+        # outputs = NoopFwToFloat8BwDynamic.apply(
+        #     outputs,
+        #     mod.linear_mm_config,
+        #     mod.config.cast_config_grad_output.target_dtype,
+        # )
         # back to local tensor
         return outputs.to_local() if use_local_output else outputs
 
@@ -152,7 +152,7 @@ class Float8RowwiseParallel(RowwiseParallel):
             )  # DTensor(Float8Tensor)
 
             input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_tensor,
+                input_tensor.reshape(-1, input_tensor.shape[-1]),
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
@@ -189,11 +189,11 @@ class Float8RowwiseParallel(RowwiseParallel):
         #     mod.config.cast_config_grad_output.target_dtype,
         #     -1,
         # )
-        outputs = NoopFwToFloat8BwDynamic.apply(
-            outputs,
-            mod.linear_mm_config,
-            mod.config.cast_config_grad_output.target_dtype,
-        )
+        # outputs = NoopFwToFloat8BwDynamic.apply(
+        #     outputs,
+        #     mod.linear_mm_config,
+        #     mod.config.cast_config_grad_output.target_dtype,
+        # )
 
         # back to local tensor if use_local_output is True
         return outputs.to_local() if use_local_output else outputs
