@@ -394,25 +394,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         _layout: Layout,
-        scale_dtype: Optional[torch.dtype] = None,
     ):
         """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
-            # return cls.from_hp_to_intx(
-            #     input_float=input_float,
-            #     mapping_type=MappingType.SYMMETRIC,
-            #     block_size=block_size,
-            #     target_dtype=target_dtype,
-            #     quant_min=math.ceil(torch.finfo(target_dtype).min),
-            #     quant_max=math.ceil(torch.finfo(target_dtype).max),
-            #     eps=torch.finfo(torch.float32).eps,
-            #     scale_dtype=scale_dtype,
-            #     zero_point_dtype=None,
-            #     preserve_zero=True,
-            #     zero_point_domain=ZeroPointDomain.NONE,
-            #     _layout=_layout,
-            #     use_hqq=False,
-            # )
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
 
@@ -446,16 +430,31 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     ):
         """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype in FP8_TYPES:
-            return cls.from_hp_to_intx_static(
-                input_float=input_float,
-                scale=scale,
-                zero_point=None,
-                block_size=block_size,
-                target_dtype=target_dtype,
-                quant_min=math.ceil(torch.finfo(target_dtype).min),
-                quant_max=math.ceil(torch.finfo(target_dtype).max),
-                zero_point_domain=ZeroPointDomain.NONE,
-                _layout=_layout,
+            original_shape = input_float.shape
+            input_float, scale, zero_point = _layout.pre_process_static(
+                input_float, scale, ZeroPointDomain.NONE, block_size
+            )
+
+            data = quantize_affine_float8(
+                input_float,
+                scale,
+                target_dtype,
+            )
+
+            data, scale, zero_point = _layout.post_process(
+                data,
+                scale,
+                zero_point,
+                block_size,
+            )
+
+            tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+            tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
+            return cls(
+                tensor_impl,
+                block_size,
+                original_shape,
+                dtype=input_float.dtype,
             )
         else:
             raise NotImplementedError(
