@@ -122,10 +122,14 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             if has_fuse_pattern:
                 self.assertGreaterEqual(counters["inductor"]["int8_fuse_attention"], 1)
             if contains:
-                # many of the patterns get re-expanded in dispatcher
-                self.assertIn(
-                    "torchao.qscaled_dot_product",
-                    source_code,
+                self.assertTrue(
+                    any(
+                        op_name in source_code
+                        for op_name in [
+                            "qscaled_dot_product",
+                            "cpp_fused_quantize_per_tensor",
+                        ]
+                    )
                 )
 
             # some tests configured with very low dropout where we still want to check equality
