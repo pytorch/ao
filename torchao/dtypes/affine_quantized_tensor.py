@@ -19,13 +19,16 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine_float,
+    choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
     choose_qparams_affine_int,
     choose_qparams_affine_none,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
+    dequantize_affine_float8,
     dequantize_affine_floatx,
     quantize_affine,
+    quantize_affine_float8,
     quantize_affine_floatx,
 )
 from torchao.utils import (
@@ -131,7 +134,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
+        from torchao.dtypes.floatx import Float8Layout, FloatxTensorCoreLayout
 
         if isinstance(self._layout, FloatxTensorCoreLayout):
             int_data, scale = self.tensor_impl.get_plain()
@@ -142,6 +145,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self._layout.mbits,
                 output_dtype=output_dtype,
             )
+        elif isinstance(self._layout, Float8Layout):
+            data, scale, _ = self.tensor_impl.get_plain()
+            return dequantize_affine_float8(data, scale, output_dtype)
         else:
             data, scale, zero_point = self.tensor_impl.get_plain()
             dq = dequantize_affine(
@@ -392,20 +398,37 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     ):
         """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
-            return cls.from_hp_to_intx(
-                input_float=input_float,
-                mapping_type=MappingType.SYMMETRIC,
-                block_size=block_size,
-                target_dtype=target_dtype,
-                quant_min=math.ceil(torch.finfo(target_dtype).min),
-                quant_max=math.ceil(torch.finfo(target_dtype).max),
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=scale_dtype,
-                zero_point_dtype=None,
-                preserve_zero=True,
-                zero_point_domain=ZeroPointDomain.NONE,
-                _layout=_layout,
-                use_hqq=False,
+            # return cls.from_hp_to_intx(
+            #     input_float=input_float,
+            #     mapping_type=MappingType.SYMMETRIC,
+            #     block_size=block_size,
+            #     target_dtype=target_dtype,
+            #     quant_min=math.ceil(torch.finfo(target_dtype).min),
+            #     quant_max=math.ceil(torch.finfo(target_dtype).max),
+            #     eps=torch.finfo(torch.float32).eps,
+            #     scale_dtype=scale_dtype,
+            #     zero_point_dtype=None,
+            #     preserve_zero=True,
+            #     zero_point_domain=ZeroPointDomain.NONE,
+            #     _layout=_layout,
+            #     use_hqq=False,
+            # )
+            original_shape = input_float.shape
+            input_float = _layout.pre_process(input_float)
+
+            scale = choose_qparams_affine_float8(input_float, float8_dtype=target_dtype)
+            data = quantize_affine_float8(input_float, scale, target_dtype)
+
+            data, scale, zero_point = _layout.post_process(
+                data, scale, None, block_size
+            )
+            tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+            tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
+            return cls(
+                tensor_impl,
+                block_size,
+                original_shape,
+                dtype=input_float.dtype,
             )
         else:
             raise NotImplementedError(
