@@ -85,7 +85,8 @@ def register_int8_sdpa():
         if attn_mask is not None:
             input_nodes.append(attn_mask)
 
-        if torch._C._cpu._is_avx512_supported():
+        # use template if machine has amx
+        if torch._C._cpu._is_amx_tile_supported():
             CppInt8SdpaTemplate.add_choices(
                 choices=choices,
                 input_nodes=input_nodes,
