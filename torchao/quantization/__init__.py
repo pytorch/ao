@@ -80,7 +80,6 @@ from .quant_primitives import (
     choose_qparams_affine,
     choose_qparams_affine_float,
     choose_qparams_affine_floatx,
-    choose_qparams_affine_int,
     choose_qparams_affine_none,
     choose_qparams_affine_with_min_max,
     choose_qparams_and_quantize_affine_hqq,
@@ -162,7 +161,6 @@ __all__ = [
     "AffineQuantizedObserverBase",
     # quant primitive ops
     "choose_qparams_affine",
-    "choose_qparams_affine_int",
     "choose_qparams_affine_float",
     "choose_qparams_affine_none",
     "choose_qparams_affine_with_min_max",
