@@ -30,12 +30,15 @@ endif()
 
 include(CMakePrintHelpers)
 
-add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
+add_compile_options("-Wall" "-Werror" "-Wno-deprecated") # "-march=armv8.4-a+dotprod" "-fPIC"
 
 include(CMakePrintHelpers)
 message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
+# Find PyTorch - make sure we get all include dirs and libraries
+find_package(Torch REQUIRED)
+include_directories(${TORCH_INCLUDE_DIRS})
 
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
@@ -59,6 +62,7 @@ target_link_libraries(
     torchao_ops_aten PRIVATE
     torchao_ops_linear_8bit_act_xbit_weight_aten
     torchao_ops_embedding_xbit_aten
+    ${TORCH_LIBRARIES}
 )
 if (TORCHAO_BUILD_MPS_OPS)
     message(STATUS "Building with MPS support")
@@ -76,6 +80,7 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     target_link_libraries(torchao_ops_executorch PRIVATE
         torchao_ops_linear_8bit_act_xbit_weight_executorch
         torchao_ops_embedding_xbit_executorch
+        ${TORCH_LIBRARIES}
     )
     install(
         TARGETS

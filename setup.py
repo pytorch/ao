@@ -122,7 +122,7 @@ class BuildOptions:
             )
 
     def _is_arm64(self) -> bool:
-        return platform.machine().startswith("arm64")
+        return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
 
     def _is_macos(self) -> bool:
         return platform.system() == "Darwin"
@@ -500,7 +500,7 @@ def get_extensions():
             )
         )
 
-    if build_torchao_experimental:
+    if build_torchao_experimental or os.getenv("BUILD_TORCHAO_CPU") == "1":
         build_options = BuildOptions()
 
         def bool_to_on_off(value):
