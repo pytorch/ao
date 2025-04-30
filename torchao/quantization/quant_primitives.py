@@ -360,7 +360,6 @@ def _quantize_affine(
         zero_point,
         quant_min,
         quant_max,
-        output_dtype,
     ).to(output_dtype)
 
 
@@ -371,7 +370,6 @@ def _quantize_affine_no_dtype_cast(
     zero_point: Optional[torch.Tensor],
     quant_min: Union[int, float],
     quant_max: Union[int, float],
-    quant_dtype: torch.dtype,
 ) -> torch.Tensor:
     """
     The op does the following:
@@ -417,13 +415,12 @@ def _quantize_affine_no_dtype_cast(
 
 def quantize_affine_float_zero_point(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
-    quant_min: Union[int, float],
-    quant_max: Union[int, float],
-    quant_dtype: torch.dtype,
-    zero_point_domain: str = ZeroPointDomain.INT.name,
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
 ) -> torch.Tensor:
     """
     The op does the following:
@@ -432,6 +429,11 @@ def quantize_affine_float_zero_point(
     2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
     3. reshape the quantized result to origianl shape
     """
+    quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
+    # torch.uintx dtypes yet
+    if output_dtype in _SUB_BYTE_UINT_BOUNDS:
+        output_dtype = torch.uint8
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     assert input.dtype in [
@@ -464,18 +466,17 @@ def quantize_affine_float_zero_point(
     quant = torch.clamp(torch.round((input - min_val) / scale), quant_min, quant_max)
     quant = quant.view(original_shape)
 
-    return quant
+    return quant.to(output_dtype)
 
 
 def quantize_affine_none_zero_point(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
-    quant_min: Union[int, float],
-    quant_max: Union[int, float],
-    quant_dtype: torch.dtype,
-    zero_point_domain: str = ZeroPointDomain.INT.name,
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
 ) -> torch.Tensor:
     """
     The op does the following:
@@ -484,6 +485,11 @@ def quantize_affine_none_zero_point(
     2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
     3. reshape the quantized result to origianl shape
     """
+    quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
+    # torch.uintx dtypes yet
+    if output_dtype in _SUB_BYTE_UINT_BOUNDS:
+        output_dtype = torch.uint8
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     assert input.dtype in [
@@ -514,7 +520,7 @@ def quantize_affine_none_zero_point(
     quant = torch.clamp(torch.round(input * (1.0 / scale)), quant_min, quant_max)
     quant = quant.view(original_shape)
 
-    return quant
+    return quant.to(output_dtype)
 
 
 def dequantize_affine(
@@ -778,15 +784,22 @@ def _do_fake_quantize_affine(
     """
     input_dtype = input.dtype
     quant_min, quant_max = _get_and_check_qmin_qmax(quant_dtype, quant_min, quant_max)
-    q = _quantize_affine_no_dtype_cast(
+    if zero_point_domain == ZeroPointDomain.INT:
+        quant_affine = quantize_affine
+    elif zero_point_domain == ZeroPointDomain.FLOAT:
+        quant_affine = quantize_affine_float_zero_point
+    elif ZeroPointDomain == ZeroPointDomain.NONE:
+        quant_affine = quantize_affine_none_zero_point
+    else:
+        raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
+    q = quant_affine(
         input,
         block_size,
         scale,
         zero_point,
+        quant_dtype,
         quant_min,
         quant_max,
-        quant_dtype,
-        zero_point_domain.name,
     )
     dq = _dequantize_affine_no_dtype_check(
         q,
