@@ -231,6 +231,7 @@ def float8_view(aten_op, args, kwargs=None):
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
 #    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    torch.distributed.breakpoint()
 
     def make_float8(data):
         return Float8Tensor(
@@ -248,6 +249,7 @@ def float8_split(aten_op, args, kwargs=None):
 # Errors cant `cat_cuda float8 e4m3fn`
 @implements([aten.cat.default])
 def float8_cat(aten_op, args, kwargs=None):
+    torch.distributed.breakpoint()
     chunked_tensors: Tuple[Float8Tensor] = args[0]
 
     orig_dtype = chunked_tensors[0]._orig_dtype
@@ -461,14 +463,18 @@ def allgather_fp8(aten_op, args, kwargs=None):
     override funcol with FP8 handling
     """
     #_assert_tensorwise_scale(aten_op, args[0]._scale)
-    fp8_input = args[0]
+    torch.distributed.breakpoint()
+    fp8_input = args[0] # (8, 1024, 256)
     assert isinstance(fp8_input, Float8Tensor), (
         f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
     )
 
     fp8_data = fp8_input._data
     fp8_data = fp8_data.contiguous()
-    fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
+
+    # fp8_out becomes (16, 1024, 256) <- gathered along dim 0 even though gather_dim is 1?
+    # input_layout = Shard(dim=1), desired_layout=Replicate()
+    fp8_out = aten_op(fp8_data, *args[1:], **kwargs) 
     return Float8Tensor(
         fp8_out,
         fp8_input._scale,
@@ -481,6 +487,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
 @implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
 def wait_tensor_fp8(aten_op, args, kwargs=None):
     #_assert_tensorwise_scale(aten_op, args[0]._scale)
+    torch.distributed.breakpoint()
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor)
 

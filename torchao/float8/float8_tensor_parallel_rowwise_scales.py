@@ -62,7 +62,6 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         assert input_col_major.dim() == 2, "input_col_major must be 2D Float8Tensor"
         #assert input_row_major.to_local()._axiswise_dim is not None, "input_row_major must be axiswise"
         #assert input_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
-        torch.distributed.breakpoint()
         input_row_major.to_local()._axiswise_dim = -1
         input_col_major.to_local()._axiswise_dim = 0
 
@@ -526,7 +525,8 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 dt_inp = DTensor.from_local(
                     input, mesh, (input_layout,), run_check=False
                 )
-
+            
+            
             dt_inp_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
                 dt_inp,
                 e4m3_dtype,
@@ -546,6 +546,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 axiswise_dim=0,
             )  # DTensor(Float8Tensor)
 
+            torch.distributed.breakpoint()
             if desired_layout is not None and input_layout != desired_layout:
                 dt_inp_row_major_rowwise_scales = dt_inp_row_major_rowwise_scales.redistribute(placements=(desired_layout,))
                 dt_inp_col_major_colwise_scales = dt_inp_col_major_colwise_scales.redistribute(placements=(desired_layout,))
