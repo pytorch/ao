@@ -313,7 +313,7 @@ class Float8Tensor(torch.Tensor):
             linear_mm_config if linear_mm_config is not None else LinearMMConfig()
         )
         self._gemm_input_role = gemm_input_role
-        assert axiswise_dim in (None, 0, -1, -2), f"unsupported axiswise_dim {axiswise_dim}"
+        assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
 
         return self

@@ -175,6 +175,7 @@ def float8_transpose(aten_op, args, kwargs=None):
 @implements([aten.view.default])
 def float8_view(aten_op, args, kwargs=None):
     t, new_shape = args[0], args[1]
+
     # if the new shape is the same as old, return an equivalent tensor
     # note that we have to create a new wrapper to make PyTorch internals happy
     if new_shape == list(t._data.shape):
@@ -339,7 +340,6 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     if a._axiswise_dim is None and b._axiswise_dim is not None:
         a_scale = a_scale.repeat(a_data.shape[0]).reshape(-1, 1)
     elif a._axiswise_dim is not None and b._axiswise_dim is None:
-        torch.distributed.breakpoint()
         b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
 
     return a_data, a_scale, b_data, b_scale

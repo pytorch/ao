@@ -79,6 +79,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
+        print("input_row_major", type(input_hp))
+        print("weight_hp_t", type(weight_hp_t))
+
         c = config
 
         if tensor_already_casted_to_fp8(input_hp):
@@ -121,6 +124,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
+        print("output", type(res_bits))
         return res_bits
 
     @staticmethod
@@ -249,6 +253,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
         empty_grads = None, None
 
+        print("grad_output", type(grad_output))
+        print("grad_input", type(grad_input)) 
+        print("grad_weight", type(grad_weight)) 
         return grad_input, grad_weight.t(), *empty_grads
 
 
@@ -270,9 +277,14 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
     ):
+        assert input_col_major.dim() == 2, "input_col_major must be 2D Float8Tensor"
         ctx.save_for_backward(input_col_major, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
+
+        print("input_row_major", type(input_row_major))
+        print("input_col_major", type(input_col_major))
+        print("weight_hp_t", type(weight_hp_t))
 
         c = config
 
@@ -316,6 +328,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
+        print("output", type(res_bits))
         return res_bits
 
     @staticmethod
@@ -416,20 +429,14 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        # reshape 3D+ tensor to 2D so we can:
-        # 1. compute scales along dim=0 properly
-        # 2. use torch._scaled_mm which requires 2D inputs
-        input_fp8_col_major_orig_shape = input_fp8_col_major.shape
-        input_fp8_col_major_reshaped = input_fp8_col_major.reshape(-1, input_fp8_col_major_orig_shape[-1])
-
-        if tensor_already_casted_to_fp8(input_fp8_col_major_reshaped):
+        if tensor_already_casted_to_fp8(input_fp8_col_major):
             # TODO(future PR): var name is axiswise specific, fix it
-            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major_reshaped
+            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major
         elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
-            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major_reshaped
+            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major
         else:
             input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
-                input_fp8_col_major_reshaped,
+                input_fp8_col_major,
                 c.cast_config_input_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
@@ -444,8 +451,9 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
-
-
+        print("grad_output", type(grad_output))
+        print("grad_input", type(grad_input))
+        print("grad_weight", type(grad_weight))
         return grad_input, None, grad_weight.t(), None, None
 
 
