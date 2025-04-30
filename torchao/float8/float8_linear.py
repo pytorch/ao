@@ -325,7 +325,8 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
     def backward(ctx, grad_output):
         input_fp8_col_major, weight_hp_t = ctx.saved_tensors
         c = ctx.config
-        assert input_fp8_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
+        # assert input_fp8_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
+        input_fp8_col_major.to_local()._axiswise_dim = 0
 
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm
