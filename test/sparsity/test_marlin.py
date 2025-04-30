@@ -92,7 +92,6 @@ class SparseMarlin24(TestCase):
         eps = 1e-6
         zero_point_dtype = torch.bfloat16
         mapping_type = MappingType.SYMMETRIC
-        preserve_zero = True
         zero_point_domain = ZeroPointDomain.INT
         scale_dtype = None
 
@@ -112,8 +111,6 @@ class SparseMarlin24(TestCase):
             eps,
             scale_dtype,
             zero_point_dtype,
-            preserve_zero,
-            zero_point_domain,
         )
         w_q_24 = quantize_affine(
             w_24,

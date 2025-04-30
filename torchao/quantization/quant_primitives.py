@@ -25,6 +25,8 @@ from torchao.utils import (
 
 __all__ = [
     "choose_qparams_affine",
+    "choose_qparams_affine_tiny_gemm",
+    "choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
     "quantize_affine",
@@ -871,7 +873,7 @@ def choose_qparams_affine_dont_preserve_zero(
         Tuple of scales and zero_points Tensor with requested dtype
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type == MappingType.ASYMMETRIC.name, (
+    assert mapping_type == MappingType.ASYMMETRIC, (
         f"Unsupported mapping type: {mapping_type}"
     )
 
@@ -932,14 +934,10 @@ def choose_qparams_affine_with_min_max(
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [
-        MappingType.SYMMETRIC.name,
-        MappingType.SYMMETRIC_NO_CLIPPING_ERR.name,
-        MappingType.ASYMMETRIC.name,
+        MappingType.SYMMETRIC,
+        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        MappingType.ASYMMETRIC,
     ], f"Unsupported mapping type: {mapping_type}"
-    if target_dtype in FP8_TYPES:
-        assert mapping_type == MappingType.SYMMETRIC.name, (
-            f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
-        )
 
     assert min_val is not None and max_val is not None, (
         "Need to provide `min_val` and `max_val`, got: {min_val, max_val}"
@@ -961,15 +959,15 @@ def choose_qparams_affine_with_min_max(
         max_val_pos = max_val
 
     if (
-        mapping_type == MappingType.SYMMETRIC.name
-        or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
+        mapping_type == MappingType.SYMMETRIC
+        or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
     ):
         # scales
-        if mapping_type == MappingType.SYMMETRIC.name:
+        if mapping_type == MappingType.SYMMETRIC:
             max_val_pos = torch.max(-min_val_neg, max_val_pos)
             scale = max_val_pos / (float(quant_max - quant_min) / 2)
         else:
-            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
+            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
             # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
             # quant_max = 7.
             # - If smin is bigger: There would be coverage on negative values down to -8, and less rounding
@@ -986,30 +984,30 @@ def choose_qparams_affine_with_min_max(
             raise ValueError(
                 "preserve_zero == False is not supported for symmetric quantization"
             )
-        if zero_point_domain == ZeroPointDomain.FLOAT.name:
+        if zero_point_domain == ZeroPointDomain.FLOAT:
             # TODO INT should not be a valid ZeroPointDomain for symmetric quantization since
             # symmetric quant doesn't have a zero_point
             raise ValueError(
                 "zero_point_domain should be ZeroPointDomain.INT or ZeroPointDomain.NONE for symmetric quantization"
             )
-        if zero_point_domain == ZeroPointDomain.NONE.name:
+        if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
         else:
             zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
         scale = torch.clamp(scale, min=eps)
     else:
-        assert mapping_type == MappingType.ASYMMETRIC.name
+        assert mapping_type == MappingType.ASYMMETRIC
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-        if zero_point_domain == ZeroPointDomain.NONE.name:
+        if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
-        elif zero_point_domain == ZeroPointDomain.INT.name:
+        elif zero_point_domain == ZeroPointDomain.INT:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
             if zero_point_dtype is None:
                 zero_point_dtype = torch.int32
         else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT.name, (
+            assert zero_point_domain == ZeroPointDomain.FLOAT, (
                 "zero_point must be in FLOAT/INT/None domain for asymmetric quantization"
             )
             mid_point = (quant_max + quant_min + 1) / 2
