@@ -340,7 +340,10 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     if a._axiswise_dim is None and b._axiswise_dim is not None:
         a_scale = a_scale.repeat(a_data.shape[0]).reshape(-1, 1)
     elif a._axiswise_dim is not None and b._axiswise_dim is None:
-        b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
+        try:
+            b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
+        except:
+            torch.distributed.breakpoint()
 
     return a_data, a_scale, b_data, b_scale
 

@@ -79,8 +79,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
-        print("input_row_major", type(input_hp))
-        print("weight_hp_t", type(weight_hp_t))
+        #print"input_row_major", type(input_hp))
+        #print"weight_hp_t", type(weight_hp_t))
 
         c = config
 
@@ -124,7 +124,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
-        print("output", type(res_bits))
+        #print"output", type(res_bits))
         return res_bits
 
     @staticmethod
@@ -253,9 +253,9 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
         empty_grads = None, None
 
-        print("grad_output", type(grad_output))
-        print("grad_input", type(grad_input)) 
-        print("grad_weight", type(grad_weight)) 
+        #print"grad_output", type(grad_output))
+        #print"grad_input", type(grad_input)) 
+        #print"grad_weight", type(grad_weight)) 
         return grad_input, grad_weight.t(), *empty_grads
 
 
@@ -278,13 +278,11 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         config: Float8LinearConfig,
     ):
         assert input_col_major.dim() == 2, "input_col_major must be 2D Float8Tensor"
+        assert input_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
+
         ctx.save_for_backward(input_col_major, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
-
-        print("input_row_major", type(input_row_major))
-        print("input_col_major", type(input_col_major))
-        print("weight_hp_t", type(weight_hp_t))
 
         c = config
 
@@ -328,13 +326,13 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
-        print("output", type(res_bits))
         return res_bits
 
     @staticmethod
     def backward(ctx, grad_output):
         input_fp8_col_major, weight_hp_t = ctx.saved_tensors
         c = ctx.config
+        assert input_fp8_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
 
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm
@@ -451,10 +449,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
-        print("grad_output", type(grad_output))
-        print("grad_input", type(grad_input))
-        print("grad_weight", type(grad_weight))
-        return grad_input, None, grad_weight.t(), None, None
+        return grad_input, grad_input.reshape(input_reshaped_maybe_fp8_dim1.shape), grad_weight.t(), None, None
 
 
 class Float8Linear(torch.nn.Linear):
