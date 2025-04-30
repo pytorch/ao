@@ -73,10 +73,8 @@ class UnifTorchaoQuantizer(Quantizer):
             block_size,
             self.target_dtype,
             eps=self.eps,
-            preserve_zero=self.preserve_zero,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
-            zero_point_domain=self.zero_point_domain,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
         q = quantize_affine(
