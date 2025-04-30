@@ -17,7 +17,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_float8,
-    choose_qparams_affine_tiny_gemm,
+    choose_qparams_affine_tinygemm,
     dequantize_affine,
     dequantize_affine_float8,
     fake_quantize_affine,
@@ -675,7 +675,7 @@ class TestQuantPrimitives(unittest.TestCase):
                 zero_point_domain=zero_point_domain,
             )
             if zero_point_domain == ZeroPointDomain.FLOAT:
-                scale, zero_point = choose_qparams_affine_tiny_gemm(
+                scale, zero_point = choose_qparams_affine_tinygemm(
                     input,
                     mapping_type,
                     block_size,

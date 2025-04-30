@@ -17,7 +17,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     choose_qparams_affine,
     choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tiny_gemm,
+    choose_qparams_affine_tinygemm,
     dequantize_affine,
     quantize_affine,
 )
@@ -346,7 +346,7 @@ def get_groupwise_affine_qparams(
     )
 
     if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-        scale, zero_point = choose_qparams_affine_tiny_gemm(
+        scale, zero_point = choose_qparams_affine_tinygemm(
             w,
             mapping_type,
             block_size,

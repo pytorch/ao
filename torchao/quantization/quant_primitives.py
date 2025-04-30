@@ -25,7 +25,7 @@ from torchao.utils import (
 
 __all__ = [
     "choose_qparams_affine",
-    "choose_qparams_affine_tiny_gemm",
+    "choose_qparams_affine_tinygemm",
     "choose_qparams_affine_dont_preserve_zero",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
@@ -775,7 +775,7 @@ def choose_qparams_affine(
 
 
 @torch.no_grad()
-def choose_qparams_affine_tiny_gemm(
+def choose_qparams_affine_tinygemm(
     input: torch.Tensor,
     mapping_type: MappingType,
     block_size: Tuple[int, ...],

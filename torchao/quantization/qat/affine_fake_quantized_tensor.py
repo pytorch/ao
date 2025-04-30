@@ -15,7 +15,7 @@ from torchao.quantization.quant_primitives import (
     _get_and_check_qmin_qmax,
     choose_qparams_affine,
     choose_qparams_affine_dont_preserve_zero,
-    choose_qparams_affine_tiny_gemm,
+    choose_qparams_affine_tinygemm,
 )
 from torchao.utils import TorchAOBaseTensor
 
@@ -55,7 +55,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
             assert isinstance(t, AffineFakeQuantizedTensor)
             qmin, qmax = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
             if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-                scale, zero_point = choose_qparams_affine_tiny_gemm(
+                scale, zero_point = choose_qparams_affine_tinygemm(
                     t.original_tensor,
                     mapping_type,
                     block_size,

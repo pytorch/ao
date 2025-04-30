@@ -22,7 +22,7 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_float8,
     choose_qparams_affine_floatx,
-    choose_qparams_affine_tiny_gemm,
+    choose_qparams_affine_tinygemm,
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_float8,
@@ -265,18 +265,16 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             data = data.to(target_dtype)
         else:
             if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
-                scale, zero_point = (
-                    choose_qparams_affine_tiny_gemm(  # TODO: Rename to tiny_gemm
-                        input_float,
-                        mapping_type,
-                        block_size,
-                        target_dtype,
-                        quant_min,
-                        quant_max,
-                        eps,
-                        scale_dtype,
-                        zero_point_dtype,
-                    )
+                scale, zero_point = choose_qparams_affine_tinygemm(
+                    input_float,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
                 )
             elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
                 scale, zero_point = choose_qparams_affine_dont_preserve_zero(
