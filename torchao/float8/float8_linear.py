@@ -79,9 +79,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
-        #print"input_row_major", type(input_hp))
-        #print"weight_hp_t", type(weight_hp_t))
-
         c = config
 
         if tensor_already_casted_to_fp8(input_hp):
@@ -124,7 +121,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
         res_bits = res_bits.reshape(*orig_shape[:-1], res_bits.shape[-1])
-        #print"output", type(res_bits))
         return res_bits
 
     @staticmethod
@@ -253,9 +249,6 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
 
         empty_grads = None, None
 
-        #print"grad_output", type(grad_output))
-        #print"grad_input", type(grad_input)) 
-        #print"grad_weight", type(grad_weight)) 
         return grad_input, grad_weight.t(), *empty_grads
 
 
