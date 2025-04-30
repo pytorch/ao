@@ -11,15 +11,13 @@ import itertools
 import unittest
 
 import torch
-import torch.ao.quantization.quantizer.x86_inductor_quantizer as xiq
 from torch._dynamo import config as dynamo_config
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
-from torch.ao.quantization.quantizer.x86_inductor_quantizer import X86InductorQuantizer
+from torch.export import export_for_training
 from torch.testing._internal.common_quantization import (
-    _generate_qdq_quantized_model,
     skipIfNoDynamoSupport,
     skipIfNoONEDNN,
     skipIfNoONEDNNBF16,
@@ -37,7 +35,16 @@ from torch.testing._internal.inductor_utils import (
     _check_has_dynamic_shape,
 )
 
-from torchao.quantization.pt2e.lowering import lower_pt2e_quantized_to_x86
+import torchao
+import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+from torchao.quantization.pt2e.quantize_pt2e import (
+    convert_pt2e,
+    prepare_pt2e,
+    prepare_qat_pt2e,
+)
+from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
+    X86InductorQuantizer,
+)
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_8,
@@ -100,6 +107,26 @@ def get_default_quantizer(is_qat, is_dynamic):
         )
     )
     return quantizer
+
+
+def _generate_qdq_quantized_model(
+    mod, inputs, is_qat=False, is_dynamic=False, quantizer=None
+):
+    maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
+    with maybe_no_grad:
+        export_model = export_for_training(mod, inputs, strict=True).module()
+        quantizer = (
+            quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
+        )
+        prepare_model = (
+            prepare_qat_pt2e(export_model, quantizer)
+            if is_qat
+            else prepare_pt2e(export_model, quantizer)
+        )
+        prepare_model(*inputs)
+        torchao.quantization.pt2e.move_exported_model_to_eval(prepare_model)
+        convert_model = convert_pt2e(prepare_model)
+        return convert_model
 
 
 def cal_conv_generated_kernel_number(mod, input, dtype, dim=4, device="cpu"):
@@ -201,15 +228,13 @@ class TestPatternMatcherBase(TestCase):
                 mod, inputs, is_qat, is_dynamic, quantizer
             )
             with torch.no_grad(), maybe_autocast:
-                _ = lower_pt2e_quantized_to_x86(convert_model)(*inputs)
+                _ = torch.compile(convert_model)(*inputs)
                 matcher_check_fn()
         else:
             with torch.no_grad(), maybe_autocast:
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
-                actual = lower_pt2e_quantized_to_x86(mod, **compile_options)(
-                    *clone_inputs
-                )
+                actual = torch.compile(mod, **compile_options)(*clone_inputs)
                 torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
                 matcher_check_fn()
 
@@ -232,7 +257,7 @@ class TestPatternMatcherBase(TestCase):
                 mod = _generate_qdq_quantized_model(mod, inputs, quantizer=quantizer)
             expected = mod(*inputs)
             actual, (source_code,) = run_and_get_code(
-                lower_pt2e_quantized_to_x86(mod, fullgraph=True, dynamic=check_dynamic),
+                torch.compile(mod, fullgraph=True, dynamic=check_dynamic),
                 *clone_inputs,
             )
             for op in include_ops:
