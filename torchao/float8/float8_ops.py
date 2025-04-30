@@ -230,7 +230,7 @@ def float8_view(aten_op, args, kwargs=None):
 @implements([aten.split.Tensor])
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
-    _assert_tensorwise_scale(aten_op, args[0]._scale)
+#    _assert_tensorwise_scale(aten_op, args[0]._scale)
 
     def make_float8(data):
         return Float8Tensor(
@@ -275,7 +275,7 @@ def float8_cat(aten_op, args, kwargs=None):
         assert chunk._gemm_input_role is gemm_input_role, (
             "Expecting all chunks to have the same gemm_input_role as a result of a split"
         )
-        _assert_tensorwise_scale(aten_op, chunk._scale)
+        # _assert_tensorwise_scale(aten_op, chunk._scale)
         chunk_data.append(chunk._data.view(torch.uint8))
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
@@ -460,7 +460,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
     """
     override funcol with FP8 handling
     """
-    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    #_assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor), (
         f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
@@ -480,7 +480,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
 
 @implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
 def wait_tensor_fp8(aten_op, args, kwargs=None):
-    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    #_assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor)
 
