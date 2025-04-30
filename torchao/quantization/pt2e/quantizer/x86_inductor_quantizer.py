@@ -1634,6 +1634,8 @@ from torchao.quantization.pt2e.inductor_passes.x86 import (
     _register_quantization_weight_pack_pass,
     quant_lift_up,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
 
-torch._inductor.config.pre_grad_custom_pass = quant_lift_up
-_register_quantization_weight_pack_pass()
+if TORCH_VERSION_AT_LEAST_2_8:
+    torch._inductor.config.pre_grad_custom_pass = quant_lift_up
+    _register_quantization_weight_pack_pass()
