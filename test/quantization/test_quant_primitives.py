@@ -877,7 +877,6 @@ class TestQuantPrimitives(unittest.TestCase):
             quant_min=torch.finfo(float8_dtype).min,
             quant_max=torch.finfo(float8_dtype).max,
             zero_point=None,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         expected_dequantized = dequantize_affine(
             expected_quantized,

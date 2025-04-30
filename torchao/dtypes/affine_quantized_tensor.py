@@ -29,7 +29,9 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine_floatx,
     quantize_affine,
     quantize_affine_float8,
+    quantize_affine_float_zero_point,
     quantize_affine_floatx,
+    quantize_affine_none_zero_point,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -303,16 +305,35 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None
-            data = quantize_affine(
-                input_float,
-                block_size,
-                scale,
-                zero_point,
-                target_dtype,
-                quant_min,
-                quant_max,
-                zero_point_domain,
-            )
+                data = quantize_affine_none_zero_point(
+                    input_float,
+                    block_size,
+                    scale,
+                    zero_point,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                )
+            elif zero_point_domain == ZeroPointDomain.FLOAT:
+                data = quantize_affine_float_zero_point(
+                    input_float,
+                    block_size,
+                    scale,
+                    zero_point,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                )
+            else:
+                data = quantize_affine(
+                    input_float,
+                    block_size,
+                    scale,
+                    zero_point,
+                    target_dtype,
+                    quant_min,
+                    quant_max,
+                )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
         data, scale, zero_point = _layout.post_process(
@@ -353,16 +374,37 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             input_float, scale, zero_point, block_size
         )
 
-        int_data = quantize_affine(
-            input_float,
-            block_size,
-            scale,
-            zero_point,
-            target_dtype,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-        )
+        if zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
+            int_data = quantize_affine_none_zero_point(
+                input_float,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+            )
+        elif zero_point_domain == ZeroPointDomain.FLOAT:
+            int_data = quantize_affine_float_zero_point(
+                input_float,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+            )
+        else:
+            int_data = quantize_affine(
+                input_float,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+            )
 
         int_data, scale, zero_point = _layout.post_process(
             int_data,

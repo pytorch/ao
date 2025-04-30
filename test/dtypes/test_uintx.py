@@ -123,8 +123,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         eps=eps,
         scale_dtype=torch.float32,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=True,
-        zero_point_domain=zero_point_domain,
     )
 
     aqt = quantize_affine(
@@ -133,7 +131,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         scale,
         zero_point,
         dtype,
-        zero_point_domain=zero_point_domain,
     )
     # Note: output will be uint8 tensor for sub byte tensors for now
 

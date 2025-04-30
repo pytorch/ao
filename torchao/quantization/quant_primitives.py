@@ -19,7 +19,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
-    _is_float8_type,
     _register_custom_op,
 )
 
@@ -291,7 +290,6 @@ def quantize_affine(
     output_dtype: torch.dtype,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> torch.Tensor:
     """
     Args:
@@ -303,12 +301,6 @@ def quantize_affine(
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
-        if zero_point is in integer domain, zero point is added to the quantized integer value during
-        quantization
-        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-        value during quantization
-        default is ZeroPointDomain.INT
 
     Note:
       How can block_size represent different granularities?
@@ -326,10 +318,6 @@ def quantize_affine(
     Output:
       quantized tensor with requested dtype
     """
-    if zero_point_domain is None:
-        raise ValueError("Please use ZeroPointDomain.NONE instead of None")
-    elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
-        raise ValueError("zero_point should be None when zero_point_domain is NONE")
     return _quantize_affine(
         input,
         block_size,
@@ -338,7 +326,6 @@ def quantize_affine(
         output_dtype,
         quant_min,
         quant_max,
-        zero_point_domain.name,
     )
 
 
@@ -351,7 +338,6 @@ def _quantize_affine(
     output_dtype: torch.dtype,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: str = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library
 
@@ -375,11 +361,61 @@ def _quantize_affine(
         quant_min,
         quant_max,
         output_dtype,
-        zero_point_domain,
     ).to(output_dtype)
 
 
 def _quantize_affine_no_dtype_cast(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_min: Union[int, float],
+    quant_max: Union[int, float],
+    quant_dtype: torch.dtype,
+) -> torch.Tensor:
+    """
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape
+    """
+    # TODO: validations
+    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    assert input.dtype in [
+        torch.float32,
+        torch.float16,
+        torch.bfloat16,
+    ], f"Unsupported input dtype: {input.dtype}"
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+
+    if zero_point is not None and zero_point.numel() > 0:
+        zero_point = zero_point.view(shape_after_reduction)
+    else:
+        # in some cases zero_point being a non-value shows as a tensor
+        # with numel=0 which we handle by unifying the two
+        zero_point = None
+
+    quant = torch.clamp(
+        torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
+    )
+    quant = quant.view(original_shape)
+
+    return quant
+
+
+def quantize_affine_float_zero_point(
     input: torch.Tensor,
     block_size: List[int],
     scale: torch.Tensor,
@@ -423,27 +459,59 @@ def _quantize_affine_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    if zero_point_domain == ZeroPointDomain.INT.name:
-        quant = torch.clamp(
-            torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
-        )
-    elif zero_point_domain == ZeroPointDomain.NONE.name:
-        assert zero_point is None, (
-            "zero_point should be None when zero_point_domain is NONE"
-        )
-        if _is_float8_type(quant_dtype):
-            quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
-        else:
-            quant = torch.clamp(
-                torch.round(input * (1.0 / scale)), quant_min, quant_max
-            )
+    mid_point = (quant_max + quant_min + 1) / 2
+    min_val = zero_point - scale * mid_point
+    quant = torch.clamp(torch.round((input - min_val) / scale), quant_min, quant_max)
+    quant = quant.view(original_shape)
+
+    return quant
+
+
+def quantize_affine_none_zero_point(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_min: Union[int, float],
+    quant_max: Union[int, float],
+    quant_dtype: torch.dtype,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
+) -> torch.Tensor:
+    """
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape
+    """
+    # TODO: validations
+    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    assert input.dtype in [
+        torch.float32,
+        torch.float16,
+        torch.bfloat16,
+    ], f"Unsupported input dtype: {input.dtype}"
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+
+    if zero_point is not None and zero_point.numel() > 0:
+        zero_point = zero_point.view(shape_after_reduction)
     else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT.name
-        mid_point = (quant_max + quant_min + 1) / 2
-        min_val = zero_point - scale * mid_point
-        quant = torch.clamp(
-            torch.round((input - min_val) / scale), quant_min, quant_max
-        )
+        # in some cases zero_point being a non-value shows as a tensor
+        # with numel=0 which we handle by unifying the two
+        zero_point = None
+
+    quant = torch.clamp(torch.round(input * (1.0 / scale)), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant

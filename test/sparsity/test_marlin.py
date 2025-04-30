@@ -14,7 +14,6 @@ from torchao.dtypes import MarlinSparseLayout
 from torchao.quantization.quant_api import int4_weight_only, quantize_
 from torchao.quantization.quant_primitives import (
     MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     quantize_affine,
 )
@@ -92,7 +91,6 @@ class SparseMarlin24(TestCase):
         eps = 1e-6
         zero_point_dtype = torch.bfloat16
         mapping_type = MappingType.SYMMETRIC
-        zero_point_domain = ZeroPointDomain.INT
         scale_dtype = None
 
         w = torch.rand(shape, dtype=torch.float16, device="cuda")
@@ -120,7 +118,6 @@ class SparseMarlin24(TestCase):
             target_dtype,
             quant_min,
             quant_max,
-            zero_point_domain,
         )
         scales = scales.reshape(-1, w_q_24.shape[1])
 
