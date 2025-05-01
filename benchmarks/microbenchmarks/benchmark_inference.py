@@ -71,7 +71,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         print("Benchmarking baseline inference.....")
         result.baseline_inference_time_in_ms = model_inference_time_in_ms(
             model=base_model, input_data=input_data
-        ) / 1000  # Convert microseconds to milliseconds
+        )
 
         ao_base_config = string_to_config(
             config.quantization,

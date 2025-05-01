@@ -303,7 +303,7 @@ def model_inference_time_in_ms(model, input_data):
         input_data: Input data for the model
 
     Returns:
-        float: Median inference time in microseconds
+        float: Median inference time in milliseconds
     """
     # First run to trigger any compilation/lazy initialization
 
@@ -319,8 +319,8 @@ def model_inference_time_in_ms(model, input_data):
     measurement = timer.timeit(number=100)
     res = measurement.mean
 
-    # Convert to microseconds
-    return res * 1e6
+    # Convert to milliseconds
+    return (res * 1e6) / 1000  # Convert microseconds to milliseconds
 
 
 def clean_caches():
