@@ -14,6 +14,7 @@ from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
+_dtensor = torch.ops._dtensor
 FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
 
 
@@ -107,6 +108,8 @@ def implements(aten_ops):
         aten.slice.Tensor,
         aten.fill_.Scalar,
         aten.reshape.default,
+        # TODO: confirm below doesn't require type + scale check like allgather
+        _dtensor.shard_dim_alltoall.default,
     ]
 )
 def float8_desugar_op(aten_op, args, kwargs=None):
@@ -124,6 +127,7 @@ def float8_desugar_op(aten_op, args, kwargs=None):
 @implements(
     [
         aten.detach.default,
+        aten.contiguous.default,
     ]
 )
 def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
@@ -227,7 +231,12 @@ def float8_view(aten_op, args, kwargs=None):
     )
 
 
-@implements([aten.split.Tensor])
+@implements(
+    [
+        aten.split.Tensor,
+        aten.chunk.default,
+    ]
+)
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
     _assert_tensorwise_scale(aten_op, args[0]._scale)
