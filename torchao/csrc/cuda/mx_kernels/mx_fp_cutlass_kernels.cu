@@ -107,7 +107,7 @@ void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
   using StrideD   = typename Gemm::GemmKernel::StrideD;
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using Sm100BlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+  using Sm1xxBlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   // Initialize strides using packed stride configuration
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, make_shape(M, K, 1));
@@ -115,8 +115,8 @@ void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, make_shape(M, N, 1));
 
   // Initialize scale factor layouts using block scaled configuration
-  auto layout_SFA = Sm100BlkScaledConfig::tile_atom_to_shape_SFA(make_shape(M, N, K, 1));
-  auto layout_SFB = Sm100BlkScaledConfig::tile_atom_to_shape_SFB(make_shape(M, N, K, 1));
+  auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(make_shape(M, N, K, 1));
+  auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(make_shape(M, N, K, 1));
 
   using DtypeA = typename ElementA::DataType;
   using DtypeB = typename ElementB::DataType;
