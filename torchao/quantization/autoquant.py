@@ -8,15 +8,17 @@ import torch.nn.functional as F
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 import torchao
-from torchao.base import (
+from torchao.dtypes.utils import (
     Layout,
     PlainLayout,
-    Float8Layout,
-    MarlinSparseLayout,
-    SemiSparseLayout,
-    TensorCoreTiledLayout,
-    TorchAOBaseTensor,
 )
+
+from torchao.dtypes.floatx import Float8Layout
+from torchao.dtypes.uintx.marlin_sparse_layout import MarlinSparseLayout
+from torchao.dtypes.uintx.semi_sparse_layout import SemiSparseLayout
+from torchao.utils import TorchAOBaseTensor
+from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledLayout
+
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
