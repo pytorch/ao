@@ -28,10 +28,11 @@ jobs:
       os: linux
       with-cpu: enable
       with-cuda: enable
-      with-rocm: disable
+      with-rocm: enable
       with-xpu: enable
       # Note: if free-threaded python is required add py3.13t here
       python-versions: '["3.9"]'
+      runner: '{"rocm": "linux.rocm.gpu.mi300.2"}'
 
   build:
     needs: generate-matrix
