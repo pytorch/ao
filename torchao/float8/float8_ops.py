@@ -16,6 +16,7 @@ c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
 
+DEBUG = False
 
 # [Note] Usage of scales
 # The meaning of scale in this library can be found in the definition of the Float8Tensor
@@ -245,6 +246,8 @@ def float8_split(aten_op, args, kwargs=None):
             axiswise_dim=args[0]._axiswise_dim,
         )
     out = list(map(make_float8, zip(new_data_tensors, new_scale_tensors)))
+    for i, o in enumerate(out):
+        debug_print(f"split chunk {i} data {o._data.shape} scale {o._scale.shape}")
     return out
 
 
@@ -287,6 +290,7 @@ def float8_cat(aten_op, args, kwargs=None):
             )
         chunk_data.append(chunk._data.view(torch.uint8))
         chunk_scales.append(chunk._scale)
+        debug_print(f"cat chunk_data {chunk._data.shape} chunk_scales {chunk._scale.shape}")
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
     new_data = new_data.view(fp8_dtype)
@@ -294,6 +298,7 @@ def float8_cat(aten_op, args, kwargs=None):
     # for axiswise scaling, we need to concat the scales from each shard. 
     # for tensorwise scaling, use the first chunk scale, since it is the same globally.
     new_scale = aten_op(chunk_scales, *args[1:], **kwargs) if is_rowwise_scaling else chunk_scales[0]
+    debug_print(f"cat new_data {new_data.shape} new_scale {new_scale.shape}")
     return Float8Tensor(new_data, new_scale, orig_dtype, mm_config, gemm_input_role, axiswise_dim=axiswise_dim)
 
 
@@ -480,14 +485,18 @@ def allgather_fp8(aten_op, args, kwargs=None):
     fp8_data = fp8_data.contiguous()
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs) 
     fp8_scale = fp8_input._scale
+    fp8_scale = fp8_scale.contiguous()
+    fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs) 
 
-    # special case: if axiswise_dim is 0, we need to compute the mean of the scales.
+    # special case: if axiswise_dim is 0, we need to compute the max of the scales
+    # (really what we want is the global amax for each row, but we compute the scale as
+    # reciprocal(TORCH_FP8_DTYPE_MAX/amax ).
     # example:
     #   A.shape = (8192,4096) with Shard(dim=0).
     #   A_shard.shape = (4096,4096)
     #   Compute scales with axiswise_dim=0: A_shard_scale.shape = (1,4096)
     #   all-gather on dim0 will result in original tensor, with 2 partial scales:
-    #   A_out.shape = (8192,4096), A_out_scale.shape = (2,4096) => mean => (1,4096)
+    #   A_out.shape = (8192,4096), A_out_scale.shape = (2,4096) => max => (1,4096)
     #
     # This is only true for axiswise_dim=0, because for axiswise_dim=-1, the scales
     # are simply concatenated, rather than averaged.
@@ -499,10 +508,9 @@ def allgather_fp8(aten_op, args, kwargs=None):
     #   that are complate numerically.
     #   A_out.shape = (8192,4096), A_out_scale.shape = (8192,1)
     if fp8_input._axiswise_dim == 0:
-        fp8_scale = fp8_scale.contiguous()
-        fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs) 
-        fp8_scale = torch.mean(fp8_scale, dim=0, keepdim=True)
+        fp8_scale = torch.max(fp8_scale, dim=0, keepdim=True).values
         
+    debug_print(f"allgather_fp8 fp8_out {fp8_out.shape} fp8_scale {fp8_scale.shape}")
     return Float8Tensor(
         fp8_out,
         scale=fp8_scale,
@@ -524,6 +532,7 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
     is_rowwise_scaling = fp8_input._axiswise_dim is not None
     if is_rowwise_scaling:
         fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs)
+    debug_print(f"wait_tensor_fp8 fp8_out {fp8_out.shape} fp8_scale {fp8_scale.shape}")
     return Float8Tensor(
         fp8_out,
         fp8_scale,
@@ -602,3 +611,9 @@ def copy_fp8(aten_op, args, kwargs=None):
         )
     else:
         raise RuntimeError("Unsupported semantics for copy_ in Float8Tensor")
+
+
+def debug_print(msg):
+    global DEBUG
+    if DEBUG:
+        print(msg)
