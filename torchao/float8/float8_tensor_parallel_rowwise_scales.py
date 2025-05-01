@@ -235,7 +235,14 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
             grad_output_reshaped_maybe_fp8_dim1.t(),
             input_reshaped_maybe_fp8_dim1,
         )
-        return grad_input, grad_input.reshape(input_reshaped_maybe_fp8_dim1.shape), grad_weight.t(), None, None
+
+        # the 2nd input (col-major) is created only for fp8 rowwise all-gather, it should have no grad.
+        # we cannot pass "None" because under the hood, pytorch will create a regular, non-DTensor filled
+        # with 0s, which is incompatible for subsequent ops with other DTensors during backward.
+        # So we have to manually create a DTensor with 0s here.
+        empty_grad = grad_input.clone().reshape(input_reshaped_maybe_fp8_dim1.shape)
+        empty_grad.fill_(0.0)
+        return grad_input, empty_grad, grad_weight.t(), None, None
 
 class Float8ColwiseParallel(ColwiseParallel):
     """
