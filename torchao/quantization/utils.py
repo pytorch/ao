@@ -19,9 +19,11 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine_dont_preserve_zero,
     choose_qparams_affine_tinygemm,
     dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
     quantize_affine,
     quantize_affine_float_zero_point,
-    quantize_affine_none_zero_point,
+    quantize_affine_no_zero_point,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -446,15 +448,15 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_max = 2**n_bit - 1
 
     if zero_point_domain == ZeroPointDomain.INT:
-        quant_affine = quantize_affine
+        _quantize_affine = quantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        quant_affine = quantize_affine_float_zero_point
+        _quantize_affine = quantize_affine_float_zero_point
     elif ZeroPointDomain == ZeroPointDomain.NONE:
-        quant_affine = quantize_affine_none_zero_point
+        _quantize_affine = quantize_affine_no_zero_point
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
 
-    int_data = quant_affine(
+    int_data = _quantize_affine(
         w,
         block_size,
         scales,
@@ -509,7 +511,13 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     input_dtype = torch.int32
     quant_min = 0
     quant_max = 2**n_bit - 1
-    return dequantize_affine(
+    if zero_point_domain == ZeroPointDomain.INT:
+        _dequantize_affine = dequantize_affine
+    elif zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = dequantize_affine_float_zero_point
+    else:
+        _dequantize_affine = dequantize_affine_no_zero_point
+    return _dequantize_affine(
         w_int32,
         block_size,
         scales,
@@ -517,7 +525,6 @@ def groupwise_affine_dequantize_tensor_from_qparams(
         input_dtype,
         quant_min,
         quant_max,
-        zero_point_domain=zero_point_domain,
         output_dtype=scales.dtype,
     )
 

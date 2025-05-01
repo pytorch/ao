@@ -29,7 +29,11 @@ __all__ = [
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
     "quantize_affine",
+    "quantize_affine_no_zero_point",
+    "quantize_affine_float_zero_point",
     "dequantize_affine",
+    "dequantize_affine_no_zero_point",
+    "dequantize_affine_float_zero_point",
     "quantize_affine_floatx",
     "dequantize_affine_floatx",
     "fake_quantize_affine",
@@ -469,7 +473,7 @@ def quantize_affine_float_zero_point(
     return quant.to(output_dtype)
 
 
-def quantize_affine_none_zero_point(
+def quantize_affine_no_zero_point(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
     scale: torch.Tensor,
@@ -531,7 +535,7 @@ def dequantize_affine(
     input_dtype: torch.dtype,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    # zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     *,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
@@ -556,10 +560,10 @@ def dequantize_affine(
     Output:
       dequantized Tensor, with requested dtype or fp32
     """
-    if zero_point_domain is None:
-        raise ValueError("Please use ZeroPointDomain.NONE instead of None")
-    elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
-        raise ValueError("zero_point should be None when zero_point_domain is NONE")
+    # if zero_point_domain is None:
+    #     raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+    # elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
+    #     raise ValueError("zero_point should be None when zero_point_domain is NONE")
     return _dequantize_affine(
         input,
         block_size,
@@ -568,7 +572,7 @@ def dequantize_affine(
         input_dtype,
         quant_min,
         quant_max,
-        zero_point_domain.name,
+        # zero_point_domain.name,
         output_dtype=output_dtype,
     )
 
@@ -582,7 +586,7 @@ def _dequantize_affine(
     input_dtype: torch.dtype,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
-    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+    # zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library"""
@@ -604,7 +608,7 @@ def _dequantize_affine(
         zero_point,
         quant_min,
         quant_max,
-        zero_point_domain,
+        # zero_point_domain,
         output_dtype,
     )
 
@@ -616,7 +620,6 @@ def _dequantize_affine_no_dtype_check(
     zero_point: Optional[torch.Tensor],
     quant_min: Union[int, float],
     quant_max: Union[int, float],
-    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """This function converts AQT tensors to their high precision floating point representation
@@ -643,32 +646,121 @@ def _dequantize_affine_no_dtype_check(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain == ZeroPointDomain.INT.name:
-        # Force a copy to avoid input modification due
-        # to upcoming in-place operations.
-        dequant = input.to(torch.int32, copy=True)
-        if zero_point is not None:
-            dequant = dequant - zero_point.to(torch.int32)
-        dequant = dequant.to(output_dtype)
-        dequant = dequant * scale
-    elif zero_point_domain == ZeroPointDomain.NONE.name:
-        assert zero_point is None, (
-            "zero_point should be None when zero_point_domain is NONE"
+    # Force a copy to avoid input modification due
+    # to upcoming in-place operations.
+    dequant = input.to(torch.int32, copy=True)
+    if zero_point is not None:
+        dequant = dequant - zero_point.to(torch.int32)
+    dequant = dequant.to(output_dtype)
+    dequant = dequant * scale
+
+    return dequant.view(original_shape).to(output_dtype)
+
+
+def dequantize_affine_no_zero_point(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    *,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """This function converts AQT tensors to their high precision floating point representation
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape and change dtype to the output_dtype
+    """
+    if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
+        assert input.dtype == input_dtype, (
+            f"Expected: {input_dtype}, got: {input.dtype}"
         )
-        dequant = input.to(output_dtype)
-        dequant = dequant * scale
-    else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT.name, (
-            f"Unexpected zero point domain: {zero_point_domain}"
+    assert output_dtype in [
+        torch.float32,
+        torch.float16,
+        torch.bfloat16,
+    ], f"Unsupported output dtype: {output_dtype}"
+    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+
+    assert zero_point is None, (
+        "zero_point should be None for dequantize_affine_no_zero_point"
+    )
+    dequant = input.to(output_dtype)
+    dequant = dequant * scale
+
+    return dequant.view(original_shape).to(output_dtype)
+
+
+def dequantize_affine_float_zero_point(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    *,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """This function converts AQT tensors to their high precision floating point representation
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape and change dtype to the output_dtype
+    """
+    if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
+        assert input.dtype == input_dtype, (
+            f"Expected: {input_dtype}, got: {input.dtype}"
         )
-        # TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)
-        mid_point = (quant_max + quant_min + 1) / 2
-        # This should allocate new memory and avoid input modification
-        dequant = input - mid_point
-        dequant = dequant.to(output_dtype)
-        dequant *= scale
-        if zero_point is not None:
-            dequant += zero_point
+    assert output_dtype in [
+        torch.float32,
+        torch.float16,
+        torch.bfloat16,
+    ], f"Unsupported output dtype: {output_dtype}"
+    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+
+    if zero_point is not None:
+        zero_point = zero_point.view(shape_after_reduction)
+
+    # TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)
+    mid_point = (quant_max + quant_min + 1) / 2
+    # This should allocate new memory and avoid input modification
+    dequant = input - mid_point
+    dequant = dequant.to(output_dtype)
+    dequant *= scale
+    if zero_point is not None:
+        dequant += zero_point
 
     return dequant.view(original_shape).to(output_dtype)
 
@@ -785,14 +877,14 @@ def _do_fake_quantize_affine(
     input_dtype = input.dtype
     quant_min, quant_max = _get_and_check_qmin_qmax(quant_dtype, quant_min, quant_max)
     if zero_point_domain == ZeroPointDomain.INT:
-        quant_affine = quantize_affine
+        _quantize_affine = quantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
-        quant_affine = quantize_affine_float_zero_point
+        _quantize_affine = quantize_affine_float_zero_point
     elif ZeroPointDomain == ZeroPointDomain.NONE:
-        quant_affine = quantize_affine_none_zero_point
+        _quantize_affine = quantize_affine_no_zero_point
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
-    q = quant_affine(
+    q = _quantize_affine(
         input,
         block_size,
         scale,
@@ -808,7 +900,6 @@ def _do_fake_quantize_affine(
         zero_point,
         quant_min,
         quant_max,
-        zero_point_domain.name,
         output_dtype=input_dtype,
     )
     return (q, dq)

@@ -15,8 +15,14 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
+    choose_qparams_affine_dont_preserve_zero,
+    choose_qparams_affine_tinygemm,
     dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
     quantize_affine,
+    quantize_affine_float_zero_point,
+    quantize_affine_no_zero_point,
 )
 
 from .quantizer import Quantizer
@@ -67,7 +73,25 @@ class UnifTorchaoQuantizer(Quantizer):
 
         # assume that p has already been grouped in QuantOptimizer.step
         block_size = (1, p.size(-1)) if dim is not None else p.size()
-        s, zero_point = choose_qparams_affine(
+
+        if self.zero_point_domain == ZeroPointDomain.FLOAT and not self.preserve_zero:
+            _choose_qparams_affine = choose_qparams_affine_tinygemm
+            _quantize_affine = quantize_affine_float_zero_point
+            _dequantize_affine = dequantize_affine_float_zero_point
+        elif self.zero_point_domain == ZeroPointDomain.INT and not self.preserve_zero:
+            _choose_qparams_affine = choose_qparams_affine_dont_preserve_zero
+            _quantize_affine = quantize_affine
+            _dequantize_affine = dequantize_affine
+        else:  # Default case: zero_point_domain == ZeroPointDomain.INT/NONE and preserve_zero
+            _choose_qparams_affine = choose_qparams_affine
+            if self.zero_point_domain == ZeroPointDomain.INT:
+                _quantize_affine = quantize_affine
+                _dequantize_affine = dequantize_affine
+            else:
+                _quantize_affine = quantize_affine_no_zero_point
+                _dequantize_affine = dequantize_affine_no_zero_point
+
+        s, zero_point = _choose_qparams_affine(
             p,
             self.mapping_type,
             block_size,
@@ -77,20 +101,18 @@ class UnifTorchaoQuantizer(Quantizer):
             quant_max=self.quant_max,
         )
         q_args = (block_size, s, zero_point, self.target_dtype)
-        q = quantize_affine(
+        q = _quantize_affine(
             p,
             *q_args,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
-            zero_point_domain=self.zero_point_domain,
         )
-        q = dequantize_affine(
+        q = _dequantize_affine(
             q,
             *q_args,
             output_dtype=p.dtype,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
-            zero_point_domain=self.zero_point_domain,
         )
 
         Q = torch.arange(
@@ -102,14 +124,13 @@ class UnifTorchaoQuantizer(Quantizer):
         else:
             block_size = Q.shape
 
-        Q = dequantize_affine(
+        Q = _dequantize_affine(
             Q,
             block_size,
             *q_args[1:],
             output_dtype=p.dtype,
             quant_min=self.quant_min,
             quant_max=self.quant_max,
-            zero_point_domain=self.zero_point_domain,
         )
         return q, Q
 

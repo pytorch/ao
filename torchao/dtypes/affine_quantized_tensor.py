@@ -26,12 +26,14 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_float8,
+    dequantize_affine_float_zero_point,
     dequantize_affine_floatx,
+    dequantize_affine_no_zero_point,
     quantize_affine,
     quantize_affine_float8,
     quantize_affine_float_zero_point,
     quantize_affine_floatx,
-    quantize_affine_none_zero_point,
+    quantize_affine_no_zero_point,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -152,17 +154,39 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dequantize_affine_float8(data, scale, output_dtype)
         else:
             data, scale, zero_point = self.tensor_impl.get_plain()
-            dq = dequantize_affine(
-                data,
-                self.block_size,
-                scale,
-                zero_point,
-                data.dtype,
-                self.quant_min,
-                self.quant_max,
-                self.zero_point_domain,
-                output_dtype=output_dtype,
-            )
+            if self.zero_point_domain == ZeroPointDomain.FLOAT:
+                dq = dequantize_affine_float_zero_point(
+                    data,
+                    self.block_size,
+                    scale,
+                    zero_point,
+                    data.dtype,
+                    self.quant_min,
+                    self.quant_max,
+                    output_dtype=output_dtype,
+                )
+            elif self.zero_point_domain == ZeroPointDomain.NONE:
+                dq = dequantize_affine_no_zero_point(
+                    data,
+                    self.block_size,
+                    scale,
+                    zero_point,
+                    data.dtype,
+                    self.quant_min,
+                    self.quant_max,
+                    output_dtype=output_dtype,
+                )
+            else:
+                dq = dequantize_affine(
+                    data,
+                    self.block_size,
+                    scale,
+                    zero_point,
+                    data.dtype,
+                    self.quant_min,
+                    self.quant_max,
+                    output_dtype=output_dtype,
+                )
             from torchao.dtypes.uintx import TensorCoreTiledLayout
 
             if isinstance(self._layout, TensorCoreTiledLayout):
@@ -305,7 +329,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain == ZeroPointDomain.NONE:
                 zero_point = None
-                data = quantize_affine_none_zero_point(
+                data = quantize_affine_no_zero_point(
                     input_float,
                     block_size,
                     scale,
@@ -376,7 +400,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
-            int_data = quantize_affine_none_zero_point(
+            int_data = quantize_affine_no_zero_point(
                 input_float,
                 block_size,
                 scale,
