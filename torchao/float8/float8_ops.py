@@ -230,7 +230,6 @@ def float8_view(aten_op, args, kwargs=None):
 @implements([aten.split.Tensor])
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
-    torch.distributed.breakpoint()
 
     def make_float8(data):
         return Float8Tensor(
@@ -248,15 +247,14 @@ def float8_split(aten_op, args, kwargs=None):
 # Errors cant `cat_cuda float8 e4m3fn`
 @implements([aten.cat.default])
 def float8_cat(aten_op, args, kwargs=None):
-    torch.distributed.breakpoint()
     chunked_tensors: Tuple[Float8Tensor] = args[0]
-    dim = args[1] if len(args) > 1 else 0
 
     orig_dtype = chunked_tensors[0]._orig_dtype
     scale = chunked_tensors[0]._scale
     mm_config = chunked_tensors[0]._linear_mm_config
     fp8_dtype = chunked_tensors[0]._data.dtype
     gemm_input_role = chunked_tensors[0]._gemm_input_role
+
     chunk_data = []
     chunk_scales = []
     for chunk in chunked_tensors:
@@ -283,8 +281,8 @@ def float8_cat(aten_op, args, kwargs=None):
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
     new_data = new_data.view(fp8_dtype)
-
     new_scale = aten_op(chunk_scales, *args[1:], **kwargs)
+    
     return Float8Tensor(new_data, new_scale, orig_dtype, mm_config, gemm_input_role)
 
 
@@ -345,10 +343,7 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     if a._axiswise_dim is None and b._axiswise_dim is not None:
         a_scale = a_scale.repeat(a_data.shape[0]).reshape(-1, 1)
     elif a._axiswise_dim is not None and b._axiswise_dim is None:
-        try:
-            b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
-        except:
-            torch.distributed.breakpoint()
+        b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
 
     return a_data, a_scale, b_data, b_scale
 
@@ -489,7 +484,6 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
 
     fp8_data = fp8_input._data
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
-    torch.distributed.breakpoint()
     return Float8Tensor(
         fp8_out,
         fp8_input._scale,
