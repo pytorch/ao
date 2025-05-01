@@ -247,8 +247,13 @@ class Float8ColwiseParallel(ColwiseParallel):
         input_layouts, desired_input_layouts, mod, inputs, device_mesh,
     ):
         # annotate module input placements/sharding with input_layouts
-        assert len(inputs) >= 2, "inputs must contain row-major and col-major format tensors"
-        input_row_major, input_col_major = inputs[0], inputs[1]
+        if len(inputs) == 1:
+            input_row_major = inputs[0]
+            input_col_major = inputs[0]
+        elif len(inputs) == 2:
+            input_row_major, input_col_major = inputs[0], inputs[1]
+        else:
+            raise ValueError("expected inputs to be length 1 or 2, but got", len(inputs))
 
         # handle row major input tensor
         if not isinstance(input_row_major, DTensor):
@@ -361,8 +366,13 @@ class Float8RowwiseParallel(RowwiseParallel):
         input_layouts, desired_input_layouts, mod, inputs, device_mesh,
     ):
         # annotate module input placements/sharding with input_layouts
-        assert len(inputs) >= 2, "inputs must contain row-major and col-major format tensors"
-        input_row_major, input_col_major = inputs[0], inputs[1]
+        if len(inputs) == 1:
+            input_row_major = inputs[0]
+            input_col_major = inputs[0]
+        elif len(inputs) == 2:
+            input_row_major, input_col_major = inputs[0], inputs[1]
+        else:
+            raise ValueError("expected inputs to be length 1 or 2, but got", len(inputs))
 
         # handle row major input tensor
         if not isinstance(input_row_major, DTensor):
@@ -546,7 +556,6 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 axiswise_dim=0,
             )  # DTensor(Float8Tensor)
 
-            torch.distributed.breakpoint()
             if desired_layout is not None and input_layout != desired_layout:
                 dt_inp_row_major_rowwise_scales = dt_inp_row_major_rowwise_scales.redistribute(placements=(desired_layout,))
                 dt_inp_col_major_colwise_scales = dt_inp_col_major_colwise_scales.redistribute(placements=(desired_layout,))
@@ -555,9 +564,8 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
             out_dt_inp_col_major_colwise_scales = dt_inp_col_major_colwise_scales.to_local() if self.use_local_output else dt_inp_col_major_colwise_scales
             return out_dt_inp_row_major_rowwise_scales, out_dt_inp_col_major_colwise_scales
         else:
-            out_row_major = input if is_row_major(input) else None
-            out_col_major = input if not is_row_major(input) else None
-            return out_row_major, out_col_major
+            # for non-DTensor input (e.g. freqs_cis buffer in RoPE) we don't need to do anything.
+            return input, None
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
         from torchao.float8.float8_linear import Float8Linear
