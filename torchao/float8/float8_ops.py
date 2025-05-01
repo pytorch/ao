@@ -230,7 +230,6 @@ def float8_view(aten_op, args, kwargs=None):
 @implements([aten.split.Tensor])
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
-#    _assert_tensorwise_scale(aten_op, args[0]._scale)
     torch.distributed.breakpoint()
 
     def make_float8(data):
@@ -251,6 +250,7 @@ def float8_split(aten_op, args, kwargs=None):
 def float8_cat(aten_op, args, kwargs=None):
     torch.distributed.breakpoint()
     chunked_tensors: Tuple[Float8Tensor] = args[0]
+    dim = args[1] if len(args) > 1 else 0
 
     orig_dtype = chunked_tensors[0]._orig_dtype
     scale = chunked_tensors[0]._scale
@@ -258,6 +258,7 @@ def float8_cat(aten_op, args, kwargs=None):
     fp8_dtype = chunked_tensors[0]._data.dtype
     gemm_input_role = chunked_tensors[0]._gemm_input_role
     chunk_data = []
+    chunk_scales = []
     for chunk in chunked_tensors:
         assert isinstance(chunk, Float8Tensor), (
             "Expecting all chunks to be of type Float8Tensor"
@@ -277,12 +278,14 @@ def float8_cat(aten_op, args, kwargs=None):
         assert chunk._gemm_input_role is gemm_input_role, (
             "Expecting all chunks to have the same gemm_input_role as a result of a split"
         )
-        # _assert_tensorwise_scale(aten_op, chunk._scale)
         chunk_data.append(chunk._data.view(torch.uint8))
+        chunk_scales.append(chunk._scale)
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
     new_data = new_data.view(fp8_dtype)
-    return Float8Tensor(new_data, scale, orig_dtype, mm_config, gemm_input_role)
+
+    new_scale = aten_op(chunk_scales, *args[1:], **kwargs)
+    return Float8Tensor(new_data, new_scale, orig_dtype, mm_config, gemm_input_role)
 
 
 @implements([aten.sum.dim_IntList])
@@ -462,18 +465,13 @@ def allgather_fp8(aten_op, args, kwargs=None):
     """
     override funcol with FP8 handling
     """
-    #_assert_tensorwise_scale(aten_op, args[0]._scale)
-    torch.distributed.breakpoint()
-    fp8_input = args[0] # (8, 1024, 256)
+    fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor), (
         f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
     )
 
     fp8_data = fp8_input._data
     fp8_data = fp8_data.contiguous()
-
-    # fp8_out becomes (16, 1024, 256) <- gathered along dim 0 even though gather_dim is 1?
-    # input_layout = Shard(dim=1), desired_layout=Replicate()
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs) 
     return Float8Tensor(
         fp8_out,
@@ -486,13 +484,12 @@ def allgather_fp8(aten_op, args, kwargs=None):
 
 @implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
 def wait_tensor_fp8(aten_op, args, kwargs=None):
-    #_assert_tensorwise_scale(aten_op, args[0]._scale)
-    torch.distributed.breakpoint()
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8Tensor)
 
     fp8_data = fp8_input._data
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
+    torch.distributed.breakpoint()
     return Float8Tensor(
         fp8_out,
         fp8_input._scale,
