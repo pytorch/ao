@@ -60,10 +60,6 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         config: Float8LinearConfig,
     ):
         assert input_col_major.dim() == 2, "input_col_major must be 2D Float8Tensor"
-        #assert input_row_major.to_local()._axiswise_dim is not None, "input_row_major must be axiswise"
-        #assert input_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
-        input_row_major.to_local()._axiswise_dim = -1
-        input_col_major.to_local()._axiswise_dim = 0
 
         ctx.save_for_backward(input_col_major, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
@@ -118,7 +114,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         input_fp8_col_major, weight_hp_t = ctx.saved_tensors
         c = ctx.config
         # assert input_fp8_col_major.to_local()._axiswise_dim is not None, "input_col_major must be axiswise"
-        input_fp8_col_major.to_local()._axiswise_dim = 0
+        #input_fp8_col_major.to_local()._axiswise_dim = 0
 
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm

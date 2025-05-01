@@ -118,6 +118,7 @@ def float8_desugar_op(aten_op, args, kwargs=None):
         args[0]._orig_dtype,
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
+        axiswise_dim=args[0]._axiswise_dim,
     )
 
 
@@ -135,6 +136,7 @@ def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
         args[0]._orig_dtype,
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
+        axiswise_dim=args[0]._axiswise_dim,
     )
 
 
@@ -230,18 +232,20 @@ def float8_view(aten_op, args, kwargs=None):
 @implements([aten.split.Tensor])
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
+    new_scale_tensors = aten_op(args[0]._scale, *args[1:], **kwargs)
 
-    def make_float8(data):
+    def make_float8(data_scale_pair):
+        data, scale = data_scale_pair
         return Float8Tensor(
             data,
-            args[0]._scale,
+            scale,
             args[0]._orig_dtype,
             args[0]._linear_mm_config,
             args[0]._gemm_input_role,
+            axiswise_dim=args[0]._axiswise_dim,
         )
-
-    out = map(make_float8, new_data_tensors)
-    return list(out)
+    out = list(map(make_float8, zip(new_data_tensors, new_scale_tensors)))
+    return out
 
 
 # Errors cant `cat_cuda float8 e4m3fn`
@@ -250,10 +254,11 @@ def float8_cat(aten_op, args, kwargs=None):
     chunked_tensors: Tuple[Float8Tensor] = args[0]
 
     orig_dtype = chunked_tensors[0]._orig_dtype
-    scale = chunked_tensors[0]._scale
     mm_config = chunked_tensors[0]._linear_mm_config
     fp8_dtype = chunked_tensors[0]._data.dtype
     gemm_input_role = chunked_tensors[0]._gemm_input_role
+    axiswise_dim = chunked_tensors[0]._axiswise_dim
+    is_rowwise_scaling = axiswise_dim is not None
 
     chunk_data = []
     chunk_scales = []
@@ -264,9 +269,6 @@ def float8_cat(aten_op, args, kwargs=None):
         assert chunk._orig_dtype == orig_dtype, (
             "Expecting all chunks to be of the same dtype"
         )
-        assert chunk._scale is scale, (
-            "Expecting all chunks to have thee same scale as a result of a split"
-        )
         assert chunk._linear_mm_config is mm_config, (
             "Expecting all chunks to have thee same mm config as a result of a split"
         )
@@ -276,14 +278,23 @@ def float8_cat(aten_op, args, kwargs=None):
         assert chunk._gemm_input_role is gemm_input_role, (
             "Expecting all chunks to have the same gemm_input_role as a result of a split"
         )
+        assert chunk._axiswise_dim is axiswise_dim, (
+            "Expecting all chunks to have the same axiswise_dim as a result of a split"
+        )
+        if not is_rowwise_scaling:
+            assert chunk._scale.shape == chunk._scale.shape, (
+                "Expecting all chunks to have the same scale shape as a result of a split"
+            )
         chunk_data.append(chunk._data.view(torch.uint8))
         chunk_scales.append(chunk._scale)
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
     new_data = new_data.view(fp8_dtype)
-    new_scale = aten_op(chunk_scales, *args[1:], **kwargs)
-    
-    return Float8Tensor(new_data, new_scale, orig_dtype, mm_config, gemm_input_role)
+
+    # for axiswise scaling, we need to concat the scales from each shard. 
+    # for tensorwise scaling, use the first chunk scale, since it is the same globally.
+    new_scale = aten_op(chunk_scales, *args[1:], **kwargs) if is_rowwise_scaling else chunk_scales[0]
+    return Float8Tensor(new_data, new_scale, orig_dtype, mm_config, gemm_input_role, axiswise_dim=axiswise_dim)
 
 
 @implements([aten.sum.dim_IntList])
@@ -447,6 +458,7 @@ def autocast_to_copy(aten_op, args, kwargs=None):
         kwargs["dtype"],
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
+        axiswise_dim=args[0]._axiswise_dim,
     )
 
 
@@ -464,16 +476,40 @@ def allgather_fp8(aten_op, args, kwargs=None):
     assert isinstance(fp8_input, Float8Tensor), (
         f"expecting a Float8Tensor for allgather but found {type(fp8_input)}"
     )
-
     fp8_data = fp8_input._data
     fp8_data = fp8_data.contiguous()
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs) 
+    fp8_scale = fp8_input._scale
+
+    # special case: if axiswise_dim is 0, we need to compute the mean of the scales.
+    # example:
+    #   A.shape = (8192,4096) with Shard(dim=0).
+    #   A_shard.shape = (4096,4096)
+    #   Compute scales with axiswise_dim=0: A_shard_scale.shape = (1,4096)
+    #   all-gather on dim0 will result in original tensor, with 2 partial scales:
+    #   A_out.shape = (8192,4096), A_out_scale.shape = (2,4096) => mean => (1,4096)
+    #
+    # This is only true for axiswise_dim=0, because for axiswise_dim=-1, the scales
+    # are simply concatenated, rather than averaged.
+    # example:
+    #   A.shape = (8192,4096) with Shard(dim=0).
+    #   A_shard.shape = (4096,4096)
+    #   Compute scales with axiswise_dim=-1: A_shard_scale.shape = (4096,1)
+    #   all-gather on dim0 will result in original tensor, with 2 partial scales (shape-wise)
+    #   that are complate numerically.
+    #   A_out.shape = (8192,4096), A_out_scale.shape = (8192,1)
+    if fp8_input._axiswise_dim == 0:
+        fp8_scale = fp8_scale.contiguous()
+        fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs) 
+        fp8_scale = torch.mean(fp8_scale, dim=0, keepdim=True)
+        
     return Float8Tensor(
         fp8_out,
-        fp8_input._scale,
-        fp8_input._orig_dtype,
-        fp8_input._linear_mm_config,
-        fp8_input._gemm_input_role,
+        scale=fp8_scale,
+        orig_dtype=fp8_input._orig_dtype,
+        linear_mm_config=fp8_input._linear_mm_config,
+        gemm_input_role=fp8_input._gemm_input_role,
+        axiswise_dim=fp8_input._axiswise_dim,
     )
 
 
@@ -484,12 +520,17 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
 
     fp8_data = fp8_input._data
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
+    fp8_scale = fp8_input._scale
+    is_rowwise_scaling = fp8_input._axiswise_dim is not None
+    if is_rowwise_scaling:
+        fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs)
     return Float8Tensor(
         fp8_out,
-        fp8_input._scale,
+        fp8_scale,
         fp8_input._orig_dtype,
         fp8_input._linear_mm_config,
         fp8_input._gemm_input_role,
+        axiswise_dim=fp8_input._axiswise_dim,
     )
 
 
@@ -513,6 +554,7 @@ def index_put_fp8(aten_op, args, kwargs=None):
         fp8_self._orig_dtype,
         fp8_self._linear_mm_config,
         fp8_self._gemm_input_role,
+        axiswise_dim=fp8_self._axiswise_dim,
     )
 
 
@@ -556,6 +598,7 @@ def copy_fp8(aten_op, args, kwargs=None):
             self._orig_dtype,
             self._linear_mm_config,
             self._gemm_input_role,
+            axiswise_dim=self._axiswise_dim,
         )
     else:
         raise RuntimeError("Unsupported semantics for copy_ in Float8Tensor")
