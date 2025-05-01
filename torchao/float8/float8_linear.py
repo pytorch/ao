@@ -301,7 +301,7 @@ class Float8Linear(torch.nn.Linear):
             ),
         )
 
-    def forward(self, input_row_major: torch.Tensor, input_col_major: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(self, input_row_major: torch.Tensor, input_col_major: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
         if torch.is_autocast_enabled():
