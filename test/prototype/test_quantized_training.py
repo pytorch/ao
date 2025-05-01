@@ -30,7 +30,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     Transformer,
 )
 
-from torchao.prototype.low_bit_optim import _AdamW
+from torchao.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import (
     Int8MixedPrecisionTrainingConfig,
     bitnet_training,
