@@ -9,37 +9,60 @@ include(CMakeDependentOption)
 
 project(torchao)
 
+#-------------------------------------------------------------------------------
+# Global configuration
+#-------------------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if (NOT CMAKE_BUILD_TYPE)
+if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
-option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
-option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
-option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
-
+# Include directories
 if(NOT TORCHAO_INCLUDE_DIRS)
-  set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+    set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
 
+include_directories(${TORCHAO_INCLUDE_DIRS})
+
+# Set compiler flags
+add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
+
+# Find PyTorch
+find_package(Torch REQUIRED)
+include_directories(${TORCH_INCLUDE_DIRS})
+
+#-------------------------------------------------------------------------------
+# Backend options
+#-------------------------------------------------------------------------------
+# Parallel backend options
 if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
     set(TORCHAO_PARALLEL_BACKEND aten_openmp)
 endif()
 
-include(CMakePrintHelpers)
+# Hardware-specific backends
+option(TORCHAO_BUILD_CPU_AARCH64 "Build TorchAO's CPU aarch64 kernels" OFF)
+option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
+option(TORCHAO_BUILD_MPS_OPS "Build TorchAO Metal Performance Shaders (MPS) ops" OFF)
 
-add_compile_options("-Wall" "-Werror" "-Wno-deprecated") # "-march=armv8.4-a+dotprod" "-fPIC"
+# Platform options
+option(TORCHAO_BUILD_EXECUTORCH_OPS "Build TorchAO ops for ExecuTorch" OFF)
 
-include(CMakePrintHelpers)
-message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
-include_directories(${TORCHAO_INCLUDE_DIRS})
+# Print build configuration
+message(STATUS "Build configuration:")
+message(STATUS "  CMake build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  PyTorch include dirs: ${TORCH_INCLUDE_DIRS}")
+message(STATUS "  TorchAO include dirs: ${TORCHAO_INCLUDE_DIRS}")
+message(STATUS "  Parallel backend: ${TORCHAO_PARALLEL_BACKEND}")
+message(STATUS "  CPU aarch64 kernels: ${TORCHAO_BUILD_CPU_AARCH64}")
+message(STATUS "  KleidiAI support: ${TORCHAO_BUILD_KLEIDIAI}")
+message(STATUS "  MPS support: ${TORCHAO_BUILD_MPS_OPS}")
+message(STATUS "  ExecuTorch support: ${TORCHAO_BUILD_EXECUTORCH_OPS}")
 
-# Find PyTorch - make sure we get all include dirs and libraries
-find_package(Torch REQUIRED)
-include_directories(${TORCH_INCLUDE_DIRS})
-
+#-------------------------------------------------------------------------------
+# ARM-specific configuration
+#-------------------------------------------------------------------------------
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
@@ -48,15 +71,24 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
 
+    # Add KleidiAI support if enabled
     if(TORCHAO_BUILD_KLEIDIAI)
         message(STATUS "Building with Arm KleidiAI library")
         add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
     endif()
 endif()
 
+#-------------------------------------------------------------------------------
+# Core operation libraries
+#-------------------------------------------------------------------------------
+# Add quantized operation subdirectories
 add_subdirectory(ops/linear_8bit_act_xbit_weight)
 add_subdirectory(ops/embedding_xbit)
 
+#-------------------------------------------------------------------------------
+# Main library targets
+#-------------------------------------------------------------------------------
+# ATen ops library
 add_library(torchao_ops_aten SHARED)
 target_link_libraries(
     torchao_ops_aten PRIVATE
@@ -64,17 +96,22 @@ target_link_libraries(
     torchao_ops_embedding_xbit_aten
     ${TORCH_LIBRARIES}
 )
-if (TORCHAO_BUILD_MPS_OPS)
+
+# Add MPS support if enabled
+if(TORCHAO_BUILD_MPS_OPS)
     message(STATUS "Building with MPS support")
     add_subdirectory(ops/mps)
     target_link_libraries(torchao_ops_aten PRIVATE torchao_ops_mps_aten)
 endif()
 
+# Install ATen targets
 install(
     TARGETS torchao_ops_aten
     EXPORT _targets
     DESTINATION lib
 )
+
+# Build ExecuTorch library if enabled
 if(TORCHAO_BUILD_EXECUTORCH_OPS)
     add_library(torchao_ops_executorch STATIC)
     target_link_libraries(torchao_ops_executorch PRIVATE
@@ -82,6 +119,8 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
         torchao_ops_embedding_xbit_executorch
         ${TORCH_LIBRARIES}
     )
+    
+    # Install ExecuTorch targets
     install(
         TARGETS
             torchao_ops_executorch
