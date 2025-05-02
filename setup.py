@@ -266,9 +266,7 @@ def get_extensions():
         print("ROCm is not available. Skipping compilation of ROCm extensions")
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = (
-        torch.version.cuda and CUDA_HOME is not None
-    )
+    use_cuda = torch.version.cuda and CUDA_HOME is not None
     use_hip = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_hip) else CppExtension
 
