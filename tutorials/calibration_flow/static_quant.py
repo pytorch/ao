@@ -88,16 +88,16 @@ def insert_observers_(model, act_obs, weight_obs):
 
 
 @dataclass
-class ApplyStaticQuantConfig(AOBaseConfig):
+class StaticQuantConfig(AOBaseConfig):
     target_dtype: torch.dtype
 
 
 # converting observed linear module to linear module with quantzied weights (and quantized activations)
 # with tensor subclasses
-@register_quantize_module_handler(ApplyStaticQuantConfig)
+@register_quantize_module_handler(StaticQuantConfig)
 def _apply_static_quant_transform(
     module: torch.nn.Module,
-    config: ApplyStaticQuantConfig,
+    config: StaticQuantConfig,
 ):
     target_dtype = config.target_dtype
     observed_linear = module
@@ -229,14 +229,14 @@ class QuantizedLinear(torch.nn.Module):
 
 
 @dataclass
-class ApplyStaticQuantConfig2(AOBaseConfig):
+class StaticQuantConfig2(AOBaseConfig):
     target_dtype: torch.dtype
 
 
-@register_quantize_module_handler(ApplyStaticQuantConfig2)
+@register_quantize_module_handler(StaticQuantConfig2)
 def apply_static_quant(
     module: torch.nn.Module,
-    config: ApplyStaticQuantConfig2,
+    config: StaticQuantConfig2,
 ):
     return QuantizedLinear.from_observed(module, config.target_dtype)
 
@@ -305,14 +305,14 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, ApplyStaticQuantConfig(target_dtype), is_observed_linear)
+    quantize_(m, StaticQuantConfig(target_dtype), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
     print("test passed")
 
     # quantized linear as a standalone module
-    quantize_(m2, ApplyStaticQuantConfig2(target_dtype), is_observed_linear)
+    quantize_(m2, StaticQuantConfig2(target_dtype), is_observed_linear)
     print("quantized model (quantized module):", m2)
     after_quant = m2(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
