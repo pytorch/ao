@@ -88,18 +88,16 @@ def mx_mm(aten_op, args, kwargs=None):
         b_scale_block = to_blocked(b_scale)
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            if a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS:
-                res = torch._scaled_mm(
-                    a._data,
-                    b._data,
-                    a_scale_block.view(torch.float8_e8m0fnu),
-                    b_scale_block.view(torch.float8_e8m0fnu),
-                    out_dtype=torch.bfloat16,
-                )
-            else:
-                res = torchao.ops.mx_fp8_bf16(
-                    a._data, b._data, a_scale_block, b_scale_block
-                )
+            assert a._gemm_kernel_choice is MXGemmKernelChoice.CUBLAS, (
+                "CUBLAS is the only supported kernel choice for MX FP8 operations"
+            )
+            res = torch._scaled_mm(
+                a._data,
+                b._data,
+                a_scale_block.view(torch.float8_e8m0fnu),
+                b_scale_block.view(torch.float8_e8m0fnu),
+                out_dtype=torch.bfloat16,
+            )
         else:
             assert a._elem_dtype == DTYPE_FP4
             assert b._elem_dtype == DTYPE_FP4
