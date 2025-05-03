@@ -11,8 +11,8 @@ using namespace metal;
  *
  * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (K / 8)
- * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
- * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
+ * @param[scales] 2D tensor containg the scales for each group. Expected shape is N x #groups
+ * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is N x #groups
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
  * @param[sizes] The sizes involved in the order: M, K, N
  *
@@ -29,6 +29,7 @@ kernel void int1pack_mm(
     uint2                        thread_index   [[thread_position_in_grid]]) {
     const uint K = sizes.y;
     const uint N = sizes.z;
+    const uint num_groups = (K + groupSize - 1) / groupSize;
     const uint m = thread_index.y; // 0..M-1
     const uint n = thread_index.x; // 0..N-1
     const uint32_t k_block = (K + groupSize - 1) / groupSize;
@@ -38,8 +39,8 @@ kernel void int1pack_mm(
     float rc = 0.0;
     uint k = 0;
     for (uint32_t kb = 0; kb < k_block ; kb ++) {
-      const float scale = float(scales[kb * N + n]);
-      const float zero = float(zeros[kb * N + n]);
+      const float scale = float(scales[n * num_groups + kb]);
+      const float zero = float(zeros[n * num_groups + kb]);
       for(uint idx = 0; idx < groupSize && k < K; idx+=8, k+=8) {
         const auto a_val0 = float(A_ptr[k + 0]);
         const auto a_val1 = float(A_ptr[k + 1]);
