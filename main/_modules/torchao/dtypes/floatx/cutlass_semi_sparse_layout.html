@@ -564,12 +564,6 @@
     <span class="p">):</span>
         <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">torch</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">zero_point</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
 
-        <span class="c1"># FIXME: remove this when CUTLASS PR #2110 merged.</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="n">dense</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
-        <span class="n">dense</span><span class="p">[</span><span class="n">dense</span> <span class="o">==</span> <span class="mi">128</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="n">dense</span> <span class="o">=</span> <span class="n">dense</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-
         <span class="n">sparse</span><span class="p">,</span> <span class="n">meta</span> <span class="o">=</span> <span class="n">to_sparse_semi_structured_cutlass_sm9x_f8</span><span class="p">(</span><span class="n">dense</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
