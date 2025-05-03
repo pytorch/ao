@@ -155,12 +155,6 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
     ):
         assert zero_point is None or torch.all(zero_point == 0)
 
-        # FIXME: remove this when CUTLASS PR #2110 merged.
-        dtype = dense.dtype
-        dense = dense.view(torch.uint8)
-        dense[dense == 128] = 0
-        dense = dense.view(dtype)
-
         sparse, meta = to_sparse_semi_structured_cutlass_sm9x_f8(dense)
 
         return cls(
