@@ -8,15 +8,17 @@ import torch.nn.functional as F
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 import torchao
-from torchao.dtypes import (
-    AffineQuantizedTensor,
-    Float8Layout,
-    MarlinSparseLayout,
+from torchao.dtypes.utils import (
+    Layout,
     PlainLayout,
-    SemiSparseLayout,
-    TensorCoreTiledLayout,
 )
-from torchao.dtypes.utils import Layout
+
+from torchao.dtypes.floatx import Float8Layout
+from torchao.dtypes.uintx.marlin_sparse_layout import MarlinSparseLayout
+from torchao.dtypes.uintx.semi_sparse_layout import SemiSparseLayout
+from torchao.utils import TorchAOBaseTensor
+from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledLayout
+
 from torchao.float8.inference import Float8MMConfig
 from torchao.kernel import safe_int_mm
 from torchao.quantization.linear_activation_quantized_tensor import (
@@ -34,7 +36,6 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
-    TorchAOBaseTensor,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
@@ -48,6 +49,11 @@ from .subclass import (  # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
+
+# Lazy import for AffineQuantizedTensor to avoid circular dependency
+def _get_AffineQuantizedTensor():
+    from torchao.dtypes import AffineQuantizedTensor
+    return AffineQuantizedTensor
 
 __all__ = [
     "AutoQuantizableLinearWeight",
@@ -547,19 +553,22 @@ class AQInt8DynamicallyQuantizedSemiSparseLinearWeight(
         return super()._autoquant_test(act_mat, weight, bias, best_time, None)
 
 
-class AQInt8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQInt8WeightOnlyQuantizedLinearWeight(AQMixin):
     """
     AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight
     """
 
     @classmethod
     def from_float(cls, weight):
+        # Get AffineQuantizedTensor class lazily to avoid circular import
+        AffineQuantizedTensor = _get_AffineQuantizedTensor()
+        
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
         block_size = (1, weight.shape[1])
-        return super(AQInt8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(
+        return AffineQuantizedTensor.from_hp_to_intx(
             weight,
             mapping_type,
             block_size,
@@ -945,7 +954,7 @@ class AQFloat16LinearWeight(Float16Tensor, AQMixin):
         return super(AQFloat16LinearWeight, cls).from_float(weight)
 
 
-class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQFloat8WeightOnlyQuantizedLinearWeight(AQMixin):
     """
     AutoQuantizable version of Float8WeightOnlyQuantizedLinearWeight for target_dtype=torch.float8_e4m3fn
     """
@@ -958,8 +967,11 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
 
     @classmethod
     def from_float(cls, weight):
+        # Get AffineQuantizedTensor class lazily to avoid circular import
+        AffineQuantizedTensor = _get_AffineQuantizedTensor()
+        
         block_size = (1, weight.shape[1])
-        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(
+        return AffineQuantizedTensor.from_hp_to_floatx(
             weight, block_size, target_dtype=cls.target_dtype, _layout=Float8Layout()
         )
 
