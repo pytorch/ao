@@ -20,7 +20,7 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
 )
-from torchao.prototype.mx_formats.custom_cast import get_bits
+from torchao.prototype.mx_formats.kernels import get_bits
 
 dtype_to_bitwidth = {
     torch.float: 32,
