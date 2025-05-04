@@ -22,9 +22,6 @@ potential_paths = [
 
 for lib_path in potential_paths:
     libs = list(lib_path.glob("libtorchao_ops_aten.*"))
-    assert len(libs) == 1, (
-        f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
-    )
     if libs:
         print(f"Found library at: {libs[0]}")
         try:
