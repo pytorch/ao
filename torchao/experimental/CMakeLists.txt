@@ -15,6 +15,14 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Platform options
+option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
+
+# Hardware-specific backends
+option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
+option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
+option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
+
 # Include directories
 if(NOT TORCHAO_INCLUDE_DIRS)
     set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
@@ -37,14 +45,6 @@ include_directories(${TORCH_INCLUDE_DIRS})
 if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
     set(TORCHAO_PARALLEL_BACKEND aten_openmp)
 endif()
-
-# Hardware-specific backends
-option(TORCHAO_BUILD_CPU_AARCH64 "Build TorchAO's CPU aarch64 kernels" OFF)
-option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
-option(TORCHAO_BUILD_MPS_OPS "Build TorchAO Metal Performance Shaders (MPS) ops" OFF)
-
-# Platform options
-option(TORCHAO_BUILD_EXECUTORCH_OPS "Build TorchAO ops for ExecuTorch" OFF)
 
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
