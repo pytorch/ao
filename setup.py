@@ -253,23 +253,21 @@ def get_extensions():
     if debug_mode:
         print("Compiling in debug mode")
 
-    if not torch.cuda.is_available():
+    if not torch.version.cuda:
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-    if CUDA_HOME is None and torch.cuda.is_available() and torch.version.cuda:
+    if CUDA_HOME is None and torch.version.cuda:
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
-    if ROCM_HOME is None and torch.cuda.is_available() and torch.version.hip:
+    if ROCM_HOME is None and torch.version.hip:
         print("ROCm is not available. Skipping compilation of ROCm extensions")
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = (
-        torch.cuda.is_available() and torch.version.cuda and CUDA_HOME is not None
-    )
-    use_hip = torch.cuda.is_available() and torch.version.hip and ROCM_HOME is not None
+    use_cuda = torch.version.cuda and CUDA_HOME is not None
+    use_hip = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_hip) else CppExtension
 
     nvcc_args = [
