@@ -9,13 +9,10 @@ include(CMakeDependentOption)
 
 project(torchao)
 
-#-------------------------------------------------------------------------------
-# Global configuration
-#-------------------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT CMAKE_BUILD_TYPE)
+if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
@@ -37,9 +34,6 @@ endif()
 find_package(Torch REQUIRED)
 include_directories(${TORCH_INCLUDE_DIRS})
 
-#-------------------------------------------------------------------------------
-# Backend options
-#-------------------------------------------------------------------------------
 # Parallel backend options
 if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
     set(TORCHAO_PARALLEL_BACKEND aten_openmp)
@@ -82,16 +76,10 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     endif()
 endif()
 
-#-------------------------------------------------------------------------------
-# Core operation libraries
-#-------------------------------------------------------------------------------
 # Add quantized operation subdirectories
 add_subdirectory(ops/linear_8bit_act_xbit_weight)
 add_subdirectory(ops/embedding_xbit)
 
-#-------------------------------------------------------------------------------
-# Main library targets
-#-------------------------------------------------------------------------------
 # ATen ops library
 add_library(torchao_ops_aten SHARED)
 target_link_libraries(
