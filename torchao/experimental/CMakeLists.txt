@@ -10,7 +10,6 @@ include(CMakeDependentOption)
 project(torchao)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -47,20 +46,6 @@ option(TORCHAO_BUILD_MPS_OPS "Build TorchAO Metal Performance Shaders (MPS) ops"
 # Platform options
 option(TORCHAO_BUILD_EXECUTORCH_OPS "Build TorchAO ops for ExecuTorch" OFF)
 
-# Print build configuration
-message(STATUS "Build configuration:")
-message(STATUS "  CMake build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  PyTorch include dirs: ${TORCH_INCLUDE_DIRS}")
-message(STATUS "  TorchAO include dirs: ${TORCHAO_INCLUDE_DIRS}")
-message(STATUS "  Parallel backend: ${TORCHAO_PARALLEL_BACKEND}")
-message(STATUS "  CPU aarch64 kernels: ${TORCHAO_BUILD_CPU_AARCH64}")
-message(STATUS "  KleidiAI support: ${TORCHAO_BUILD_KLEIDIAI}")
-message(STATUS "  MPS support: ${TORCHAO_BUILD_MPS_OPS}")
-message(STATUS "  ExecuTorch support: ${TORCHAO_BUILD_EXECUTORCH_OPS}")
-
-#-------------------------------------------------------------------------------
-# ARM-specific configuration
-#-------------------------------------------------------------------------------
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
