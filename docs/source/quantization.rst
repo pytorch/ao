@@ -30,7 +30,7 @@ No matter what quantization we are doing, in the end we will be using some low p
 * ``torch.int1`` to ``torch.int8`` available in pytorch 2.6 and later
 * ``torch.float3_e2_m0``, ``torch.float4_e2_m1``, ``torch.float4_e3_m0``, ``torch.float5_e2_m2``, ``torch.float5_e3_m1``, ``torch.float6_e2_m3``, ``torch.float6_e3_m2``, ``torch.float8_e4m3fn``, ``torch.float8_e5m2``, ``torch.float8_e4m3fnuz``, ``torch.float8_e5m2fnuz`` (float8 is added to torch, we also plan to add float4 and float6 to torch if they become popular)
 
-Note some of the above are prototype only for now. We'll consider adding then to pytorch core when they become popular and have hardware support.
+Note some of the above are prototype only for now. We'll consider adding them to pytorch core when they become popular and have hardware support.
 
 Current Support
 ###############
@@ -53,7 +53,7 @@ For this, the requirement is we decide on a "standard" packing format, and hopef
 
 Integrate Tensor subclass to pytorch native factory functions
 *************************************************************
-After that we can connect the factory function with the tensor subclass, for example: ``torch.empty(..., dtype=torch.int4, ...)`` can create a ``Int4Tensor`` tensor subclass with the packing format decided in the previous step.
+After that we can connect the factory function with the tensor subclass, for example: ``torch.empty(..., dtype=torch.int4, ...)`` can create an ``Int4Tensor`` tensor subclass with the packing format decided in the previous step.
 
 Quantization Primitive Ops
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -78,7 +78,7 @@ Quantized Tensors (derived dtypes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 On top of the basic dtypes, quantization primitive operators and efficient kernels, we can glue everything together and build out a Quantized (low precision) Tensor by subclassing torch.Tensor that can be constructed from a high precision Tensor and some parameters that can configure the specific quantization user wants, we can also call this derived dtypes since it can be represented with Tensors of basic dtypes and some extra metadata like scale.
 
-Existing example in torchao is ``AffineQuantizedTensor``, meaning the low precision Tensor is quantized from the high precision Tensor by an affine mapping, that is: ``low_precision_val = high_precision_val / scale + zero_point``, where ``scale``/``zero_point`` are the quantization parameters that can be calculated by quantization primitive ops or through some optimization procedure. Affine quantization is a very common type of quantization, since it's straightforward that when we try to map from higher precision values to lower precision values, we do an affine transformation (``high_preicsion_val / scale + zero_point``). Another common type of quantization, especially for lower bitwidths (e.g. lower than 4 bit) is codebook / look up table based quantization.
+Existing example in torchao is ``AffineQuantizedTensor``, meaning the low precision Tensor is quantized from the high precision Tensor by an affine mapping, that is: ``low_precision_val = high_precision_val / scale + zero_point``, where ``scale``/``zero_point`` are the quantization parameters that can be calculated by quantization primitive ops or through some optimization procedure. Affine quantization is a very common type of quantization, since it's straightforward that when we try to map from higher precision values to lower precision values, we do an affine transformation (``high_preicsion_val / scale + zero_point``). Another common type of quantization, especially for lower bitwidths (e.g. lower than 4 bits) is codebook / look up table based quantization.
 
 Layout and TensorImpl
 #####################
@@ -88,7 +88,7 @@ Take `sparse COO tensor <https://pytorch.org/docs/stable/sparse.html#sparse-coo-
 
 The idea of packing the tensor into different formats fits nicely with the layout concept, that’s why we want to reuse this for packing. We can use `Layout` for different type of packing format and `TensorImpl` for different storage format implementations. And new TensorImpl that stores the Tensor in a packed format can be added at python level tensor subclasses without modifying C++ pytorch core code.
 
-For example, for ``_weight_int4pack_mm`` we need to pack the weight to an format that is friendly for Tensor Core, we call it `TensorCoreTiledLayout <https://github.com/pytorch/ao/blob/e41ca4ee41f5f1fe\16c59e00cffb4dd33d25e56d/torchao/dtypes/affine_quantized_tensor.py#L573>`__. We add a ``tensor_impl`` for the quantized tensor to store the packed (or unpacked) weight, and we use ``layout`` to store different parameters that's relevant for packing::
+For example, for ``_weight_int4pack_mm`` we need to pack the weight to a format that is friendly for Tensor Core, we call it `TensorCoreTiledLayout <https://github.com/pytorch/ao/blob/e41ca4ee41f5f1fe\16c59e00cffb4dd33d25e56d/torchao/dtypes/affine_quantized_tensor.py#L573>`__. We add a ``tensor_impl`` for the quantized tensor to store the packed (or unpacked) weight, and we use ``layout`` to store different parameters that're relevant for packing::
 
   class AffineQuantizedTensor(...):
     # tensor_impl is also implemented with tensor subclass    
@@ -132,7 +132,7 @@ This is called "dynamic quantization" before but it means we quantize activation
 
 If the above does not work, user can also do module swaps, or use ``torch.fx.symbolic_trace()`` to get a traced module that you can `modify <https://pytorch.org/docs/stable/fx.html#direct-graph-manipulation>`__.
 
-But using tensor subclass is preferred because it is easier for serialization/deserialization, if we use tensor subclasses to support dynamic quantization, then we can load the quantized weights directly without further preparation for the model. Otherwise, we'd need to do module swap or other modifications to the model first before loading the quantized weights.
+But using tensor subclass is preferred because it is easier for serialization/deserialization, if we use tensor subclasses to support dynamic quantization, then we can load the quantized weights directly without further preparation for the model. Otherwise, we'd need to do module swap or other modifications to the model firstly before loading the quantized weights.
 
 Static Activation Quantization and Weight Quantization
 ######################################################
