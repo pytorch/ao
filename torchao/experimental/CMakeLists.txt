@@ -29,6 +29,7 @@ if(NOT TORCHAO_INCLUDE_DIRS)
 endif()
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
+include(CMakePrintHelpers)
 
 # Set compiler flags
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64") 
