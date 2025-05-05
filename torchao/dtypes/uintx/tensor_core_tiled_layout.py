@@ -46,9 +46,40 @@ def _same_metadata(
         and self.shape == src.shape
         and self.packed_weight.shape == src.packed_weight.shape
         and self.scale_and_zero.shape == src.scale_and_zero.shape
+        and self.slice_args == src.slice_args
         and self.transposed == src.transposed
         and type(self._layout) == type(src._layout)
     )
+
+def _slice_tensor(self):
+    if self.slice_args is None:
+        return self
+
+    dim, start, end, step = self.slice_args
+    if dim in [0, 1]:
+        int_data, scale, zero_point = self.get_plain()
+        data_len = int_data.shape[dim]
+        scale_len = scale.shape[dim]
+        ratio = data_len / scale_len
+        start_scale = int(start / ratio)
+        end_scale = int(end / ratio)
+
+        int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+        scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
+        zero_point = aten.slice.Tensor(
+            zero_point, dim, start_scale, end_scale, step
+        )
+        # this is to handle padding
+        int_data, scale, zero_point = self._layout.post_process(
+            int_data, scale, zero_point, self.block_size
+        )
+        sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+    else:
+        raise NotImplementedError(
+            f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+        )
+    return sliced
+
 
 
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
@@ -210,6 +241,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         packed_weight: torch.Tensor,
         scale_and_zero: torch.Tensor,
         transposed: bool,
+        slice_args: Optional[Tuple[int]],
         _layout: Layout,
     ):
         kwargs = {}
@@ -229,15 +261,17 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         packed_weight: torch.Tensor,
         scale_and_zero: torch.Tensor,
         transposed: bool,
+        slice_args: Optional[Tuple[int]],
         _layout: Layout,
     ):
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
+        self.slice_args = slice_args
         self._layout = _layout
 
     def __tensor_flatten__(self):
-        return ["packed_weight", "scale_and_zero"], [self.transposed, self._layout]
+        return ["packed_weight", "scale_and_zero"], [self.transposed, self.slice_args, self._layout]
 
     @classmethod
     def __tensor_unflatten__(
@@ -249,9 +283,10 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         )
         (
             transposed,
+            slice_args,
             _layout,
         ) = tensor_attributes
-        return cls(packed_weight, scale_and_zero, transposed, _layout)
+        return cls(packed_weight, scale_and_zero, transposed, slice_args, _layout)
 
     @classmethod
     def from_plain(
@@ -280,7 +315,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point, scale.dtype)
-        return cls(packed_weight, scale_and_zero, False, _layout)
+        return cls(packed_weight, scale_and_zero, False, None, _layout)
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -296,6 +331,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
             self.transposed,
+            self.slice_args,
             self._layout,
         )
 
@@ -307,6 +343,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             fn(self.packed_weight),
             fn(self.scale_and_zero),
             self.transposed,
+            self.slice_args,
             self._layout,
         )
 
@@ -327,6 +364,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         if func is aten.copy_.default:
             self = args[0]
             src = args[1]
+            self = _slice_tensor(self)
+            src = _slice_tensor(src)
+            print("self shape:", self.shape, " src shape:", src.shape)
             if _same_metadata(self, src):
                 self_tensors = self.__tensor_flatten__()[0]
                 for tensor_name in self_tensors:
@@ -344,35 +384,22 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                 args[0].packed_weight,
                 args[0].scale_and_zero,
                 not args[0].transposed,
+                args[0].slice_args,
                 args[0]._layout,
             )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim in [0, 1]:
-                int_data, scale, zero_point = self.get_plain()
-                data_len = int_data.shape[dim]
-                scale_len = scale.shape[dim]
-                ratio = data_len / scale_len
-                start_scale = int(start / ratio)
-                end_scale = int(end / ratio)
-
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
-                zero_point = aten.slice.Tensor(
-                    zero_point, dim, start_scale, end_scale, step
-                )
-                # this is to handle padding
-                int_data, scale, zero_point = self._layout.post_process(
-                    int_data, scale, zero_point, self.block_size
-                )
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return return_and_correct_aliasing(func, args, kwargs, sliced)
-            else:
-                raise NotImplementedError(
-                    f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
-                )
+            slice_args = (dim, start, end, step)
+            lazy_sliced = TensorCoreTiledAQTTensorImpl(
+                args[0].packed_weight,
+                args[0].scale_and_zero,
+                not args[0].transposed,
+                slice_args,
+                args[0]._layout,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, lazy_sliced)
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
