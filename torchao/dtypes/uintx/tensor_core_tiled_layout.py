@@ -350,25 +350,39 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim in [0, 1]:
-                int_data, scale, zero_point = self.get_plain()
-                data_len = int_data.shape[dim]
-                scale_len = scale.shape[dim]
-                ratio = data_len / scale_len
-                start_scale = int(start / ratio)
-                end_scale = int(end / ratio)
+            n_by_8, k_by_inner_tiles, _, _ = self.packed_weight.shape
+            sz_dim1, sz_dim0, _ = self.scale_and_zero.shape
+            data_len = self.shape[dim]
+            if dim == 0:
+                pw_len = n_by_8
+                sz_len = sz_dim0
 
-                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
-                scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
-                zero_point = aten.slice.Tensor(
-                    zero_point, dim, start_scale, end_scale, step
-                )
-                # this is to handle padding
-                int_data, scale, zero_point = self._layout.post_process(
-                    int_data, scale, zero_point, self.block_size
-                )
-                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
-                return return_and_correct_aliasing(func, args, kwargs, sliced)
+                pw_ratio = data_len / pw_len
+                start_pw = int(start / pw_ratio)
+                end_pw = int(end / pw_ratio)
+
+                sz_ratio = data_len / sz_len
+                start_sz = int(start / sz_ratio)
+                end_sz = int(end / sz_ratio)
+
+                packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
+                scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
+                return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
+            elif dim == 1:
+                pw_len = k_by_inner_tiles
+                sz_len = sz_dim1
+
+                pw_ratio = data_len / pw_len
+                start_pw = int(start / pw_ratio)
+                end_pw = int(end / pw_ratio)
+
+                sz_ratio = data_len / sz_len
+                start_sz = int(start / sz_ratio)
+                end_sz = int(end / sz_ratio)
+
+                packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
+                scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
+                return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
             else:
                 raise NotImplementedError(
                     f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
