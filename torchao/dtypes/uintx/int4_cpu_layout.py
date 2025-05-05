@@ -17,7 +17,10 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import ZeroPointDomain, quantize_affine_float_zero_point
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    quantize_affine_float_zero_point,
+)
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -236,10 +239,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         return (1, groupsize)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        from torchao.quantization.quant_primitives import (
-            ZeroPointDomain,
-            quantize_affine,
-        )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
         scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
@@ -255,7 +254,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        zero_point_domain = ZeroPointDomain.FLOAT
+        # zero_point_domain is ZeroPointDomain.FLOAT
         assert len(block_size) == 2 and block_size[0] == 1
         dequantized = torch.ops.aten._weight_int4pack_mm_for_cpu(
             torch.eye(eye_shape, device=device, dtype=original_dtype),

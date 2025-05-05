@@ -10,7 +10,6 @@ from torchao.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
 from torchao.quantization.quant_primitives import (
     MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -136,9 +135,7 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
 
     q = to_uintx(aqt, dtype, -1)
     assert q is not None, "quantization failed"
-    deqaunt = dequantize_affine(
-        q, block_size, scale, zero_point, dtype
-    )
+    deqaunt = dequantize_affine(q, block_size, scale, zero_point, dtype)
     assert deqaunt is not None, "deqauntization failed"
 
 

@@ -90,7 +90,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.quantization.quant_primitives import dequantize_affine, ZeroPointDomain, dequantize_affine_float_zero_point, dequantize_affine_no_zero_point
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
+)
 from torchao.utils import (
     fill_defaults,
 )
