@@ -80,7 +80,6 @@ if TORCH_VERSION_AT_LEAST_2_7:
 
     DEVICE_LIST += ["hpu"] if TEST_HPU else []
 
-@unittest.skip("Skipping this file due to errors")(None)
 
 @skipIfNoQNNPACK
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
