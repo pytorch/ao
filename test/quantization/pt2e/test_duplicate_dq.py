@@ -26,10 +26,10 @@ from torchao.quantization.pt2e.quantizer import (
     Quantizer,
     SharedQuantizationSpec,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer import (
+from torchao.testing.pt2e._xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
-from torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils import (
+from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     OP_TO_ANNOTATOR,
     QuantizationConfig,
 )

@@ -59,37 +59,43 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.3
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.3.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
-          - name: CUDA 2.4
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.4.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
           - name: CUDA 2.5.1
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.1"
+            gpu-arch-version: "12.6"
+            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
+          - name: CUDA 2.6
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: 'torch==2.6.0'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+            dev-requirements-overrides: ""
+          - name: CUDA 2.7
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: 'torch==2.7.0'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+            dev-requirements-overrides: ""
 
-          - name: CPU 2.3
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-          - name: CPU 2.4
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
           - name: CPU 2.5.1
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
+            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
+          - name: CPU 2.6
+            runs-on: linux.4xlarge
+            torch-spec: 'torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
+            dev-requirements-overrides: ""
+          - name: CPU 2.7
+            runs-on: linux.4xlarge
+            torch-spec: 'torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
+            dev-requirements-overrides: ""
 
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
@@ -106,6 +112,7 @@ jobs:
         export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
+        sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
         pip install -r dev-requirements.txt
         pip install .
         export CONDA=$(dirname $(dirname $(which conda)))

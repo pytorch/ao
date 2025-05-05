@@ -25,7 +25,7 @@ const float kTolKleidiAI = 5.0e-2;
 
 using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
+template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp, bool has_lut = false>
 UKernelConfig get_ukernel_config() {
   namespace kernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
@@ -37,7 +37,6 @@ UKernelConfig get_ukernel_config() {
   constexpr int sr = 2;
   constexpr int mr = 1;
   int m_step = 1;
-  constexpr bool has_lut = false;
 
   auto uk = UKernelConfig::make(
       preferred_alignment,
@@ -62,6 +61,13 @@ UKernelConfig get_ukernel_config() {
       &kernel::
           kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>};
 
+  if constexpr (has_lut) {
+    uk.packed_weights_size = &kernel::packed_weights_with_lut_size;
+    uk.packed_weights_offset = &kernel::packed_weights_with_lut_offset;
+    uk.pack_weights = nullptr;
+    uk.pack_weights_with_lut = &kernel::pack_weights_with_lut<weight_nbit, nr, kr, sr>;
+  }
+
   return uk;
 }
 
@@ -70,7 +76,8 @@ template <
     bool has_weight_zeros,
     bool has_bias,
     bool has_clamp,
-    bool has_kleidi = false>
+    bool has_kleidi = false,
+    bool has_lut = false>
 void test_linear_8bit_act_xbit_weight(
     int m,
     int n,
@@ -85,7 +92,8 @@ void test_linear_8bit_act_xbit_weight(
         weight_nbit,
         has_weight_zeros,
         has_bias,
-        has_clamp>();
+        has_clamp,
+        has_lut>();
   }
 
   auto test_case = torchao::
@@ -132,6 +140,31 @@ void test_linear_8bit_act_xbit_weight(
       bias_ptr = test_case.bias.data();
     }
 
+    if constexpr (has_lut) {
+      // Define equivalent LUT for affine quantization
+      constexpr int lut_size = (1 << weight_nbit);
+      std::vector<int8_t> weight_qval_idxs(test_case.weight_qvals.size());
+      std::vector<int8_t> lut(lut_size, 0);
+      constexpr int offset = (1 << (weight_nbit - 1));
+      for (int i = 0; i < test_case.weight_qvals.size(); i++) {
+        weight_qval_idxs[i] = test_case.weight_qvals[i] + offset;
+      }
+      for (int i = 0; i < lut_size; i++) {
+        lut[i] = i - offset;
+      }
+      pack_weights_with_lut_operator(
+          ukernel_config,
+          packed_weights.get(),
+          n,
+          k,
+          group_size,
+          weight_qval_idxs.data(),
+          /*n_luts*/ 1,
+          lut.data(),
+          test_case.weight_scales.data(),
+          weight_zeros_ptr,
+          bias_ptr);
+    } else {
     pack_weights_operator(
         ukernel_config,
         packed_weights.get(),
@@ -142,6 +175,7 @@ void test_linear_8bit_act_xbit_weight(
         test_case.weight_scales.data(),
         weight_zeros_ptr,
         bias_ptr);
+    }
 
     linear_operator(
         ukernel_config,
@@ -312,6 +346,74 @@ UKernelConfig get_ukernel_config_kleidi() {
 }
 
 #endif // TORCHAO_ENABLE_KLEIDI
+
+TEST(test_linear_8bit_act_xbit_weight_lut, Standard) {
+  constexpr bool has_kleidi = false;
+  constexpr bool has_lut = true;
+  constexpr int weight_nbit = 3;
+  constexpr bool has_weight_zeros = false;
+  constexpr bool has_bias = false;
+  constexpr bool has_clamp = false;
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      has_clamp,
+      has_kleidi,
+      has_lut>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
+
+TEST(test_linear_8bit_act_xbit_weight_lut, HasWeightZeros) {
+  constexpr bool has_kleidi = false;
+  constexpr bool has_lut = true;
+  constexpr int weight_nbit = 3;
+  constexpr bool has_weight_zeros = true;
+  constexpr bool has_bias = false;
+  constexpr bool has_clamp = false;
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      has_clamp,
+      has_kleidi,
+      has_lut>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
+
+TEST(test_linear_8bit_act_xbit_weight_lut, HasBias) {
+  constexpr bool has_kleidi = false;
+  constexpr bool has_lut = true;
+  constexpr int weight_nbit = 3;
+  constexpr bool has_weight_zeros = false;
+  constexpr bool has_bias = true;
+  constexpr bool has_clamp = false;
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      has_clamp,
+      has_kleidi,
+      has_lut>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
+
+TEST(test_linear_8bit_act_xbit_weight_lut, HasClamp) {
+  constexpr bool has_kleidi = false;
+  constexpr bool has_lut = true;
+  constexpr int weight_nbit = 3;
+  constexpr bool has_weight_zeros = false;
+  constexpr bool has_bias = false;
+  constexpr bool has_clamp = true;
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      has_weight_zeros,
+      has_bias,
+      has_clamp,
+      has_kleidi,
+      has_lut>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
 
 TEST(test_linear_8bit_act_xbit_weight, Standard) {
   test_linear_8bit_act_xbit_weight<

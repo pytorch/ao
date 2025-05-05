@@ -18,8 +18,8 @@ and mixed GEMM kernels
 import logging
 import types
 import warnings
-from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -307,6 +307,52 @@ def _replace_with_custom_fn_if_matches_filter(
         return model
 
 
+def _replace_with_custom_fn_if_matches_filter_with_name(
+    model,
+    replacement_fn,
+    filter_fn,
+    cur_fqn="",
+    device=None,
+    extra_args: Optional[Tuple[Any, ...]] = (),
+) -> None:
+    """
+    A variant of _replace_with_custom_fn_if_matches_filter where replacement_fn takes module name as well
+        ...
+        replacement_fn (Callable[[torch.nn.Module, str], torch.nn.Module]): The function to replace matching modules.
+        ...
+
+    Returns:
+        None
+    """
+    if isinstance(model, Float8Linear):
+        with torch.device("meta"):
+            new_module = nn.Linear(model.in_features, model.out_features)
+        new_module.weight = model.weight
+        new_module.bias = model.bias
+        model = new_module
+    if filter_fn(model, cur_fqn[:-1]):
+        if device is not None:
+            model.to(device=device)  # move to device before quantization
+        model = replacement_fn(model, cur_fqn[:-1], *extra_args)
+        return model
+    else:
+        named_children_list = list(model.named_children())
+        for name, child in named_children_list:
+            new_child = _replace_with_custom_fn_if_matches_filter_with_name(
+                child,
+                replacement_fn,
+                filter_fn,
+                f"{cur_fqn}{name}.",
+                device,
+                extra_args,
+            )
+            if new_child is not child:
+                setattr(model, name, new_child)
+        if device is not None:
+            model.to(device=device)  # move parent module to device
+        return model
+
+
 def _is_linear(mod, *args):
     # avoid circular dependencies
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
@@ -547,13 +593,25 @@ def quantize_(
         quantize_(m, int4_weight_only(group_size=32))
 
     """
+    filter_fn = _is_linear if filter_fn is None else filter_fn
+
+    if isinstance(config, AOPerModuleConfig):
+        _replace_with_custom_fn_if_matches_filter_with_name(
+            model,
+            _ao_per_module_config_handler,
+            filter_fn,
+            device=device,
+            extra_args=(config,),
+        )
+        return
+
     if isinstance(config, AOBaseConfig):
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
         _replace_with_custom_fn_if_matches_filter(
             model,
             handler,
-            _is_linear if filter_fn is None else filter_fn,
+            filter_fn,
             device=device,
             extra_args=(config,),
         )
@@ -568,14 +626,16 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """This is defined here instead of local function to support serialization"""
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
+    scale_dtype = torch.float32
+    zero_point_dtype = torch.int8
     if TORCH_VERSION_AT_LEAST_2_6:
         return to_affine_quantized_intx(
             x,
             mapping_type,
             _get_per_token_block_size(x),
             target_dtype,
-            scale_dtype=torch.float64,
-            zero_point_dtype=torch.int64,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
         )
     else:
         return to_affine_quantized_intx(
@@ -649,7 +709,6 @@ def _int8_dynamic_activation_int4_weight_transform(
     # weight settings
     block_size = (1, group_size)
     target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
     quant_min = -8
     quant_max = 7
 
@@ -680,7 +739,6 @@ def _int8_dynamic_activation_int4_weight_transform(
             target_dtype,
             quant_min,
             quant_max,
-            eps,
             _layout=layout,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
@@ -801,7 +859,6 @@ def _int8_dynamic_activation_intx_weight_transform(
         target_dtype=torch.int8,
         quant_min=quant_min,
         quant_max=quant_max,
-        eps=torch.finfo(torch.float32).eps,
         scale_dtype=weight_scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=(weight_mapping_type == MappingType.SYMMETRIC),
@@ -1838,7 +1895,6 @@ def _intx_weight_only_transform(
         target_dtype=torch.int8,
         quant_min=quant_min,
         quant_max=quant_max,
-        eps=torch.finfo(torch.float32).eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=torch.int8,
         preserve_zero=(mapping_type == MappingType.SYMMETRIC),
@@ -1897,6 +1953,41 @@ def _fpx_weight_only_transform(
     new_weight = to_affine_quantized_fpx(weight, _layout)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class AOPerModuleConfig(AOBaseConfig):
+    """Per module configurations for torchao quantize_ API
+
+    Args:
+        `module_fqn_to_config`: Dict[str, Optional[AOBaseConfig]]: a dictionary from
+         the fully qualified name of module to the AOBaseConfig that we want to apply to the module.
+         Also has a special key: "_default", if "_default" is present in the dictionary,
+         the config for "_default" will be applied to all the remaining modules that does not have
+         per module configuration specified.
+    """
+
+    module_fqn_to_config: Dict[str, Optional[AOBaseConfig]] = field(
+        default_factory=dict
+    )
+
+
+def _ao_per_module_config_handler(
+    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
+):
+    c = None
+    if module_fqn in config.module_fqn_to_config:
+        # Maybe: we can add module type specific config in the future, in needed
+        c = config.module_fqn_to_config[module_fqn]
+    else:
+        # fallback to use default if no module specific config is provided
+        c = config.module_fqn_to_config.get("_default", None)
+
+    if c is not None:
+        handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
+        return handler(module, c)
+
     return module
 
 

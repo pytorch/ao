@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -79,19 +80,17 @@ class BenchmarkConfig:
         )
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
-        self.output_dir = output_dir
+        self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
-        file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
-        self.profiler_file_name = os.path.join(
-            profiler_dir, f"{file_name}_profile.json"
-        )
+        self._file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -114,6 +113,7 @@ class BenchmarkConfig:
             "model_type": self.model_type,
             "output_dir": self.output_dir,
             "enable_profiler": self.enable_profiler,
+            "enable_memory_profiler": self.enable_memory_profiler,
         }
 
 
@@ -126,6 +126,9 @@ class BenchmarkResult:
         self.output_dir = config.output_dir
         self.model_inference_time_in_ms = 0.0
         self.profiler_json_path: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_visualization_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
@@ -133,32 +136,11 @@ class BenchmarkResult:
             **self.config.to_dict(),
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
             "profiler_json_path": self.profiler_json_path,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_visualization_path": self.memory_visualization_path,
+            "memory_stats": self.memory_stats,
         }
         return result_dict
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, k=64, n=32, dtype=torch.bfloat16):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(k, n, bias=False).to(dtype)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        return x
-
-
-class LNLinearSigmoid(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2, dtype=torch.bfloat16):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False).to(dtype)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        x = self.sigmoid(x)
-        return x
 
 
 def string_to_config(
@@ -337,34 +319,6 @@ def model_inference_time_in_ms(model, input_data):
     return res * 1e6
 
 
-def create_model_and_input(
-    model_type: str,
-    m: int,
-    k: int,
-    n: int,
-    high_precision_dtype: torch.dtype = torch.bfloat16,
-    device: str = get_default_device(),
-):
-    """Create a model and input data for benchmarking.
-
-    Args:
-        model_type (str): type of the model to be created
-        batch_size (int): batch size of the input data
-        device (str): device to run the model on
-        high_precision_dtype (torch.dtype): data type of the model
-        m, k, n (int): dimensions of the model and input data
-    """
-    if model_type == "linear":
-        model = ToyLinearModel(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    elif model_type == "ln_linear_sigmoid":
-        model = LNLinearSigmoid(k, n, high_precision_dtype).to(device)
-        input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-    return model, input_data
-
-
 def clean_caches():
     import gc
 
@@ -382,7 +336,7 @@ def clean_caches():
 def generate_results_csv(
     results: List[BenchmarkResult],
     output_dir: str,
-    file_name: str = "results.csv",
+    file_name: Optional[str] = None,
 ):
     """Generate a CSV file with the results of the benchmarking.
 
@@ -398,6 +352,10 @@ def generate_results_csv(
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    # Generate the filename with the current date and time in the specified format
+    if file_name is None:
+        file_name = datetime.now().strftime("results_%d%m%Y_%H%M%S.csv")
+
     file_path = os.path.join(output_dir, file_name)
 
     # Create a CSV file with the results

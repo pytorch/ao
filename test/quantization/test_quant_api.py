@@ -19,6 +19,7 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torch.testing._internal import common_utils
+from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
@@ -28,9 +29,20 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
     Int4XPULayout,
+    PlainLayout,
+    QDQLayout,
+    TensorCoreTiledLayout,
 )
-from torchao.quantization import LinearActivationQuantizedTensor
+from torchao.quantization import (
+    LinearActivationQuantizedTensor,
+    PerGroup,
+)
 from torchao.quantization.quant_api import (
+    AOPerModuleConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
+    Int8WeightOnlyConfig,
+    IntxWeightOnlyConfig,
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
@@ -932,6 +944,78 @@ class TestQuantFlow(TestCase):
 
         sqnr = compute_error(y_ref, y_q)
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_default(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"_default": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_module_name(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"linear1": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch 2.6+")
+    def test_ao_per_module_config_embedding_linear(self):
+        weight_dtype = torch.int8
+        granularity = PerGroup(8)
+        mapping_type = MappingType.SYMMETRIC
+        embedding_config = IntxWeightOnlyConfig(
+            weight_dtype=weight_dtype,
+            granularity=granularity,
+            mapping_type=mapping_type,
+            scale_dtype=None,
+        )
+        # example model linear is Linear(16, 8)
+        linear_config = Int8DynamicActivationInt4WeightConfig(group_size=16)
+
+        config = AOPerModuleConfig({"emb": embedding_config, "linear": linear_config})
+        indices = torch.randint(0, 10, (32,))
+        indices = indices.unsqueeze(0)
+        example_inputs = (indices,)
+        model = TestHelperModules.EmbeddingConvLinearModule().eval()
+        model(*example_inputs)
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda x, fqn: isinstance(x, torch.nn.Linear)
+            or isinstance(x, torch.nn.Embedding),
+        )
+        model(*example_inputs)
+
+        assert isinstance(model.emb.weight, AffineQuantizedTensor)
+        assert isinstance(model.emb.weight._layout, QDQLayout)
+        assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_skip(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config = AOPerModuleConfig({"_default": config1, "linear2": None})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
 
 
 class TestMultiTensorFlow(TestCase):

@@ -6,17 +6,21 @@
 
 import json
 import os
+import pickle
 import unittest
 
 import torch
+import torch.cuda
 
 from benchmarks.microbenchmarks.profiler import (
+    generate_memory_profile,
     generate_model_profile,
+    visualize_memory_profile,
 )
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
-    ToyLinearModel,
 )
+from torchao.testing.model_architectures import ToyLinearModel
 
 
 class TestBenchmarkProfiler(unittest.TestCase):
@@ -150,6 +154,136 @@ class TestBenchmarkProfiler(unittest.TestCase):
             event for event in data["traceEvents"] if "cuda" in event.get("name", "")
         ]
         self.assertGreater(len(cuda_events), 0)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_memory_profiler_enabled(self):
+        """Test that memory profiler works when enabled and CUDA is available"""
+        config = BenchmarkConfig(
+            quantization=None,
+            sparsity=None,
+            params={
+                "enable_memory_profiler": True,
+                "device": "cuda",
+            },
+            shape_name="test",
+            shape=[self.m, self.k, self.n],
+            output_dir=self.results_dir,
+            benchmark_mode="inference",
+        )
+
+        memory_profile_path = os.path.join(
+            self.results_dir,
+            "memory_profiler",
+            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.pickle",
+        )
+
+        # Generate memory profile
+        result_path = generate_memory_profile(
+            self.model, self.input_data, memory_profile_path
+        )
+
+        # Check that profile file exists and is not empty
+        self.assertTrue(os.path.exists(result_path))
+        self.assertGreater(os.path.getsize(result_path), 0)
+
+        # Verify it's a valid pickle file
+        try:
+            with open(result_path, "rb") as f:
+                pickle_data = pickle.load(f)
+            self.assertIsNotNone(pickle_data)
+        except Exception as e:
+            self.fail(f"Failed to load pickle file: {e}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_memory_profiler_visualization(self):
+        """Test memory profile visualization"""
+        config = BenchmarkConfig(
+            quantization=None,
+            sparsity=None,
+            params={
+                "enable_memory_profiler": True,
+                "device": "cuda",
+            },
+            shape_name="test",
+            shape=[self.m, self.k, self.n],
+            output_dir=self.results_dir,
+            benchmark_mode="inference",
+        )
+
+        memory_profile_path = os.path.join(
+            self.results_dir,
+            "memory_profiler",
+            f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.pickle",
+        )
+
+        # Create a simple mock memory profile as a pickle file
+        # This is a simplified structure that mimics what torch.cuda.memory._dump_snapshot produces
+        mock_profile_data = {
+            "segments": [
+                {
+                    "device": 0,
+                    "address": 1000,
+                    "size": 1024 * 1024,  # 1MB
+                    "stream": 0,
+                }
+            ],
+            "external_annotations": [],
+        }
+
+        # Save mock profile as pickle
+        os.makedirs(os.path.dirname(memory_profile_path), exist_ok=True)
+        with open(memory_profile_path, "wb") as f:
+            pickle.dump(mock_profile_data, f)
+
+        # Generate visualization
+        viz_path = visualize_memory_profile(memory_profile_path)
+
+        # Check that visualization file exists
+        self.assertTrue(os.path.exists(viz_path))
+        self.assertTrue(viz_path.endswith(".html"))
+
+    def test_memory_profiler_cuda_unavailable(self):
+        """Test memory profiler behavior when CUDA is not available"""
+        # Save original torch.cuda.is_available function
+        original_is_available = torch.cuda.is_available
+
+        try:
+            # Mock torch.cuda.is_available to return False
+            torch.cuda.is_available = lambda: False
+
+            config = BenchmarkConfig(
+                quantization=None,
+                sparsity=None,
+                params={
+                    "enable_memory_profiler": True,
+                    "device": "cpu",  # Force CPU to test CUDA unavailable case
+                },
+                shape_name="test",
+                shape=[self.m, self.k, self.n],
+                output_dir=self.results_dir,
+                benchmark_mode="inference",
+            )
+
+            memory_profile_path = os.path.join(
+                self.results_dir,
+                "memory_profiler",
+                f"{config.name}_{self.m}_{self.k}_{self.n}_memory_profile.json",
+            )
+
+            # Generate memory profile
+            result = generate_memory_profile(
+                self.model, self.input_data, memory_profile_path
+            )
+
+            # Should return None when CUDA is unavailable
+            self.assertIsNone(result)
+
+            # Should not create file when CUDA is unavailable
+            self.assertFalse(os.path.exists(memory_profile_path))
+
+        finally:
+            # Restore original torch.cuda.is_available function
+            torch.cuda.is_available = original_is_available
 
 
 if __name__ == "__main__":

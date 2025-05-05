@@ -55,6 +55,10 @@ build_torchao_experimental = (
     and platform.system() == "Darwin"
 )
 
+use_cpp_avx512 = os.getenv("USE_AVX512", "1") == "1" and platform.system() == "Linux"
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
 version = (
@@ -249,23 +253,21 @@ def get_extensions():
     if debug_mode:
         print("Compiling in debug mode")
 
-    if not torch.cuda.is_available():
+    if not torch.version.cuda:
         print(
             "PyTorch GPU support is not available. Skipping compilation of CUDA extensions"
         )
-    if CUDA_HOME is None and torch.cuda.is_available() and torch.version.cuda:
+    if CUDA_HOME is None and torch.version.cuda:
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print(
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
-    if ROCM_HOME is None and torch.cuda.is_available() and torch.version.hip:
+    if ROCM_HOME is None and torch.version.hip:
         print("ROCm is not available. Skipping compilation of ROCm extensions")
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
-    use_cuda = (
-        torch.cuda.is_available() and torch.version.cuda and CUDA_HOME is not None
-    )
-    use_hip = torch.cuda.is_available() and torch.version.hip and ROCM_HOME is not None
+    use_cuda = torch.version.cuda and CUDA_HOME is not None
+    use_hip = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_hip) else CppExtension
 
     nvcc_args = [
@@ -290,6 +292,17 @@ def get_extensions():
         extra_compile_args["cxx"].extend(
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
+
+        if use_cpp_avx512 and TORCH_VERSION_AT_LEAST_2_7:
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -344,6 +357,12 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+    if IS_WINDOWS:
+        # Remove csrc/cpu/*.cpp on Windows due to the link issue: unresolved external symbol PyInit__C
+        excluded_sources = list(
+            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in excluded_sources]
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")

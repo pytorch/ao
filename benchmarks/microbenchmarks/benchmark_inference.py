@@ -10,24 +10,29 @@ This script runs inference benchmarks and generates a micro-benchmarking report 
 - run() function is the main entry point for running inference benchmarks.
 """
 
+import os
 from copy import deepcopy
 from pathlib import Path
 
 import torch
 
 from benchmarks.microbenchmarks.profiler import (
+    generate_memory_profile,
     generate_model_profile,
+    visualize_memory_profile,
 )
 from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     clean_caches,
-    create_model_and_input,
     model_inference_time_in_ms,
     string_to_config,
 )
 from torchao.quantization import quantize_
 from torchao.sparsity.sparse_api import sparsify_
+from torchao.testing.model_architectures import (
+    create_model_and_input_data,
+)
 
 
 def run(config: BenchmarkConfig) -> BenchmarkResult:
@@ -38,7 +43,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         # Create output directory if it doesn't exist
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        base_model, input_data = create_model_and_input(
+        base_model, input_data = create_model_and_input_data(
             config.model_type,
             config.m,
             config.k,
@@ -96,11 +101,53 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
         if config.enable_profiler:
             print("Running profiler...")
             try:
-                result.profiler_json_path = generate_model_profile(
-                    m_copy, input_data, config.profiler_file_name
+                profiler_json_path = generate_model_profile(
+                    model=m_copy,
+                    input_data=input_data,
+                    profile_file_path=os.path.join(
+                        config.output_dir,
+                        "profiler",
+                        f"{config._file_name}_profile.json",
+                    ),
                 )
+                result.profiler_json_path = profiler_json_path
             except Exception as e:
-                print(f"Error running profiler for {config.name} with error: {e}")
+                print(f"Error running profiler: {e}")
+
+        # Run memory profiler if enabled
+        if config.enable_memory_profiler:
+            print("Running memory profiler...")
+            try:
+                # Create memory profiler directory if it doesn't exist
+                memory_profiler_dir = os.path.join(
+                    config.output_dir, "memory_profiler/pickle"
+                )
+                os.makedirs(memory_profiler_dir, exist_ok=True)
+
+                # Save memory profile with .pickle extension
+                result.memory_profile_path = generate_memory_profile(
+                    model=m_copy,
+                    input_data=input_data,
+                    profile_file_path=os.path.join(
+                        memory_profiler_dir,
+                        f"{config._file_name}_memory_profile.pickle",
+                    ),
+                )
+
+                if result.memory_profile_path:
+                    result.memory_visualization_path = visualize_memory_profile(
+                        result.memory_profile_path
+                    )
+            except ValueError as e:
+                if "not enough values to unpack" in e:
+                    print(
+                        "Failed due to existing bugs, re-run the code to generate memory profile. Please raise an issue if it persists."
+                    )
+            except Exception as e:
+                print(f"Error running memory profiler: {e}")
+                import traceback
+
+                traceback.print_exc()
 
         return result
     except Exception as e:
