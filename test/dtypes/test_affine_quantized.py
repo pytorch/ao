@@ -398,6 +398,8 @@ class TestAffineQuantizedBasic(TestCase):
         param = l.weight
         param_data = param.data
         param_data = param_data.narrow(0, 0, 512)
+        assert param.data.tensor_impl.packed_weight.data_ptr() == param_data.tensor_impl.packed_weight.data_ptr()
+        assert param.data.tensor_impl.scale_and_zero.data_ptr() == param_data.tensor_impl.scale_and_zero.data_ptr()
         assert param.data.dequantize()[0][0] == 0
 
         # dummy_l has random input (shouldn't be 0)

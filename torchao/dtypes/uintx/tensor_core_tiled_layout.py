@@ -372,7 +372,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
 
             packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
             scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
-            return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
+            return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(packed_weight, scale_and_zero, self.transposed, self._layout))
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
