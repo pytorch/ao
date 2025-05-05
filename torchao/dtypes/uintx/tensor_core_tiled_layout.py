@@ -364,6 +364,16 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                 pw_len = k_by_inner_tiles
                 sz_len = sz_dim1
 
+            if pw_len == 0 or sz_len == 0:
+                return return_and_correct_aliasing(
+                    func,
+                    args,
+                    kwargs,
+                    TensorCoreTiledAQTTensorImpl(
+                        self.packed_weight, self.scale_and_zero, self.transposed, self._layout
+                    ),
+                )
+
             pw_ratio = data_len / pw_len
             start_pw = int(start / pw_ratio)
             end_pw = int(end / pw_ratio)
