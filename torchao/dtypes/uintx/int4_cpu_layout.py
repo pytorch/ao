@@ -17,7 +17,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.quantization.quant_primitives import ZeroPointDomain, quantize_affine_float_zero_point
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
@@ -267,7 +267,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
         scale = scale.reshape(scale.shape[:-1]).contiguous()
         zero = zero.reshape(zero.shape[:-1]).contiguous()
-        int_data = quantize_affine(
+        int_data = quantize_affine_float_zero_point(
             dequantized,
             block_size,
             scale,
@@ -275,7 +275,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
             target_dtype,
             quant_min,
             quant_max,
-            zero_point_domain,
         )
         return int_data, scale, zero
 

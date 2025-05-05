@@ -112,7 +112,7 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     mapping_type = MappingType.SYMMETRIC
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int32
-    zero_point_domain = ZeroPointDomain.INT
+    # zero_point_domain is ZeroPointDomain.INT
     block_size = (1, group_size)
 
     scale, zero_point = choose_qparams_affine(
@@ -137,7 +137,7 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     q = to_uintx(aqt, dtype, -1)
     assert q is not None, "quantization failed"
     deqaunt = dequantize_affine(
-        q, block_size, scale, zero_point, dtype, zero_point_domain=zero_point_domain
+        q, block_size, scale, zero_point, dtype
     )
     assert deqaunt is not None, "deqauntization failed"
 
