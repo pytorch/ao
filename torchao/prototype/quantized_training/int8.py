@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Any, Optional, Tuple
+from typing import Any, Literal, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -52,6 +52,34 @@ def quantize_int8_rowwise(
     return tensor, scale
 
 
+@torch.no_grad()
+def quantize_int8_tensorwise(
+    tensor: Tensor, stochastic_rounding: bool = False, eps: float = 1e-12
+):
+    """Tensor-wise quantization uses a single scale value for the entire weight tensor.
+
+    This may be more efficient for memory and computation but could provide
+    less precise quantization compared to row-wise scaling.
+    """
+    # absmax symmetric quantization with a single scale for the entire tensor
+    scale = tensor.abs().amax() / 127  # single value for entire tensor
+    inv_scale = 1.0 / scale.float().clip(eps)
+    tensor = tensor.float() * inv_scale  # apply same scale to all elements
+
+    if stochastic_rounding:
+        tensor = (tensor + torch.rand_like(tensor)).floor()
+    else:
+        tensor = tensor.round()
+
+    tensor = tensor.clip(-128, 127).to(torch.int8)
+    # Create a tensor with shape [num_rows] filled with the same scale value
+    # This maintains API compatibility with the row-wise version
+    scale_expanded = torch.full(
+        (tensor.shape[0],), scale, dtype=scale.dtype, device=tensor.device
+    )
+    return tensor, scale_expanded
+
+
 class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
     """INT8 symmetric quantization weight, with absmax scaling [-127, 127]. The main difference
     of this tensor subclass from AffineQuantizedTensor:
@@ -83,6 +111,8 @@ class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
         assert scale.ndim == 1
         self.int_data = int_data
         self.scale = scale
+        # Flag indicating if this is tensor-wise scaling (all scale values are identical)
+        self.is_tensorwise = bool(torch.all(scale == scale[0]).item())
 
     def __tensor_flatten__(self):
         return ["int_data", "scale"], []
@@ -96,22 +126,41 @@ class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float(cls, tensor: Tensor):
+    def from_float(
+        cls, tensor: Tensor, scaling_method: Literal["row", "tensor"] = "row"
+    ):
         """Convert a float tensor into INT8 quantized weight. No stochastic rounding is performed.
         This function is not differentiable.
+
+        Args:
+            tensor: The floating point tensor to quantize
+            scaling_method: Method for computing scale values
+                - "row": Use separate scale for each row (default)
+                - "tensor": Use single scale for entire tensor
         """
-        int_data, scale = quantize_int8_rowwise(tensor.detach())
+        if scaling_method == "row":
+            int_data, scale = quantize_int8_rowwise(tensor.detach())
+        elif scaling_method == "tensor":
+            int_data, scale = quantize_int8_tensorwise(tensor.detach())
+        else:
+            raise ValueError(f"Unknown scaling method: {scaling_method}")
+
         out = cls(int_data, scale)
         out.requires_grad_(tensor.requires_grad)
         return out
 
     def dequantize(self):
-        return self.int_data * self.scale.view(-1, 1)
+        # The view operation is only needed for row-wise scaling
+        if self.is_tensorwise:
+            return self.int_data * self.scale[0]
+        else:
+            return self.int_data * self.scale.view(-1, 1)
 
     def __repr__(self):
+        scaling_type = "tensor-wise" if self.is_tensorwise else "row-wise"
         return (
             f"{self.__class__.__name__}(shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device}, "
-            f"requires_grad={self.requires_grad})"
+            f"requires_grad={self.requires_grad}, scaling={scaling_type})"
         )
 
     # FSDP all-gather extension v2
@@ -154,8 +203,14 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
-        # NOTE: we have to .T before .to(input.dtype) for torch.compile() mixed matmul to work
-        out = (input @ weight.int_data.T.to(input.dtype)) * weight.scale
+        # Use different multiplication based on scaling type
+        if weight.is_tensorwise:
+            # Single scale for entire tensor
+            out = (input @ weight.int_data.T.to(input.dtype)) * weight.scale[0]
+        else:
+            # Row-wise scale
+            out = (input @ weight.int_data.T.to(input.dtype)) * weight.scale
+
         out = out + bias if bias is not None else out
         return out
 
@@ -163,9 +218,16 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
 
-        grad_input = (grad_output * weight.scale) @ weight.int_data.to(
-            grad_output.dtype
-        )
+        # Handle tensor-wise vs row-wise scaling in backward pass
+        if weight.is_tensorwise:
+            grad_input = (grad_output * weight.scale[0]) @ weight.int_data.to(
+                grad_output.dtype
+            )
+        else:
+            grad_input = (grad_output * weight.scale) @ weight.int_data.to(
+                grad_output.dtype
+            )
+
         grad_weight = grad_output.view(-1, weight.shape[0]).T @ input.view(
             -1, weight.shape[1]
         )
@@ -242,7 +304,14 @@ def _(func, types, args, kwargs):
         args[0].scale.copy_(args[1].scale, **kwargs)
 
     elif isinstance(args[0], Int8QuantizedTrainingLinearWeight):
-        int_data, scale = quantize_int8_rowwise(args[1], stochastic_rounding=True)
+        # Use the same scaling method that was used originally
+        if args[0].is_tensorwise:
+            int_data, scale = quantize_int8_tensorwise(
+                args[1], stochastic_rounding=True
+            )
+        else:
+            int_data, scale = quantize_int8_rowwise(args[1], stochastic_rounding=True)
+
         args[0].int_data.copy_(int_data, **kwargs)
         args[0].scale.copy_(scale, **kwargs)
 
@@ -302,7 +371,17 @@ def _(func, types, args, kwargs):
 
 
 class Int8WeightOnlyQuantizedTrainingConfig(AOBaseConfig):
-    pass
+    """Configuration for INT8 weight-only quantized training.
+
+    Args:
+        scaling_method: Method for computing scale values
+            - "row": Use separate scale for each row (default)
+            - "tensor": Use single scale for entire tensor
+    """
+
+    def __init__(self, scaling_method: Literal["row", "tensor"] = "row"):
+        super().__init__()
+        self.scaling_method = scaling_method
 
 
 # for bc
@@ -314,6 +393,8 @@ def _int8_weight_only_quantized_training_transform(
     module: torch.nn.Module,
     config: Int8WeightOnlyQuantizedTrainingConfig,
 ) -> torch.nn.Module:
-    new_weight = Int8QuantizedTrainingLinearWeight.from_float(module.weight)
+    new_weight = Int8QuantizedTrainingLinearWeight.from_float(
+        module.weight, scaling_method=config.scaling_method
+    )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=True)
     return module

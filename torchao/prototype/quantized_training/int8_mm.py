@@ -82,6 +82,7 @@ def _scaled_int8_mm_kernel(
     GROUP_M: tl.constexpr = 8,
     EVEN_K: tl.constexpr = True,
     COL_SCALE_SCALAR: tl.constexpr = False,
+    ROW_SCALE_SCALAR: tl.constexpr = False,
 ):
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -122,12 +123,22 @@ def _scaled_int8_mm_kernel(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
-    row_scale = tl.load(row_scale_ptr + idx_m, mask=idx_m < M).to(tl.float32)
+    # Handle both row-wise and tensor-wise scaling for row scales
+    if ROW_SCALE_SCALAR:
+        # Tensor-wise scale for rows
+        row_scale = tl.load(row_scale_ptr).to(tl.float32)
+    else:
+        # Row-wise scale
+        row_scale = tl.load(row_scale_ptr + idx_m, mask=idx_m < M).to(tl.float32)
+
+    # Handle both row-wise and tensor-wise scaling for column scales
     if COL_SCALE_SCALAR:
-        # hack to support BitNet. col_scale is now a scalar
+        # Tensor-wise scale for columns (or scalar for BitNet)
         col_scale = tl.load(col_scale_ptr).to(tl.float32)
     else:
+        # Column-wise scale
         col_scale = tl.load(col_scale_ptr + idx_n, mask=idx_n < N).to(tl.float32)
+
     acc = acc.to(tl.float32) * row_scale * col_scale
 
     # inductor generates a suffix
@@ -149,10 +160,19 @@ def scaled_int8_mm(
     assert A.dtype is torch.int8 and B.dtype is torch.int8
     assert row_scale.dtype is col_scale.dtype
     assert A.shape[1] == B.shape[0]
-    assert row_scale.squeeze().shape == (A.shape[0],)
-    assert col_scale.squeeze().shape in ((B.shape[1],), ())
     assert row_scale.is_contiguous()
     assert col_scale.is_contiguous()
+
+    # Check if scales are scalar (tensor-wise) or per-row/per-column
+    row_scale_is_scalar = row_scale.numel() == 1
+    col_scale_is_scalar = col_scale.numel() == 1
+
+    # If not scalar, verify dimensions
+    if not row_scale_is_scalar:
+        assert row_scale.squeeze().shape == (A.shape[0],)
+    if not col_scale_is_scalar:
+        assert col_scale.squeeze().shape == (B.shape[1],)
+
     return torch.ops.torchao.scaled_int8_mm(A, B, row_scale, col_scale)
 
 
@@ -183,5 +203,6 @@ def scaled_int8_mm_cuda(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tens
         *B.stride(),
         *C.stride(),
         COL_SCALE_SCALAR=col_scale.numel() == 1,
+        ROW_SCALE_SCALAR=row_scale.numel() == 1,
     )
     return C
