@@ -67,17 +67,17 @@ def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
             f"block_size must be 32 to use the cuBLAS MX gemm kernels, got {block_size}"
         )
         valid_dtypes = [torch.float8_e4m3fn]
-        assert (
-            elem_dtype in valid_dtypes
-        ), f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        assert elem_dtype in valid_dtypes, (
+            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+        )
     elif gemm_kernel_choice == MXGemmKernelChoice.HIPBLASLT:
-        assert (
-            block_size == 32
-        ), f"block_size must be 32 to use the HIPBLASLT MX gemm kernels, got {block_size}"
+        assert block_size == 32, (
+            f"block_size must be 32 to use the HIPBLASLT MX gemm kernels, got {block_size}"
+        )
         valid_dtypes = [torch.float8_e4m3fn]
-        assert (
-            elem_dtype in valid_dtypes
-        ), f"elem_dtype must be one of {valid_dtypes} to use the HIPBLASLT MX gemm kernels, got {elem_dtype}"
+        assert elem_dtype in valid_dtypes, (
+            f"elem_dtype must be one of {valid_dtypes} to use the HIPBLASLT MX gemm kernels, got {elem_dtype}"
+        )
         assert torch.version.hip is not None, "HIPBLASLT requires ROCm"
 
 

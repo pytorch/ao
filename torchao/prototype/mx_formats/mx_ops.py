@@ -99,7 +99,7 @@ def mx_mm(aten_op, args, kwargs=None):
                 MXGemmKernelChoice.CUBLAS,
                 MXGemmKernelChoice.HIPBLASLT,
             )
-      
+
             assert a._gemm_kernel_choice is scaled_mm_kernels, (
                 "CUBLAS/HIPBLASLT is the only supported kernel choice for MX FP8 operations atm"
             )
