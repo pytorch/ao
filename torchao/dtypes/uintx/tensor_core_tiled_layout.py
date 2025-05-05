@@ -353,40 +353,26 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             n_by_8, k_by_inner_tiles, _, _ = self.packed_weight.shape
             sz_dim1, sz_dim0, _ = self.scale_and_zero.shape
             data_len = self.shape[dim]
+            assert dim in [0, 1], f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+
             if dim == 0:
                 pw_len = n_by_8
                 sz_len = sz_dim0
-
-                pw_ratio = data_len / pw_len
-                start_pw = int(start / pw_ratio)
-                end_pw = int(end / pw_ratio)
-
-                sz_ratio = data_len / sz_len
-                start_sz = int(start / sz_ratio)
-                end_sz = int(end / sz_ratio)
-
-                packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
-                scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
-                return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
-            elif dim == 1:
+            else:
                 pw_len = k_by_inner_tiles
                 sz_len = sz_dim1
 
-                pw_ratio = data_len / pw_len
-                start_pw = int(start / pw_ratio)
-                end_pw = int(end / pw_ratio)
+            pw_ratio = data_len / pw_len
+            start_pw = int(start / pw_ratio)
+            end_pw = int(end / pw_ratio)
 
-                sz_ratio = data_len / sz_len
-                start_sz = int(start / sz_ratio)
-                end_sz = int(end / sz_ratio)
+            sz_ratio = data_len / sz_len
+            start_sz = int(start / sz_ratio)
+            end_sz = int(end / sz_ratio)
 
-                packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
-                scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
-                return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
-            else:
-                raise NotImplementedError(
-                    f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
-                )
+            packed_weight = aten.slice(self.packed_weight, dim, start_pw, end_pw, step)
+            scale_and_zero = aten.slice(self.scale_and_zero, 1-dim, start_sz, end_sz, step)
+            return return_and_correct_aliasing(func, args, kwargs, TensorCoreTiledAQTTensorImpl(self.packed_weight, self.scale_and_zero, self.transposed, self._layout))
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
