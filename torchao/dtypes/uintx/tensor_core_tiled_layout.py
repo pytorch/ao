@@ -370,7 +370,10 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                     args,
                     kwargs,
                     TensorCoreTiledAQTTensorImpl(
-                        self.packed_weight, self.scale_and_zero, self.transposed, self._layout
+                        self.packed_weight,
+                        self.scale_and_zero,
+                        self.transposed,
+                        self._layout,
                     ),
                 )
 
