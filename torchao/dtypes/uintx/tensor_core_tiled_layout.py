@@ -350,9 +350,15 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
 
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            cur_shape = self.shape
+            assert len(cur_shape) == 4
+            inner_k_tiles = cur_shape[-1] * 2
+            original_shape = (cur_shape[0] * 8, cur_shape[1] * (inner_k_tiles * 16))
+
             n_by_8, k_by_inner_tiles, _, _ = self.packed_weight.shape
             sz_dim1, sz_dim0, _ = self.scale_and_zero.shape
-            data_len = self.shape[dim]
+
+            data_len = original_shape[dim]
             assert dim in [0, 1], (
                 f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
             )
