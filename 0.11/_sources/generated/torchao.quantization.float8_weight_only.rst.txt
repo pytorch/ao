@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+float8_weight_only
+==================
+
+.. autoclass:: float8_weight_only
+    :members:

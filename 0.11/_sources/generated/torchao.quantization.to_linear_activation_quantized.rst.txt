@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+to_linear_activation_quantized
+==============================
+
+.. autofunction:: to_linear_activation_quantized

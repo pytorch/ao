@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+int8_dynamic_activation_int4_weight
+===================================
+
+.. autoclass:: int8_dynamic_activation_int4_weight
+    :members:

@@ -1,0 +1,1857 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>torchao.dtypes.nf4tensor &mdash; torchao 0.11 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/copybutton.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/sg_gallery.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/sg_gallery-binder.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/sg_gallery-dataframe.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/sg_gallery-rendered-html.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/sphinx-design.5ea377869091fd0449014c60fc090103.min.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/css/custom.css" type="text/css" />
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../../../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Learn
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started">
+                  <span class=dropdown-title>Get Started</span>
+                  <p>Run PyTorch locally or get started quickly with one of the supported cloud platforms</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                  <p>Whats new in PyTorch tutorials</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                  <p>Familiarize yourself with PyTorch concepts and modules</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                  <p>Bite-size, ready-to-deploy PyTorch code examples</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                  <p>Master PyTorch basics with our engaging YouTube tutorial series</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Ecosystem
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem">
+                  <span class="dropdown-title">Tools</span>
+                  <p>Learn about the tools and frameworks in the PyTorch Ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class=dropdown-title>Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class=dropdown-title>Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
+                  <p>Award winners announced at this year's PyTorch Conference</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                  <p>Build innovative and privacy-aware AI experiences for edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
+                  <span class="dropdown-title">ExecuTorch</span>
+                  <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p>Explore the documentation for comprehensive guidance on how to use PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/pytorch-domains">
+                  <span class="dropdown-title">PyTorch Domains</span>
+                  <p>Read the PyTorch Domains documentation to learn more about domain-specific libraries</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                Blogs & News 
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">PyTorch Blog</span>
+                  <p>Catch up on the latest technical news and happenings</p>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/community-blog">
+                  <span class="dropdown-title">Community Blog</span>
+                  <p>Stories from the PyTorch ecosystem</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/videos">
+                  <span class="dropdown-title">Videos</span>
+                  <p>Learn about the latest PyTorch tutorials, new, and more </p>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                About
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn more about the PyTorch Foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown">
+              <a href="https://pytorch.org/join" data-cta="join">
+                Become a Member
+              </a>
+            </div>
+          </li>
+          <li>
+           <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="github-icon">
+             </a>
+           </div>
+          </li>
+          <!--- TODO: This block adds the search icon to the nav bar. We will enable it later. 
+          <li>
+            <div class="main-menu-item">
+             <a href="https://github.com/pytorch/pytorch" class="search-icon">
+             </a>
+            </div>
+          </li>
+          --->
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+    <div class="version">
+        <a href='https://pytorch.org/ao/versions.html'>0.11 &#x25BC</a>
+    </div>
+    
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../quick_start.html">Quick Start Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer Notes</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../quantization.html">Quantization Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../sparsity.html">Sparsity Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributor_guide.html">Contributor Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api_ref_sparsity.html">torchao.sparsity</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Tutorials</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../../../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+          <li><a href="../../index.html">Module code</a> &gt;</li>
+        
+      <li>torchao.dtypes.nf4tensor</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id="
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <h1>Source code for torchao.dtypes.nf4tensor</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
+<span class="c1"># All rights reserved.</span>
+<span class="c1">#</span>
+<span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
+<span class="c1"># LICENSE file in the root directory of this source tree.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">replace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span><span class="p">,</span> <span class="n">auto</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch._prims_common</span><span class="w"> </span><span class="kn">import</span> <span class="n">make_contiguous_strides_for</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.device_mesh</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeviceMesh</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
+
+<span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
+
+<span class="n">c10d_functional</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">c10d_functional</span>
+
+
+<span class="n">NF4_OPS_TABLE</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;quantized_scalers&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantization_factor&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantized_data&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1"># Note: Quantize in Chunks</span>
+<span class="c1"># During quantization to NF4, one of the steps to convert from the original float number</span>
+<span class="c1"># to the index of the nearest value in the NF4 format. This can cause a large memory spike</span>
+<span class="c1"># Due to intermediates of the quantization process. Instead we process the original</span>
+<span class="c1"># tensor in chunks. This is a tradeoff between memory and speed. This number seems to</span>
+<span class="c1"># strike a good balance between memory and speed</span>
+<span class="n">CHUNK_SIZE</span> <span class="o">=</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">same_metadata</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">):</span>
+    <span class="n">both_nf4</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">both_nf4</span>
+        <span class="ow">and</span> <span class="n">a</span><span class="o">.</span><span class="n">block_size</span> <span class="o">==</span> <span class="n">b</span><span class="o">.</span><span class="n">block_size</span>
+        <span class="ow">and</span> <span class="n">a</span><span class="o">.</span><span class="n">scaler_block_size</span> <span class="o">==</span> <span class="n">b</span><span class="o">.</span><span class="n">scaler_block_size</span>
+        <span class="ow">and</span> <span class="n">a</span><span class="o">.</span><span class="n">n_blocks</span> <span class="o">==</span> <span class="n">b</span><span class="o">.</span><span class="n">n_blocks</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">implements</span><span class="p">(</span><span class="n">aten_ops</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Use this decorator to implement a function for an aten op in __torch_dispatch__&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">aten_ops</span><span class="p">:</span>
+            <span class="n">NF4_OPS_TABLE</span><span class="p">[</span><span class="n">op</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span>
+        <span class="k">return</span> <span class="n">func</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">tensor_meta</span> <span class="o">=</span> <span class="n">SubclassTensorArgs</span><span class="p">(</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;size&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">()),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;stride&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">()),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;storage_offset&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dtype&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">device</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;requires_grad&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">tensor_meta</span><span class="p">,</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;block_size&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">block_size</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;n_blocks&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">n_blocks</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scaler_block_size&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">scaler_block_size</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;quantized_scalers&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;quantization_factor&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scaler_mean&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">scaler_mean</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;quantized_data&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">quantized_data</span><span class="p">),</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nf4&quot;</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">nf4</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># __torch_dispatch__ utils: apply aten op to inner tensors</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">attr_to_tensor</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
+        <span class="n">attr_to_tensor</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">),</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">attr_to_tensor</span>
+
+
+<span class="c1"># __torch_function__ utils: call tensor ops from inner tensors</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">call_from_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">method_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">attr_to_tensor</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="n">func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="n">method_name</span><span class="p">)</span>
+        <span class="n">attr_to_tensor</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">attr_to_tensor</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CompareOp</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+    <span class="n">EQ</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+    <span class="n">LT</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">expect_num_of_args</span><span class="p">(</span><span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">wrapper</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">num</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">wrapper</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">expect_arg_value_at_k</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">wrapper</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">==</span> <span class="n">value</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+            <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">wrapper</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">expect_args_len_at_k</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">wrapper</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">value</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])))</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">==</span> <span class="n">value</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])))</span>
+            <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">wrapper</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">noop_detach</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">clone</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">to_nf4</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">())</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_detach</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">empty_like</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_empty_like</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">updated_attrs</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">split</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_split</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span> <span class="ow">and</span> <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.split(NF4Tensor, dim=</span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">num_chunks</span> <span class="o">=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="n">attr_to_chunks</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">num_chunks</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() not divisible by </span><span class="si">{</span><span class="n">num_chunks</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">chunks</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">attr_to_chunks</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span>
+
+    <span class="n">orig_dim</span> <span class="o">=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">orig_dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,)</span>
+    <span class="k">elif</span> <span class="n">orig_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">()</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.split(NF4Tensor) wherer NF4Tensor.dim() = </span><span class="si">{</span><span class="n">orig_dim</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">nf4_chunks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_chunks</span><span class="p">):</span>
+        <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">chunked_size</span><span class="p">}</span>
+        <span class="k">for</span> <span class="n">attr</span><span class="p">,</span> <span class="n">chunks</span> <span class="ow">in</span> <span class="n">attr_to_chunks</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="n">nf4_chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">)))</span>
+    <span class="k">return</span> <span class="n">nf4_chunks</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">new_zeros</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="nd">@expect_args_len_at_k</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;aten.view(NF4Tensor) with len(size)=&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_new_zeros</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">new_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">new_size</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.new_zeros(NF4Tensor) with new size </span><span class="si">{</span><span class="n">new_size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ratio</span> <span class="o">=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">new_size</span><span class="p">)</span>
+
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">%</span> <span class="n">ratio</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() must be divisible by </span><span class="si">{</span><span class="n">ratio</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="p">[</span><span class="n">inner_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">ratio</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_tensor</span>
+    <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;size&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_size</span>
+
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="nd">@expect_num_of_args</span><span class="p">(</span><span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;aten.slice(NF4Tensor) with customized step&quot;</span><span class="p">)</span>
+<span class="nd">@expect_arg_value_at_k</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;aten.slice(NF4Tensor) with dim=&quot;</span><span class="p">)</span>
+<span class="nd">@expect_arg_value_at_k</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;aten.slice(NF4Tensor) with start=&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_slice</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># for tensor 512 x 512, tensor[:, :512] dispatch to</span>
+    <span class="c1"># aten.slice(dim = 0, end=sys.maxsize)</span>
+    <span class="k">if</span> <span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">]:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.slice(NF4Tensor) with end=</span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">view</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="nd">@expect_args_len_at_k</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;aten.view(NF4Tensor) with len(size)=&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_view</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">size</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.view(NF4Tensor) with size=</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
+    <span class="n">updated_attrs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()],</span>
+            <span class="s2">&quot;stride&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,),</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">as_strided</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="nd">@expect_args_len_at_k</span><span class="p">(</span>
+    <span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;aten.as_strided(NF4Tensor) only support dim &lt;= 2 but got dim=&quot;</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_as_strided</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">size</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">stride</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+    <span class="n">storage_offset</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">size</span><span class="p">)</span> <span class="o">!=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) different numel=</span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and size=</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">stride</span> <span class="o">!=</span> <span class="n">make_contiguous_strides_for</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support continuous stride=</span><span class="si">{</span><span class="n">make_contiguous_strides_for</span><span class="p">(</span><span class="n">size</span><span class="p">)</span><span class="si">}</span><span class="s2"> but got stride=</span><span class="si">{</span><span class="n">stride</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()</span> <span class="o">!=</span> <span class="n">storage_offset</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support original storage offset </span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()</span><span class="si">}</span><span class="s2"> but got </span><span class="si">{</span><span class="n">storage_offset</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">(</span><span class="n">size</span><span class="p">),</span>
+        <span class="s2">&quot;stride&quot;</span><span class="p">:</span> <span class="n">stride</span><span class="p">,</span>
+        <span class="s2">&quot;storage_offset&quot;</span><span class="p">:</span> <span class="n">storage_offset</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_to_copy</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_to_copy</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">():</span>
+        <span class="k">assert</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">t</span><span class="p">()</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">t</span><span class="p">())</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s2">&quot;dtype&quot;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="s2">&quot;device&quot;</span> <span class="ow">in</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s2">&quot;device&quot;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">to</span><span class="o">.</span><span class="n">dtype</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">to_dtype</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">():</span>
+        <span class="k">assert</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">t</span><span class="p">()</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">to</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">t_default</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">tensor_meta</span> <span class="o">=</span> <span class="n">SubclassTensorArgs</span><span class="p">(</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
+        <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="n">a</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">)),</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="p">(</span>
+        <span class="n">tensor_meta</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">n_blocks</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">scaler_block_size</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">scaler_mean</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">quantized_data</span><span class="p">,</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">nf4</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">b</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">mm_default</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">linear_nf4</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">copy_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">original</span><span class="p">:</span> <span class="n">NF4Tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">copy_in</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="c1"># Base Case</span>
+
+    <span class="k">if</span> <span class="n">same_metadata</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">copy_in</span><span class="p">):</span>
+        <span class="n">original_tensors</span> <span class="o">=</span> <span class="n">original</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="n">original_tensors</span><span class="p">:</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">copy_in</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
+        <span class="k">return</span>
+
+    <span class="c1"># Convert Non NF4Tensor into NF4 for copy in</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">copy_in</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">):</span>
+        <span class="n">copy_in_nf4</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span>
+            <span class="n">copy_in</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">original</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="n">original</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">scaler_block_size</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">original</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">copy_in_nf4</span><span class="p">)</span>
+
+    <span class="c1"># Other Tensor is not a NF4Tensor</span>
+    <span class="n">full_precision</span> <span class="o">=</span> <span class="n">copy_in</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">()</span>
+    <span class="n">same_meta_nf4</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span>
+        <span class="n">full_precision</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">scaler_block_size</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">original</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">same_meta_nf4</span><span class="p">)</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">is_pinned</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_is_pinned</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:]),</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">_pin_memory</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_pin_memory</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_cat</span><span class="p">(</span><span class="n">aten_op</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">_ops</span><span class="o">.</span><span class="n">OpOverload</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">tensors_to_cat</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tensors_to_cat</span><span class="p">)</span>
+    <span class="n">remaining_args</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+
+    <span class="n">ts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tensors_to_cat</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">):</span>
+            <span class="n">ts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">ts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">dtype</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">ts</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">tensors</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">ts</span><span class="p">,</span> <span class="o">*</span><span class="n">remaining_args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tensors</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SubclassTensorArgs</span><span class="p">:</span>
+    <span class="n">original_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span>
+
+    <span class="n">original_strides</span><span class="p">:</span> <span class="n">Tuple</span>
+    <span class="n">storage_offset</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span>
+    <span class="n">requires_grad</span><span class="p">:</span> <span class="nb">bool</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Iterate through a flattened tensor getting the absmax scalers for each block</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input_tensor: Input tensor to get scalers for</span>
+<span class="sd">        block_size: Block size for the scanning window</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        torch.Tensor: Tensor of scalers for each block</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+    <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+    <span class="n">block_scalers</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+    <span class="k">return</span> <span class="n">block_scalers</span>
+
+
+<div class="viewcode-block" id="NF4Tensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">NF4Tensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;NF4Tensor class for converting a weight to the QLoRA NF4 format&quot;&quot;&quot;</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="c1"># Args related for base tensor construction</span>
+        <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
+        <span class="c1"># Args stored on the instance</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">quantized_scalers</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scaler_mean</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">quantized_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a new NF4Tensor object</span>
+<span class="sd">        Args:</span>
+<span class="sd">            tensor_meta: Metadata for the tensor</span>
+<span class="sd">            block_size: Size of the quantization block</span>
+<span class="sd">            n_blocks: Number of blocks to cover the full tensor</span>
+<span class="sd">            scaler_block_size: Block size for the scalar quantization</span>
+<span class="sd">            quantized_scalers: Quantized scalers data&#39; represented a uint8 tensor</span>
+<span class="sd">            quantization_factor: Quantization factor, single scalar represented as torch.Tensor</span>
+<span class="sd">            scaler_mean: Mean of the scalers</span>
+<span class="sd">            quantized_data: Quantized data represented as uint8 tensor</span>
+<span class="sd">            nf4: NF4 tensor LUT for the quantization and dequantization</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span>
+            <span class="bp">cls</span><span class="p">,</span>
+            <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">,</span>
+            <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_strides</span><span class="p">,</span>
+            <span class="n">tensor_meta</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">,</span>
+            <span class="c1"># Picked some floating dtype, but we need dtype extensibility</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">requires_grad</span><span class="o">=</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">nf4tensor</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">quantized_scalers</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scaler_mean</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">quantized_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the NF4Tensor class&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span> <span class="o">=</span> <span class="n">block_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_blocks</span> <span class="o">=</span> <span class="n">n_blocks</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scaler_block_size</span> <span class="o">=</span> <span class="n">scaler_block_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span> <span class="o">=</span> <span class="n">quantized_scalers</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">quantization_factor</span> <span class="o">=</span> <span class="n">quantization_factor</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span> <span class="o">=</span> <span class="n">scaler_mean</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span> <span class="o">=</span> <span class="n">quantized_data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nf4</span> <span class="o">=</span> <span class="n">nf4</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_tensor</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;expect input tensor dim &lt;= 2 but got dim = </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be contiguous!&quot;</span>
+        <span class="c1"># I think I want do this</span>
+        <span class="c1"># assert not input_tensor.requires_grad, &quot;Input tensor must not require grad&quot;</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span>
+        <span class="c1"># Cache the tensor on the class def</span>
+        <span class="n">nf4</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="o">-</span><span class="mf">1.0000</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.6962</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.5251</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.3949</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.2844</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.1848</span><span class="p">,</span>
+                <span class="o">-</span><span class="mf">0.0911</span><span class="p">,</span>
+                <span class="mf">0.0000</span><span class="p">,</span>
+                <span class="mf">0.0796</span><span class="p">,</span>
+                <span class="mf">0.1609</span><span class="p">,</span>
+                <span class="mf">0.2461</span><span class="p">,</span>
+                <span class="mf">0.3379</span><span class="p">,</span>
+                <span class="mf">0.4407</span><span class="p">,</span>
+                <span class="mf">0.5626</span><span class="p">,</span>
+                <span class="mf">0.7230</span><span class="p">,</span>
+                <span class="mf">1.0000</span><span class="p">,</span>
+            <span class="p">],</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
+        <span class="c1"># Double quantization</span>
+        <span class="p">(</span>
+            <span class="n">quantized_scalers</span><span class="p">,</span>
+            <span class="n">quantization_factor</span><span class="p">,</span>
+            <span class="n">scaler_mean</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">double_quantize_scalers</span><span class="p">(</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span>
+        <span class="p">)</span>
+        <span class="n">quantized_data</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">convert_to_norm_float_weight</span><span class="p">(</span>
+            <span class="n">input_tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">nf4</span>
+        <span class="p">)</span>
+        <span class="n">tensor_meta</span> <span class="o">=</span> <span class="n">SubclassTensorArgs</span><span class="p">(</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">tensor_meta</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">n_blocks</span><span class="p">,</span>
+            <span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="n">quantized_scalers</span><span class="p">,</span>
+            <span class="n">quantization_factor</span><span class="p">,</span>
+            <span class="n">scaler_mean</span><span class="p">,</span>
+            <span class="n">quantized_data</span><span class="p">,</span>
+            <span class="n">nf4</span><span class="o">=</span><span class="n">nf4</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="NF4Tensor.double_quantize_scalers"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.double_quantize_scalers">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">double_quantize_scalers</span><span class="p">(</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Used to achieve the double quantization of the scalers</span>
+<span class="sd">        We take the input tensor first calculate the absmax quantization factors for each block.</span>
+<span class="sd">        We then find the mean of our positive absmax scalers. We subtract this mean from the scalers</span>
+<span class="sd">        And then we calculate the absmax quantization factors for each block again. We then quantize the scalers to int8.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            input_tensor: Input tensor to convert to QLoRA format, typically a weight tensor</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            torch.Tensor: Tensor of per_block quantization factors stored in int8 format</span>
+<span class="sd">                size: (n_blocks)</span>
+<span class="sd">            torch.Tensor: Tensor of per_scaler_block quantization factors stored in int16 format</span>
+<span class="sd">                size: (n_scaler_blocks)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+        <span class="c1"># First round of quantization</span>
+        <span class="c1"># Produces: A tensor of size (n_blocks) of input_tensor.dtype</span>
+        <span class="n">scalers_1</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="n">scalers_1_mean</span> <span class="o">=</span> <span class="n">scalers_1</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+        <span class="n">scalers_1</span> <span class="o">=</span> <span class="n">scalers_1</span> <span class="o">-</span> <span class="n">scalers_1_mean</span>
+        <span class="c1"># Second round of quantization</span>
+        <span class="k">assert</span> <span class="n">scalers_1</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Number of scalers must be divisible by scaler block size, got </span><span class="si">{</span><span class="n">scalers_1</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> scaler_block_size </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2"> &quot;</span>
+        <span class="p">)</span>
+        <span class="n">n_scaler_blocks</span> <span class="o">=</span> <span class="n">scalers_1</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">scaler_block_size</span>
+        <span class="n">scaler_blocks</span> <span class="o">=</span> <span class="n">scalers_1</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
+
+        <span class="n">scaler_absmax</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">scalers_1</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
+        <span class="n">scaler_absmax</span> <span class="o">=</span> <span class="n">scaler_absmax</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span>
+            <span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span>
+        <span class="p">)</span>
+
+        <span class="n">quantization_factor</span> <span class="o">=</span> <span class="mi">256</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">scaler_absmax</span><span class="p">)</span>
+        <span class="c1"># Length equal to weight numel // block_size</span>
+        <span class="n">quantized_scaler_blocks</span> <span class="o">=</span> <span class="n">scaler_blocks</span> <span class="o">*</span> <span class="n">quantization_factor</span>
+        <span class="n">quantized_scaler_blocks</span> <span class="o">=</span> <span class="n">quantized_scaler_blocks</span><span class="o">.</span><span class="n">round</span><span class="p">()</span>
+        <span class="n">quantized_scaler_blocks</span> <span class="o">=</span> <span class="n">quantized_scaler_blocks</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="o">-</span><span class="mi">128</span><span class="p">,</span> <span class="mi">127</span><span class="p">)</span>
+
+        <span class="c1"># This is needed to make sure that quantization_factor remains a repeated view of n_scaler_blocks</span>
+        <span class="c1"># For some reason the 127/scaler_absmax realizes n_scaler entries when only n_scaler_blocks are needed</span>
+        <span class="c1"># The following will grab the first entry for the n_scaler_blocks which is the same across the scaler_block_size</span>
+
+        <span class="n">quantization_factor</span> <span class="o">=</span> <span class="n">quantization_factor</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">quantized_scaler_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">),</span>
+            <span class="n">quantization_factor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span>
+            <span class="n">scalers_1_mean</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+<div class="viewcode-block" id="NF4Tensor.dequantize_scalers"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.dequantize_scalers">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">dequantize_scalers</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Used to unpack the double quantized scalers</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format</span>
+<span class="sd">            quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype</span>
+<span class="sd">            scaler_block_size: Scaler block size to use for double quantization.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">n_scaler_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">scaler_block_size</span>
+        <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
+        <span class="n">dequantized</span> <span class="o">=</span> <span class="p">(</span><span class="n">input_tensor</span> <span class="o">/</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span>
+        <span class="k">return</span> <span class="n">dequantized</span></div>
+
+<div class="viewcode-block" id="NF4Tensor.convert_to_norm_float_weight"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.convert_to_norm_float_weight">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">convert_to_norm_float_weight</span><span class="p">(</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a tensor to the normalized float weight format&quot;&quot;&quot;</span>
+        <span class="n">flattened_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="c1">#  Since we are using uint8 we will encode 2 entries per byte</span>
+        <span class="n">numel</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">numel</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Number of elements must be even just to not have to think about the end&quot;</span>
+        <span class="p">)</span>
+        <span class="c1"># Reshape the flattened tensor into blocks of size self.block_size</span>
+        <span class="n">blocks</span> <span class="o">=</span> <span class="n">flattened_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+
+        <span class="c1"># Scale the blocks</span>
+        <span class="n">scalers</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="n">scales</span> <span class="o">=</span> <span class="n">scalers</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="n">scaled_blocks</span> <span class="o">=</span> <span class="n">blocks</span> <span class="o">/</span> <span class="n">scales</span>
+
+        <span class="c1"># Returns a flattened tensor with each element quantized to nf4 index</span>
+        <span class="c1"># See Note: Quantize in Chunks</span>
+        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
+            <span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span>
+        <span class="p">)</span>
+        <span class="n">flattened</span> <span class="o">=</span> <span class="n">scaled_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">chunk_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">numel</span> <span class="o">/</span> <span class="n">CHUNK_SIZE</span><span class="p">)):</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">chunk_num</span> <span class="o">*</span> <span class="n">CHUNK_SIZE</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">start</span> <span class="o">+</span> <span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">numel</span><span class="p">)</span>
+            <span class="n">quantized_blocks</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">quantize_tensor_nearest</span><span class="p">(</span>
+                <span class="n">flattened</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">],</span> <span class="n">nf4</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+        <span class="c1"># Combine the quantized elements into uint8 values</span>
+        <span class="c1"># This lays out two consecutive elements in the same byte</span>
+        <span class="c1"># [a, b, c, d] -&gt; [ab, cd]</span>
+        <span class="c1"># The size of combined blocks will be half the size of the original tensor</span>
+        <span class="n">combined_blocks</span> <span class="o">=</span> <span class="n">quantized_blocks</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">quantized_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">combined_blocks</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="NF4Tensor.get_original_weight"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.get_original_weight">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_original_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the original weight from the normalized float weight format&quot;&quot;&quot;</span>
+        <span class="c1"># Since we are using uint8 we will decode 2 entries per byte</span>
+        <span class="c1"># Shift elements down 4 and select out the bottom 4 bits</span>
+        <span class="n">first_elements</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span> <span class="o">&gt;&gt;</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">)</span>
+        <span class="n">second_elements</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span> <span class="o">&amp;</span> <span class="mb">0b1111</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">)</span>
+
+        <span class="c1"># Dequantize every element</span>
+        <span class="n">dequantized_first</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dequantize</span><span class="p">(</span><span class="n">first_elements</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nf4</span><span class="p">)</span>
+        <span class="n">dequantized_second</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dequantize</span><span class="p">(</span><span class="n">second_elements</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nf4</span><span class="p">)</span>
+
+        <span class="c1"># Build up matrix of scalers repeated for each element in the block</span>
+        <span class="c1"># Since first and second elements make up a full block</span>
+        <span class="c1"># we expand out to half the size of the full block</span>
+        <span class="n">scalers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dequantize_scalers</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaler_block_size</span>
+        <span class="p">)</span>
+        <span class="n">repeated</span> <span class="o">=</span> <span class="n">scalers</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">scalers</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">scaled_first</span> <span class="o">=</span> <span class="n">dequantized_first</span> <span class="o">*</span> <span class="n">repeated</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">scaled_second</span> <span class="o">=</span> <span class="n">dequantized_second</span> <span class="o">*</span> <span class="n">repeated</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+
+        <span class="c1"># Flip them to be vertical and them stack them together horizontally</span>
+        <span class="c1"># Upon flattening this will interleave the elements</span>
+        <span class="n">scaled_first</span> <span class="o">=</span> <span class="n">scaled_first</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">scaled_second</span> <span class="o">=</span> <span class="n">scaled_second</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">scaled_first</span><span class="p">,</span> <span class="n">scaled_second</span><span class="p">],</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="NF4Tensor.quantize_tensor_nearest"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.quantize_tensor_nearest">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">quantize_tensor_nearest</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Quantize a float16 tensor to nf4 format to nearest and not rounded up&quot;&quot;&quot;</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># (numel, 1)</span>
+        <span class="c1"># Compare the value tensor with the nf4 tensor element-wise</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="p">(</span><span class="n">value</span> <span class="o">-</span> <span class="n">nf4</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span>
+        <span class="n">closest_nf4</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">indices</span>
+        <span class="k">return</span> <span class="n">closest_nf4</span></div>
+
+<div class="viewcode-block" id="NF4Tensor.dequantize"><a class="viewcode-back" href="../../../generated/torchao.dtypes.NF4Tensor.html#torchao.dtypes.NF4Tensor.dequantize">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dequantize</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Dequantize a nf4 value to bfloat16 format&quot;&quot;&quot;</span>
+        <span class="c1"># return nf4.index_select(0, value)</span>
+        <span class="k">return</span> <span class="n">nf4</span><span class="p">[</span><span class="n">value</span><span class="p">]</span></div>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Quantized Data: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span><span class="si">}</span><span class="se">\n</span><span class="s2">Scalers: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;NF4Tensor(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">tensor_meta</span> <span class="o">=</span> <span class="n">SubclassTensorArgs</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">ctx</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;block_size&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+            <span class="s2">&quot;n_blocks&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_blocks</span><span class="p">,</span>
+            <span class="s2">&quot;scaler_block_size&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="s2">&quot;tensor_meta&quot;</span><span class="p">:</span> <span class="n">tensor_meta</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="p">[</span>
+            <span class="s2">&quot;quantized_data&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;scaler_mean&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;quantization_factor&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;quantized_scalers&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;nf4&quot;</span><span class="p">,</span>
+        <span class="p">],</span> <span class="n">ctx</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">:</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;Expected 5 inner tensors&quot;</span>
+        <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;tensor_meta&quot;</span><span class="p">],</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;block_size&quot;</span><span class="p">],</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;n_blocks&quot;</span><span class="p">],</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;scaler_block_size&quot;</span><span class="p">],</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;quantized_scalers&quot;</span><span class="p">],</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;quantization_factor&quot;</span><span class="p">],</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;scaler_mean&quot;</span><span class="p">],</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;quantized_data&quot;</span><span class="p">],</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;nf4&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;TODO we are not supporting torch dispatch at the moment</span>
+<span class="sd">        instead we have created a Autograd.Function to handle the linear</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># All ops in the  NF4_OPS_TABLE expect NF4 Tensors as inputs</span>
+        <span class="c1"># And don&#39;t support mixed tensor subclasses. This will trigger the handler for</span>
+        <span class="c1"># the next type in the dispatch list</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">allowed_subclasses</span><span class="p">(</span><span class="nb">type</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="nb">issubclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_subclasses</span><span class="o">.</span><span class="n">fake_tensor</span><span class="o">.</span><span class="n">FakeTensor</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">_subclasses</span><span class="o">.</span><span class="n">functional_tensor</span><span class="o">.</span><span class="n">FunctionalTensor</span><span class="p">,</span> <span class="nb">type</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">allowed_subclasses</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">types</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">NotImplemented</span><span class="p">(</span><span class="s2">&quot;Up to the next one to handle&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">NF4_OPS_TABLE</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">NF4_OPS_TABLE</span><span class="p">[</span><span class="n">func</span><span class="p">](</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;NF4Tensor dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Do not force the Float8Tensor type on the returned tensor</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">NF4_TORCH_FUNCTIONS</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">NF4_TORCH_FUNCTIONS</span><span class="p">[</span><span class="n">func</span><span class="p">](</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">NotImplementedError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">DisableTorchFunctionSubclass</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fsdp_pre_all_gather</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span><span class="p">,</span>
+        <span class="p">),</span> <span class="p">(</span>
+            <span class="n">SubclassTensorArgs</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">n_blocks</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">nf4</span><span class="p">,</span>
+            <span class="n">mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">()</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fsdp_post_all_gather</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">all_gather_outputs</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">param_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">out</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">]],</span> <span class="kc">None</span><span class="p">]:</span>
+        <span class="p">(</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="n">quantization_factor</span><span class="p">,</span> <span class="n">quantized_data</span><span class="p">)</span> <span class="o">=</span> <span class="n">all_gather_outputs</span>
+        <span class="p">(</span>
+            <span class="n">tensor_meta</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">n_blocks</span><span class="p">,</span>
+            <span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="n">scaler_mean</span><span class="p">,</span>
+            <span class="n">nf4</span><span class="p">,</span>
+            <span class="n">pg_size</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">metadata</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;only support 2D shape but got dim=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">new_shape</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">pg_size</span><span class="p">,</span> <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="p">)</span>
+        <span class="n">new_tensor_meta</span> <span class="o">=</span> <span class="n">replace</span><span class="p">(</span><span class="n">tensor_meta</span><span class="p">,</span> <span class="n">original_shape</span><span class="o">=</span><span class="n">new_shape</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># TODO: add param dtype for mixed precision</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">quantized_scalers</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="ow">and</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="ow">and</span> <span class="n">quantized_data</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantized_data</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+            <span class="p">),</span> <span class="s2">&quot;Expects out&#39;s data to be the all-gather output&quot;</span>
+            <span class="k">return</span>
+
+        <span class="k">return</span> <span class="n">nf4_constructor</span><span class="p">(</span>
+            <span class="n">new_tensor_meta</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">n_blocks</span><span class="p">,</span>
+            <span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="n">quantized_scalers</span><span class="p">,</span>
+            <span class="n">quantization_factor</span><span class="p">,</span>
+            <span class="n">scaler_mean</span><span class="p">,</span>
+            <span class="n">quantized_data</span><span class="p">,</span>
+            <span class="n">nf4</span><span class="p">,</span>
+        <span class="p">),</span> <span class="p">(</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="n">quantization_factor</span><span class="p">,</span> <span class="n">quantized_data</span><span class="p">)</span></div>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">LinearNF4</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Save the quantized nf4 weight for backward pass&quot;&quot;&quot;</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)&quot;&quot;&quot;</span>
+        <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">grad_output</span> <span class="o">@</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">grad_output</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">linear_nf4</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply a linear operation with the NF4Tensor weight</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input: Input tensor</span>
+<span class="sd">        weight: NF4Tensor weight</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">LinearNF4</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="to_nf4"><a class="viewcode-back" href="../../../generated/torchao.dtypes.to_nf4.html#torchao.dtypes.to_nf4">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">to_nf4</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a given tensor to normalized float 4-bit tensor.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span></div>
+
+
+<span class="n">NF4_TORCH_FUNCTIONS</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">implements_torch_function</span><span class="p">(</span><span class="n">torch_function</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="n">functools</span><span class="o">.</span><span class="n">update_wrapper</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">torch_function</span><span class="p">)</span>
+        <span class="n">NF4_TORCH_FUNCTIONS</span><span class="p">[</span><span class="n">torch_function</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span>
+        <span class="k">return</span> <span class="n">func</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
+
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">to</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">function_to_dtype</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">non_blocking</span><span class="p">,</span> <span class="n">convert_to_format</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_nn</span><span class="o">.</span><span class="n">_parse_to</span><span class="p">(</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span>
+    <span class="p">)</span>
+
+    <span class="c1"># dtype is specified -&gt; dequantize</span>
+    <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">tensor</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">non_blocking</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">convert_to_format</span>
+        <span class="p">)</span>
+
+    <span class="c1"># dtype is not specified -&gt; keep NF4</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">tensor_attrs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">tensor_attrs</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">non_blocking</span><span class="p">,</span> <span class="n">memory_format</span><span class="o">=</span><span class="n">convert_to_format</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">cpu</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">function_cpu</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="c1"># Tensor.cpu(self, memory_format)</span>
+    <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">cuda</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">function_cuda</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="c1"># Tensor.cuda(self, device, non_blocking, memory_format)</span>
+    <span class="n">tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="n">tensor_attrs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">tensor_attrs</span><span class="p">:</span>
+        <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">cuda</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">updated_attrs</span><span class="p">[</span><span class="n">tensor_attrs</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span><span class="o">.</span><span class="n">device</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">bias</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">LinearNF4</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span> <span class="o">+</span> <span class="n">bias</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">allow_in_graph</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nf4_constructor</span><span class="p">(</span>
+    <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">quantized_scalers</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scaler_mean</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span>
+        <span class="n">tensor_meta</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">n_blocks</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">,</span>
+        <span class="n">quantized_scalers</span><span class="p">,</span>
+        <span class="n">quantization_factor</span><span class="p">,</span>
+        <span class="n">scaler_mean</span><span class="p">,</span>
+        <span class="n">quantized_data</span><span class="p">,</span>
+        <span class="n">nf4</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">NF4Tensor</span><span class="p">])</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">NF4Tensor</span><span class="p">])</span>
+</pre></div>
+
+             </article>
+             
+            </div>
+            <footer>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2024-present, torchao Contributors.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../../../" src="../../../_static/documentation_options.js"></script>
+         <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+         <script src="../../../_static/jquery.js"></script>
+         <script src="../../../_static/underscore.js"></script>
+         <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+         <script src="../../../_static/doctools.js"></script>
+         <script src="../../../_static/clipboard.min.js"></script>
+         <script src="../../../_static/copybutton.js"></script>
+         <script src="../../../_static/design-tabs.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../../../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../../../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../../../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+<!-- Disabling "auto-collapsing" of sections on the left side bar. Replace script with commented out sections to reenable. -->
+<!--  -->
+<script script type="text/javascript">
+    var collapsedSections = []
+</script>
+
+ 
+<script type="text/javascript">
+  $(document).ready(function () {
+    // Patch the "GitHub" link at the top of the page
+    // to point to the torchao repo.
+    var overwrite = function (_) {
+      if ($(this).length > 0) {
+        $(this)[0].href = "https://github.com/pytorch/ao"
+      }
+    }
+    // PC
+    $(".main-menu a:contains('GitHub')").each(overwrite);
+    // Mobile
+    e$(".mobile-menu a:contains('Github')").each(overwrite);
+  });
+</script>
+
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../../../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+           <li class="resources-mobile-menu-title">
+             <a>Learn</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/get-started">Get Started</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials">Tutorials</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+             </li>
+           </ul>
+           <li class="resources-mobile-menu-title">
+             <a>Ecosystem</a>
+           </li>
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/ecosystem">Tools</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/#community-module">Community</a>
+             </li>
+             <li>
+               <a href="https://discuss.pytorch.org/">Forums</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/resources">Developer Resources</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Edge</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+             <li>
+               <a href="https://pytorch.org/edge">About PyTorch Edge</a>
+             </li>
+             
+             <li>
+               <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
+             </li>
+           </ul>
+
+           <li class="resources-mobile-menu-title">
+             <a>Docs</a>
+           </li>
+
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/pytorch-domains">PyTorch Domains</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            <a>Blog & News</a>
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/blog/">PyTorch Blog</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/community-blog">Community Blog</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/videos">Videos</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
+          </ul>
+          
+          <li class="resources-mobile-menu-title">
+            <a>About</a>
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+            <li>
+              <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
+            </li>
+          </ul>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../../../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

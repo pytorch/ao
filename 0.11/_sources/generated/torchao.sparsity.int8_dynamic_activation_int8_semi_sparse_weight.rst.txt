@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.sparsity
+
+
+int8_dynamic_activation_int8_semi_sparse_weight
+===============================================
+
+.. autofunction:: int8_dynamic_activation_int8_semi_sparse_weight

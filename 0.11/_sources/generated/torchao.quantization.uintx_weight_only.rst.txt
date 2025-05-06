@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+uintx_weight_only
+=================
+
+.. autoclass:: uintx_weight_only
+    :members:
