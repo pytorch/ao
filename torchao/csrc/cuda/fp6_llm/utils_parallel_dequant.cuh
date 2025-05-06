@@ -25,9 +25,7 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
-#endif
 #include <cuda_runtime.h>
 
 /*
@@ -70,9 +68,9 @@ constexpr float power_of_two(int n) {
     return (n == 0) ? 1.0f : 2.0f * power_of_two(n - 1);
 }
 
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bfloat16 Scale) {
+#if __CUDA_ARCH__ >= 800
     constexpr int BIAS_OFFSET = (int(1) << (8-1)) - (int(1) << (EXPONENT-1));
     constexpr float BIAS = power_of_two(BIAS_OFFSET);
     __nv_bfloat16* BF16_1 = reinterpret_cast<__nv_bfloat16*>(&PackedBF16Pair);
@@ -82,8 +80,8 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
     output_bf16_ptr[0] = __hmul( __hmul(*BF16_1,__float2bfloat16(BIAS)), Scale);
     output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(BIAS)), Scale);
     return output;
-}
 #endif
+}
 
 // MODIFICATION NOTE: to support MSVC
 // - u_int32_t __restrict__ Reg[][4] is changed to below.
