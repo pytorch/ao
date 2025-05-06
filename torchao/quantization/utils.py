@@ -324,6 +324,7 @@ def get_groupwise_affine_qparams(
     dtype=torch.bfloat16,
     zero_point_domain=ZeroPointDomain.FLOAT,
     preserve_zero=False,
+    eps=None,
 ):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -337,7 +338,8 @@ def get_groupwise_affine_qparams(
     block_size = (1, groupsize)
     quant_min = 0
     quant_max = 2**n_bit - 1
-    eps = 1e-6
+    if eps is None:
+        eps = 1e-6
     scale_dtype = dtype
     zero_point_dtype = (
         dtype if zero_point_domain != ZeroPointDomain.INT else torch.int32
@@ -529,6 +531,7 @@ def get_group_qparams_symmetric(
     groupsize=128,
     precision=torch.float32,
     mapping_type=MappingType.SYMMETRIC,
+    eps=None,
 ):
     # needed for GPTQ with padding
     if groupsize > w.shape[-1]:
@@ -539,7 +542,8 @@ def get_group_qparams_symmetric(
     assert n_bit <= 8, f"unsupported n_bit: {n_bit}"
 
     block_size = (1, groupsize)
-    eps = torch.finfo(w.dtype).eps
+    if eps is None:
+        eps = torch.finfo(w.dtype).eps
     ranges = {}
     ranges[1] = (-1, 0)
     # generating ranges for bit 2 to 8
@@ -590,6 +594,7 @@ def per_token_dynamic_quant(
     input: torch.Tensor,
     scale_dtype: torch.dtype = torch.float32,
     zero_point_dtype: torch.dtype = torch.float32,
+    eps: Optional[float] = None,
 ) -> torch.Tensor:
     mapping_type = MappingType.ASYMMETRIC
     block_size = _get_per_token_block_size(input)
@@ -607,6 +612,7 @@ def per_token_dynamic_quant(
         quant_max,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
+        eps=eps,
     )
     q = quantize_affine(
         input,
