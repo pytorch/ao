@@ -20,15 +20,33 @@ potential_paths = [
     Path(__file__).parent.parent.parent / "torchao",
 ]
 
-for lib_path in potential_paths:
-    libs = list(lib_path.glob("libtorchao_ops_aten.*"))
-    if libs:
-        print(f"Found library at: {libs[0]}")
+
+def find_and_load_libtorchao_ops(potential_paths):
+    for lib_path in potential_paths:
+        libs = list(lib_path.glob("libtorchao_ops_aten.*"))
+
+        if not libs:
+            continue
+
+        assert len(libs) == 1, (
+            f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
+        )
+
+        target_lib = libs[0]
+        print(f"Found library at: {target_lib}")
+
         try:
-            torch.ops.load_library(str(libs[0]))
-            break
+            torch.ops.load_library(str(target_lib))
+            return
         except Exception as e:
-            print(f"Error loading library from {libs[0]}: {e}")
+            print(f"Error loading library from {target_lib}: {e}")
+
+    raise FileNotFoundError(
+        "Could not find libtorchao_ops_aten library in any of the provided paths"
+    )
+
+
+find_and_load_libtorchao_ops(potential_paths)
 
 # Define meta ops.  To support dynamic shapes, some meta ops need to
 # be defined in python instead of C++.
