@@ -1793,7 +1793,7 @@ def get_block_size(
         "Please provide an instance of Granularity, not subclass of it"
     )
     if isinstance(granularity, PerTensor):
-        return input_shape
+        return (-1,) * len(input_shape)
     elif isinstance(granularity, PerAxis):
         block_size = list(input_shape)
         block_size[granularity.axis] = 1
@@ -1890,6 +1890,10 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             assert self.block_size is not None, "Expecting block_size to be populated"
             assert self.original_dtype is not None, (
                 "Expecting original_dtype to be populated"
+            )
+            # Since input shape & rank may change (e.g. Resnet18), here we need to update block_size for each input
+            self.block_size = get_block_size(
+                observer_node.args[0].meta["tensor_meta"].shape, self.granularity
             )
             if hasattr(self, "is_dynamic") and self.is_dynamic:
                 choose_qparams_affine = model.graph.call_function(
