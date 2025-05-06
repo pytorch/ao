@@ -1,3 +1,8 @@
+# TODO: Add info for _models here, what is in the repo
+
+# TODO: Add llama- eval_hf.py, reproducable code, and a eval table here
+
+
 ## SAM2
 sam2 is a fork of https://github.com/facebookresearch/sam2 at commit c2ec8e14a185632b0a5d8b161928ceb50197eddc
 
