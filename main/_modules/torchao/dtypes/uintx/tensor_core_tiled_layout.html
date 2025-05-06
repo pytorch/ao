@@ -759,53 +759,29 @@
 
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
-            <span class="n">n_by_8</span><span class="p">,</span> <span class="n">k_by_inner_tiles</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="o">.</span><span class="n">shape</span>
-            <span class="n">sz_dim1</span><span class="p">,</span> <span class="n">sz_dim0</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="o">.</span><span class="n">shape</span>
-            <span class="n">data_len</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
-            <span class="k">assert</span> <span class="n">dim</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span>
-            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">dim</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]:</span>
+                <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
+                <span class="n">data_len</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
+                <span class="n">scale_len</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
+                <span class="n">ratio</span> <span class="o">=</span> <span class="n">data_len</span> <span class="o">/</span> <span class="n">scale_len</span>
+                <span class="n">start_scale</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">start</span> <span class="o">/</span> <span class="n">ratio</span><span class="p">)</span>
+                <span class="n">end_scale</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">end</span> <span class="o">/</span> <span class="n">ratio</span><span class="p">)</span>
 
-            <span class="k">if</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="n">pw_len</span> <span class="o">=</span> <span class="n">n_by_8</span>
-                <span class="n">sz_len</span> <span class="o">=</span> <span class="n">sz_dim0</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">pw_len</span> <span class="o">=</span> <span class="n">k_by_inner_tiles</span>
-                <span class="n">sz_len</span> <span class="o">=</span> <span class="n">sz_dim1</span>
-
-            <span class="k">if</span> <span class="n">pw_len</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">sz_len</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                    <span class="n">func</span><span class="p">,</span>
-                    <span class="n">args</span><span class="p">,</span>
-                    <span class="n">kwargs</span><span class="p">,</span>
-                    <span class="n">TensorCoreTiledAQTTensorImpl</span><span class="p">(</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="p">,</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="p">,</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
-                    <span class="p">),</span>
+                <span class="n">int_data</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+                <span class="n">scale</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start_scale</span><span class="p">,</span> <span class="n">end_scale</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+                <span class="n">zero_point</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span>
+                    <span class="n">zero_point</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start_scale</span><span class="p">,</span> <span class="n">end_scale</span><span class="p">,</span> <span class="n">step</span>
                 <span class="p">)</span>
-
-            <span class="n">pw_ratio</span> <span class="o">=</span> <span class="n">data_len</span> <span class="o">/</span> <span class="n">pw_len</span>
-            <span class="n">start_pw</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">start</span> <span class="o">/</span> <span class="n">pw_ratio</span><span class="p">)</span>
-            <span class="n">end_pw</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">end</span> <span class="o">/</span> <span class="n">pw_ratio</span><span class="p">)</span>
-
-            <span class="n">sz_ratio</span> <span class="o">=</span> <span class="n">data_len</span> <span class="o">/</span> <span class="n">sz_len</span>
-            <span class="n">start_sz</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">start</span> <span class="o">/</span> <span class="n">sz_ratio</span><span class="p">)</span>
-            <span class="n">end_sz</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">end</span> <span class="o">/</span> <span class="n">sz_ratio</span><span class="p">)</span>
-
-            <span class="n">packed_weight</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start_pw</span><span class="p">,</span> <span class="n">end_pw</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
-            <span class="n">scale_and_zero</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start_sz</span><span class="p">,</span> <span class="n">end_sz</span><span class="p">,</span> <span class="n">step</span>
-            <span class="p">)</span>
-            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                <span class="n">func</span><span class="p">,</span>
-                <span class="n">args</span><span class="p">,</span>
-                <span class="n">kwargs</span><span class="p">,</span>
-                <span class="n">TensorCoreTiledAQTTensorImpl</span><span class="p">(</span>
-                    <span class="n">packed_weight</span><span class="p">,</span> <span class="n">scale_and_zero</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span>
-                <span class="p">),</span>
-            <span class="p">)</span>
+                <span class="c1"># this is to handle padding</span>
+                <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+                    <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span>
+                <span class="p">)</span>
+                <span class="n">sliced</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">from_plain</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">sliced</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span>
+                <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
