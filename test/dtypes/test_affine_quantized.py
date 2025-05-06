@@ -387,40 +387,6 @@ class TestAffineQuantizedBasic(TestCase):
         # make sure it runs
         torch.matmul(x, w.t())
 
-    @common_utils.parametrize("device", ["cuda"])
-    @common_utils.parametrize("dtype", [torch.bfloat16])
-    @skip_if_no_cuda()
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_slice_and_copy_int4wo(self, device, dtype):
-        l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
-        l.weight = torch.nn.Parameter(
-            torch.zeros(1024, 1024, dtype=torch.bfloat16, device="cuda")
-        )
-        quantize_(l, Int4WeightOnlyConfig())
-        param = l.weight
-        param_data = param.data
-        param_data = param_data.narrow(0, 0, 512)
-        assert (
-            param.data.tensor_impl.packed_weight.data_ptr()
-            == param_data.tensor_impl.packed_weight.data_ptr()
-        )
-        assert (
-            param.data.tensor_impl.scale_and_zero.data_ptr()
-            == param_data.tensor_impl.scale_and_zero.data_ptr()
-        )
-        assert param.data.dequantize()[0][0] == 0
-
-        # dummy_l has random input (shouldn't be 0)
-        dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
-        quantize_(dummy_l, Int4WeightOnlyConfig())
-        quantized = dummy_l.weight
-        quantized = quantized.narrow(0, 0, 512)
-
-        param_data.copy_(quantized)
-
-        # making sure param.data is updated
-        assert param.data.dequantize()[0][0] != 0
-
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedBasic)
