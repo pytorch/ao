@@ -40,6 +40,9 @@ lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
 )
 lib.define(
+    "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
+)
+lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
 )
 lib.define(
@@ -823,6 +826,19 @@ def _(
     return (
         weight.new_empty(weight[0], weight[1] // 2),
         weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
+    )
+
+
+def sparse24_sm90_sparsify(
+    input_tensor: Tensor,
+    metadata_format: str,
+    activation: str,
+    algorithm: str,
+    dtype=None,
+    scale=None,
+) -> (Tensor, Tensor):
+    return torch.ops.torchao.sparse24_sm90_sparsify(
+        input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
     )
 
 
