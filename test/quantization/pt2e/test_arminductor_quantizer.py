@@ -11,30 +11,38 @@ import unittest
 from enum import Enum
 
 import torch
-import torchao.quantization.pt2e.quantizer.arm_inductor_quantizer as armiq
 import torch.nn as nn
+
+import torchao.quantization.pt2e.quantizer.arm_inductor_quantizer as armiq
 from torchao.quantization.pt2e import ObserverBase
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import ArmInductorQuantizer
-from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import QUANT_ANNOTATION_KEY
+from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import (
+    ArmInductorQuantizer,
+)
+from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
+    QUANT_ANNOTATION_KEY,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.export import export_for_training
 
+import functools
+import platform
+
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
+)
+from torch.testing._internal.common_quantization import (
     QuantizationTestCase,
     skipIfNoInductorSupport,
 )
 from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
-import functools
-import platform
 
 def skipIfNoArm(fn):
     reason = 'Quantized operations require Arm.'

@@ -9,11 +9,13 @@ import functools
 import operator
 import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
-from typing_extensions import TypeAlias
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
+from torch.fx import Node
+from typing_extensions import TypeAlias
+
 from torchao.quantization.pt2e.fake_quantize import (
     FakeQuantize,
     FusedMovingAvgObsFakeQuantize,
@@ -24,13 +26,18 @@ from torchao.quantization.pt2e.observer import (
     MovingAverageMinMaxObserver,
     PlaceholderObserver,
 )
-from torchao.quantization.pt2e.quantizer.quantizer import QuantizationSpec, QuantizationAnnotation
-from torchao.quantization.pt2e.quantizer import QuantizationConfig, get_module_name_filter
-from torch.fx import Node
+from torchao.quantization.pt2e.quantizer import (
+    QuantizationConfig,
+    get_module_name_filter,
+)
+from torchao.quantization.pt2e.quantizer.quantizer import (
+    QuantizationAnnotation,
+    QuantizationSpec,
+)
+
 from .x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-
 
 FilterFn: TypeAlias = Callable[[List[Node]], bool]
 
