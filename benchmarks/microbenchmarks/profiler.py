@@ -166,5 +166,4 @@ def visualize_memory_profile(profile_file_path):
             "To view the memory visualization, upload the pickle file to https://pytorch.org/memory_viz or run the following command to convert that to a html file:\n",
             "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html",
         )
-
     return memory_visualization_path
