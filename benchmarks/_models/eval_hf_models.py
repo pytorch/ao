@@ -4,13 +4,15 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import argparse
+import subprocess
+import time
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
-from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
-
-# TODO: Make it optional lm_eval dependency
-# Add a check for lm_eval installed
+from benchmarks.microbenchmarks.utils import string_to_config
+from torchao.quantization.utils import _lm_eval_available
 
 
 def quantize_model_and_save(model_id, quant_config, output_dir="results"):
@@ -26,12 +28,6 @@ def quantize_model_and_save(model_id, quant_config, output_dir="results"):
     quantized_model.save_pretrained(output_dir, safe_serialization=False)
     tokenizer.save_pretrained(output_dir, safe_serialization=False)
     return quantized_model, tokenizer
-
-
-# Run lm_eval
-# lm_eval --model hf --model_args pretrained=llama-fp8 --tasks hellaswag --device cuda:0 --batch_size 8
-
-import subprocess
 
 
 def run_lm_eval(model_dir, tasks="hellaswag", device="cuda:0", batch_size=8):
@@ -58,7 +54,6 @@ def model_throughput(
     prompt="What are we having for dinner?",
     max_new_tokens=10,
     num_runs=5,
-    print_all_responses=False,
 ):
     """
     Calculate model throughput in tokens per second.
@@ -74,10 +69,6 @@ def model_throughput(
     Returns:
         float: Throughput in tokens per second
     """
-    import time
-
-    import torch
-
     # Tokenize the prompt
     inputs = tokenizer(
         prompt,
@@ -131,19 +122,102 @@ def model_throughput(
     return throughput
 
 
-if __name__ == "__main__":
-    model_id = "meta-llama/Llama-3.1-8B"
+def run(
+    model_id,
+    quantization,
+    tasks,
+    device,
+    batch_size,
+    prompt,
+    max_new_tokens,
+    num_runs,
+    model_output_dir,
+):
+    print(f"Running model {model_id} with quantization {quantization}")
     model_name = model_id.split("/")[-1]
-    model_output_dir = f"quantized_model/{model_name}"
-    quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+    model_output_dir = f"quantized_model/{model_name}-{quantization}"
+    quant_config = string_to_config(quantization, None)
     quantized_model, tokenizer = quantize_model_and_save(
         model_id, quant_config=quant_config, output_dir=model_output_dir
     )
-    # run_lm_eval(model_output_dir)
+    run_lm_eval(model_output_dir, tasks=tasks, device=device, batch_size=batch_size)
     model_throughput(
         quantized_model,
         tokenizer,
-        prompt="What are we having for dinner?",
-        max_new_tokens=128,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        num_runs=num_runs,
     )
-    # prompt_testing(quantized_model, tokenizer)
+    # TODO: Add memory usage measurement
+
+
+if __name__ == "__main__":
+    if not _lm_eval_available:
+        print(
+            "lm_eval is required to run this script. Please install it using pip install lm-eval."
+        )
+        exit(0)
+
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description="Quantize a model and evaluate its throughput."
+    )
+    parser.add_argument(
+        "--model_id",
+        type=str,
+        default="meta-llama/Llama-3.1-8B",
+        help="The model ID to use.",
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default="float8wo",
+        help="The quantization method to use.",
+    )
+    parser.add_argument(
+        "--tasks", type=str, default="hellaswag", help="Tasks to run in lm_eval."
+    )
+    parser.add_argument(
+        "--device", type=str, default="cuda:0", help="Device to run the model on."
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=8, help="Batch size for lm_eval."
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="What are we having for dinner?",
+        help="Prompt for model throughput evaluation.",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=10,
+        help="Max new tokens to generate for throughput evaluation.",
+    )
+    parser.add_argument(
+        "--num_runs",
+        type=int,
+        default=5,
+        help="Number of runs to average over for throughput evaluation.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="quantized_models",
+        help="Output directory for quantized model.",
+    )
+    args = parser.parse_args()
+
+    # Use parsed arguments
+    run(
+        model_id=args.model_id,
+        quantization=args.quantization,
+        tasks=args.tasks,
+        device=args.device,
+        batch_size=args.batch_size,
+        prompt=args.prompt,
+        max_new_tokens=args.max_new_tokens,
+        num_runs=args.num_runs,
+        model_output_dir=args.output_dir,
+    )
