@@ -200,7 +200,7 @@ def get_default_arm_inductor_quantization_config(
 
     if is_qat:
         # Only support per tensor quant for now
-        extra_args["observer"] = MovingAverageMinMaxObserver    # type: ignore[dict-item]
+        extra_args["observer"] = MovingAverageMinMaxObserver  # type: ignore[dict-item]
     weight_quantization_spec = QuantizationSpec(
         dtype=torch.int8,
         quant_min=-128,

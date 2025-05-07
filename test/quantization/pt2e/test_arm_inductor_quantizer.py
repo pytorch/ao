@@ -45,7 +45,7 @@ from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo
 
 
 def skipIfNoArm(fn):
-    reason = 'Quantized operations require Arm.'
+    reason = "Quantized operations require Arm."
     if isinstance(fn, type):
         if platform.processor() != "aarch64":
             fn.__unittest_skip__ = True
@@ -58,6 +58,7 @@ def skipIfNoArm(fn):
             raise unittest.SkipTest(reason)
         else:
             fn(*args, **kwargs)
+
     return wrapper
 
 
@@ -336,8 +337,8 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
         if lower:
             from torch._inductor.constant_folding import constant_fold
             from torch._inductor.fx_passes.freezing_patterns import freezing_passes
-            
-            m.recompile()    
+
+            m.recompile()
             freezing_passes(m, example_inputs)
             constant_fold(m)
             m(*example_inputs)
