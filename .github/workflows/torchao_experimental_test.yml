@@ -96,7 +96,7 @@ jobs:
       - name: Print torch version
         run: |
           
-          conr run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
+          conda run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
       - name: Install requirements
         run: |
           conda activate test-mps-ops-env
