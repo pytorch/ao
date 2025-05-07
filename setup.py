@@ -49,7 +49,7 @@ use_cpp = os.getenv("USE_CPP")
 
 import platform
 
-build_torchao_experimental = (
+build_macos_arm_auto = (
     use_cpp == "1"
     and platform.machine().startswith("arm64")
     and platform.system() == "Darwin"
@@ -120,6 +120,12 @@ class BuildOptions:
             assert torch.mps.is_available(), (
                 "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
             )
+
+        # TORCHAO_PARALLEL_BACKEND specifies which parallel backend to use
+        # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
+        self.build_parallel_backend = os.getenv(
+            "TORCHAO_PARALLEL_BACKEND", "aten_openmp"
+        )
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
@@ -498,7 +504,8 @@ def get_extensions():
             )
         )
 
-    if build_torchao_experimental or os.getenv("BUILD_TORCHAO_CPU") == "1":
+    # Build CMakeLists from /torchao/experimental - additional options become available : TORCHAO_BUILD_CPU_AARCH64, TORCHAO_BUILD_KLEIDIAI, TORCHAO_BUILD_MPS_OPS, TORCHAO_PARALLEL_BACKEND
+    if build_macos_arm_auto or os.getenv("BUILD_TORCHAO_EXPERIMENTAL") == "1":
         build_options = BuildOptions()
 
         def bool_to_on_off(value):
@@ -518,6 +525,7 @@ def get_extensions():
                         f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
                         f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
                         f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
+                        f"-DTORCHAO_PARALLEL_BACKEND={build_options.build_parallel_backend}",
                         "-DTorch_DIR=" + torch_dir,
                     ]
                     + (

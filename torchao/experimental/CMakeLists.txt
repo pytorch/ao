@@ -30,10 +30,18 @@ if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
 endif()
 
 # Set compiler flags
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64") 
-    add_compile_options("-Wall" "-Werror" "-Wno-deprecated" "-march=armv8.4-a+dotprod" "-fPIC" "-Wno-error=unknown-pragmas" "-Wno-array-parameter" "-Wno-maybe-uninitialized" "-Wno-sign-compare") 
-else()
-    add_compile_options("-Wall" "-Werror" "-Wno-deprecated")   
+add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    if(NOT APPLE)
+        add_compile_options(
+            "-fPIC"
+            "-Wno-error=unknown-pragmas"
+            "-Wno-array-parameter"
+            "-Wno-maybe-uninitialized"
+            "-Wno-sign-compare"
+        )
+    endif()
 endif()
 
 # Find PyTorch
@@ -49,6 +57,10 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
+
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT APPLE)
+        add_compile_options("-march=armv8.4-a+dotprod")
+    endif()
 
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
