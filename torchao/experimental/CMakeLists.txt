@@ -58,16 +58,18 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT APPLE)
-        add_compile_options("-march=armv8.4-a+dotprod")
-    endif()
-
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
 
     if(TORCHAO_BUILD_KLEIDIAI)
         message(STATUS "Building with Arm KleidiAI library")
         add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+    endif()
+endif()
+
+if(DEFINED TORCHAO_ENABLE_ARM_NEON_DOT)
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT APPLE)
+        add_compile_options("-march=armv8.4-a+dotprod")
     endif()
 endif()
 
