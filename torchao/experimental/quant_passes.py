@@ -87,7 +87,7 @@ def _get_q_dq_linear_patterns_replacements_and_filters(
     glbs["a_quant_max"] = None
     glbs["a_mapping_type"] = "ASYMMETRIC"
     glbs["a_scale_dtype"] = torch.float32
-    glbs["a_eps"] = None
+    glbs["a_eps"] = torch.finfo(torch.float32).eps
 
     lcls = {}
 
