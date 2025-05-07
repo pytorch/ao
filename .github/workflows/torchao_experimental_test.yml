@@ -92,26 +92,31 @@ jobs:
           conda activate test-mps-ops-env
       - name: Install torch
         run: |
-          pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
+          conda run -n test-mps-ops-env pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
       - name: Print torch version
         run: |
-          python -c "import torch; print(torch.__version__)"
+          
+          conda run -n test-mps-ops-env python -c "import torch; print(torch.__version__)"
       - name: Install requirements
         run: |
+          source activate base
+          conda activate test-mps-ops-env
           pip install -r dev-requirements.txt
           pip install pyyaml importlib-metadata
       - name: Print pip freeze
         run: |
-          pip freeze
+          conda run -n test-mps-ops-env pip freeze
       - name: Print current directory
         run: |
-          python -c "import os; print(os.getcwd())"
+          conda run -n test-mps-ops-env python -c "import os; print(os.getcwd())"
       - name: Build ao with experimental mps ops
         run: |
+          source activate base
+          conda activate test-mps-ops-env
           USE_CPP=1 TORCHAO_BUILD_EXPERIMENTAL_MPS=1 pip install .
       - name: Run mps tests
         run: |
           pushd torchao/experimental/ops/mps/test
-          python test_lowbit.py
-          python test_quantizer.py
+          conda run -n test-mps-ops-env python test_lowbit.py
+          conda run -n test-mps-ops-env python test_quantizer.py
           popd
