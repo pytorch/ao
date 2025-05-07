@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 import torch
 
 if torch.cuda.is_available():
@@ -22,8 +23,10 @@ else:
     raise RuntimeError("This benchmark is only avaible on CUDA hardware")
 
 
-def benchmark_microseconds(f, *args):
-    return do_bench(lambda: f(*args), return_mode="median") * 1e3
+def benchmark_microseconds(f, *args, warmup=25, rep=100):
+    return (
+        do_bench(lambda: f(*args), warmup=warmup, rep=rep, return_mode="median") * 1e3
+    )
 
 
 def get_blockwise_problem(
@@ -55,7 +58,9 @@ def benchmark_latency(
     fp16_time = benchmark_microseconds(torch.nn.functional.linear, A_ref, B_ref)
 
     A, A_scale, B, B_scale = get_blockwise_problem(m, n, k, block_size, dtype, device)
-    blockwise_time = benchmark_microseconds(blockwise_fp8_gemm, A, A_scale, B, B_scale)
+    blockwise_time = benchmark_microseconds(
+        blockwise_fp8_gemm, A, A_scale, B, B_scale, block_size
+    )
 
     return {
         "m": m,
@@ -79,7 +84,7 @@ def benchmark_precision(
 
     A_q, A_s = fp8_blockwise_act_quant(A, block_size, dtype)
     W_q, W_s = fp8_blockwise_weight_quant(W, block_size, dtype)
-    output_blockwise = blockwise_fp8_gemm(A_q, A_s, W_q, W_s)
+    output_blockwise = blockwise_fp8_gemm(A_q, A_s, W_q, W_s, block_size)
 
     return {
         "m": m,
@@ -105,7 +110,6 @@ if __name__ == "__main__" and torch.cuda.is_available():
         if is_sm_at_least_89()
         else [torch.float8_e5m2]
     )
-
     for m in tqdm([1 << i for i in range(10)]):
         for dtype in available_dtypes:
             for n, k, block_size in zip(n_vals, k_vals, block_size_vals):

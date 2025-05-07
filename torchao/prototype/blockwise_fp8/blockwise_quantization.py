@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 from typing import Tuple
 
 import torch
@@ -15,17 +16,17 @@ from triton import Config
 
 fp8_gemm_configs = [
     Config(
-        {"BLOCK_SIZE_M": block_m, "BLOCK_SIZE_N": block_n, "BLOCK_SIZE_K": 128},
+        {"BLOCK_SIZE_M": block_m, "BLOCK_SIZE_N": block_n},
         num_stages=num_stages,
         num_warps=8,
     )
-    for block_m in [16, 32, 64]
+    for block_m in [16, 32, 64, 128]
     for block_n in [32, 64, 128]
     for num_stages in [3, 4, 5, 6]
 ]
 
 
-@triton.autotune(configs=fp8_gemm_configs, key=["N", "K"])
+@triton.autotune(configs=fp8_gemm_configs, key=["N", "K", "M_BUCKET", "BLOCK_SIZE_K"])
 @triton.jit
 def blockwise_fp8_gemm_kernel(
     a_ptr,
@@ -36,6 +37,7 @@ def blockwise_fp8_gemm_kernel(
     M,
     N: tl.constexpr,
     K: tl.constexpr,
+    M_BUCKET: tl.constexpr,
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     BLOCK_SIZE_K: tl.constexpr,
@@ -72,19 +74,26 @@ def blockwise_fp8_gemm_kernel(
 
 
 def blockwise_fp8_gemm(
-    a: torch.Tensor, a_s: torch.Tensor, b: torch.Tensor, b_s: torch.Tensor
+    a: torch.Tensor,
+    a_s: torch.Tensor,
+    b: torch.Tensor,
+    b_s: torch.Tensor,
+    block_size: int = 128,
 ):
     assert a.is_contiguous() and b.is_contiguous()
     assert a_s.is_contiguous() and b_s.is_contiguous()
     K = a.size(-1)
     M = a.numel() // K
     N = b.size(0)
+    M_BUCKET = math.ceil(math.log2(M))
     c = a.new_empty(*a.size()[:-1], N, dtype=torch.get_default_dtype())
     grid = lambda META: (
         triton.cdiv(M, META["BLOCK_SIZE_M"]),
         triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
-    blockwise_fp8_gemm_kernel[grid](a, b, c, a_s, b_s, M, N, K)
+    blockwise_fp8_gemm_kernel[grid](
+        a, b, c, a_s, b_s, M, N, K, M_BUCKET, BLOCK_SIZE_K=block_size
+    )
     return c
 
 

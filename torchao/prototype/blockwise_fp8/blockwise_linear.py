@@ -68,7 +68,9 @@ class BlockwiseQuantLinear(nn.Module):
             torch.Tensor: Transformed tensor after linear computation.
         """
         x, scale = fp8_blockwise_act_quant(x, self.block_size, self.dtype)
-        y = blockwise_fp8_gemm(x, scale, self.weight, self.weight.scale)
+        y = blockwise_fp8_gemm(
+            x, scale, self.weight, self.weight.scale, self.block_size
+        )
 
         if self.bias is not None:
             y += self.bias
