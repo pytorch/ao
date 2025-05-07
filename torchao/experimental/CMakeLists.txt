@@ -32,18 +32,6 @@ endif()
 # Set compiler flags
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    if(NOT APPLE)
-        add_compile_options(
-            "-fPIC"
-            "-Wno-error=unknown-pragmas"
-            "-Wno-array-parameter"
-            "-Wno-maybe-uninitialized"
-            "-Wno-sign-compare"
-        )
-    endif()
-endif()
-
 # Find PyTorch
 find_package(Torch REQUIRED)
 include_directories(${TORCH_INCLUDE_DIRS})
@@ -58,18 +46,23 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
+    if (LINUX)
+        add_compile_options(
+            "-fPIC"
+            "-Wno-error=unknown-pragmas"
+            "-Wno-array-parameter"
+            "-Wno-maybe-uninitialized"
+            "-Wno-sign-compare"
+            "-march=armv8.4-a+dotprod"
+        )
+    endif()
+
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
 
     if(TORCHAO_BUILD_KLEIDIAI)
         message(STATUS "Building with Arm KleidiAI library")
         add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
-    endif()
-endif()
-
-if(DEFINED TORCHAO_ENABLE_ARM_NEON_DOT)
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT APPLE)
-        add_compile_options("-march=armv8.4-a+dotprod")
     endif()
 endif()
 
