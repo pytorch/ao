@@ -359,6 +359,9 @@ def _linear_impl(input_tensor, weight_tensor, bias):
 
         m, k = input_tensor.shape
         n, k_ = weight_tensor.shape
+        if m==0: # handling for empty input
+            return input_tensor
+
         assert k_ == k
         group_size = weight_tensor.tensor_impl.get_layout().group_size
         packed_weight = weight_tensor.tensor_impl.packed_weight
