@@ -465,6 +465,9 @@
     <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></div>
 
 
+<span class="n">_fallback_warning_shown</span> <span class="o">=</span> <span class="kc">False</span>
+
+
 <span class="nd">@register_layout</span><span class="p">(</span><span class="n">Float8Layout</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8AQTTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -509,12 +512,35 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Applys a fn to all tensor components stored on this class&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-            <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">),</span>
-            <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">global</span> <span class="n">_fallback_warning_shown</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
+                <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">),</span>
+                <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s1">&#39;&quot;index_cuda&quot; not implemented for &#39;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">_fallback_warning_shown</span><span class="p">:</span>
+                    <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+                    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;When trying to index Float8AQTTensorImpl, got known error </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">, will use slower fallback but &quot;</span>
+                        <span class="o">+</span> <span class="s2">&quot;note: You can torch.compile the model to avoid this problem.&quot;</span><span class="p">,</span>
+                        <span class="ne">UserWarning</span><span class="p">,</span>
+                    <span class="p">)</span>
+                    <span class="n">_fallback_warning_shown</span> <span class="o">=</span> <span class="kc">True</span>
+
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>  <span class="c1"># do indexing in bfloat16 then convert back</span>
+                    <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span>
+                    <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">),</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">e</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
@@ -567,6 +593,13 @@
                 <span class="k">return</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mistach: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">func</span> <span class="ow">in</span> <span class="p">[</span><span class="n">aten</span><span class="o">.</span><span class="n">select</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span>
+                <span class="n">args</span><span class="p">,</span>
+                <span class="n">kwargs</span><span class="p">,</span>
+                <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">func</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)),</span>
             <span class="p">)</span>
         <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
