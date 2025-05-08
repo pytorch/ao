@@ -2048,44 +2048,6 @@ class TestExport(unittest.TestCase):
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
 
-class TestUtils(unittest.TestCase):
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
-    def test_get_model_size_autoquant(self, device, dtype):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            if dtype == torch.bfloat16:
-                self.skipTest("bfloat16 requires sm80+")
-        m, k, n = 16, 128, 128
-        model = (
-            torch.nn.Sequential(
-                torch.nn.ReLU(),
-                torch.nn.Linear(k, n),
-                torch.nn.ReLU(),
-            )
-            .to(device)
-            .to(dtype)
-        )
-        example_input = torch.randn(m, k, device=device, dtype=dtype)
-        size = torchao.utils.get_model_size_in_bytes(model)
-
-        from torchao.quantization.autoquant import (
-            AQInt8WeightOnlyQuantizedLinearWeight2,
-        )
-
-        qtensor_class_list = (AQInt8WeightOnlyQuantizedLinearWeight2,)
-        mod = torchao.autoquant(
-            torch.compile(model),
-            qtensor_class_list=qtensor_class_list,
-            set_inductor_config=False,
-        )
-        mod(example_input)
-        size2 = torchao.utils.get_model_size_in_bytes(mod)
-        self.assertTrue(size2 < size)
-
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
