@@ -646,7 +646,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.utils import compute_error
 
         with torch.device("cpu"):
-            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(torch.bfloat16)
+            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
+                torch.bfloat16
+            )
             x = torch.randn(8, 512, dtype=torch.bfloat16)
 
         out = model(x).clone()

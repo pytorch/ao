@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--repo_id",
         type=str,
-        default="checkpoints/mistralai/Mixtral-8x7B-Instruct-v0.1",
+        default="mistralai/Mixtral-8x7B-Instruct-v0.1",
         help="Repository ID to download from.",
     )
     parser.add_argument(
