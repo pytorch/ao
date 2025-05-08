@@ -636,8 +636,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.prototype.moe_quant.utils import (
             FakeExtraDimTensor,
             MoEQuantConfig,
-            cond_ffn_filter,
             UseFakeExtraDimTensor,
+            cond_ffn_filter,
         )
         from torchao.quantization.quant_api import (
             Int8DynamicActivationIntxWeightConfig,
@@ -657,7 +657,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         base_config = Int8DynamicActivationIntxWeightConfig(
             layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
         )
-        moe_config = MoEQuantConfig(base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE)
+        moe_config = MoEQuantConfig(
+            base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+        )
 
         quantize_(model, moe_config, cond_ffn_filter)
 
