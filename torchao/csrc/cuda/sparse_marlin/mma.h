@@ -27,18 +27,26 @@
 #include <cudaTypedefs.h>
 #endif
 
+#ifdef USE_ROCM
+#include <hip/hip_runtime.h>
+#include <hip/hip_fp16.h>
+#include <device_functions.h>  // For some ROCm versions
+// Some intrinsics might require the compiler to be in the right mode
+// with the correct target architecture flags (-march=gfx942)
+#endif
+
 namespace torchao {
 
 // On CUDA earlier than 12.5, the ordered_metadata version of this instruction
 // is not supported. On later versions of CUDA the version without ordered
 // metadata results in the following warning:
-//  | Advisory: Modifier ‘.sp::ordered_metadata’ should be used on instruction
-//  | ‘mma’ instead of modifier ‘.sp’ as it is expected to have substantially
+//  | Advisory: Modifier 'sp::ordered_metadata' should be used on instruction
+//  | 'mma' instead of modifier 'sp' as it is expected to have substantially
 //  | reduced performance on some future architectures
 
 #if defined(USE_ROCM)
-  // HIP ISA doesn't have an equivalent for ordered_metadata, so we'll use the standard mma instruction
-  #define MMA_SP_INST "v_mfma_f32_16x16x16f16 "
+  // Correct MFMA instruction for AMD GPUs
+  #define MMA_SP_INST "v_mfma_f32_16x16x16_f16 "
 #elif defined(CUDA_VERSION) && CUDA_VERSION >= 12050
   #define MMA_SP_INST \
     "mma.sp::ordered_metadata.sync.aligned.m16n8k32.row.col.f32.f16.f16.f32 "
@@ -58,6 +66,23 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
 
   float* c = reinterpret_cast<float*>(&frag_c);
   if (psel == 0) {
+    #ifdef USE_ROCM
+    // AMD GPUs use a different syntax for MFMA instructions
+    // The operands need to be listed individually, not in curly braces
+    asm volatile(MMA_SP_INST
+                 "%0, %4, %8, %12\n"
+                 : "=v"(c[0]), "=v"(c[1]), "=v"(c[2]), "=v"(c[3])
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[0]), "v"(b[2]), "v"(b[4]), "v"(b[6]), 
+                   "v"(c[0]), "v"(c[1]), "v"(c[2]), "v"(c[3]));
+    
+    asm volatile(MMA_SP_INST
+                 "%0, %4, %8, %12\n"
+                 : "=v"(c[4]), "=v"(c[5]), "=v"(c[6]), "=v"(c[7])
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[1]), "v"(b[3]), "v"(b[5]), "v"(b[7]), 
+                   "v"(c[4]), "v"(c[5]), "v"(c[6]), "v"(c[7]));
+    #else
     asm volatile(MMA_SP_INST
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
                  "{%12,%13,%14,%15}, %16, 0x0;\n"
@@ -72,7 +97,22 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
                  : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[1]),
                    "r"(b[3]), "r"(b[5]), "r"(b[7]), "f"(c[4]), "f"(c[5]),
                    "f"(c[6]), "f"(c[7]), "r"(e[0]));
+    #endif
   } else {
+    #ifdef USE_ROCM
+   asm volatile(MMA_SP_INST
+                 "%0, %4, %8, %12\n"
+                 : "=v"(c[0]), "=v"(c[1]), "=v"(c[2]), "=v"(c[3])
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[0]), "v"(b[2]), "v"(b[4]), "v"(b[6]), 
+                   "v"(c[0]), "v"(c[1]), "v"(c[2]), "v"(c[3]));
+    asm volatile(MMA_SP_INST
+                 "%0, %4, %8, %12\n"
+                 : "=v"(c[4]), "=v"(c[5]), "=v"(c[6]), "=v"(c[7])
+                 : "v"(a0[0]), "v"(a1[0]), "v"(a0[1]), "v"(a1[1]), 
+                   "v"(b[1]), "v"(b[3]), "v"(b[5]), "v"(b[7]), 
+                   "v"(c[4]), "v"(c[5]), "v"(c[6]), "v"(c[7])); 
+    #else
     asm volatile(MMA_SP_INST
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9, %10,%11}, "
                  "{%12,%13,%14,%15}, %16, 0x1;\n"
@@ -87,6 +127,7 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
                  : "r"(a0[0]), "r"(a1[0]), "r"(a0[1]), "r"(a1[1]), "r"(b[1]),
                    "r"(b[3]), "r"(b[5]), "r"(b[7]), "f"(c[4]), "f"(c[5]),
                    "f"(c[6]), "f"(c[7]), "r"(e[0]));
+    #endif
   }
 }
 
@@ -114,8 +155,8 @@ __device__ __forceinline__ uint2 to_half4(float c0, float c1, float c2,
   uint2 r;
   #ifdef USE_ROCM
   // AMD implementation
-  r.x = __builtin_amdgcn_cvt_pkrtz(c0, c1);
-  r.y = __builtin_amdgcn_cvt_pkrtz(c2, c3);
+  r.x = __builtin_bit_cast(uint32_t, __builtin_amdgcn_cvt_pkrtz(c0, c1));
+  r.y = __builtin_bit_cast(uint32_t, __builtin_amdgcn_cvt_pkrtz(c2, c3));
   #else
   // NVIDIA implementation
   asm("{\n\t"
@@ -177,8 +218,8 @@ __device__ inline FragB dequant_4bit(int q) {
   const __half2* MUL_ptr = reinterpret_cast<const __half2*>(&MUL);
   const __half2* ADD_ptr = reinterpret_cast<const __half2*>(&ADD);
 
-  frag_b[0] = __hsub(*lo_ptr, *SUB_ptr);
-  frag_b[1] = __hfma(*hi_ptr, *MUL_ptr, *ADD_ptr);
+  frag_b[0] = __hsub2(*lo_ptr, *SUB_ptr);
+  frag_b[1] = __hfma2(*hi_ptr, *MUL_ptr, *ADD_ptr);
   #else
   // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
@@ -211,8 +252,8 @@ __device__ inline FragB dequant_8bit(int q) {
   __half2* hi_ptr = reinterpret_cast<__half2*>(&hi);
   const __half2* magic_num_ptr = reinterpret_cast<const __half2*>(&I8s_TO_F16s_MAGIC_NUM);
 
-  frag_b[0] = __hsub(*lo_ptr, *magic_num_ptr);
-  frag_b[1] = __hsub(*hi_ptr, *magic_num_ptr);
+  frag_b[0] = __hsub2(*lo_ptr, *magic_num_ptr);
+  frag_b[1] = __hsub2(*hi_ptr, *magic_num_ptr);
   #else
   // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
@@ -229,8 +270,8 @@ __device__ inline void scale(FragB& frag_b, FragS& frag_s, int i) {
   #ifdef USE_ROCM
   // AMD implementation
   __half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
-  frag_b[0] = __hmul(frag_b[0], s);
-  frag_b[1] = __hmul(frag_b[1], s);
+  frag_b[0] = __hmul2(frag_b[0], s);
+  frag_b[1] = __hmul2(frag_b[1], s);
   #else
   // NVIDIA implementation
   half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
@@ -243,16 +284,16 @@ __device__ inline void scale_floats(float* c0, float* c1, float* c2, float* c3,
                                     FragS& s0, float* c4, float* c5, float* c6,
                                     float* c7, FragS& s1) {
   #ifdef USE_ROCM
-  // AMD implementation
-  *c0 = __builtin_amdgcn_fmul_legacy(*c0, __half2float(s0[0].x));
-  *c1 = __builtin_amdgcn_fmul_legacy(*c1, __half2float(s0[0].y));
-  *c2 = __builtin_amdgcn_fmul_legacy(*c2, __half2float(s0[1].x));
-  *c3 = __builtin_amdgcn_fmul_legacy(*c3, __half2float(s0[1].y));
+// AMD MI300X implementation
+  *c0 = *c0 * __half2float(s0[0].x);
+  *c1 = *c1 * __half2float(s0[0].y);
+  *c2 = *c2 * __half2float(s0[1].x);
+  *c3 = *c3 * __half2float(s0[1].y);
 
-  *c4 = __builtin_amdgcn_fmul_legacy(*c4, __half2float(s1[0].x));
-  *c5 = __builtin_amdgcn_fmul_legacy(*c5, __half2float(s1[0].y));
-  *c6 = __builtin_amdgcn_fmul_legacy(*c6, __half2float(s1[1].x));
-  *c7 = __builtin_amdgcn_fmul_legacy(*c7, __half2float(s1[1].y));
+  *c4 = *c4 * __half2float(s1[0].x);
+  *c5 = *c5 * __half2float(s1[0].y);
+  *c6 = *c6 * __half2float(s1[1].x);
+  *c7 = *c7 * __half2float(s1[1].y); 
   #else
   // NVIDIA implementation
   *c0 = __fmul_rn(*c0, __half2float(s0[0].x));

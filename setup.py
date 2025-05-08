@@ -317,6 +317,7 @@ def get_extensions():
     hip_sources = list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
     )
+    
     extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
     hip_sources += list(
         glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
@@ -329,7 +330,7 @@ def get_extensions():
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
     if IS_ROCM and use_cuda:
         # Add ROCm GPU architecture check
-        gpu_arch = torch.cuda.get_device_properties(0).name
+        gpu_arch = torch.cuda.get_device_properties(0).name.gcnArchName
         if gpu_arch != "gfx942":
             print(f"Warning: Unsupported ROCm GPU architecture: {gpu_arch}")
             print(
