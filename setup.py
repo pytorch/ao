@@ -311,16 +311,19 @@ def get_extensions():
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
     )
 
-    extensions_hip_dir = os.path.join(
-        extensions_dir, "cuda", "tensor_core_tiled_layout"
-    )
-    hip_sources = list(
-        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-    )
-    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "sparse_marlin")
-    hip_sources += list(
-        glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True)
-    )
+    # Define HIP source directories
+    hip_source_dirs = [
+        os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout"),
+        # TODO: Add sparse_marlin back in once we have a ROCm build for it
+        #os.path.join(extensions_dir, "cuda", "sparse_marlin")
+    ]
+    
+    # Collect all HIP sources from the defined directories
+    hip_sources = []
+    for hip_dir in hip_source_dirs:
+        hip_sources.extend(
+            glob.glob(os.path.join(hip_dir, "*.cu"), recursive=True)
+        )
 
     # Collect CUDA source files if needed
     if not IS_ROCM and use_cuda:
