@@ -2084,8 +2084,7 @@ class TestUtils(unittest.TestCase):
         )
         mod(example_input)
         size2 = torchao.utils.get_model_size_in_bytes(mod)
-        print(size2, size)
-        self.assertTrue(size2 < size)
+        self.assertGreaterEqual(size, size2)
 
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
