@@ -305,8 +305,6 @@ def main(
     model.to(device=device)
     device_sync(device=device)
 
-    print(f"C: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
-
     if compile:
         # moe quant + compile causes repeated warnings
         import warnings
