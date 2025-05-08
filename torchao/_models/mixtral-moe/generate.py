@@ -298,8 +298,10 @@ def main(
 
         if config is not None:
             quantize_(model, config, filter_fn=cond_ffn_filter)
-            print(f"Time to apply quantization to model: {time.time() - t0:.02f} seconds")
-    
+            print(
+                f"Time to apply quantization to model: {time.time() - t0:.02f} seconds"
+            )
+
     model.to(device=device)
     device_sync(device=device)
 
