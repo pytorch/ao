@@ -646,8 +646,8 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         from torchao.quantization.utils import compute_error
 
         with torch.device("cpu"):
-            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2).to(torch.bfloat16)
-            x = torch.randn(1, 512, dtype=torch.bfloat16)
+            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(torch.bfloat16)
+            x = torch.randn(8, 512, dtype=torch.bfloat16)
 
         out = model(x).clone()
 
@@ -661,7 +661,15 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         out_q = model(x).clone()
         assert isinstance(model.experts.w1, FakeExtraDimTensor)
 
-        assert compute_error(out_q, out) > 30, "error bad accuracy but everything ran"
+        mod_c = torch.compile(model, mode="reduce-overhead")
+
+        mod_c(x)
+        mod_c(x)
+
+        out_qc = mod_c(x).clone()
+
+        self.assertGreater(compute_error(out_q, out), 30)
+        self.assertGreater(compute_error(out_qc, out), 30)
 
 
 if __name__ == "__main__":

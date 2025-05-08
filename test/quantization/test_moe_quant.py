@@ -169,6 +169,25 @@ class TestMoEQuantCompile(unittest.TestCase):
             fullgraph=fullgraph,
         )
 
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Test only enabled for 2.5+")
+    @parameterized.expand(
+        [
+            ("single_token", 1, True),
+            ("multiple_tokens", 8, False),
+        ]
+    )
+    def test_int8wo_base_cpu(self, name, num_tokens, fullgraph):
+        config = Int8WeightOnlyConfig()
+        tensor_impl_class = PlainAQTTensorImpl
+
+        self._test_impl_moe_quant(
+            config=config,
+            num_tokens=num_tokens,
+            tensor_impl_class=tensor_impl_class,
+            fullgraph=fullgraph,
+            device="cpu",
+        )
+
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Test only enabled for 2.5+")
     @parameterized.expand(
