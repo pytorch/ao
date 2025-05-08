@@ -103,7 +103,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = MoEQuantConfig(Int4WeightOnlyConfig())
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
@@ -127,7 +127,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Requires CUDA capability >= 9.0")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = Int4WeightOnlyConfig()
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
@@ -149,7 +149,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = MoEQuantConfig(Int8WeightOnlyConfig())
         tensor_impl_class = PlainAQTTensorImpl
 
@@ -171,7 +171,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = Int8WeightOnlyConfig()
         tensor_impl_class = PlainAQTTensorImpl
 
@@ -191,7 +191,7 @@ class TestMoEQuantCompile(unittest.TestCase):
     def test_int8wo_base_cpu(self, name, num_tokens, fullgraph):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = Int8WeightOnlyConfig()
         tensor_impl_class = PlainAQTTensorImpl
 
@@ -213,7 +213,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
         base_class = LinearActivationQuantizedTensor
 
@@ -235,7 +235,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
-            
+
         config = Int8DynamicActivationInt8WeightConfig()
         base_class = LinearActivationQuantizedTensor
 
@@ -258,7 +258,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
-            
+
         config = MoEQuantConfig(Float8WeightOnlyConfig())
         tensor_impl_class = Float8AQTTensorImpl
 
@@ -280,7 +280,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
-            
+
         config = Float8WeightOnlyConfig()
         tensor_impl_class = Float8AQTTensorImpl
 
@@ -302,7 +302,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
-            
+
         config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig())
         base_class = LinearActivationQuantizedTensor
 
@@ -324,7 +324,7 @@ class TestMoEQuantCompile(unittest.TestCase):
             self.skipTest("Need CUDA available")
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
-            
+
         config = Float8DynamicActivationFloat8WeightConfig()
         base_class = LinearActivationQuantizedTensor
 
