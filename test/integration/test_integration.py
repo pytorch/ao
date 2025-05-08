@@ -2047,6 +2047,8 @@ class TestExport(unittest.TestCase):
             self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
+
+class TestUtils(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
