@@ -65,10 +65,17 @@ uname_output = subprocess.run(['uname', '-a'], capture_output=True, text=True)
 print("Output of 'uname -a':")
 print(uname_output.stdout)
 
-# Run 'lscpu'
-lscpu_output = subprocess.run(['lscpu'], capture_output=True, text=True)
-print("\nOutput of 'lscpu':")
-print(lscpu_output.stdout)
+if platform.system() == "Darwin":
+    sysctl_output = subprocess.run(['sysctl', '-a'], capture_output=True, text=True)
+    print("\nFiltered CPU info from 'sysctl -a':")
+    for line in sysctl_output.stdout.splitlines():
+        if 'machdep.cpu' in line:
+            print(line)
+else:
+    # Run 'lscpu'
+    lscpu_output = subprocess.run(['lscpu'], capture_output=True, text=True)
+    print("\nOutput of 'lscpu':")
+    print(lscpu_output.stdout)
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
