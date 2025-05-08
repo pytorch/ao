@@ -300,7 +300,7 @@ def _replace_with_custom_fn_if_matches_filter(
                 device,
                 extra_args,
             )
-            if new_child is not child:
+            if new_child is not child and new_child is not None:
                 setattr(model, name, new_child)
         if device is not None:
             model.to(device=device)  # move parent module to device
@@ -1050,31 +1050,25 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 int4_weight_only = Int4WeightOnlyConfig
 
 
-@register_quantize_module_handler(Int4WeightOnlyConfig)
-def _int4_weight_only_transform(
-    module: torch.nn.Module, config: Int4WeightOnlyConfig
-) -> torch.nn.Module:
+def _int4_weight_only_quantize_tensor(weight, config):
     # TODO(future PR): perhaps move this logic to a different file, to keep the API
     # file clean of implementation details
 
     # for now, make these local variables to allow the rest of the function
     # to be a direct copy-paste
-    weight = module.weight
     group_size = config.group_size
     layout = config.layout
     use_hqq = config.use_hqq
     zero_point_domain = config.zero_point_domain
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
             f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
         )
-        return module
+        return weight
 
     mapping_type = MappingType.ASYMMETRIC
-    block_size = (1, group_size)
+    block_size = tuple([1 for _ in range(weight.dim() - 1)] + [group_size])
     target_dtype = torch.int32
     quant_min = 0
     quant_max = 15
@@ -1126,6 +1120,21 @@ def _int4_weight_only_transform(
         _layout=layout,
         use_hqq=use_hqq,
     )
+    return new_weight
+
+
+@register_quantize_module_handler(Int4WeightOnlyConfig)
+def _int4_weight_only_transform(
+    module: torch.nn.Module, config: Int4WeightOnlyConfig
+) -> torch.nn.Module:
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1145,20 +1154,15 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 int8_weight_only = Int8WeightOnlyConfig
 
 
-@register_quantize_module_handler(Int8WeightOnlyConfig)
-def _int8_weight_only_transform(module: torch.nn.Module, config: Int8WeightOnlyConfig):
-    group_size = config.group_size
-    weight = module.weight
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
+def _int8_weight_only_quantize_tensor(weight, config):
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int64
+    group_size = config.group_size
     if group_size is None:
-        group_size = weight.shape[1]
-    block_size = (1, group_size)
+        group_size = weight.shape[-1]
+    block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
     new_weight = to_affine_quantized_intx(
         weight,
         mapping_type,
@@ -1167,6 +1171,19 @@ def _int8_weight_only_transform(module: torch.nn.Module, config: Int8WeightOnlyC
         eps=eps,
         zero_point_dtype=zero_point_dtype,
     )
+    return new_weight
+
+
+@register_quantize_module_handler(Int8WeightOnlyConfig)
+def _int8_weight_only_transform(module: torch.nn.Module, config: Int8WeightOnlyConfig):
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _int8_weight_only_quantize_tensor(module.weight, config)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1283,33 +1300,26 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 int8_dynamic_activation_int8_weight = Int8DynamicActivationInt8WeightConfig
 
 
-@register_quantize_module_handler(Int8DynamicActivationInt8WeightConfig)
-def _int8_dynamic_activation_int8_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActivationInt8WeightConfig
-) -> torch.nn.Module:
+def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     layout = config.layout
     act_mapping_type = config.act_mapping_type
     weight_only_decode = config.weight_only_decode
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
 
-    weight = module.weight
-
-    in_features = weight.shape[1]
+    in_features = weight.shape[-1]
     # int8 dynamic quantization only has benefit when in_feature > 16
     if in_features <= 16:
         logger.info(
             f"Skipping applying int8_dynamic_activation_int8_weight to weight of shape {weight.shape}"
             f" because `in_feature` is <= 16: {in_features}"
         )
-        return module
+        return weight
 
     # weight settings
     mapping_type = MappingType.SYMMETRIC
     weight_zero_point_domain = ZeroPointDomain.NONE
 
     def get_weight_block_size(x):
-        return (1, x.shape[1])
+        return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
 
     target_dtype = torch.int8
     eps = torch.finfo(torch.float32).eps
@@ -1325,7 +1335,7 @@ def _int8_dynamic_activation_int8_weight_transform(
             input_quant_func = _int8_asymm_per_token_quant
 
     block_size = get_weight_block_size(weight)
-    weight = to_affine_quantized_intx(
+    new_weight = to_affine_quantized_intx(
         weight,
         mapping_type,
         block_size,
@@ -1335,8 +1345,25 @@ def _int8_dynamic_activation_int8_weight_transform(
         _layout=layout,
         zero_point_domain=weight_zero_point_domain,
     )
-    weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    new_weight = to_linear_activation_quantized(new_weight, input_quant_func)
+    return new_weight
+
+
+@register_quantize_module_handler(Int8DynamicActivationInt8WeightConfig)
+def _int8_dynamic_activation_int8_weight_transform(
+    module: torch.nn.Module, config: Int8DynamicActivationInt8WeightConfig
+) -> torch.nn.Module:
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying int8 dynamic activation int8 weight quant requires module to have weight attribute"
+        + "but {module} does not have one"
+    )
+    new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
+        module.weight, config
+    )
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
@@ -1375,17 +1402,10 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 float8_weight_only = Float8WeightOnlyConfig
 
 
-@register_quantize_module_handler(Float8WeightOnlyConfig)
-def _float8_weight_only_transform(
-    module: torch.nn.Module, config: Float8WeightOnlyConfig
-) -> torch.nn.Module:
+def _float8_weight_only_quant_tensor(weight, config):
     from torchao.dtypes import to_affine_quantized_floatx
 
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    weight = module.weight
-    block_size = (1, weight.shape[1])
+    block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
     new_weight = to_affine_quantized_floatx(
         input_float=weight,
         block_size=block_size,
@@ -1393,6 +1413,22 @@ def _float8_weight_only_transform(
         scale_dtype=None,
         _layout=Float8Layout(mm_config=None),
     )
+    return new_weight
+
+
+@register_quantize_module_handler(Float8WeightOnlyConfig)
+def _float8_weight_only_transform(
+    module: torch.nn.Module, config: Float8WeightOnlyConfig
+) -> torch.nn.Module:
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _float8_weight_only_quant_tensor(module.weight, config)
+
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1496,11 +1532,12 @@ def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     Returns:
         bool: True if the tensor can be quantized to float8, False otherwise
     """
-    assert weight.dim() == 2, (
-        f"float8 quantization only works for 2-D tensors, got {weight.dim()}D tensor"
-    )
+    assert weight.dim() in [
+        2,
+        3,
+    ], f"float8 quantization only works for 2/3-D tensors, got {weight.dim()}D tensor"
 
-    out_dim, in_dim = weight.shape
+    out_dim, in_dim = weight.shape[-2:]
     is_compatible = (in_dim % 16 == 0) and (out_dim % 16 == 0)
 
     if not is_compatible:
@@ -1547,34 +1584,26 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 float8_dynamic_activation_float8_weight = Float8DynamicActivationFloat8WeightConfig
 
 
-@register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
-def _float8_dynamic_activation_float8_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
-):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
+def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mm_config = config.mm_config
-    weight = module.weight
 
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
 
     if not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
-        return module
+        return weight
     if isinstance(weight_granularity, PerRow):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
 
-    block_size = get_block_size(weight.shape, weight_granularity)
+    block_size = get_block_size(weight.shape[-2:], weight_granularity)
+    if weight.dim() == 3:
+        block_size = tuple([1] + list(block_size))
     quantized_weight = to_affine_quantized_floatx(
         input_float=weight,
         block_size=block_size,
@@ -1592,7 +1621,26 @@ def _float8_dynamic_activation_float8_weight_transform(
     quantized_weight = to_linear_activation_quantized(
         quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
     )
+    return quantized_weight
 
+
+@register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
+def _float8_dynamic_activation_float8_weight_transform(
+    module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
+):
+    assert is_sm_at_least_89() or is_MI300(), (
+        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
+    )
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying float8 dynamic activation quant requires module to have weight attribute"
+        + f"but {module} does not have one"
+    )
+    quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
+        module.weight, config
+    )
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
