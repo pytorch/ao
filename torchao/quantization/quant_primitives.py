@@ -365,6 +365,9 @@ def _quantize_affine(
     # torch.uintx dtypes yet
     if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
+    if block_size == [-1]:
+        # per-tensor quantization
+        block_size = [-1] * input.dim()
     return _quantize_affine_no_dtype_cast(
         input,
         block_size,
@@ -520,6 +523,9 @@ def _dequantize_affine(
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported output dtype: {output_dtype}"
+    if block_size == [-1]:
+        # per-tensor quantization
+        block_size = [-1] * input.dim()
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
     return _dequantize_affine_no_dtype_check(
         input,
@@ -878,6 +884,9 @@ def _choose_qparams_affine(
             scale_dtype = input.dtype
         if eps is None:
             eps = torch.finfo(input.dtype).eps
+        if block_size == [-1]:
+            # per-tensor quantization
+            block_size = [-1] * input.dim()
 
         assert len(block_size) == input.dim(), (
             f"Got input dim:{input.dim()}, block_size: {block_size}"
