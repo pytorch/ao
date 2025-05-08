@@ -239,6 +239,7 @@ def main(
     from torchao.quantization.prototype.moe_quant.utils import (
         MoEQuantConfig,
         cond_ffn_filter,
+        UseFakeExtraDimTensor
     )
     from torchao.quantization.quant_api import (
         Float8DynamicActivationFloat8WeightConfig,
@@ -256,40 +257,44 @@ def main(
         torch._dynamo.config.capture_dynamic_output_shape_ops = True
         config = None
         if "int8wo-base" in moe_quant:
-            config = Int8WeightOnlyConfig()
-
-        elif "int8wo" in moe_quant:
             config = MoEQuantConfig(Int8WeightOnlyConfig())
 
-        elif "int8dq-base" in moe_quant:
-            config = Int8DynamicActivationInt8WeightConfig()
+        elif "int8wo" in moe_quant:
+            config = MoEQuantConfig(Int8WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE)
 
-        elif "int8dq" in moe_quant:
+        elif "int8dq-base" in moe_quant:
             config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
 
-        elif "int4wo-base" in moe_quant:
-            config = Int4WeightOnlyConfig()
+        elif "int8dq" in moe_quant:
+            config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE)
 
-        elif "int4wo" in moe_quant:
+        elif "int4wo-base" in moe_quant:
             config = MoEQuantConfig(Int4WeightOnlyConfig())
 
-        elif "fp8wo-base" in moe_quant:
-            config = Float8WeightOnlyConfig()
+        elif "int4wo" in moe_quant:
+            config = MoEQuantConfig(Int4WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE)
 
-        elif "fp8wo" in moe_quant:
+        elif "fp8wo-base" in moe_quant:
             config = MoEQuantConfig(Float8WeightOnlyConfig())
 
+        elif "fp8wo" in moe_quant:
+            config = MoEQuantConfig(Float8WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE)
+
         elif "fp8dq-base" in moe_quant:
-            config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+            config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
 
         elif "fp8dq" in moe_quant:
             config = MoEQuantConfig(
-                Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+                Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
             )
 
         elif "intxdq" in moe_quant:
-            config = Int8DynamicActivationIntxWeightConfig(
-                layout=PackedLinearInt8DynamicActivationIntxWeightLayout()
+            config = MoEQuantConfig(
+                Int8DynamicActivationIntxWeightConfig(
+                    layout=PackedLinearInt8DynamicActivationIntxWeightLayout(),
+                ),
+                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
             )
         else:
             assert config is not None, (

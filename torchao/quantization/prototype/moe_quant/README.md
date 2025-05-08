@@ -10,10 +10,10 @@ The API for moe quantization is very similar to linear quantization, given a moe
 
 ```python
 
-from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter
+from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter,
 from torchao.quantization.quant_api import quantize_, Int8WeightOnlyConfig
 
-quantize_(model, Int8WeightOnlyConfig(), filter_fn=cond_ffn_filter)
+quantize_(model, MoEQuantConfig(Int8WeightOnlyConfig()), filter_fn=cond_ffn_filter)
 model=torch.compile(model, mode="reduce-overhead")
 # you can also use fullgraph=True for single token inference
 ```
@@ -23,20 +23,26 @@ This api is the same as for normal linear quantization but with a specific filte
 
 ## Alternative Quantization API
 
-To make the above api work, each tensor subclass had to be edited to work as 3D tensors. However the only ops we actually need to support are a few indexing and slicing ops on the 0th dimension, the majority of the work was removing hard coded assumptions about the tensor dimensionality. This means its possible to instead create a new tensor subclass that pretends to be a 3D tensor by storing a series of 2D tensors and simulating the slicing and indexing ops until eventually just returning the singular desired 2D quantized tensor subclass. This can be achieved using the alternative api as follows:
+To make the above api work, each tensor subclass had to be edited to work as 3D tensors. However the only ops we actually need to support are a few indexing and slicing ops on the 0th dimension, the majority of the work was removing hard coded assumptions about the tensor dimensionality. This means its possible to instead create a new tensor subclass that pretends to be a 3D tensor by storing a series of 2D tensors and simulating the slicing and indexing ops until eventually just returning the singular desired 2D quantized tensor subclass. This can be achieved using the alternative api by changing the fake_extra_dim_tensor flag of the MoEQuantConfig:
 
 ```python
 
-from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter, MoEQuantConfig
+from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter, MoEQuantConfig, UseFakeExtraDimTensor
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationIntxWeightConfig
 
-config = MoEQuantConfig(Int8DynamicActivationIntxWeightConfig())
+config = MoEQuantConfig(
+    Int8DynamicActivationIntxWeightConfig(),
+    # this is the only difference from the above api
+    use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
+)
 
 quantize_(model, , filter_fn=cond_ffn_filter)
 model=torch.compile(model, mode="reduce-overhead")
 ```
 
-While this approach turns out to not be especially performant, it does allow for comparable memory characteristics, allowing models that wouldn't fit on a single node/gpu to actually run. It is flexible enough however to work with all of the existing linear quantization techniques that make use of quantized tensor subclasses without any changes being made to those classes. It is compilable though even single token inference doesn't work with fullgraph compilation.
+It should also be noted that the default value for use_fake_extra_dim_tensor is AS_FALLBACK which means that it will try to use the base method but if not, will use the more general but less performant fake_extra_dim_tensor method.
+
+While this approach turns out to not be especially performant, it does allow for slightly better memory characteristics since all the tensors are held seperately and aren't actually modified or indexed. It is flexible enough to work with all of the existing linear quantization techniques that make use of quantized tensor subclasses without any changes being made to those classes. It is compilable though neither single token nor multi token inference works with fullgraph compilation.
 
 ## Model API
 

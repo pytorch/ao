@@ -12,6 +12,7 @@ from torchao.quantization.prototype.moe_quant.quantizable_moe_modules import (
 from torchao.quantization.prototype.moe_quant.utils import (
     FakeExtraDimTensor,
     MoEQuantConfig,
+    UseFakeExtraDimTensor,
     cond_ffn_filter,
 )
 from torchao.quantization.quant_api import (
@@ -25,7 +26,11 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_90, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+    is_sm_at_least_90,
+)
 
 
 class TestMoEQuantCompile(unittest.TestCase):
@@ -61,7 +66,10 @@ class TestMoEQuantCompile(unittest.TestCase):
 
         quantize_(model, config, cond_ffn_filter)
 
-        if isinstance(config, MoEQuantConfig):
+        if (
+            isinstance(config, MoEQuantConfig)
+            and config.use_fake_extra_dim_tensor == UseFakeExtraDimTensor.TRUE
+        ):
             self.assertIsInstance(model.experts.w1, FakeExtraDimTensor)
             if base_class is not None:
                 self.assertIsInstance(model.experts.w1.head_tensor, base_class)
@@ -104,7 +112,9 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
-        config = MoEQuantConfig(Int4WeightOnlyConfig())
+        config = MoEQuantConfig(
+            Int4WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+        )
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -128,7 +138,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
-        config = Int4WeightOnlyConfig()
+        config = MoEQuantConfig(Int4WeightOnlyConfig())
         tensor_impl_class = TensorCoreTiledAQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -150,7 +160,9 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
-        config = MoEQuantConfig(Int8WeightOnlyConfig())
+        config = MoEQuantConfig(
+            Int8WeightOnlyConfig(), use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
+        )
         tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -172,7 +184,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_6:
             self.skipTest("Test only enabled for 2.6+")
 
-        config = Int8WeightOnlyConfig()
+        config = MoEQuantConfig(Int8WeightOnlyConfig())
         tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -192,7 +204,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_6:
             self.skipTest("Test only enabled for 2.6+")
 
-        config = Int8WeightOnlyConfig()
+        config = MoEQuantConfig(Int8WeightOnlyConfig())
         tensor_impl_class = PlainAQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -214,7 +226,10 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
-        config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
+        config = MoEQuantConfig(
+            Int8DynamicActivationInt8WeightConfig(),
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
+        )
         base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(
@@ -236,7 +251,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest("Test only enabled for 2.5+")
 
-        config = Int8DynamicActivationInt8WeightConfig()
+        config = MoEQuantConfig(Int8DynamicActivationInt8WeightConfig())
         base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(
@@ -259,7 +274,10 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = MoEQuantConfig(Float8WeightOnlyConfig())
+        config = MoEQuantConfig(
+            Float8WeightOnlyConfig(),
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
+        )
         tensor_impl_class = Float8AQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -281,7 +299,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = Float8WeightOnlyConfig()
+        config = MoEQuantConfig(Float8WeightOnlyConfig())
         tensor_impl_class = Float8AQTTensorImpl
 
         self._test_impl_moe_quant(
@@ -303,7 +321,10 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig())
+        config = MoEQuantConfig(
+            Float8DynamicActivationFloat8WeightConfig(),
+            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
+        )
         base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(
@@ -325,7 +346,7 @@ class TestMoEQuantCompile(unittest.TestCase):
         if not is_sm_at_least_90():
             self.skipTest("Requires CUDA capability >= 9.0")
 
-        config = Float8DynamicActivationFloat8WeightConfig()
+        config = MoEQuantConfig(Float8DynamicActivationFloat8WeightConfig())
         base_class = LinearActivationQuantizedTensor
 
         self._test_impl_moe_quant(

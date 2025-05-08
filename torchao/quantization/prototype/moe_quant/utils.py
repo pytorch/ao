@@ -13,6 +13,8 @@ from torchao.quantization.quant_api import (
     register_quantize_module_handler,
 )
 from torchao.utils import fill_defaults
+from enum import Enum, auto
+from torchao.quantization.quant_api import _QUANTIZE_CONFIG_HANDLER
 
 
 class DummyModule(torch.nn.Module):
@@ -211,6 +213,13 @@ class FakeExtraDimTensor(torch.Tensor):
             )
             raise e
 
+class UseFakeExtraDimTensor(Enum):
+    """Enum that indicate whether to use FakeExtraDimTensor
+    """
+    TRUE = auto()
+    FALSE = auto()
+    AS_FALLBACK = auto()
+
 
 @dataclass
 class MoEQuantConfig(AOBaseConfig):
@@ -220,6 +229,48 @@ class MoEQuantConfig(AOBaseConfig):
     """
 
     base_config: AOBaseConfig
+    use_fake_extra_dim_tensor: UseFakeExtraDimTensor = UseFakeExtraDimTensor.AS_FALLBACK
+    set_inductor_config: bool=True
+
+
+# Module-level flag to track if we've already printed the error
+_moe_quant_tensor_has_printed_error = False
+
+def _moe_quant_tensor(weight, config):
+    def _moe_quant_tensor_base(weight, config):
+        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
+        dummy_mod = DummyModule(weight)
+        quant_mod = base_config_handler(dummy_mod, config.base_config)
+        return quant_mod.weight
+
+    def _moe_quant_tensor_fake_extra_dim_tensor(weight, config):
+        base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
+        # break 3D tensor
+        tensors = [weight[i] for i in range(weight.shape[0])]
+        # put tensors into modules since the handlers target modules not tensors
+        dummy_modules = [DummyModule(tensor) for tensor in tensors]
+        # apply handler to each module
+        quant_mods = list(map(lambda x: base_config_handler(x, config.base_config), dummy_modules))
+        # pack quantized subclasses into FakeExtraDimTensor
+        quant_weight = FakeExtraDimTensor([mod.weight for mod in quant_mods])
+        return quant_weight
+
+    global _moe_quant_tensor_has_printed_error
+    
+    use_fake = config.use_fake_extra_dim_tensor
+    if use_fake == UseFakeExtraDimTensor.FALSE:
+        return _moe_quant_tensor_base(weight, config)
+    elif use_fake == UseFakeExtraDimTensor.AS_FALLBACK:
+        try:
+            return _moe_quant_tensor_base(weight, config)
+        except Exception as e:
+            if not _moe_quant_tensor_has_printed_error:
+                print(f"tried to do moe_quant but got error: {e}")
+                _moe_quant_tensor_has_printed_error = True
+            return _moe_quant_tensor_fake_extra_dim_tensor(weight, config)
+    else:  # This handles UseFakeExtraDimTensor.TRUE
+        return _moe_quant_tensor_fake_extra_dim_tensor(weight, config)
+
 
 
 @register_quantize_module_handler(MoEQuantConfig)
@@ -229,24 +280,15 @@ def moe_quant_fn(module, config: MoEQuantConfig):
     warnings.simplefilter("ignore", lineno=84)
     warnings.simplefilter("ignore", lineno=105)
     assert "ConditionalFeedForwardAOQuantizable" in str(type(module))
-    from torchao.quantization.quant_api import _QUANTIZE_CONFIG_HANDLER
 
     for weight_attr in ["w1", "w2", "w3"]:
         param = getattr(module, weight_attr)
+        assert param.dim() == 3, f"when applying moe_quant to {module} expected 3D tensor for {weight_attr} but got {param.dim()}"
         assert isinstance(config.base_config, AOBaseConfig), (
             f"MoEQuantConfig expected to be initialized with an AOBaseConfig but got {type(config.base_config)}"
             + "this can happen if you initiaze with MoEQuantConfig(AOConfig) rather than MoEQuantConfig(AOConfig())"
         )
-        handler = _QUANTIZE_CONFIG_HANDLER[type(config.base_config)]
-
-        # break 3D tensor
-        tensors = [param[i] for i in range(param.shape[0])]
-        # put tensors into modules since the handlers target modules not tensors
-        dummy_modules = [DummyModule(tensor) for tensor in tensors]
-        # apply handler to each module
-        out_mods = list(map(lambda x: handler(x, config.base_config), dummy_modules))
-        # pack quantized subclasses into FakeExtraDimTensor
-        new_param = FakeExtraDimTensor([mod.weight for mod in out_mods])
+        new_param = _moe_quant_tensor(param, config)
         new_param = torch.nn.Parameter(new_param, requires_grad=False)
         setattr(module, weight_attr, new_param)
         del param

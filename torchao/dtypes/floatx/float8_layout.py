@@ -55,6 +55,7 @@ class Float8Layout(Layout):
 
     mm_config: Optional[Float8MMConfig] = None
 
+_fallback_warning_shown = False
 
 @register_layout(Float8Layout)
 class Float8AQTTensorImpl(AQTTensorImpl):
@@ -100,12 +101,34 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 
     def _apply_fn_to_data(self, fn):
         """Applys a fn to all tensor components stored on this class"""
-        return self.__class__(
-            fn(self.float8_data),
-            fn(self.scale),
-            self.transposed,
-            self._layout,
-        )
+        global _fallback_warning_shown
+        
+        try:
+            return self.__class__(
+                fn(self.float8_data),
+                fn(self.scale),
+                self.transposed,
+                self._layout,
+            )
+        except RuntimeError as e:
+            if '"index_cuda" not implemented for ' in str(e):
+                if not _fallback_warning_shown:
+                    import warnings
+                    warnings.warn(
+                        f"When trying to index Float8AQTTensorImpl, got known error {e}, will use slower fallback but "
+                        + "note: You can torch.compile the model to avoid this problem.",
+                        UserWarning
+                    )
+                    _fallback_warning_shown = True
+                    
+                return self.__class__( # do indexing in bfloat16 then convert back
+                    fn(self.float8_data.to(torch.bfloat16)).to(self.float8_data.dtype),
+                    fn(self.scale),
+                    self.transposed,
+                    self._layout,
+                )
+            else:
+                raise e
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)

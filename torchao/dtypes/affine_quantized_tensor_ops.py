@@ -504,7 +504,6 @@ def _(func, types, args, kwargs):
     assert len(indices) == 1, (
         f"op {func} currently only implemented for single dimensional indexing but got indices: {indices}"
     )
-
     new_tensor_impl = aten.index.Tensor(self.tensor_impl, indices)
     shape = tuple([indices[0].numel(), *self.shape[1:]])
 

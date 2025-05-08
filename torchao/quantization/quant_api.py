@@ -1130,22 +1130,14 @@ def _int4_weight_only_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if "ConditionalFeedForwardAOQuantizable" in str(type(module)):
-        for weight_attr in ["w1", "w2", "w3"]:
-            weight = getattr(module, weight_attr)
-            new_weight = _int4_weight_only_quantize_tensor(weight, config)
-            new_weight = torch.nn.Parameter(new_weight, requires_grad=False)
-            setattr(module, weight_attr, new_weight)
-        return module
-    else:
-        assert hasattr(module, "weight"), (
-            "applying int8 weight only quant requires module to have weight attribute"
-            + " but {module} does not have one"
-        )
-        new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
-        module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 @dataclass
@@ -1187,22 +1179,14 @@ def _int8_weight_only_transform(module: torch.nn.Module, config: Int8WeightOnlyC
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if "ConditionalFeedForwardAOQuantizable" in str(type(module)):
-        for weight_attr in ["w1", "w2", "w3"]:
-            weight = getattr(module, weight_attr)
-            new_weight = _int8_weight_only_quantize_tensor(weight, config)
-            new_weight = torch.nn.Parameter(new_weight, requires_grad=False)
-            setattr(module, weight_attr, new_weight)
-        return module
-    else:
-        assert hasattr(module, "weight"), (
-            "applying int8 weight only quant requires module to have weight attribute"
-            + " but {module} does not have one"
-        )
-        new_weight = _int8_weight_only_quantize_tensor(module.weight, config)
-        module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _int8_weight_only_quantize_tensor(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
@@ -1372,25 +1356,15 @@ def _int8_dynamic_activation_int8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if "ConditionalFeedForwardAOQuantizable" in str(type(module)):
-        for weight_attr in ["w1", "w2", "w3"]:
-            weight = getattr(module, weight_attr)
-            new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
-                weight, config
-            )
-            new_weight = torch.nn.Parameter(new_weight, requires_grad=False)
-            setattr(module, weight_attr, new_weight)
-        return module
-    else:
-        assert hasattr(module, "weight"), (
-            "applying int8 dynamic activation int8 weight quant requires module to have weight attribute"
-            + "but {module} does not have one"
-        )
-        new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
-            module.weight, config
-        )
-        module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    assert hasattr(module, "weight"), (
+        "applying int8 dynamic activation int8 weight quant requires module to have weight attribute"
+        + "but {module} does not have one"
+    )
+    new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
+        module.weight, config
+    )
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
@@ -1449,23 +1423,15 @@ def _float8_weight_only_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if "ConditionalFeedForwardAOQuantizable" in str(type(module)):
-        for weight_attr in ["w1", "w2", "w3"]:
-            weight = getattr(module, weight_attr)
-            new_weight = _float8_weight_only_quant_tensor(weight, config)
-            new_weight = torch.nn.Parameter(new_weight, requires_grad=False)
-            setattr(module, weight_attr, new_weight)
-        return module
-    else:
-        assert hasattr(module, "weight"), (
-            "applying int8 weight only quant requires module to have weight attribute"
-            + " but {module} does not have one"
-        )
-        new_weight = _float8_weight_only_quant_tensor(module.weight, config)
+    assert hasattr(module, "weight"), (
+        "applying int8 weight only quant requires module to have weight attribute"
+        + " but {module} does not have one"
+    )
+    new_weight = _float8_weight_only_quant_tensor(module.weight, config)
 
-        module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 _fp8_granularities = Union[PerTensor, PerRow]
@@ -1668,26 +1634,16 @@ def _float8_dynamic_activation_float8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if "ConditionalFeedForwardAOQuantizable" in str(type(module)):
-        for weight_attr in ["w1", "w2", "w3"]:
-            weight = getattr(module, weight_attr)
-            quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-                weight, config
-            )
-            new_weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-            setattr(module, weight_attr, new_weight)
-        return module
-    else:
-        assert hasattr(module, "weight"), (
-            "applying float8 dynamic activation quant requires module to have weight attribute"
-            + f"but {module} does not have one"
-        )
-        quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
-            module.weight, config
-        )
-        module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-        return module
+    assert hasattr(module, "weight"), (
+        "applying float8 dynamic activation quant requires module to have weight attribute"
+        + f"but {module} does not have one"
+    )
+    quantized_weight = _float8_dynamic_activation_float8_weight_quantize_tensor(
+        module.weight, config
+    )
+    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
 
 
 @dataclass
