@@ -43,8 +43,7 @@ def to_blocked(input_matrix, use_triton_kernel: bool = True) -> Tensor:
 
     padded = input_matrix
     # TODO This is to work around VLLM's usage of compile w/ dynamic shapes
-    # if torch.compiler.is_compiling() or (rows, cols) != (padded_rows, padded_cols):
-    if (rows, cols) != (padded_rows, padded_cols):
+    if torch.compiler.is_compiling() or (rows, cols) != (padded_rows, padded_cols):
         padded = torch.zeros(
             (padded_rows, padded_cols),
             device=input_matrix.device,
