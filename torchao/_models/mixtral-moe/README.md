@@ -1,3 +1,8 @@
-This is the benchmarking setup primarily used for testing quantized moe. You can reproduce the above numbers by running
+## Mixtral-MoE
+
+This folder contains code and scripts for benchmarking the Mixtral-MoE model.
+Running
 
 `sh scripts/prepare.sh`
+
+should download the model and `sh run.sh` will run teh benchmarks.

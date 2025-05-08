@@ -131,7 +131,6 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                     min=-1,
                     max=self.num_experts,
                 )  #  [E+1] (added leading 0 so can be used for indexing)
-            # num_tokens_per_expert = torch.bincount(expert_indices.view(-1)+1, minlength=self.num_experts+1)
             cum_tokens_per_expert = num_tokens_per_expert.cumsum(0).to(
                 torch.int64
             )  #  [E+1]

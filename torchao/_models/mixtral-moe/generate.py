@@ -208,7 +208,6 @@ def main(
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
-    print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
     print(f"Using device={device}")
     precision = torch.bfloat16
     is_chat = "chat" in str(checkpoint_path)
@@ -220,10 +219,10 @@ def main(
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision)
+    model = _load_model(checkpoint_path, "cpu", precision)
 
-    device_sync(device=device)  # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
+    t0 = time.time()
 
     tokenizer = SentencePieceProcessor(model_file=str(tokenizer_path))
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
@@ -299,7 +298,12 @@ def main(
 
         if config is not None:
             quantize_(model, config, filter_fn=cond_ffn_filter)
-            torch.cuda.reset_peak_memory_stats()
+            print(f"Time to apply quantization to model: {time.time() - t0:.02f} seconds")
+    
+    model.to(device=device)
+    device_sync(device=device)
+
+    print(f"C: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
 
     if compile:
         # moe quant + compile causes repeated warnings
@@ -382,7 +386,7 @@ def main(
 
         if not interactive:
             pass
-            print(tokenizer.decode(y[0].tolist()))
+            # print(tokenizer.decode(y[0].tolist()))
         else:
             print()
         tokens_generated = y.size(-1) - prompt_length

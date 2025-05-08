@@ -395,9 +395,17 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                 .to(torch.int64)
             )  #  [T]
 
-            num_tokens_per_expert = torch.histc(
-                expert_indices, bins=self.num_experts + 1, min=-1, max=self.num_experts
-            )  #  [E+1] (added leading 0 so can be used for indexing)
+            if not expert_indices.is_cuda:  # histc doesn't work on cpu for integers
+                num_tokens_per_expert = torch.bincount(
+                    expert_indices.view(-1) + 1, minlength=self.num_experts + 1
+                )
+            else:
+                num_tokens_per_expert = torch.histc(
+                    expert_indices,
+                    bins=self.num_experts + 1,
+                    min=-1,
+                    max=self.num_experts,
+                )  #  [E+1] (added leading 0 so can be used for indexing)
             cum_tokens_per_expert = num_tokens_per_expert.cumsum(0).to(
                 torch.int64
             )  #  [E+1]
