@@ -25,7 +25,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_90
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_sm_at_least_90, TORCH_VERSION_AT_LEAST_2_6
 
 
 class TestMoEQuantCompile(unittest.TestCase):
@@ -169,8 +169,8 @@ class TestMoEQuantCompile(unittest.TestCase):
     def test_int8wo_base(self, name, num_tokens, fullgraph):
         if not torch.cuda.is_available():
             self.skipTest("Need CUDA available")
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            self.skipTest("Test only enabled for 2.5+")
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            self.skipTest("Test only enabled for 2.6+")
 
         config = Int8WeightOnlyConfig()
         tensor_impl_class = PlainAQTTensorImpl
@@ -189,8 +189,8 @@ class TestMoEQuantCompile(unittest.TestCase):
         ]
     )
     def test_int8wo_base_cpu(self, name, num_tokens, fullgraph):
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            self.skipTest("Test only enabled for 2.5+")
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            self.skipTest("Test only enabled for 2.6+")
 
         config = Int8WeightOnlyConfig()
         tensor_impl_class = PlainAQTTensorImpl

@@ -299,7 +299,7 @@ def main(
         if config is not None:
             quantize_(model, config, filter_fn=cond_ffn_filter, device=device)
             print(
-                f"Time to apply quantization to model: {time.time() - t0:.02f} seconds"
+                f"Time to apply quantization with config {config} to model: {time.time() - t0:.02f} seconds"
             )
 
     model.to(device=device)
