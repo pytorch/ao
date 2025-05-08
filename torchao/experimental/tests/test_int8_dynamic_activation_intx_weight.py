@@ -647,9 +647,9 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
 
         with torch.device("cpu"):
             model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
-                torch.bfloat16
+                torch.float32
             )
-            x = torch.randn(8, 512, dtype=torch.bfloat16)
+            x = torch.randn(8, 512, dtype=torch.float32)
 
         out = model(x).clone()
 
