@@ -159,7 +159,7 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             raise ValueError(
                 f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
-        elif func in [aten.select.int, func is aten.index.Tensor]:
+        elif func in [aten.select.int, aten.index.Tensor]:
             return return_and_correct_aliasing(
                 func,
                 args,

@@ -271,10 +271,10 @@ def main(
             config = Int4WeightOnlyConfig()
 
         elif "int4wo" in moe_quant:
-            config = MoEQuantConfig(Float8WeightOnlyConfig())
+            config = MoEQuantConfig(Int4WeightOnlyConfig())
 
         elif "fp8wo-base" in moe_quant:
-            config = Int4WeightOnlyConfig()
+            config = Float8WeightOnlyConfig()
 
         elif "fp8wo" in moe_quant:
             config = MoEQuantConfig(Float8WeightOnlyConfig())
@@ -297,7 +297,7 @@ def main(
             )
 
         if config is not None:
-            quantize_(model, config, filter_fn=cond_ffn_filter)
+            quantize_(model, config, filter_fn=cond_ffn_filter, device=device)
             print(
                 f"Time to apply quantization to model: {time.time() - t0:.02f} seconds"
             )
@@ -392,10 +392,10 @@ def main(
         tokens_generated = y.size(-1) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics["tokens_per_sec"].append(tokens_sec)
-        print(
-            f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec"
-        )
-        print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
+        # print(
+        #     f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec"
+        # )
+        # print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
 
         if i == 0 and device == "cuda" and memory_profile is not None:
             snapshot = torch.cuda.memory._snapshot()
