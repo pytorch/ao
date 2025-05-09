@@ -1793,7 +1793,7 @@ def get_block_size(
         "Please provide an instance of Granularity, not subclass of it"
     )
     if isinstance(granularity, PerTensor):
-        return input_shape
+        return [-1]
     elif isinstance(granularity, PerAxis):
         block_size = list(input_shape)
         block_size[granularity.axis] = 1
