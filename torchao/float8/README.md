@@ -305,9 +305,6 @@ from torchao.quantization.quant_api import quantize_
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
-from torchao.quantization import (
-    float8_weight_only,
-)
 
 # load checkpoint
 checkpoint = torch.load('checkpoint.pth', weights_only=False)
