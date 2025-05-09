@@ -18,7 +18,7 @@ from torchao.prototype.mx_formats.config import (
     MXInferenceLinearConfig,
     MXLinearConfig,
 )
-from torchao.prototype.mx_formats.custom_cast import triton_to_mxfp8_dim1
+from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
