@@ -69,11 +69,11 @@ _replace_with_custom_fn_if_matches_filter(
 
 model = model
 
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.prototype.moe_quant.utils import (
     MoEQuantConfig,
     cond_ffn_filter,
 )
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
 quantize_(model, MoEQuantConfig(Int4WeightOnlyConfig()), cond_ffn_filter, device="cuda")
 
