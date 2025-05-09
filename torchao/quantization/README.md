@@ -397,7 +397,7 @@ The `quantize_` and `autoquant` apis now automatically use our recommended induc
 
 ```python
 from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-from torchao.quantization.linear_quant_modules Int4WeightOnlyGPTQQuantizer
+from torchao.quantization.GPTQ Int4WeightOnlyGPTQQuantizer
 precision = torch.bfloat16
 device = "cuda"
 checkpoint_file_name = "../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
@@ -421,7 +421,7 @@ calibration_seq_length = 100
 input_prep_func = prepare_inputs_for_model
 pad_calibration_inputs = False
 
-inputs = InputRecorder(
+inputs = MultiTensorInputRecorder(
     tokenizer,
     calibration_seq_length,
     input_prep_func,

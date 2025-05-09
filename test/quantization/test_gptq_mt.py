@@ -12,7 +12,7 @@ from torch.testing._internal.common_utils import run_tests
 
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer, MultiTensor
+from torchao.prototype.GPTQ.GPTQ import Int4WeightOnlyGPTQQuantizer, MultiTensor
 from torchao.quantization.utils import _lm_eval_available
 from torchao.utils import is_fbcode
 
@@ -257,7 +257,7 @@ if _lm_eval_available:
             return result
 
 
-def test_gptq_mt():
+def test_gptq():
     precision = torch.bfloat16
     device = "cuda"
     print("Loading model")

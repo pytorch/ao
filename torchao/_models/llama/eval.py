@@ -121,7 +121,7 @@ def run_evaluation(
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import MultiTensorInputRecorder
-            from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
+            from torchao.prototype.GPTQ.GPTQ import Int4WeightOnlyGPTQQuantizer
 
             groupsize = int(quantization.split("-")[-2])
             assert groupsize in [32, 64, 128, 256], (

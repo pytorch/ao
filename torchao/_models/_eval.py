@@ -12,7 +12,7 @@ import lm_eval
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.GPTQ_MT import MultiTensor
+from torchao.prototype.GPTQ.GPTQ import MultiTensor
 from torchao.quantization.utils import _MultiInput
 
 try:  # lm_eval version 0.4
