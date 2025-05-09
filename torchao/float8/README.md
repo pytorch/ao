@@ -256,7 +256,7 @@ m = nn.Sequential(
     nn.Linear(4096, 128),
 ).bfloat16().cuda()
 x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
-optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
+optimizer = torch.optim.SGD(m.parameters(), lr=1e-3)
 
 # optional: filter modules from being eligible for float8 conversion
 def module_filter_fn(mod: torch.nn.Module, fqn: str):
