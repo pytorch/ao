@@ -230,3 +230,73 @@ including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=re
    - float8 rowwise with bf16 all-gather + compile: `TORCHTITAN_ROOT=<path> FLOAT8_RECIPE_WITH_BEST_SETTINGS="rowwise" ./float8_training_benchmark.sh`
 
 See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README.md) for more details.
+
+# E2E training + inference flow
+
+There are two float8 inference quantization strategies that be used after training with float8: 1) weight only, and 2) dynamic activation and weight.
+
+### Weight only quantization
+```python
+import torch
+from torch import nn
+from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear import Float8Linear
+from torchao.quantization.quant_api import float8_weight_only, quantize_
+
+# simple example model and input
+x = torch.randn(32, 32, device="cuda")
+m = nn.Sequential(nn.Linear(32, 32)).cuda()
+
+# train with dynamic float8 training with tensorwise scaling
+m = convert_to_float8_training(m)
+
+
+# ... train ...
+# ... save/load checkpoint ...
+
+
+assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+
+# convert to weight only quantization for inference
+quantize_(m, float8_weight_only())
+
+# run inference
+with torch.inference_mode():
+    out = m(x)
+```
+
+
+### Dynamic activation and weight quantization
+
+```python
+import torch
+from torch import nn
+
+from torchao.float8.float8_linear_utils import convert_to_float8_training
+from torchao.float8.float8_linear import Float8Linear
+from torchao.quantization.granularity import PerTensor
+from torchao.quantization.quant_api import quantize_
+from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+)
+
+# simple example model and input
+x = torch.randn(32, 32, device="cuda")
+m = nn.Sequential(nn.Linear(32, 32)).cuda()
+
+# train with dynamic float8 training with tensorwise scaling
+m = convert_to_float8_training(m)
+
+# ... train ...
+# ... save/load checkpoint ...
+
+# apply dynamic float8 quantization on both activations and weights for inference
+assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+
+# run inference
+with torch.inference_mode():
+    out = m(x)
+```
+
+For more float8 inference performance benchmarks, see the inference docs [here](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md#cuda-backend-1).
