@@ -361,7 +361,7 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertTrue(torch.allclose(eager_results, exported_results))
 
         expected_lines = [
-            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, None, torch.float32, torch.int8)",
+            "torch.ops.torchao.choose_qparams_affine.default(input_1, 'ASYMMETRIC', [1, 512], torch.int8, None, None, 1.1920928955078125e-07, torch.float32, torch.int8)",
             "torch.ops.torchao.quantize_affine.default(input_1, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default(quantize_affine, [1, 512], getitem, getitem_1, torch.int8)",
             "torch.ops.torchao.dequantize_affine.default",
