@@ -13,10 +13,8 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
+from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
     Int8DynActInt4WeightLinear,
     Int8DynActInt4WeightQuantizer,
 )
@@ -183,9 +181,7 @@ __all__ = [
     "PerRow",
     "PerToken",
     "LinearActivationQuantizedTensor",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
     "WeightOnlyInt8QuantLinear",
