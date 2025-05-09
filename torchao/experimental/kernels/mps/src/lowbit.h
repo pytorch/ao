@@ -111,6 +111,25 @@ inline void linear_lowbit_quant_weights_mps_impl(
   });
 }
 
+template <int nbit>
+std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
+    int64_t qGroupSize,
+    const std::string_view type_str,
+    int32_t M,
+    int32_t N,
+    int32_t K) {
+  if (M == 1 && N % 8 == 0 && K % 512 == 0) {
+    return std::make_tuple(
+        std::string("qmv_fast_") + std::to_string(nbit) + "bit_" +
+            std::to_string(qGroupSize) + "_" + std::string(type_str),
+        dispatch::dispatch_qmv_fast);
+  }
+  return std::make_tuple(
+      std::string(LowBitConfig<nbit>::func_prefix) + std::to_string(qGroupSize) +
+          "_" + std::string(type_str),
+      LowBitConfig<nbit>::dispatch_fn);
+}
+
 // LowBit Quantized Weights Linear on Metal
 template <int nbit>
 void linear_lowbit_quant_weights_mps(
@@ -129,8 +148,11 @@ void linear_lowbit_quant_weights_mps(
   assert(
       qGroupSize == 32 || qGroupSize == 64 || qGroupSize == 128 ||
       qGroupSize == 256);
-  const std::string shader_func = std::string(LowBitConfig<nbit>::func_prefix) +
-      std::to_string(qGroupSize) + "_" + std::string(type_str);
+  std::tuple<const std::string, DispatchFn> shader_func_and_dispatch =
+      get_shader_func_and_dispatch<nbit>(qGroupSize, type_str, M, N, K);
+  const std::string shader_func = std::get<0>(shader_func_and_dispatch);
+  const DispatchFn dispatch_fn = std::get<1>(shader_func_and_dispatch);
+
   return linear_lowbit_quant_weights_mps_impl(
       a_buf,
       b_buf,
@@ -141,7 +163,7 @@ void linear_lowbit_quant_weights_mps(
       K,
       N,
       shader_func,
-      LowBitConfig<nbit>::dispatch_fn);
+      dispatch_fn);
 }
 
 } // namespace
