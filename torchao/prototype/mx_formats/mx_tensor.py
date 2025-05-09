@@ -45,7 +45,7 @@ from torchao.prototype.mx_formats.constants import (
     F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
-from torchao.prototype.mx_formats.custom_cast import (
+from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,

@@ -47,5 +47,6 @@ def register_quantize_module_handler(config_type):
     @functools.wraps(config_type)
     def decorator(func):
         _QUANTIZE_CONFIG_HANDLER[config_type] = func
+        return func  # needed to make the functions usable externally
 
     return decorator

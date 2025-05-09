@@ -365,22 +365,23 @@ def get_groupwise_affine_qparams(
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
     guard_dtype_size(zeros, "zeros", dtype=dtype)
+    dim = scales.dim()
     return (
         torch.cat(
             [
-                scales.reshape(scales.size(0), scales.size(1), 1),
-                zeros.reshape(zeros.size(0), zeros.size(1), 1),
+                scales.unsqueeze(-1),
+                zeros.unsqueeze(-1),
             ],
-            2,
+            dim,
         )
-        .transpose(0, 1)
+        .transpose(-3, -2)
         .contiguous()
     )
 
 
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
-    assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-    return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
+    assert scales_and_zeros.shape[-1] == 2
+    return torch.split(scales_and_zeros.transpose(-3, -2), 1, -1)
 
 
 def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):

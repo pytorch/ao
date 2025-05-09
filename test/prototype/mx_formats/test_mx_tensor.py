@@ -17,7 +17,7 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E3M2,
     SUPPORTED_ELEM_DTYPES,
 )
-from torchao.prototype.mx_formats.custom_cast import pack_uint4, pack_uint6
+from torchao.prototype.mx_formats.kernels import pack_uint4, pack_uint6
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,

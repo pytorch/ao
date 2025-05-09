@@ -359,12 +359,16 @@ def _linear_impl(input_tensor, weight_tensor, bias):
 
         m, k = input_tensor.shape
         n, k_ = weight_tensor.shape
+
         assert k_ == k
         group_size = weight_tensor.tensor_impl.get_layout().group_size
         packed_weight = weight_tensor.tensor_impl.packed_weight
         return torch.ops.aten._dyn_quant_matmul_4bit(
             input_tensor, packed_weight, group_size, k, n
         )
+
+    if input_tensor.numel() == 0:
+        return input_tensor
 
     target = weight_tensor.tensor_impl.get_layout().target
 

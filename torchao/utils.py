@@ -10,7 +10,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Tuple
+from typing import Any, Callable
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -170,7 +170,7 @@ def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     return measurement.mean * 1e6
 
 
-def find_multiple(n: int, *args: Tuple[int]) -> int:
+def find_multiple(n: int, *args: int) -> int:
     k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
     if n % k == 0:
         return n

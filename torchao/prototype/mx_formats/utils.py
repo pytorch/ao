@@ -6,6 +6,8 @@
 
 import torch
 
+from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
+
 Tensor = torch.Tensor
 
 
@@ -13,7 +15,7 @@ def ceil_div(a, b):
     return (a + b - 1) // b
 
 
-def to_blocked(input_matrix) -> Tensor:
+def to_blocked(input_matrix, use_triton_kernel: bool = True) -> Tensor:
     """
     Rearrange a large matrix by breaking it into blocks and applying the rearrangement pattern.
 
@@ -22,10 +24,15 @@ def to_blocked(input_matrix) -> Tensor:
 
     Args:
         input_matrix: Input tensor of shape (H, W)
+        use_triton_kernel: Whether to use a triton implementation instead of relying on
+            torch.compile
 
     Returns:
         Rearranged tensor of shape (32*ceil_div(H,128), 16*ceil_div(W,4))
     """
+    if use_triton_kernel:
+        return triton_mx_block_rearrange(input_matrix).flatten()
+
     rows, cols = input_matrix.shape
     n_row_blocks = ceil_div(rows, 128)
     n_col_blocks = ceil_div(cols, 4)
@@ -35,6 +42,8 @@ def to_blocked(input_matrix) -> Tensor:
     padded_cols = n_col_blocks * 4
 
     padded = input_matrix
+    # TODO This is to work around VLLM's usage of compile w/ dynamic shapes
+    # if torch.compiler.is_compiling() or (rows, cols) != (padded_rows, padded_cols):
     if (rows, cols) != (padded_rows, padded_cols):
         padded = torch.zeros(
             (padded_rows, padded_cols),

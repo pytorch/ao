@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Callable, Tuple
 
 import fire
@@ -5,7 +11,7 @@ import torch
 import triton
 from torch._inductor.utils import do_bench_using_profiling
 
-from torchao.prototype.mx_formats.custom_cast import (
+from torchao.prototype.mx_formats.kernels import (
     triton_to_mxfp8_dim1,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
