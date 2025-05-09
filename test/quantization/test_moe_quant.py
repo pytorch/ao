@@ -6,10 +6,10 @@ from parameterized import parameterized
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl
 from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledAQTTensorImpl
-from torchao.quantization.prototype.moe_quant.quantizable_moe_modules import (
+from torchao.prototype.moe_quant.quantizable_moe_modules import (
     MOEFeedForwardAOQuantizable,
 )
-from torchao.quantization.prototype.moe_quant.utils import (
+from torchao.prototype.moe_quant.utils import (
     FakeExtraDimTensor,
     MoEQuantConfig,
     UseFakeExtraDimTensor,

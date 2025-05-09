@@ -16,7 +16,7 @@ import torch.nn as nn
 from transformers import AutoTokenizer, Llama4ForCausalLM
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
-from torchao.quantization.prototype.moe_quant.quantizable_moe_modules import (
+from torchao.prototype.moe_quant.quantizable_moe_modules import (
     MOEFeedForwardAOQuantizable,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
@@ -69,11 +69,11 @@ _replace_with_custom_fn_if_matches_filter(
 
 model = model
 
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.quantization.prototype.moe_quant.utils import (
+from torchao.prototype.moe_quant.utils import (
     MoEQuantConfig,
     cond_ffn_filter,
 )
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
 quantize_(model, MoEQuantConfig(Int4WeightOnlyConfig()), cond_ffn_filter, device="cuda")
 

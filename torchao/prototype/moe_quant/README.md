@@ -10,7 +10,7 @@ The API for moe quantization is very similar to linear quantization, given a moe
 
 ```python
 
-from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter,
+from torchao.prototype.moe_quant.utils import cond_ffn_filter,
 from torchao.quantization.quant_api import quantize_, Int8WeightOnlyConfig
 
 quantize_(model, MoEQuantConfig(Int8WeightOnlyConfig()), filter_fn=cond_ffn_filter)
@@ -27,7 +27,7 @@ To make the above api work, each tensor subclass had to be edited to work as 3D 
 
 ```python
 
-from torchao.quantization.prototype.moe_quant.utils import cond_ffn_filter, MoEQuantConfig, UseFakeExtraDimTensor
+from torchao.prototype.moe_quant.utils import cond_ffn_filter, MoEQuantConfig, UseFakeExtraDimTensor
 from torchao.quantization.quant_api import quantize_, Int8DynamicActivationIntxWeightConfig
 
 config = MoEQuantConfig(
