@@ -238,12 +238,10 @@ The first step in the E2E is to train your model and save a checkpoint. The seco
 ```python
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_linear import Float8Linear
-
-import torch
-import torch.nn as nn
 from torchao.float8 import convert_to_float8_training
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -254,9 +252,10 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 m = nn.Sequential(
     nn.Linear(2048, 4096),
     nn.Linear(4096, 128),
+    nn.Linear(128, 1),
 ).bfloat16().cuda()
 x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
-optimizer = torch.optim.SGD(m.parameters(), lr=1e-3)
+optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
 
 # optional: filter modules from being eligible for float8 conversion
 def module_filter_fn(mod: torch.nn.Module, fqn: str):
@@ -278,8 +277,11 @@ m = torch.compile(m)
 # toy training loop
 for _ in range(10):
     optimizer.zero_grad()
-    y = m(x)
-    y.sum().backward()
+    output = m(x)
+    # use fake labels for demonstration purposes
+    fake_labels = torch.ones_like(output)
+    loss = F.mse_loss(output, fake_labels)
+    loss.backward()
     optimizer.step()
 
 # save the model
