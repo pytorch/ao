@@ -309,7 +309,6 @@ from torchao.quantization import (
 checkpoint = torch.load('checkpoint.pth', weights_only=False)
 model = checkpoint['model']
 model.load_state_dict(checkpoint['model_state_dict'])
-import pdb; pdb.set_trace()
 
 # option 1: weight only quantization
 quantize_(model, float8_weight_only())
