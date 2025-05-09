@@ -233,7 +233,7 @@ See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README
 
 # E2E training + inference flow
 
-There are two float8 inference quantization strategies that be used after training with float8: 1) weight only, and 2) dynamic activation and weight.
+The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model.
 #### 1. Train model and save checkpoint
 ```python
 import torch
@@ -292,6 +292,10 @@ torch.save({
 
 #### 2. Load checkpoint and optionally apply inference quantization
 
+There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.
+
+Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md).
+
 ```python
 import torch
 
@@ -310,11 +314,8 @@ checkpoint = torch.load('checkpoint.pth', weights_only=False)
 model = checkpoint['model']
 model.load_state_dict(checkpoint['model_state_dict'])
 
-# option 1: weight only quantization
-quantize_(model, float8_weight_only())
-
-# option 2: dynamic float8 quantization on both activations and weights for inference
-# quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+# optional: apply dynamic float8 quantization on both activations and weights for inference
+quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
 
 # run inference
 x = torch.randn(1, 4096, 2048, device="cuda", dtype=torch.bfloat16)
@@ -322,5 +323,3 @@ with torch.inference_mode():
     out = model(x)
     print(out)
 ```
-
-For more float8 inference performance benchmarks, see the inference docs [here](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md#cuda-backend-1).
