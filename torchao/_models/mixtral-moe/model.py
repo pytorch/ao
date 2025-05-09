@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
 
-from torchao.quantization.prototype.moe_quant.utils import FakeExtraDimTensor
+from torchao.prototype.moe_quant.utils import FakeExtraDimTensor
 
 
 def find_multiple(n: int, k: int) -> int:

@@ -630,10 +630,10 @@ class TestInt8DynamicActivationIntxWeight(unittest.TestCase):
         self.assertTrue(sqnr2 == float("inf"))
 
     def test_moe_quant_intx(self):
-        from torchao.quantization.prototype.moe_quant.quantizable_moe_modules import (
+        from torchao.prototype.moe_quant.quantizable_moe_modules import (
             MOEFeedForwardAOQuantizable,
         )
-        from torchao.quantization.prototype.moe_quant.utils import (
+        from torchao.prototype.moe_quant.utils import (
             FakeExtraDimTensor,
             MoEQuantConfig,
             UseFakeExtraDimTensor,
