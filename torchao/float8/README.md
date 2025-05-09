@@ -234,64 +234,80 @@ See the float8 training benchmarking [guide](.torchao/float8/benchmarking/README
 # E2E training + inference flow
 
 There are two float8 inference quantization strategies that be used after training with float8: 1) weight only, and 2) dynamic activation and weight.
-
-### Weight only quantization
+#### 1. Train model and save checkpoint
 ```python
 import torch
 from torch import nn
+
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_linear import Float8Linear
-from torchao.quantization.quant_api import float8_weight_only, quantize_
 
-# simple example model and input
-x = torch.randn(32, 32, device="cuda")
-m = nn.Sequential(nn.Linear(32, 32)).cuda()
+import torch
+import torch.nn as nn
+from torchao.float8 import convert_to_float8_training
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-# train with dynamic float8 training with tensorwise scaling
-m = convert_to_float8_training(m)
+if not TORCH_VERSION_AT_LEAST_2_5:
+    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
+# create model and sample input
+m = nn.Sequential(
+    nn.Linear(2048, 4096),
+    nn.Linear(4096, 128),
+).bfloat16().cuda()
+x = torch.randn(4096, 2048, device="cuda", dtype=torch.bfloat16)
+optimizer = torch.optim.SGD(m.parameters(), lr=0.1)
 
-# ... train ...
-# ... save/load checkpoint ...
+# optional: filter modules from being eligible for float8 conversion
+def module_filter_fn(mod: torch.nn.Module, fqn: str):
+    # don't convert the last module
+    if fqn == "1":
+        return False
+    # don't convert linear modules with weight dimensions not divisible by 16
+    if isinstance(mod, torch.nn.Linear):
+        if mod.in_features % 16 != 0 or mod.out_features % 16 != 0:
+            return False
+    return True
 
+# convert specified `torch.nn.Linear` modules to `Float8Linear`
+convert_to_float8_training(m, module_filter_fn=module_filter_fn)
 
-assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+# enable torch.compile for competitive performance
+m = torch.compile(m)
 
-# convert to weight only quantization for inference
-quantize_(m, float8_weight_only())
+# toy training loop
+for _ in range(10):
+    optimizer.zero_grad()
+    y = m(x)
+    y.sum().backward()
+    optimizer.step()
 
-# run inference
-with torch.inference_mode():
-    out = m(x)
+# save the model
+torch.save({
+    'model_state_dict': m.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+}, 'checkpoint.pth')
 ```
 
-
-### Dynamic activation and weight quantization
+#### 2. Load checkpoint and apply inference quantization
 
 ```python
 import torch
-from torch import nn
-
-from torchao.float8.float8_linear_utils import convert_to_float8_training
-from torchao.float8.float8_linear import Float8Linear
+from torch.float8.float8_linear import Float8Linear
 from torchao.quantization.granularity import PerTensor
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
 
-# simple example model and input
-x = torch.randn(32, 32, device="cuda")
-m = nn.Sequential(nn.Linear(32, 32)).cuda()
-
-# train with dynamic float8 training with tensorwise scaling
-m = convert_to_float8_training(m)
-
-# ... train ...
-# ... save/load checkpoint ...
-
-# apply dynamic float8 quantization on both activations and weights for inference
+# load checkpointed model
+m = torch.load('checkpoint.pth')
 assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+
+# option 1: weight only quantization
+# quantize_(m, float8_weight_only())
+
+# option 2: dynamic float8 quantization on both activations and weights for inference
 quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
 
 # run inference
