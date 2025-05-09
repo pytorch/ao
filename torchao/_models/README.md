@@ -1,6 +1,6 @@
 # TODO: Add info for _models here
 
-# Eval on Llama 3.1 8B and Llama 3.2 3B
+## Eval on Llama 3.1 8B and Llama 3.2 3B
 
 We use lm-eval tasks for evaluating TorchAO Quantization APIs on HuggingFace models. The results are in the table below:
 
@@ -15,6 +15,8 @@ We use lm-eval tasks for evaluating TorchAO Quantization APIs on HuggingFace mod
 | Llama 3.1 8B  | float8dq (PerTensor)   | 59.95 | 78.66  |       7.42     | 10.63                  | 8.03              |
 | Llama 3.1 8B  | gemlite (gp=128)       | 58.48 | 77.34  |       8.07     | 14.42                  | 4.76              |
 
+| Model Name | Quantization Technique    | Acc   |Acc Norm| Word perplexity| Throughput (tokens/sec)| Model Size (GB)   |
+|---------------|------------------------|-------|--------|----------------|------------------------|-------------------|
 | Llama 3.2 3B  | None                   | 55.27 | 73.70  |       9.26     | 53.08                  | 6.43              |
 | Llama 3.2 3B  | int4wo-128             | 53.13 | 71.31  |       10.36    | 36.36                  | 2.29              |
 | Llama 3.2 3B  | int8wo                 | 55.15 | 73.44  |       9.28     | 36.30                  | 3.61              |
