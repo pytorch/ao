@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import itertools
 import subprocess
 import time
 
@@ -12,12 +13,17 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 from benchmarks.microbenchmarks.utils import string_to_config
+from torchao.quantization import *  # noqa: F401, F403
 from torchao.quantization.utils import _lm_eval_available
 
 
 def quantize_model_and_save(model_id, quant_config, output_dir="results"):
     """Quantize the model and save it to the output directory."""
-    quantization_config = TorchAoConfig(quant_type=quant_config)
+    print("Quantizing model with config: ", quant_config)
+    if quant_config is None:
+        quantization_config = None
+    else:
+        quantization_config = TorchAoConfig(quant_type=quant_config)
     quantized_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto",
@@ -30,8 +36,9 @@ def quantize_model_and_save(model_id, quant_config, output_dir="results"):
     return quantized_model, tokenizer
 
 
-def run_lm_eval(model_dir, tasks="hellaswag", device="cuda:0", batch_size=8):
+def run_lm_eval(model_dir, tasks_list=["hellaswag"], device="cuda:0", batch_size=8):
     """Run the lm_eval command using subprocess."""
+    tasks_str = ",".join(tasks_list)
     command = [
         "lm_eval",
         "--model",
@@ -39,7 +46,7 @@ def run_lm_eval(model_dir, tasks="hellaswag", device="cuda:0", batch_size=8):
         "--model_args",
         f"pretrained={model_dir}",
         "--tasks",
-        f"{tasks}",
+        f"{tasks_str}",
         "--device",
         f"{device}",
         "--batch_size",
@@ -122,6 +129,36 @@ def model_throughput(
     return throughput
 
 
+def get_model_size_in_bytes(model, ignore_embeddings=False):
+    """
+    Returns the model size in bytes. The option to ignore embeddings
+    is useful for models with disproportionately large embeddings compared
+    to other model parameters that get quantized/sparsified.
+    """
+
+    def flat_size(tensor):
+        if hasattr(tensor, "__tensor_flatten__"):
+            size = 0
+            # 0th element is a list of attributes that
+            # hold tensors
+            for attr_name in tensor.__tensor_flatten__()[0]:
+                sub_tensor = getattr(tensor, attr_name)
+                size += flat_size(sub_tensor)
+            return size
+        else:
+            return tensor.numel() * tensor.element_size()
+
+    model_size = 0
+    for _, child in model.named_children():
+        if not (isinstance(child, torch.nn.Embedding) and ignore_embeddings):
+            for p in itertools.chain(
+                child.parameters(recurse=False), child.buffers(recurse=False)
+            ):
+                model_size += flat_size(p)
+            model_size += get_model_size_in_bytes(child, ignore_embeddings)
+    return model_size
+
+
 def run(
     model_id,
     quantization,
@@ -140,7 +177,9 @@ def run(
     quantized_model, tokenizer = quantize_model_and_save(
         model_id, quant_config=quant_config, output_dir=model_output_dir
     )
-    run_lm_eval(model_output_dir, tasks=tasks, device=device, batch_size=batch_size)
+    run_lm_eval(
+        model_output_dir, tasks_list=tasks, device=device, batch_size=batch_size
+    )
     model_throughput(
         quantized_model,
         tokenizer,
@@ -148,7 +187,8 @@ def run(
         max_new_tokens=max_new_tokens,
         num_runs=num_runs,
     )
-    # TODO: Add memory usage measurement
+    model_size = get_model_size_in_bytes(quantized_model, ignore_embeddings=True) / 1e9
+    print(f"Model size: {model_size:.2f} GB")
 
 
 if __name__ == "__main__":
@@ -171,11 +211,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quantization",
         type=str,
-        default="float8wo",
+        default=None,
         help="The quantization method to use.",
     )
     parser.add_argument(
-        "--tasks", type=str, default="hellaswag", help="Tasks to run in lm_eval."
+        "--tasks",
+        nargs="+",
+        type=str,
+        default=["wikitext"],
+        help="List of lm-eluther tasks to evaluate usage: --tasks task1 task2",
     )
     parser.add_argument(
         "--device", type=str, default="cuda:0", help="Device to run the model on."

@@ -18,6 +18,7 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -287,6 +288,15 @@ def string_to_config(
         else:
             granularity = PerTensor()
         return Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+    if "gemlitewo" in quantization:
+        group_size = int(quantization.split("-")[1])
+        assert group_size in [
+            32,
+            64,
+            128,
+            256,
+        ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
+        return GemliteUIntXWeightOnlyConfig(group_size=group_size)
     return None
 
 
