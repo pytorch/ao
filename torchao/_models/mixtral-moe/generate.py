@@ -236,7 +236,7 @@ def main(
         ]
     )
 
-    from torchao.quantization.prototype.moe_quant.utils import (
+    from torchao.prototype.moe_quant.utils import (
         MoEQuantConfig,
         UseFakeExtraDimTensor,
         cond_ffn_filter,

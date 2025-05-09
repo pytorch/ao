@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from torchao.quantization.prototype.moe_quant.utils import FakeExtraDimTensor
+from torchao.prototype.moe_quant.utils import FakeExtraDimTensor
 
 
 class MOEFeedForwardAOQuantizable(nn.Module):
