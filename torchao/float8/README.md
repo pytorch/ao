@@ -284,35 +284,44 @@ for _ in range(10):
 
 # save the model
 torch.save({
+    'model': m,
     'model_state_dict': m.state_dict(),
     'optimizer_state_dict': optimizer.state_dict(),
 }, 'checkpoint.pth')
 ```
 
-#### 2. Load checkpoint and apply inference quantization
+#### 2. Load checkpoint and optionally apply inference quantization
 
 ```python
 import torch
-from torch.float8.float8_linear import Float8Linear
+
+from torchao.float8.float8_linear import Float8Linear
 from torchao.quantization.granularity import PerTensor
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
+from torchao.quantization import (
+    float8_weight_only,
+)
 
-# load checkpointed model
-m = torch.load('checkpoint.pth')
-assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
+# load checkpoint
+checkpoint = torch.load('checkpoint.pth', weights_only=False)
+model = checkpoint['model']
+model.load_state_dict(checkpoint['model_state_dict'])
+import pdb; pdb.set_trace()
 
 # option 1: weight only quantization
-# quantize_(m, float8_weight_only())
+quantize_(model, float8_weight_only())
 
 # option 2: dynamic float8 quantization on both activations and weights for inference
-quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+# quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
 
 # run inference
+x = torch.randn(1, 4096, 2048, device="cuda", dtype=torch.bfloat16)
 with torch.inference_mode():
-    out = m(x)
+    out = model(x)
+    print(out)
 ```
 
 For more float8 inference performance benchmarks, see the inference docs [here](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md#cuda-backend-1).
