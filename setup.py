@@ -263,9 +263,7 @@ def get_extensions():
             "If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit"
         )
 
-    use_cuda = torch.version.cuda and (
-        CUDA_HOME is not None or ROCM_HOME is not None
-    )
+    use_cuda = torch.version.cuda and (CUDA_HOME is not None or ROCM_HOME is not None)
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
