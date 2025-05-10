@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 import torch
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard
+from torch.distributed._composable.fsdp import (
+    fully_shard,
+    CPUOffloadPolicy,
+    OffloadPolicy,
+)
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -427,16 +431,21 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
-        optim_classes = [optim.AdamW8bit, optim.AdamW4bit]
+        # we do this to avoid all combinations
+        args_list = [
+            (optim.AdamW8bit, OffloadPolicy),
+            (optim.AdamW4bit, OffloadPolicy),
+            (optim.AdamW8bit, CPUOffloadPolicy),
+        ]
         if torch.cuda.get_device_capability() >= (8, 9):
-            optim_classes.append(optim.AdamWFp8)
+            args_list.append((optim.AdamWFp8, OffloadPolicy))
 
         self.run_subtests(
-            {"optim_cls": optim_classes},
+            {"args": args_list},
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(self, optim_cls):
+    def _test_fsdp2(self, args):
         import torch.distributed as dist
         import torch.distributed.checkpoint as dcp
         import torch.utils._pytree as pytree
@@ -446,6 +455,8 @@ class TestFSDP2(FSDPTest):
             Transformer,
             TransformerBlock,
         )
+
+        optim_cls, offload_policy = args
 
         batch_size = 3
         vocab_size = 1024
@@ -466,8 +477,8 @@ class TestFSDP2(FSDPTest):
         fsdp_model = copy.deepcopy(base_model)
         for m in fsdp_model.modules():
             if isinstance(m, TransformerBlock):
-                fully_shard(m)
-        fully_shard(fsdp_model)
+                fully_shard(m, offload_policy=offload_policy)
+        fully_shard(fsdp_model, offload_policy=offload_policy)
         fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
