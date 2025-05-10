@@ -15,6 +15,7 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Platform options
 option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
 option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
 option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
@@ -28,9 +29,12 @@ if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
     set(TORCHAO_PARALLEL_BACKEND aten_openmp)
 endif()
 
-include(CMakePrintHelpers)
-
+# Set compiler flags
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
+
+# Find PyTorch
+find_package(Torch REQUIRED)
+include_directories(${TORCH_INCLUDE_DIRS})
 
 include(CMakePrintHelpers)
 message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
@@ -42,6 +46,17 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
     add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
+    if (LINUX)
+        add_compile_options(
+            "-fPIC"
+            "-Wno-error=unknown-pragmas"
+            "-Wno-array-parameter"
+            "-Wno-maybe-uninitialized"
+            "-Wno-sign-compare"
+            "-march=armv8.4-a+dotprod"
+        )
+    endif()
+
     # Defines torchao_kernels_aarch64
     add_subdirectory(kernels/cpu/aarch64)
 
@@ -51,26 +66,33 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     endif()
 endif()
 
+# Add quantized operation dir
 add_subdirectory(ops/linear_8bit_act_xbit_weight)
 add_subdirectory(ops/embedding_xbit)
 
+# ATen ops lib
 add_library(torchao_ops_aten SHARED)
 target_link_libraries(
     torchao_ops_aten PRIVATE
     torchao_ops_linear_8bit_act_xbit_weight_aten
     torchao_ops_embedding_xbit_aten
 )
+
+# Add MPS support if enabled
 if (TORCHAO_BUILD_MPS_OPS)
     message(STATUS "Building with MPS support")
     add_subdirectory(ops/mps)
     target_link_libraries(torchao_ops_aten PRIVATE torchao_ops_mps_aten)
 endif()
 
+# Install ATen targets
 install(
     TARGETS torchao_ops_aten
     EXPORT _targets
     DESTINATION lib
 )
+
+# Build executorch lib if enabled
 if(TORCHAO_BUILD_EXECUTORCH_OPS)
     add_library(torchao_ops_executorch STATIC)
     target_link_libraries(torchao_ops_executorch PRIVATE

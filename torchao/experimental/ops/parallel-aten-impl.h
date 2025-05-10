@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
-#include <Aten/Parallel.h>
+#include <ATen/Parallel.h>
 #include <torch/library.h>
 #include <torch/torch.h>
 

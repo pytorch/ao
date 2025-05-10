@@ -10,14 +10,43 @@ import torch
 from torch import Tensor
 from torch.library import impl
 
-# Load C++ ops
-lib_path = Path(__file__).parent.parent
-libs = list(lib_path.glob("libtorchao_ops_aten.*"))
-assert len(libs) == 1, (
-    f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
-)
-torch.ops.load_library(str(libs[0]))
+# Load C++ ops - use multiple potential paths
+potential_paths = [
+    # Standard path from the module location
+    Path(__file__).parent.parent,
+    # Site-packages installation path
+    Path(torch.__file__).parent.parent / "torchao",
+    # For editable installs
+    Path(__file__).parent.parent.parent / "torchao",
+]
 
+
+def find_and_load_libtorchao_ops(potential_paths):
+    for lib_path in potential_paths:
+        libs = list(lib_path.glob("libtorchao_ops_aten.*"))
+
+        if not libs:
+            continue
+
+        assert len(libs) == 1, (
+            f"Expected to find one libtorchao_ops_aten.* library at {lib_path}, but found {len(libs)}"
+        )
+
+        target_lib = libs[0]
+        print(f"Found library at: {target_lib}")
+
+        try:
+            torch.ops.load_library(str(target_lib))
+            return
+        except Exception as e:
+            print(f"Error loading library from {target_lib}: {e}")
+
+    raise FileNotFoundError(
+        "Could not find libtorchao_ops_aten library in any of the provided paths"
+    )
+
+
+find_and_load_libtorchao_ops(potential_paths)
 
 # Define meta ops.  To support dynamic shapes, some meta ops need to
 # be defined in python instead of C++.

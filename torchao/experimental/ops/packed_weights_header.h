@@ -43,7 +43,7 @@ class PackedWeightsHeader {
     auto header = reinterpret_cast<int*>(packed_weights);
     header[0] = magic;
     header[1] = static_cast<int>(type);
-    for (int i = 0; i < params.size(); i++) {
+    for (size_t i = 0; i < params.size(); i++) {
       header[i + 2] = params[i];
     }
   }
@@ -52,7 +52,7 @@ class PackedWeightsHeader {
     auto header = reinterpret_cast<const int*>(packed_weights);
     assert(header[0] == PackedWeightsHeader::magic);
     params_type params;
-    for (int i = 0; i < params.size(); i++) {
+    for (size_t i = 0; i < params.size(); i++) {
       params[i] = header[i + 2];
     }
     return PackedWeightsHeader(
@@ -63,7 +63,7 @@ class PackedWeightsHeader {
     if (type != other.type) {
       return false;
     }
-    for (int i = 0; i < params.size(); i++) {
+    for (size_t i = 0; i < params.size(); i++) {
       if (params[i] != other.params[i]) {
         return false;
       }
@@ -79,7 +79,7 @@ namespace std {
     struct hash<torchao::ops::PackedWeightsHeader> {
         std::size_t operator()(const torchao::ops::PackedWeightsHeader& f) const {
           std::size_t hash =  std::hash<int>()(static_cast<int>(f.type));
-          for (int i = 0; i < f.params.size(); i++) {
+          for (size_t i = 0; i < f.params.size(); i++) {
             hash ^= std::hash<int>()(f.params[i]);
           }
           return hash;
