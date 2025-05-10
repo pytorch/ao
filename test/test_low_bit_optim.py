@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 import torch
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard
+from torch.distributed._composable.fsdp import (
+    fully_shard,
+    CPUOffloadPolicy,
+    OffloadPolicy,
+)
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
@@ -427,8 +431,6 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
-        from torch.distributed.fsdp import CPUOffloadPolicy, OffloadPolicy
-
         # we do this to avoid all combinations
         args_list = [
             (optim.AdamW8bit, OffloadPolicy),
