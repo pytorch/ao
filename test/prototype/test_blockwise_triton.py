@@ -7,6 +7,8 @@
 import pytest
 import torch
 
+from packaging import version
+
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.prototype.blockwise_fp8.blockwise_quantization import (
@@ -46,6 +48,10 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    version.parse(triton.__version__) < version.parse("3.3.0"),
+    reason="Triton version < 3.3.0, test skipped",
+)
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
 @pytest.mark.parametrize(
     "dtype",
