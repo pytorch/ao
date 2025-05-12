@@ -36,7 +36,7 @@ jobs:
           # Install executorch first because it installs its own version
           # of torch and torchao, which we do not want to use
           pip install executorch
-          pip install torch==2.7.0.dev20250510 --index-url "https://download.pytorch.org/whl/nightly/cpu" --force-reinstall
+          pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
           USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 pip install .
       - name: Run python tests
