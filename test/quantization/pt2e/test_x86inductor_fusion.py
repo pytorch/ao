@@ -34,8 +34,6 @@ from torch.testing._internal.inductor_utils import (
     _check_has_dynamic_shape,
 )
 
-from torchao.testing.utils import skip_if_rocm
-
 import torchao
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e.quantize_pt2e import (
@@ -46,6 +44,7 @@ from torchao.quantization.pt2e.quantize_pt2e import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_8,
