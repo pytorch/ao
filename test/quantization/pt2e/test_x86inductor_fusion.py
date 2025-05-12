@@ -932,7 +932,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("ROCm enablement in progress")
+    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d(self):
         r"""
         This testcase will quantize a single Conv2d module with qat flow.
