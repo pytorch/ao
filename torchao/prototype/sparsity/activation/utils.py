@@ -7,15 +7,17 @@ import torch.nn.functional as F
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
 
 
-def _dump_metadata_format_cutlass(rows=128, cols=256, device=torch.device("cuda"), dtype=torch.float8_e4m3fn):
+def _dump_metadata_format_cutlass(
+    rows=128, cols=256, device=torch.device("cuda"), dtype=torch.float8_e4m3fn
+):
     """
     This is a helper function to dump the metadata packing format for 2:4 sparse GEMMS.
 
-    We create a 2:4 sparse tensor by tiling the same pattern and then changing a singular 1x4 strip of the metadata at a time. 
-    This will allow us to find the corresponding location in the metadata that changes. 
+    We create a 2:4 sparse tensor by tiling the same pattern and then changing a singular 1x4 strip of the metadata at a time.
+    This will allow us to find the corresponding location in the metadata that changes.
     """
 
-    # We tile the same pattern [0, 0, 1, 1] which yields 238 for all metadata values. 
+    # We tile the same pattern [0, 0, 1, 1] which yields 238 for all metadata values.
     dense_reference_tensor = (
         torch.Tensor([0, 0, 1, 1])
         .to(device=device, dtype=dtype)
@@ -28,7 +30,7 @@ def _dump_metadata_format_cutlass(rows=128, cols=256, device=torch.device("cuda"
     print("INITIAL")
     print(meta_reference)
     print(meta_reference.shape, meta_reference.is_contiguous(), meta_reference.dtype)
-    
+
     metadata_list = meta_reference.tolist()
 
     # The probe pattern yields the value 68 in the metadata
@@ -44,14 +46,16 @@ def _dump_metadata_format_cutlass(rows=128, cols=256, device=torch.device("cuda"
                 .contiguous()
             )
             # use the reference cutlass function to pack metadata
-            _, meta_refernece_probe = to_sparse_semi_structured_cutlass_sm9x_f8(dense_reference_tensor_c)
+            _, meta_refernece_probe = to_sparse_semi_structured_cutlass_sm9x_f8(
+                dense_reference_tensor_c
+            )
 
             # find where the reference packed metadata is equal to 68
-            indicies = (meta_refernece_probe== 68).nonzero()
+            indicies = (meta_refernece_probe == 68).nonzero()
 
             for r_i, c_i in indicies:
                 metadata_list[r_i][c_i] = (
-                    f"a[{i:2d}, {j*num_per_tb:2d}:{(j+1)*num_per_tb:2d}]"
+                    f"a[{i:2d}, {j * num_per_tb:2d}:{(j + 1) * num_per_tb:2d}]"
                 )
 
     print("METADATA FORMAT")
@@ -72,7 +76,7 @@ def profiler_runner(path, fn, *args, **kwargs):
     if path is None:
         path = os.path.join(
             os.path.expanduser("~/traces"),
-            f'{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.json.gz',
+            f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json.gz",
         )
     with torch.profiler.profile(
         activities=[
