@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         torch-spec:
-          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124'
+          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
     steps:
       - uses: actions/checkout@v4
 

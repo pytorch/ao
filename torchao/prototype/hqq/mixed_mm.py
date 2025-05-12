@@ -86,9 +86,9 @@ def triton_mixed_mm(
     assert b.dtype == torch.int8 or b.dtype == torch.uint8, "b must be int8 or uint8"
     assert scales.ndim == 2
     if transposed:
-        assert (
-            a.shape[1] == b.shape[1]
-        ), "transpose requires (M x N) x (K x N), where reduction dim is N"
+        assert a.shape[1] == b.shape[1], (
+            "transpose requires (M x N) x (K x N), where reduction dim is N"
+        )
 
     M, K = a.shape
     N = b.shape[1] if not transposed else b.shape[0] * 2

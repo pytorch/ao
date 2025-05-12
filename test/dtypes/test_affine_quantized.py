@@ -21,9 +21,11 @@ from torchao.dtypes import (
     Int4XPULayout,
     PlainLayout,
     SemiSparseLayout,
+    to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     float8_weight_only,
@@ -35,7 +37,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
-from torchao.testing.utils import skip_if_no_cuda, skip_if_rocm
+from torchao.testing.utils import skip_if_no_cuda, skip_if_no_gemlite, skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     check_cpu_version,
@@ -175,7 +177,7 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
-        from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
+        from torchao.dtypes import AffineQuantizedTensor
         from torchao.dtypes.affine_quantized_tensor_ops import (
             deregister_aqt_quantized_linear_dispatch,
             register_aqt_quantized_linear_dispatch,
@@ -221,6 +223,7 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
+    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_print_quantized_module(self):
         for device in self.GPU_DEVICES:
@@ -342,7 +345,8 @@ class TestAffineQuantizedBasic(TestCase):
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
     @skip_if_no_cuda()
-    def test_slice(self, device, dtype):
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_slice_int4wo(self, device, dtype):
         # in_feature not divisible by 1024
         # out_feature not divisible by 8
         # to test slice + padding for int4 weight only quantization
@@ -351,6 +355,37 @@ class TestAffineQuantizedBasic(TestCase):
         # make sure these run without error
         _ = dummy.weight.narrow(0, 0, 64)
         _ = dummy.weight.narrow(1, 0, 128)
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.float16, torch.bfloat16])
+    @skip_if_no_cuda()
+    @skip_if_no_gemlite()
+    def test_slice_gemlite(self, device, dtype):
+        # in_feature not divisible by 1024
+        # out_feature not divisible by 8
+        # to test slice + padding for int4 weight only quantization
+        dummy = nn.Linear(256, 512, dtype=dtype, device=device)
+        quantize_(dummy, GemliteUIntXWeightOnlyConfig())
+        # make sure these run without error
+        _ = dummy.weight.narrow(0, 0, 64)
+        _ = dummy.weight.narrow(1, 0, 128)
+
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_matmul(self, device, dtype):
+        x = torch.randn(53, 2048)
+        w = torch.randn(53, 2048)
+        w = to_affine_quantized_intx(
+            w,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=(1, 32),
+            target_dtype=torch.int8,
+            quant_min=-8,
+            quant_max=7,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        # make sure it runs
+        torch.matmul(x, w.t())
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)

@@ -21,7 +21,6 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     MappingType,
-    ZeroPointDomain,
     quantize_,
 )
 
@@ -31,31 +30,21 @@ class TestQuantPasses(unittest.TestCase):
         layers = []
         layer_to_weight_dtype = {}
         layer_to_weight_mapping_type = {}
-        layer_to_weight_zero_point_domain = {}
         layer_to_weight_granularity = {}
         for (
             weight_dtype,
             weight_mapping_type,
-            weight_zero_point_domain,
             weight_granularity,
             has_bias,
         ) in itertools.product(
             [getattr(torch, f"int{i}") for i in range(1, 9)],
             [MappingType.ASYMMETRIC, MappingType.SYMMETRIC],
-            [ZeroPointDomain.INT, ZeroPointDomain.NONE],
             [PerAxis(0), PerGroup(32)],
             [True, False],
         ):
-            if (
-                weight_mapping_type == MappingType.SYMMETRIC
-                and weight_zero_point_domain == ZeroPointDomain.INT
-            ):
-                continue
-
             idx = len(layers)
             layer_to_weight_dtype[idx] = weight_dtype
             layer_to_weight_mapping_type[idx] = weight_mapping_type
-            layer_to_weight_zero_point_domain[idx] = weight_zero_point_domain
             layer_to_weight_granularity[idx] = weight_granularity
             layers.append(torch.nn.Linear(64, 64, bias=has_bias))
 
@@ -67,7 +56,6 @@ class TestQuantPasses(unittest.TestCase):
                 Int8DynamicActivationIntxWeightConfig(
                     weight_dtype=layer_to_weight_dtype[idx],
                     weight_mapping_type=layer_to_weight_mapping_type[idx],
-                    weight_zero_point_domain=layer_to_weight_zero_point_domain[idx],
                     weight_granularity=layer_to_weight_granularity[idx],
                     layout=QDQLayout(),
                 ),
@@ -122,7 +110,6 @@ class TestQuantPasses(unittest.TestCase):
         torch._dynamo.config.cache_size_limit = 10000
 
         mapping_type = MappingType.ASYMMETRIC
-        zero_point_domain = ZeroPointDomain.INT
 
         model = torch.nn.Sequential(
             *[torch.nn.Embedding(5000, 512), torch.nn.Linear(512, 512)]
@@ -134,7 +121,6 @@ class TestQuantPasses(unittest.TestCase):
             IntxWeightOnlyConfig(
                 weight_dtype=weight_dtype,
                 granularity=granularity,
-                zero_point_domain=zero_point_domain,
                 mapping_type=mapping_type,
                 layout=QDQLayout(),
             ),

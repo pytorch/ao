@@ -157,6 +157,9 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
+# input_tensor: dimension is (M1, M2, ..., in_features)
+# weight_tensor: dimension is (out_features, in_features)
+# bias: dimension is (out_features,)
 @staticmethod
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
@@ -288,9 +291,9 @@ def _(func, types, args, kwargs):
 
     # new_arg1 = args[1].dequantize()
     # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
-    assert isinstance(
-        args[1].tensor_impl, PlainAQTTensorImpl
-    ), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    assert isinstance(args[1].tensor_impl, PlainAQTTensorImpl), (
+        f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    )
     assert (
         kwargs["padding_idx"] is None
         and kwargs["max_norm"] is None
@@ -335,12 +338,19 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -365,9 +375,16 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    assert input_tensor.shape[-1] == weight_tensor.shape[0], (
+        f"need mat1 shape: {input_tensor.shape} final dim"
+        f"to match mat2 shape: {weight_tensor.shape} first dim"
+    )
+
     try:
-        weight_tensor = weight_tensor.t()
-        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
+        transposed_weight_tensor = weight_tensor.t()
+        return weight_tensor._quantized_linear_op(
+            input_tensor, transposed_weight_tensor, bias
+        )
     except QuantizedLinearNotImplementedError as e:
         # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
         if (
@@ -459,9 +476,9 @@ def _(func, types, args, kwargs):
     shape = list(self.shape)
     shape[dim] = end - start
     block_size = self.block_size
-    assert (
-        len(block_size) == 2
-    ), f"Slice only works for 2d block_size right now, got: {block_size}"
+    assert len(block_size) == 2, (
+        f"Slice only works for 2d block_size right now, got: {block_size}"
+    )
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
     block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))

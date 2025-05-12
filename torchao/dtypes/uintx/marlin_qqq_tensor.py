@@ -256,9 +256,9 @@ class MarlinQQQAQTTensorImpl(AQTTensorImpl):
             group_size = -1
         else:
             group_size = in_features // s_group_t.shape[0]
-        assert (
-            group_size <= in_features
-        ), "Group size must be less than or equal to in_features."
+        assert group_size <= in_features, (
+            "Group size must be less than or equal to in_features."
+        )
 
         if group_size not in const.SUPPORTED_GROUP_SIZES:
             raise ValueError(
