@@ -12,9 +12,9 @@ import pytest
 import torch
 from torch import nn
 from torch.distributed._composable.fsdp import (
-    fully_shard,
     CPUOffloadPolicy,
     OffloadPolicy,
+    fully_shard,
 )
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
