@@ -22,7 +22,6 @@ from torchao.utils import fill_defaults
 
 try:
     import gemlite
-    from gemlite.core import GemLiteLinearTriton
 except:
     gemlite = None
 
@@ -49,6 +48,7 @@ def _same_metadata(
         and kwargs_match
         and type(self._layout) == type(src._layout)
     )
+
 
 def get_gemlite_quant_kwargs(bit_width, group_size, dtype):
     from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
@@ -192,8 +192,10 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         group_size, bit_width = _layout.group_size, _layout.bit_width
         out_features, in_features = int_data.shape
 
-        if(bit_width == 8 and group_size == in_features):
-            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(int_data, scales=scale, bias=None)
+        if bit_width == 8 and group_size == in_features:
+            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(
+                int_data, scales=scale, bias=None
+            )
         else:
             gemlite_linear = gemlite.helper.A16Wn(device=int_data.device).from_weights(
                 int_data, scale, zero_point, bit_width, group_size, bias=None
@@ -236,7 +238,7 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
             gemlite.bitpack.unpack_over_rows(
                 self.packed_weight.cuda(),
                 W_nbits=self._layout.bit_width,
-                num_output_rows=self.gemlite_kwargs["out_features"], 
+                num_output_rows=self.gemlite_kwargs["out_features"],
                 dtype=torch.uint8,
             )
             .t()
@@ -336,16 +338,15 @@ def _linear_fp_act_int4_weight_gemlite_impl(input_tensor, weight_tensor, bias=No
         weight_impl = weight_tensor
 
     return gemlite.core.forward_functional(
-            x=input_tensor,
-            bias=bias,
-            tensor_args=(
-                weight_impl.packed_weight,
-                weight_impl.scale,
-                weight_impl.zero_point,
-            ),
-            meta_args=weight_impl.gemlite_kwargs["meta_args"],
-    ) 
-
+        x=input_tensor,
+        bias=bias,
+        tensor_args=(
+            weight_impl.packed_weight,
+            weight_impl.scale,
+            weight_impl.zero_point,
+        ),
+        meta_args=weight_impl.gemlite_kwargs["meta_args"],
+    )
 
 
 def _linear_fp_act_int4_weight_gemlite_check(input_tensor, weight_tensor, bias):

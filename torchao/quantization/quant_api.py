@@ -1001,9 +1001,7 @@ def _gemlite_uintx_weight_only_transform(
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(
         weight,
-        **get_gemlite_aqt_kwargs(
-            weight, group_size, bit_width, use_hqq
-        ),
+        **get_gemlite_aqt_kwargs(weight, group_size, bit_width, use_hqq),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
