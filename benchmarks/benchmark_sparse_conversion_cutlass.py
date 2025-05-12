@@ -5,10 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 import pandas as pd
 import torch
-from tqdm import tqdm
 from triton.testing import do_bench
 
-from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
+from torchao.ops import (
+    to_sparse_semi_structured_cutlass_sm9x_f8,
+)
 from torchao.quantization.quant_api import (
     _float8_cutlass_quant,
     _float8_cutlass_quant_sparse,
@@ -76,40 +77,48 @@ def get_problem_scaled_mm(m: int, n: int, k: int):
     return (Wq, Xq.t(), W_scale, X_scale, None, None, dtype)
 
 
-def benchmark(m: int, k: int, n: int):
-    ref_args, args = get_problem_cutlass(m, n, k)
-    fp16_time = benchmark_microseconds(torch.nn.functional.linear, *ref_args)
-    rowwise_scaled_linear_sparse_cutlass_f8f8_time = benchmark_microseconds(
-        rowwise_scaled_linear_sparse_cutlass_f8f8, *args
+def benchmark(m, k):
+    torch.manual_seed(123)
+    W_ref = create_semi_structured_tensor(m, k, dtype=torch.float8_e4m3fn).cuda()
+
+    # packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(W_ref, "", True)
+    cutlass_reference_args = (W_ref,)
+    cutlass_custom_args = (W_ref, "", True)
+
+    cutlass_reference_compression_time = benchmark_microseconds(
+        to_sparse_semi_structured_cutlass_sm9x_f8, *cutlass_reference_args
+    )
+    cutlass_custom_compression_time = benchmark_microseconds(
+        torch.ops.torchao.sparse_semi_structured_tile.default, *cutlass_custom_args
     )
 
-    cslt_args = get_problem_cusparselt(m, n, k)
-    cusparselt_time = benchmark_microseconds(torch._cslt_sparse_mm, *cslt_args)
-
-    fp8_args = get_problem_scaled_mm(m, n, k)
-    fp8_time = benchmark_microseconds(torch._scaled_mm, *fp8_args)
-
     return {
-        "m": m,
-        "k": k,
-        "n": n,
-        "fp16_latency (ms)": fp16_time,
-        "fp8_latency (ms)": fp8_time,
-        "rowwise_scaled_linear_sparse_cutlass_f8f8 latency (ms)": rowwise_scaled_linear_sparse_cutlass_f8f8_time,
-        "cusparselt latency (ms)": cusparselt_time,
-        "f8f8 speedup (d/s)": fp8_time / rowwise_scaled_linear_sparse_cutlass_f8f8_time,
+        "cutlass_reference (ms)": cutlass_reference_compression_time,
+        "cutlass_custom (ms)": cutlass_custom_compression_time,
     }
 
 
-if __name__ == "__main__":
-    k_vals = (8192,)
-    n_vals = (8192,)
+def profile():
+    torch.manual_seed(123)
+    W_ref = create_semi_structured_tensor(8192, 8192, dtype=torch.float8_e4m3fn).cuda()
 
+    # clear cache
+    new_val = torch.empty(10000, 10000, device="cuda")
+    new_val[:, :] = 0
+
+    packed, meta = torch.ops.torchao.sparse_semi_structured_tile.default(
+        W_ref, "", True
+    )
+
+
+if __name__ == "__main__":
     results = []
-    for m in tqdm([2048, 4096, 8192]):
-        for n, k in zip(n_vals, k_vals):
-            results.append(benchmark(m, k, n))
+    for m in (2048, 4096, 8192):
+        results.append(benchmark(m, 8192))
 
     df = pd.DataFrame(results)
     df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
     print(df.to_markdown(index=False))
+
+    # print("PROFILING")
+    # profile()
