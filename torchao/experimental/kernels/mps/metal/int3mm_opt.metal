@@ -8,15 +8,14 @@
 using namespace metal;
 
 inline void unpack_3bit(const uchar3 b, thread float* w) {
-  w[0] = float(((b[0] & 1) << 2) | (b[1] & 3));
-  w[1] = float(((b[0] & 2) << 1) | ((b[1] & 12) >> 2));
-  w[2] = float((b[0] & 4) | ((b[1] & 48) >> 4));
-  w[3] = float(((b[0] & 8) >> 1) | ((b[1] & 192) >> 6));
-
-  w[4] = float(((b[0] & 16) >> 2) | (b[2] & 3));
-  w[5] = float(((b[0] & 32) >> 3) | ((b[2] & 12) >> 2));
-  w[6] = float(((b[0] & 64) >> 4) | ((b[2] & 48) >> 4));
-  w[7] = float(((b[0] & 128) >> 5) | ((b[2] & 192) >> 6));
+  w[0] = float(b[0] & 0x07);
+  w[1] = float((b[0] & 0x38) >> 3);
+  w[2] = float(((b[0] & 0xc0) >> 6) | ((b[1] & 0x01) << 2));
+  w[3] = float((b[1] & 0x0e) >> 1);
+  w[4] = float((b[1] & 0x70) >> 4);
+  w[5] = float(((b[1] & 0x80) >> 7) | ((b[2] & 0x03) << 1));
+  w[6] = float((b[2] & 0x1c) >> 2);
+  w[7] = float((b[2] & 0xe0) >> 5);
 }
 
 /**
@@ -24,8 +23,8 @@ inline void unpack_3bit(const uchar3 b, thread float* w) {
  *
  * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (3 * K / 8)
- * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
- * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
+ * @param[scales] 2D tensor containg the scales for each group. Expected shape is N x #groups
+ * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is N x #groups
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
  * @param[sizes] The sizes involved in the order: M, K, N
  *
@@ -45,6 +44,7 @@ kernel void int3pack_mm(constant T *A [[buffer(0)]],
   constexpr uint k_pack_factor = 8;
   const uint K = sizes.y;
   const uint N = sizes.z;
+  const uint num_groups = (K + group_size - 1) / group_size;
   uint n = thread_index.x; // 0..N/4-1
   uint m = thread_index.z; // 0..M
   n = n / threads_per_channel;
@@ -64,12 +64,18 @@ kernel void int3pack_mm(constant T *A [[buffer(0)]],
     // Find specific group to which channels handled by this thread
     // belong.
     uint k_block_index = k / group_size;
-    uint scales_group_offset = (k_block_index * N + n);
+    uint scales_group_offset = (n * num_groups + k_block_index);
 
     vecT scales =
-        (reinterpret_cast<constant vecT *>(scales_ptr + scales_group_offset))[0];
+        vecT(scales_ptr[scales_group_offset],
+             scales_ptr[scales_group_offset + num_groups],
+             scales_ptr[scales_group_offset + 2 * num_groups],
+             scales_ptr[scales_group_offset + 3 * num_groups]);
     vecT zeros =
-        (reinterpret_cast<constant vecT *>(zeros_ptr + scales_group_offset))[0];
+        vecT(zeros_ptr[scales_group_offset],
+             zeros_ptr[scales_group_offset + num_groups],
+             zeros_ptr[scales_group_offset + 2 * num_groups],
+             zeros_ptr[scales_group_offset + 3 * num_groups]);
     float4 zeros_float = float4(zeros);
 
     float4 a_val[2];

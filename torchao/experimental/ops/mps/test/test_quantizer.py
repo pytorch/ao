@@ -146,13 +146,14 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         N = W.shape[0]
         K = W.shape[1]
         W = W.to(torch.float32)
-        scales = S.t().unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
-        zeros = Z.t().unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
+        scales = S.unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
+        zeros = Z.unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
         W = scales * W + zeros
         return torch.mm(A, W.t())
 
     @parameterized.expand(BITWIDTHS)
     def test_accuracy(self, nbit):
+        print(f"nbit: {nbit}")
         group_size = 32
         m = 3
         n = 12
@@ -170,8 +171,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
             weight_qvals_cpu, weight_scales_cpu, weight_zeros_cpu = _quantize(
                 weight_cpu, group_size, nbit, True, torch.uint8
             )
-            weight_scales_cpu = weight_scales_cpu.t()
-            weight_zeros_cpu = -weight_zeros_cpu.t() * weight_scales_cpu
+            weight_zeros_cpu = -weight_zeros_cpu * weight_scales_cpu
             expected = self._reference_linear_lowbit_quant_weights(
                 activations.cpu(),
                 weight_qvals_cpu,

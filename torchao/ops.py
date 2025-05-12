@@ -7,7 +7,7 @@ import functools
 from typing import Optional
 
 import torch
-from torch import Tensor, dtype
+from torch import Tensor
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
@@ -38,12 +38,6 @@ lib.define(
 )
 lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
-)
-lib.define(
-    "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
-)
-lib.define(
-    "swizzle_scaled_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled, Tensor scale_a, Tensor scale_b, Tensor? bias=None, Tensor? scale_result=None, ScalarType? out_dtype=None) -> Tensor"
 )
 # Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
 # to honor the layout constraints for `b` in the two ops below.
@@ -735,68 +729,6 @@ def _(
     )
 
 
-def swizzle_mm(
-    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
-) -> Tensor:
-    """
-    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
-    """
-    return torch.ops.torchao.swizzle_mm.default(
-        mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
-    )
-
-
-@register_custom_op("torchao::swizzle_mm")
-def _(
-    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
-) -> Tensor:
-    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
-
-
-def swizzle_scaled_mm(
-    mat1: Tensor,
-    mat2: Tensor,
-    mat1_is_swizzled: bool,
-    mat2_is_swizzled: bool,
-    scale_a: Tensor,
-    scale_b: Tensor,
-    bias: Optional[Tensor],
-    scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
-) -> Tensor:
-    """
-    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
-    """
-    return torch.ops.torchao.swizzle_scaled_mm.default(
-        mat1,
-        mat2,
-        mat1_is_swizzled,
-        mat2_is_swizzled,
-        scale_a,
-        scale_b,
-        bias,
-        scale_result,
-        out_dtype,
-    )
-
-
-@register_custom_op("torchao::swizzle_scaled_mm")
-def _(
-    mat1: Tensor,
-    mat2: Tensor,
-    mat1_is_swizzled: bool,
-    mat2_is_swizzled: bool,
-    scale_a: Tensor,
-    scale_b: Tensor,
-    bias: Optional[Tensor],
-    scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
-) -> Tensor:
-    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
-
-
 @functools.lru_cache()
 def _get_dtypes():
     """TODO: when e8m0 is hardened and major release lets remove uint8 support"""
@@ -816,29 +748,6 @@ def _check_scale_dtypes(A_scale, B_scale):
         B_scale.dtype in allowed_dtypes,
         lambda: f"B_scale tensor must be uint8 or float8_e8m0fnu, got {B_scale.dtype}",
     )
-
-
-def mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
-    """Defines a matmul between two fp8 tensors w/ MX scales in E8MO and returns a bf16 tensor.
-
-    This op is prototype subject to change.
-
-    Note: The mx scales are E8MO tensors store in  uint8 tensors  (for now).
-        The layout of the scales is very particular, see:
-        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
-
-    Args:
-        A: fp8 tensor w/ dtype = torch.float8_e4m3fn
-        B: fp8 tensor w/ dtype = torch.float8_e4m3fn
-        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
-        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
-
-    Returns:
-        MXN bf16 Tensor
-
-    """
-    _check_scale_dtypes(A_scale, B_scale)
-    return torch.ops.torchao.mx_fp8_bf16.default(A, B, A_scale, B_scale)
 
 
 @register_custom_op("torchao::mx_fp8_bf16")

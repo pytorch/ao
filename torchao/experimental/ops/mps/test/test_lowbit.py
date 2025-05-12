@@ -64,11 +64,11 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         ceil_K_group_size = (K + group_size - 1) // group_size
         A = torch.rand(M, K, dtype=torch.float32, device=device)
         W = torch.randint(0, 1 << nbit, (N, K), dtype=torch.uint8, device=device)
-        S = torch.rand(ceil_K_group_size, N, dtype=torch.float32, device=device) + 0.01
+        S = torch.rand(N, ceil_K_group_size, dtype=torch.float32, device=device) + 0.01
         Z = torch.randint(
             0,
             1 << nbit,
-            (ceil_K_group_size, N),
+            (N, ceil_K_group_size),
             dtype=torch.float32,
             device=device,
         )
@@ -83,8 +83,8 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
         N = W.shape[0]
         K = W.shape[1]
         W = W.to(torch.float32)
-        scales = S.t().unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
-        zeros = Z.t().unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
+        scales = S.unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
+        zeros = Z.unsqueeze(2).repeat(1, 1, group_size).view(N, -1)[:, :K]
         W = scales * W + zeros
         return torch.mm(A, W.t())
 

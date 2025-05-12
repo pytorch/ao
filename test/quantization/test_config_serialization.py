@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import json
 import os
 import tempfile
@@ -14,6 +20,7 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
+    AOPerModuleConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -63,6 +70,14 @@ configs = [
     # Sparsity configs
     SemiSparseWeightConfig(),
     BlockSparseWeightConfig(blocksize=128),
+    AOPerModuleConfig({}),
+    AOPerModuleConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
+    AOPerModuleConfig(
+        {
+            "linear1": Int4WeightOnlyConfig(),
+            "linear2": Int8DynamicActivationInt4WeightConfig(),
+        }
+    ),
 ]
 
 
