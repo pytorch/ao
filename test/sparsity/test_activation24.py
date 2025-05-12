@@ -1,32 +1,26 @@
+
 import torch
-import torchao
 import torch.nn.functional as F
-from typing import Tuple
 
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
-from torchao.quantization.quant_api import (
-    _float8_cutlass_quant,
-    _float8_cutlass_quant_sparse,
-)
 from torchao.quantization import (
-    quantize_,
     Float8DynamicActivationFloat8WeightConfig,
-    PerRow,
     Float8MMConfig,
+    PerRow,
+    quantize_,
 )
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = True
 
-from torchao.sparsity.utils import create_semi_structured_tensor
-
-from torchao.utils import is_sm_at_least_90
-import unittest
 import copy
+import unittest
 
 from torchao.prototype.sparsity.activation.srelu_linear import (
     SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 )
 from torchao.sparsity import sparsify_
+from torchao.sparsity.utils import create_semi_structured_tensor
+from torchao.utils import is_sm_at_least_90
 
 
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")

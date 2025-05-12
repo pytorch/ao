@@ -5,12 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 import pandas as pd
 import torch
-from tqdm import tqdm
 from triton.testing import do_bench
-from triton import runtime
 
 from torchao.ops import (
-    rowwise_scaled_linear_sparse_cutlass_f8f8,
     to_sparse_semi_structured_cutlass_sm9x_f8,
 )
 from torchao.quantization.quant_api import (

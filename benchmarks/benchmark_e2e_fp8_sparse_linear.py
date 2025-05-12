@@ -3,24 +3,23 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import copy
 import pandas as pd
 import torch
+from torch import nn
 from tqdm import tqdm
 from triton.testing import do_bench
-from torch import nn
 
-from torchao.quantization import (
-    quantize_,
-    PerRow,
-    Float8DynamicActivationFloat8WeightConfig,
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
-    Float8MMConfig,
-)
 from torchao.prototype.sparsity.activation.srelu_linear import (
     SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 )
 from torchao.prototype.sparsity.activation.utils import SquaredReLU
+from torchao.quantization import (
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8MMConfig,
+    PerRow,
+    quantize_,
+)
 
 
 def benchmark_microseconds(f, *args):

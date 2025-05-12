@@ -779,7 +779,7 @@ def swizzle_scaled_mm(
     scale_b: Tensor,
     bias: Optional[Tensor],
     scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
+    out_dtype: Optional[torch.dtype],
 ) -> Tensor:
     """
     Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
@@ -808,7 +808,7 @@ def _(
     scale_b: Tensor,
     bias: Optional[Tensor],
     scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
+    out_dtype: Optional[torch.dtype],
 ) -> Tensor:
     return mat1.new_empty(mat1.shape[0], mat2.shape[1])
 
