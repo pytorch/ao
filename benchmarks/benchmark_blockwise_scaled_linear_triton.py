@@ -110,7 +110,7 @@ if __name__ == "__main__" and torch.cuda.is_available():
         if is_sm_at_least_89()
         else [torch.float8_e5m2]
     )
-    for m in tqdm([1 << i for i in range(10)]):
+    for m in tqdm([1 << i for i in range(14)]):
         for dtype in available_dtypes:
             for n, k, block_size in zip(n_vals, k_vals, block_size_vals):
                 latency_results.append(
