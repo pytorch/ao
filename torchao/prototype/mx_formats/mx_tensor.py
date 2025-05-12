@@ -26,7 +26,6 @@ from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     BF16_EXP_BIAS,
     BLOCK_SIZE_DEFAULT,
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
@@ -198,7 +197,7 @@ def to_mx(
         target_max_pow2 = F6_E3M2_MAX_POW2
         mbits = MBITS_F6_E3M2
         max_pos = F6_E3M2_MAX
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         target_max_pow2 = F4_E2M1_MAX_POW2
         mbits = MBITS_F4_E2M1
         max_pos = F4_E2M1_MAX
@@ -314,7 +313,7 @@ def to_mx(
             data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         # can't reshape at the end without handling it in the packing code,
         # punt until later since we'll need to rethink the torch.compile
         # approach for fp4x2 in any case
@@ -394,7 +393,7 @@ def to_dtype(
         else:
             data_hp = f6_e3m2_unpacked_to_f32(data_lp)
             data_hp = data_hp.to(target_dtype).reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         if use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
                 data_lp,
@@ -479,7 +478,7 @@ class MXTensor(torch.Tensor):
         pack_fp6,
     ):
         new_size = data_bits.size()
-        if elem_dtype == DTYPE_FP4:
+        if elem_dtype == torch.float4_e2m1fn_x2:
             # set the tensor size to what it would be without 2x4 packing
             # Note: `is_contiguous` is going to return True for a tensor of size
             # (M, 1) regardless or the order of dims, so this logic is currently
@@ -518,7 +517,7 @@ class MXTensor(torch.Tensor):
             torch.float8_e5m2,
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
-        elif elem_dtype == DTYPE_FP4:
+        elif elem_dtype == torch.float4_e2m1fn_x2:
             assert data_bits.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
         elif elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:

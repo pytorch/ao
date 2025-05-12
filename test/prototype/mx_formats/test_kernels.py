@@ -9,7 +9,6 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     F4_E2M1_EXP_BIAS,
@@ -335,11 +334,13 @@ def test_fp4_triton_unscaled_cast():
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor_ref = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_ref = MXTensor.to_mx(
+        orig_vals, block_size=32, elem_dtype=torch.float4_e2m1fn_x2
+    )
     mxtensor_triton = MXTensor.to_mx(
         orig_vals,
         block_size=32,
-        elem_dtype=DTYPE_FP4,
+        elem_dtype=torch.float4_e2m1fn_x2,
         use_fp4_custom_triton_dequant_kernel=True,
     )
 
