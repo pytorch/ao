@@ -2,9 +2,6 @@
 We want to make contributing to this project as easy and transparent as
 possible.
 
-## Our Development Process
-... (in particular how this is synced with internal changes to the project)
-
 ## Pull Requests
 We actively welcome your pull requests.
 
@@ -14,6 +11,13 @@ We actively welcome your pull requests.
 4. Ensure the test suite passes.
 5. Make sure your code lints.
 6. If you haven't already, complete the Contributor License Agreement ("CLA").
+
+## Linting
+
+We use ruff for linting
+1. `pip install ruff==0.11.6`
+2. `ruff check --fix`
+3. `ruff format .`
 
 ## Contributor License Agreement ("CLA")
 In order to accept your pull request, we need you to submit a CLA. You only need
