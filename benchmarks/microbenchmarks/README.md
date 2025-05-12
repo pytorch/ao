@@ -130,6 +130,18 @@ Currently, quantization string is in same format as the one being passed in llam
       max_power: 11
   ```
 
+- `small_sweep`: Generate a small sweep of shapes with increasing powers of 2 for M, K, N dimensions
+  - Parameters:
+    - `min_power`: Minimum power of 2 (default: 10, which is 1024)
+    - `max_power`: Maximum power of 2 (default: 14, which is 16,384)
+  - Note: This generates shapes where M <= K <= N (ensuring increasing order), which produces fewer combinations than the full sweep, and could be good to use for plots like heatmap
+  ```yaml
+  matrix_shapes:
+    - name: "small_sweep"
+      min_power: 10  # 2^10 = 1024
+      max_power: 15  # 2^15 = 32,768
+  ```
+
 - `sweep`: Generate a sweep of shapes with different powers of 2 for M, K, N dimensions
   - Parameters:
     - `min_power`: Minimum power of 2 (default: 8, which is 256)
@@ -141,6 +153,8 @@ Currently, quantization string is in same format as the one being passed in llam
       min_power: 8  # 2^8 = 256
       max_power: 9  # 2^9 = 512
   ```
+
+
 
 ## Output
 

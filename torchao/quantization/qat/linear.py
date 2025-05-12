@@ -177,6 +177,8 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
+        # TODO: generalize this
+        self.activation_scales_precision = torch.float32
 
     def prepare(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
@@ -247,7 +249,7 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 self._convert_qat_linear_8da4w(child)
 
     def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
-        return _get_8da4w_activation_config(self.scales_precision)
+        return _get_8da4w_activation_config(self.activation_scales_precision)
 
     def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
         return _get_8da4w_weight_config(self.groupsize, self.scales_precision)
@@ -280,6 +282,7 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
     ) -> None:
         # Use torch.float32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant,
         # which is used in PTQ routines
+        # TODO: generalize this
         activation_config = _get_8da4w_activation_config(torch.float32)
         weight_config = _get_8da4w_weight_config(groupsize, scales_precision)
         super().__init__(
@@ -320,6 +323,8 @@ def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantize
     """
     Return the activation `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
     """
+    # TODO: generalize this
+    assert qparams_precision == torch.float32
     return FakeQuantizeConfig(
         dtype=torch.int8,
         granularity="per_token",
@@ -327,6 +332,7 @@ def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantize
         is_dynamic=True,
         scale_precision=qparams_precision,
         zero_point_precision=qparams_precision,
+        eps=torch.finfo(qparams_precision).eps,
     )
 
 

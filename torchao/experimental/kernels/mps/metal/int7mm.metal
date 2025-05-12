@@ -11,8 +11,8 @@ using namespace metal;
  *
  * @param[A] M x K input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (7 * K / 8)
- * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
- * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
+ * @param[scales] 2D tensor containg the scales for each group. Expected shape is N x #groups
+ * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is N x #groups
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
  * @param[sizes] The sizes involved in the order: M, K, N
  *
@@ -29,6 +29,7 @@ kernel void int7pack_mm(
     uint2                        thread_index   [[thread_position_in_grid]]) {
     const uint K = sizes.y;
     const uint N = sizes.z;
+    const uint num_groups = (K + groupSize - 1) / groupSize;
     const uint m = thread_index.y; // 0..M-1
     const uint n = thread_index.x; // 0..N-1
     const uint32_t k_block = (K + groupSize - 1) / groupSize;
@@ -38,8 +39,8 @@ kernel void int7pack_mm(
     float rc = 0.0;
     uint k = 0;
     for (uint32_t kb = 0; kb < k_block ; kb ++) {
-      const float scale = float(scales[kb * N + n]);
-      const float zero = float(zeros[kb * N + n]);
+      const float scale = float(scales[n * num_groups + kb]);
+      const float zero = float(zeros[n * num_groups + kb]);
       for(uint idx = 0; idx < groupSize && k < K; idx+=8, k+=8) {
         const auto a_val0 = float(A_ptr[k + 0]);
         const auto a_val1 = float(A_ptr[k + 1]);
@@ -58,15 +59,14 @@ kernel void int7pack_mm(
         uchar b5 = B_ptr[7 * (k / 8) + 5];
         uchar b6 = B_ptr[7 * (k / 8) + 6];
 
-        uchar w_val0 = b0 & 127;
-        uchar w_val1 = b1 & 127;
-        uchar w_val2 = b2 & 127;
-        uchar w_val3 = b3 & 127;
-        uchar w_val4 = b4 & 127;
-        uchar w_val5 = b5 & 127;
-        uchar w_val6 = b6 & 127;
-        uchar w_val7 = ((b0 & 128) >> 7) | ((b1 & 128) >> 6) | ((b2 & 128) >> 5) | ((b3 & 128) >> 4)
-          | ((b4 & 128) >> 3) | ((b5 & 128) >> 2) | ((b6 & 128) >> 1);
+        uchar w_val0 = (b0 & 0x7f);
+        uchar w_val1 = (b0 >> 7) | ((b1 & 0x3f) << 1);
+        uchar w_val2 = (b1 >> 6) | ((b2 & 0x1f) << 2);
+        uchar w_val3 = (b2 >> 5) | ((b3 & 0x0f) << 3);
+        uchar w_val4 = (b3 >> 4) | ((b4 & 0x07) << 4);
+        uchar w_val5 = (b4 >> 3) | ((b5 & 0x03) << 5);
+        uchar w_val6 = (b5 >> 2) | ((b6 & 0x01) << 6);
+        uchar w_val7 = (b6 >> 1);
 
         rc += a_val0 * (scale * float(w_val0) + zero);
         rc += a_val1 * (scale * float(w_val1) + zero);

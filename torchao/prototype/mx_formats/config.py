@@ -38,7 +38,6 @@ class MXGemmKernelChoice(Enum):
 class MXLinearRecipeName(Enum):
     MXFP8_EMULATED = "mxfp8_emulated"
     MXFP8_CUBLAS = "mxfp8_cublas"
-    MXFP8_CUTLASS = "mxfp8_cutlass"
     MXFP4_EMULATED = "mxfp4_emulated"
     MXFP4_CUTLASS = "mxfp4_cutlass"
 
@@ -126,8 +125,6 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
-        elif recipe_name is MXLinearRecipeName.MXFP8_CUTLASS:
-            return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUTLASS)
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
             return MXLinearConfig(elem_dtype=DTYPE_FP4)
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:

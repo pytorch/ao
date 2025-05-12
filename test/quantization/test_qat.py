@@ -1513,6 +1513,84 @@ class TestQAT(unittest.TestCase):
         )
         self.assertEqual(len(non_inf_sqnr), 0, fail_message)
 
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_fake_quantize_config_eps(self):
+        """
+        Test that users can set arbitrary eps value in `FakeQuantizeConfig`.
+        """
+        eps = 0.00123
+        x = torch.randn(2, 3).to(torch.float32)
+        scale, zp = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.ASYMMETRIC,
+            block_size=(1, 3),
+            target_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            eps=eps,
+        )
+        expected_out = _fake_quantize_per_token(x, scale, zp, -128, 127)
+        config = FakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            is_symmetric=False,
+            eps=eps,
+        )
+        fake_quantizer = FakeQuantizer(config)
+        actual_out = fake_quantizer(x)
+        torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower"
+    )
+    def test_qat_8da4w_eps(self):
+        """
+        Test that the 8da4w QAT flow uses the expected eps.
+        """
+        from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.quantization.utils import per_token_dynamic_quant
+
+        group_size = 16
+        torch.manual_seed(self.SEED)
+        m = M()
+        quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+
+        # prepare
+        prepared_model = quantizer.prepare(m)
+        self.assertEqual(
+            prepared_model.linear1.activation_fake_quantizer.config.eps,
+            torch.finfo(torch.float32).eps,
+        )
+
+        # convert
+        converted_model = quantizer.convert(m)
+        x = m.example_inputs()[0]
+        _input = per_token_dynamic_quant(
+            x,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.float32,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        _weight_dq = dequantize_affine(
+            converted_model.linear1.weight,
+            (1, group_size),
+            converted_model.linear1.scales,
+            converted_model.linear1.zeros,
+            torch.int8,
+            quant_min=-8,
+            quant_max=7,
+            output_dtype=torch.float32,
+        )
+        expected_out = torch.nn.functional.linear(
+            _input,
+            _weight_dq,
+            converted_model.linear1.bias,
+        )
+        actual_out = converted_model.linear1(x)
+        torch.testing.assert_close(expected_out, actual_out, atol=0, rtol=0)
+
 
 if __name__ == "__main__":
     unittest.main()
