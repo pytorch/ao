@@ -50,19 +50,6 @@ def _same_metadata(
         and type(self._layout) == type(src._layout)
     )
 
-
-def scale_activations_no_scaling(x):
-    return x, None
-
-
-def scale_activations_int8(x):
-    x_shape = x.shape
-    out_x = x.view(-1, x.shape[-1])
-    scaled_x = torch.abs(out_x).amax(axis=1, keepdim=True) / 127
-    out_x = torch.round(out_x / scaled_x).to(dtype=torch.int8)
-    return out_x.view(x_shape), scaled_x
-
-
 def get_gemlite_quant_kwargs(bit_width, group_size, dtype):
     from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 
@@ -93,8 +80,6 @@ def get_gemlite_aqt_kwargs(
     weight,
     group_size=64,
     bit_width=4,
-    packing_bitwidth=32,
-    contiguous=None,
     use_hqq=True,
 ):
     if gemlite is None:
@@ -106,12 +91,7 @@ def get_gemlite_aqt_kwargs(
         4,
         8,
     ], f"gemlite only works with bit_width 4,8 but got {bit_width}"
-    assert packing_bitwidth in [
-        8,
-        16,
-        32,
-        None,
-    ], f"gemlite needs packing_bitwidth in [8, 16, 32] but got {packing_bitwidth}"
+
     assert weight.dtype in [torch.float16, torch.bfloat16], (
         f"gemlite only works with dtype torch.float16 or torch.bfloat16 but got {weight.dtype}"
     )
@@ -127,8 +107,6 @@ def get_gemlite_aqt_kwargs(
     aqt_kwargs["_layout"] = GemlitePackedLayout(
         group_size=group_size,
         bit_width=bit_width,
-        packing_bitwidth=packing_bitwidth,
-        contiguous=contiguous,
     )
     aqt_kwargs["use_hqq"] = use_hqq
     return aqt_kwargs
@@ -138,8 +116,6 @@ def get_gemlite_aqt_kwargs(
 class GemlitePackedLayout(Layout):
     group_size: Optional[int] = 64
     bit_width: int = 4
-    packing_bitwidth: int = None
-    contiguous: bool = None
 
 
 @register_layout(GemlitePackedLayout)
@@ -221,8 +197,8 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         )
 
         gemlite_kwargs = {
+            "in_features": in_features,
             "out_features": out_features,
-            "scaled_activations": gemlite_linear.scaled_activations,
             "meta_args": gemlite_linear.get_meta_args(),
         }
 
@@ -253,20 +229,17 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         device = self.packed_weight.device
-        elements_per_sample = self._layout.packing_bitwidth // self._layout.bit_width
-        in_features = (
-            self.packed_weight.numel() * elements_per_sample
-        ) // self.gemlite_kwargs["out_features"]
         int_data = (
             gemlite.bitpack.unpack_over_rows(
                 self.packed_weight.cuda(),
                 W_nbits=self._layout.bit_width,
-                num_output_rows=in_features,
+                num_output_rows=self.gemlite_kwargs["out_features"], 
                 dtype=torch.uint8,
             )
             .t()
             .contiguous()
         ).to(device)
+
         scale = self.scale.t().contiguous()
         zero_point = self.zero_point.t().contiguous()
 
@@ -353,43 +326,23 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         return (1, self._layout.group_size)
 
 
-# logic taken from gemlite's core.py
-def _matmul_type_fn(batch_size: int, bit_width: int) -> str:
-    if batch_size > 64:
-        return "GEMM"
-    elif batch_size > 1:
-        return "GEMM_SPLITK"
-    else:
-        return gemlite.core.get_default_gemv(bit_width)
-
-
 def _linear_fp_act_int4_weight_gemlite_impl(input_tensor, weight_tensor, bias=None):
     if hasattr(weight_tensor, "tensor_impl"):
         weight_impl = weight_tensor.tensor_impl
     else:
         weight_impl = weight_tensor
 
-    batch_size = input_tensor.view(-1, input_tensor.shape[-1]).shape[0]
-    matmul_type = _matmul_type_fn(batch_size, weight_impl._layout.bit_width)
+    return gemlite.core.forward_functional(
+            x=input_tensor,
+            bias=bias,
+            tensor_args=(
+                weight_impl.packed_weight,
+                weight_impl.scale,
+                weight_impl.zero_point,
+            ),
+            meta_args=weight_impl.gemlite_kwargs["meta_args"],
+    ) 
 
-    if weight_impl.gemlite_kwargs["scaled_activations"]:
-        scale_activations = scale_activations_int8
-    else:
-        scale_activations = scale_activations_no_scaling
-
-    return GemLiteLinearTriton.forward_functional(
-        x=input_tensor,
-        bias=bias,
-        matmul_type=matmul_type,
-        out_features=weight_impl.gemlite_kwargs["out_features"],
-        scale_activations=scale_activations,
-        meta_args=weight_impl.gemlite_kwargs["meta_args"],
-        tensor_args=(
-            weight_impl.packed_weight,
-            weight_impl.scale,
-            weight_impl.zero_point,
-        ),
-    )
 
 
 def _linear_fp_act_int4_weight_gemlite_check(input_tensor, weight_tensor, bias):
