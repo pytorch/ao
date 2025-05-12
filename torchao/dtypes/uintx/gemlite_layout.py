@@ -192,9 +192,12 @@ class GemliteAQTTensorImpl(TensorCoreTiledAQTTensorImpl):
         group_size, bit_width = _layout.group_size, _layout.bit_width
         out_features, in_features = int_data.shape
 
-        gemlite_linear = gemlite.helper.A16Wn(device=int_data.device).from_weights(
-            int_data, scale, zero_point, bit_width, group_size, bias=None
-        )
+        if(bit_width == 8 and group_size == in_features):
+            gemlite_linear = gemlite.helper.A16W8(device=int_data.device).from_weights(int_data, scales=scale, bias=None)
+        else:
+            gemlite_linear = gemlite.helper.A16Wn(device=int_data.device).from_weights(
+                int_data, scale, zero_point, bit_width, group_size, bias=None
+            )
 
         gemlite_kwargs = {
             "in_features": in_features,
