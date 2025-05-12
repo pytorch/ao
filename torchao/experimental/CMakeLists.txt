@@ -20,6 +20,7 @@ option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
 option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
 option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
 option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
+option(TORCHAO_ENABLE_ARM_NEON_DOT "Enable ARM Neon dot product instructions (dotprod or asimddp flags on linux)" OFF)
 
 if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
@@ -32,29 +33,35 @@ endif()
 # Set compiler flags
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
 
-# Find PyTorch
-find_package(Torch REQUIRED)
-include_directories(${TORCH_INCLUDE_DIRS})
-
 include(CMakePrintHelpers)
 message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
-
 if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
-    add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
 
-    if (LINUX)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(STATUS "Add aarch64 linux compiler options")
         add_compile_options(
             "-fPIC"
             "-Wno-error=unknown-pragmas"
             "-Wno-array-parameter"
             "-Wno-maybe-uninitialized"
             "-Wno-sign-compare"
-            "-march=armv8.4-a+dotprod"
         )
+    endif()
+
+    # Auto enable TORCHAO_ENABLE_ARM_NEON_DOT on macOS aarch64 (apple silicon)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        message(STATUS "Building with ARM NEON dot product support on macOS")
+        add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
+    endif()
+
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TORCHAO_ENABLE_ARM_NEON_DOT)
+        message(STATUS "Building with ARM NEON dot product support on Linux")
+        add_compile_options("-march=armv8.4-a+dotprod")
+        add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
     endif()
 
     # Defines torchao_kernels_aarch64

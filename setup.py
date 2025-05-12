@@ -123,9 +123,16 @@ class BuildOptions:
 
         # TORCHAO_PARALLEL_BACKEND specifies which parallel backend to use
         # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
-        self.build_parallel_backend = os.getenv(
-            "TORCHAO_PARALLEL_BACKEND", "aten_openmp"
+        self.parallel_backend = os.getenv("TORCHAO_PARALLEL_BACKEND", "aten_openmp")
+
+        # TORCHAO_ENABLE_ARM_NEON_DOT enable ARM NEON dot instructions
+        self.enable_arm_neon_dot = self._os_bool_var(
+            "TORCHAO_ENABLE_ARM_NEON_DOT", default=False
         )
+        if self.enable_arm_neon_dot:
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
@@ -525,7 +532,8 @@ def get_extensions():
                         f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
                         f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
                         f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
-                        f"-DTORCHAO_PARALLEL_BACKEND={build_options.build_parallel_backend}",
+                        f"-DTORCHAO_ENABLE_ARM_NEON_DOT={bool_to_on_off(build_options.enable_arm_neon_dot)}",
+                        f"-DTORCHAO_PARALLEL_BACKEND={build_options.parallel_backend}",
                         "-DTorch_DIR=" + torch_dir,
                     ]
                     + (
