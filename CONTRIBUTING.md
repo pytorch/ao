@@ -14,7 +14,7 @@ We actively welcome your pull requests.
 
 ## Linting
 
-We use ruff for linting
+We use [ruff](https://beta.ruff.rs/docs/) for linting.
 1. `pip install ruff==0.11.6`
 2. `ruff check --fix`
 3. `ruff format .`
