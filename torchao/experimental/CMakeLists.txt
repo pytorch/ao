@@ -20,7 +20,8 @@ option(TORCHAO_BUILD_EXECUTORCH_OPS "Building torchao ops for ExecuTorch." OFF)
 option(TORCHAO_BUILD_MPS_OPS "Building torchao MPS ops" OFF)
 option(TORCHAO_BUILD_CPU_AARCH64 "Build torchao's CPU aarch64 kernels" OFF)
 option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library (arm64 only)" OFF)
-option(TORCHAO_ENABLE_ARM_NEON_DOT "Enable ARM Neon dot product instructions (dotprod or asimddp flags on linux)" OFF)
+option(TORCHAO_ENABLE_ARM_NEON_DOT "Enable ARM Neon Dot Product extension" OFF)
+option(TORCHAO_ENABLE_ARM_I8MM "Enable ARM 8-bit Integer Matrix Multiply instructions" OFF)
 
 if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
@@ -50,18 +51,27 @@ if(TORCHAO_BUILD_CPU_AARCH64)
             "-Wno-maybe-uninitialized"
             "-Wno-sign-compare"
         )
+
+        # Since versions are hierarchical (each includes features from prior versions):
+        # - dotprod is included by default in armv8.4-a and later
+        # - i8mm is included by default in armv8.6-a and later
+        if(TORCHAO_ENABLE_ARM_I8MM)
+            message(STATUS "Using armv8.6-a (includes I8MM and NEON dot product support)")
+            add_compile_options("-march=armv8.6-a")
+        elseif(TORCHAO_ENABLE_ARM_NEON_DOT)
+            message(STATUS "Using armv8.4-a (includes NEON dot product support)")
+            add_compile_options("-march=armv8.4-a")
+        endif()
     endif()
 
-    # Auto enable TORCHAO_ENABLE_ARM_NEON_DOT on macOS aarch64 (apple silicon)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        message(STATUS "Building with ARM NEON dot product support on macOS")
+    if(TORCHAO_ENABLE_ARM_NEON_DOT)
+        message(STATUS "Building with ARM NEON dot product support")
         add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
     endif()
 
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TORCHAO_ENABLE_ARM_NEON_DOT)
-        message(STATUS "Building with ARM NEON dot product support on Linux")
-        add_compile_options("-march=armv8.4-a+dotprod")
-        add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
+    if(TORCHAO_ENABLE_ARM_I8MM)
+        message(STATUS "Building with ARM I8MM support")
+        add_compile_definitions(TORCHAO_ENABLE_ARM_I8MM)
     endif()
 
     # Defines torchao_kernels_aarch64

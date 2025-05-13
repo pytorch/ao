@@ -125,13 +125,25 @@ class BuildOptions:
         # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
         self.parallel_backend = os.getenv("TORCHAO_PARALLEL_BACKEND", "aten_openmp")
 
-        # TORCHAO_ENABLE_ARM_NEON_DOT enable ARM NEON dot instructions
+        # TORCHAO_ENABLE_ARM_NEON_DOT enable ARM NEON Dot Product extension
+        # Enabled by default on macOS silicon
         self.enable_arm_neon_dot = self._os_bool_var(
-            "TORCHAO_ENABLE_ARM_NEON_DOT", default=False
+            "TORCHAO_ENABLE_ARM_NEON_DOT",
+            default=(self._is_arm64() and self._is_macos()),
         )
         if self.enable_arm_neon_dot:
             assert self.build_cpu_aarch64, (
                 "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
+
+        # TORCHAO_ENABLE_ARM_I8MM enable ARM 8-bit Integer Matrix Multiply instructions
+        # Not enabled by default on macOS as not all silicon mac supports it
+        self.enable_arm_i8mm = self._os_bool_var(
+            "TORCHAO_ENABLE_ARM_I8MM", default=False
+        )
+        if self.enable_arm_i8mm:
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
             )
 
     def _is_arm64(self) -> bool:
@@ -533,6 +545,7 @@ def get_extensions():
                         f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
                         f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
                         f"-DTORCHAO_ENABLE_ARM_NEON_DOT={bool_to_on_off(build_options.enable_arm_neon_dot)}",
+                        f"-DTORCHAO_ENABLE_ARM_I8MM={bool_to_on_off(build_options.enable_arm_i8mm)}",
                         f"-DTORCHAO_PARALLEL_BACKEND={build_options.parallel_backend}",
                         "-DTorch_DIR=" + torch_dir,
                     ]
