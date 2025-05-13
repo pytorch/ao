@@ -1316,10 +1316,6 @@ def _choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = None,
-    preserve_zero: bool = True,
-    zero_point_domain: Optional[str] = "INT",
-    min_val: Optional[torch.Tensor] = None,
-    max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
 
