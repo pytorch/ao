@@ -12,7 +12,6 @@ from torch.testing import FileCheck
 
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     SUPPORTED_ELEM_DTYPES,
@@ -363,7 +362,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         if pack_fp6:
             data_bits = data_bits.reshape(-1, block_size)
             data_bits = pack_uint6(data_bits)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == torch.float4_e2m1fn_x2:
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
@@ -407,7 +406,7 @@ def test_block_sizes(elem_dtype, B):
     """
     Smoke test for various block sizes
     """
-    if B == 1 and elem_dtype == DTYPE_FP4:
+    if B == 1 and elem_dtype == torch.float4_e2m1fn_x2:
         pytest.skip("unsupported configuration")
     elif B % 4 != 0 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
         pytest.skip("unsupported configuration")
@@ -422,7 +421,7 @@ def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
     """
-    if elem_dtype != DTYPE_FP4 and fp4_triton:
+    if elem_dtype != torch.float4_e2m1fn_x2 and fp4_triton:
         pytest.skip("unsupported configuration")
 
     M, K = 128, 256
