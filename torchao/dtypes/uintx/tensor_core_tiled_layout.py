@@ -510,17 +510,6 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        assert len(block_size) == 2 and block_size[0] == 1
-        dequantized = torch.ops.aten._weight_int4pack_mm(
-            torch.eye(eye_shape, device=device, dtype=original_dtype),
-            self.packed_weight,
-            groupsize,
-            self.scale_and_zero,
-        )
-        dequantized = dequantized.t().contiguous()
-        # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
-        scale = scale.reshape(scale.shape[:-1]).contiguous()
-        zero = zero.reshape(zero.shape[:-1]).contiguous()
         int_data = quantize_affine_float_zero_point(
             dequantized,
             self.block_size,
