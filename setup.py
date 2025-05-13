@@ -442,10 +442,6 @@ def get_extensions():
         sources = [s for s in sources if s not in cutlass_sources]
 
     ext_modules = []
-    print("SOURCES")
-    for s in sources:
-        print(s)
-    print("SOURCES")
     if len(sources) > 0:
         ext_modules.append(
             extension(
