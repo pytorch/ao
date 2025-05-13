@@ -55,19 +55,19 @@ void check_linear_mps_args(
       group_size);
 
   TORCH_CHECK(
-      S.dim() == 2 && S.size(1) == N,
+      S.dim() == 2 && S.size(0) == N,
       __func__,
-      ": expect S to be 2d tensor with shape [:, ",
+      ": expect S to be 2d tensor with shape [",
       N,
-      "]");
+      ",:]");
   TORCH_CHECK(S.is_contiguous(), __func__, " : expect S to be contiguous.");
 
   TORCH_CHECK(
-      Z.dim() == 2 && Z.size(1) == N,
+      Z.dim() == 2 && Z.size(0) == N,
       __func__,
-      ": expect Z to be 2d tensor with shape [:, ",
+      ": expect Z to be 2d tensor with shape [",
       N,
-      "]");
+      ",:]");
   TORCH_CHECK(Z.is_contiguous(), __func__, " : expect Z to be contiguous.");
 }
 

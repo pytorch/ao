@@ -938,7 +938,10 @@ def linear_forward_8da4w(
     # TODO: in future add ability to specify activation_scale_dtype to PTQ configs
     # and enable similar change here
     x = per_token_dynamic_quant(
-        x, scale_dtype=torch.float32, zero_point_dtype=torch.float32
+        x,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
     )
 
     # TODO: verify and remove following reshape code
