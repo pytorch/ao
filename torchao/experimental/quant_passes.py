@@ -113,7 +113,7 @@ def pattern(
     dq_a = torch.ops.torchao.dequantize_affine.default(
         a_int_data, a_block_size, a_scale, a_zero_point, a_target_dtype, a_quant_min, a_quant_max
     )
-    dq_w = torch.ops.torchao.dequantize_affine.default(
+    dq_w = {"torch.ops.torchao.dequantize_affine.default" if has_weight_zeros else "torch.ops.torchao.dequantize_affine_no_zero_point.default"}(
         w_int_data,
         w_block_size,
         w_scale,
@@ -121,7 +121,6 @@ def pattern(
         w_target_dtype,
         w_quant_min,
         w_quant_max,
-        {"'INT'" if has_weight_zeros else "'NONE'"}
     )
     return torch.ops.aten.linear.default(dq_a, dq_w, bias)
 """
