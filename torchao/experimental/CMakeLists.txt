@@ -31,7 +31,7 @@ if(NOT DEFINED TORCHAO_PARALLEL_BACKEND)
     set(TORCHAO_PARALLEL_BACKEND aten_openmp)
 endif()
 
-# Set compiler flags
+# Set default compiler options
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
 
 include(CMakePrintHelpers)
@@ -42,6 +42,7 @@ if(TORCHAO_BUILD_CPU_AARCH64)
     message(STATUS "Building with cpu/aarch64")
     add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
 
+    # Set aarch64 compiler options
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(STATUS "Add aarch64 linux compiler options")
         add_compile_options(
@@ -56,10 +57,10 @@ if(TORCHAO_BUILD_CPU_AARCH64)
         # - dotprod is included by default in armv8.4-a and later
         # - i8mm is included by default in armv8.6-a and later
         if(TORCHAO_ENABLE_ARM_I8MM)
-            message(STATUS "Using armv8.6-a (includes I8MM and NEON dot product support)")
+            message(STATUS "Using armv8.6-a (includes 'i8mm' and 'dotprod' flags)")
             add_compile_options("-march=armv8.6-a")
         elseif(TORCHAO_ENABLE_ARM_NEON_DOT)
-            message(STATUS "Using armv8.4-a (includes NEON dot product support)")
+            message(STATUS "Using armv8.4-a (includes '+dotprod' flag)")
             add_compile_options("-march=armv8.4-a")
         endif()
     endif()
