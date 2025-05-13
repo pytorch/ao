@@ -121,6 +121,11 @@ class _MultiInput:
             val.cuda() if isinstance(val, torch.Tensor) else val for val in self.values
         ]
 
+    def xpu(self):
+        self.values = [
+            val.xpu() if isinstance(val, torch.Tensor) else val for val in self.values
+        ]
+
 
 def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
@@ -364,6 +369,13 @@ def get_groupwise_affine_qparams(
     ).reshape(w.shape[0], -1)
 
 
+def align_tinygemm_scales_and_zeros(scales, zeros):
+    guard_dtype_size(scales, "scales", dtype=scales.dtype, size=zeros.size())
+    scales_t = scales.transpose(0, 1).contiguous()
+    zeros_t = zeros.transpose(0, 1).contiguous()
+    return scales_t, zeros_t
+
+
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
     guard_dtype_size(zeros, "zeros", dtype=dtype)
@@ -436,6 +448,9 @@ def groupwise_affine_quantize_tensor_from_qparams(
             not (check_xpu_version(int_data.device))
         ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
+        if check_xpu_version(int_data.device):
+            int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
+
     return int_data
 
 
@@ -453,8 +468,6 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     if (
         TORCH_VERSION_AT_LEAST_2_5
         and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
-        and not (check_cpu_version(w_int4x8.device))
-        and not (check_xpu_version(w_int4x8.device))
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -464,8 +477,17 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             dtype=torch.int32,
             device=w_int4x8.device,
         )
-        w_int32[::, ::2] = high_bits
-        w_int32[::, 1::2] = low_bits
+
+        if (not (check_cpu_version(w_int4x8.device))) and (
+            not (check_xpu_version(w_int4x8.device))
+        ):
+            w_int32[::, ::2] = high_bits
+            w_int32[::, 1::2] = low_bits
+
+        if check_xpu_version(w_int4x8.device):
+            w_int32[::, ::2] = low_bits
+            w_int32[::, 1::2] = hight_bits
+
     else:
         w_int32 = w_int4x8
 
