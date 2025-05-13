@@ -1033,7 +1033,7 @@ def choose_qparams_affine(
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
         mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        block_size: (Tuple[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
@@ -1062,7 +1062,7 @@ def choose_qparams_affine(
 def choose_qparams_affine_tinygemm(
     input: torch.Tensor,
     mapping_type: MappingType,
-    block_size: Tuple[int, ...],
+    block_size: Tuple[int],
     target_dtype: torch.dtype,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
@@ -1079,7 +1079,7 @@ def choose_qparams_affine_tinygemm(
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
         mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        block_size: (Tuple[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
         quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
@@ -1132,7 +1132,7 @@ def choose_qparams_affine_tinygemm(
 def choose_qparams_affine_dont_preserve_zero(
     input: torch.Tensor,
     mapping_type: MappingType,
-    block_size: List[int],
+    block_size: Tuple[int],
     target_dtype: torch.dtype,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
@@ -1145,7 +1145,7 @@ def choose_qparams_affine_dont_preserve_zero(
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
         mapping_type (MappingType): determines how the qparams are calculated, asymmetric only
-        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        block_size: (Tuple[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
         quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor

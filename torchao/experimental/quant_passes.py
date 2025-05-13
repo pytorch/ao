@@ -91,7 +91,7 @@ def _get_q_dq_linear_patterns_replacements_and_filters(
 
     lcls = {}
 
-    pattern_str = f"""
+    pattern_str = """
 def pattern(
     a, a_block_size, a_zero_point_dtype,
     w_int_data, w_block_size, w_scale, w_zero_point, w_target_dtype,
@@ -113,7 +113,7 @@ def pattern(
     dq_a = torch.ops.torchao.dequantize_affine.default(
         a_int_data, a_block_size, a_scale, a_zero_point, a_target_dtype, a_quant_min, a_quant_max
     )
-    dq_w = {"torch.ops.torchao.dequantize_affine.default" if has_weight_zeros else "torch.ops.torchao.dequantize_affine_no_zero_point.default"}(
+    dq_w = torch.ops.torchao.dequantize_affine.default(
         w_int_data,
         w_block_size,
         w_scale,
