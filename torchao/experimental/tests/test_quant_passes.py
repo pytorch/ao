@@ -85,9 +85,9 @@ class TestQuantPasses(unittest.TestCase):
         FileCheck().check_not("torch.ops.torchao.dequantize_affine.default").run(
             exported.graph_module.code
         )
-        # FileCheck().check_not("torch.ops.torchao.choose_qparams_affine.default").run(
-        #     exported.graph_module.code
-        # ) # TODO: Fix this
+        FileCheck().check_not("torch.ops.torchao.choose_qparams_affine.default").run(
+            exported.graph_module.code
+        )
 
         # Numerics should match
         exported_results = exported.module()(activations)
