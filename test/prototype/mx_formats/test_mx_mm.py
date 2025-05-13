@@ -3,11 +3,13 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from functools import partial
+
 import pytest
 import torch
 
 from torchao.float8.float8_utils import compute_error
-from torchao.ops import mx_fp4_bf16, mx_fp8_bf16
+from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import DTYPE_FP4, MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7, is_sm_at_least_100
@@ -24,7 +26,11 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     b = torch.rand((N, K), dtype=dtype, device=device)
 
     fmt = torch.float8_e4m3fn if format == "fp8" else DTYPE_FP4
-    mx_func = mx_fp8_bf16 if format == "fp8" else mx_fp4_bf16
+    mx_func = (
+        partial(torch._scaled_mm, out_dtype=torch.bfloat16)
+        if format == "fp8"
+        else mx_fp4_bf16
+    )
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)

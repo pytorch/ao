@@ -81,6 +81,7 @@ class FakeQuantizer(torch.nn.Module):
                 target_dtype=self.config.dtype,
                 quant_min=qmin,
                 quant_max=qmax,
+                eps=self.config.eps,
                 scale_dtype=self.config.scale_precision,
                 zero_point_dtype=self.config.zero_point_precision,
             )
@@ -117,6 +118,7 @@ class FakeQuantizer(torch.nn.Module):
                     bit_width,
                     group_size,
                     scale_precision,
+                    eps=self.config.eps,
                 )
             else:
                 (self.scale, self.zero_point) = get_groupwise_affine_qparams(
@@ -124,6 +126,7 @@ class FakeQuantizer(torch.nn.Module):
                     bit_width,
                     group_size,
                     scale_precision,
+                    eps=self.config.eps,
                 )
             self.zero_point = self.zero_point.to(zero_point_precision)
 

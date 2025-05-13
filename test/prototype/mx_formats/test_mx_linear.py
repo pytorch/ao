@@ -25,6 +25,7 @@ from torchao.prototype.mx_formats.mx_linear import (
     MXInferenceLinear,
     MXLinear,
 )
+from torchao.prototype.mx_formats.mx_subclass import MXFPInferenceConfig
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
@@ -137,7 +138,6 @@ def test_linear_eager_vs_hp(
     "recipe_name",
     [
         MXLinearRecipeName.MXFP8_CUBLAS,
-        MXLinearRecipeName.MXFP8_CUTLASS,
         MXLinearRecipeName.MXFP4_CUTLASS,
     ],
 )
@@ -206,7 +206,6 @@ def test_activation_checkpointing():
         "mxfp8_emulated",
         "mxfp4_emulated",
         "mxfp8_cublas",
-        "mxfp8_cutlass",
         "mxfp4_cutlass",
     ],
 )
@@ -218,22 +217,22 @@ def test_linear_compile(hp_dtype, recipe_name, bias, use_fp8_dim1_cast_triton_ke
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
-    if recipe_name in ["mxfp8_emulated", "mxfp8_cutlass"]:
+    if recipe_name in ["mxfp8_emulated"]:
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    if recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
+    if recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
         if not TORCH_VERSION_AT_LEAST_2_8:
             pytest.skip("torch.compile requires PyTorch 2.8+")
         if not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX gemms")
 
-    if bias and recipe_name in ["mxfp8_cublas", "mxfp8_cutlass", "mxfp4_cutlass"]:
+    if bias and recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
     if use_fp8_dim1_cast_triton_kernel:
-        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas", "mxfp8_cutlass"):
+        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas"):
             pytest.skip("unsupported configuration")
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
@@ -374,3 +373,34 @@ def test_inference_print_str():
     s = str(m)
     assert "bl_sz=32" in s
     assert "kernel=emulated" in s
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(not is_sm_at_least_100, reason="Reqs sm100")
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("compile", [True, False])
+@torch.no_grad()
+def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
+    """
+    Smoke test for inference compile
+    """
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        if not is_sm_at_least_89():
+            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+
+    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m_mx = copy.deepcopy(m)
+    config = MXFPInferenceConfig()
+    quantize_(m_mx, config=config)
+    if compile:
+        m_mx = torch.compile(m_mx, fullgraph=True)
+
+    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    y_ref = m(x)
+    y_mx = m_mx(x)
+    sqnr = compute_error(y_ref, y_mx)
+    assert sqnr >= 25.0, f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
