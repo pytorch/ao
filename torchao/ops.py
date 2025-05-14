@@ -48,12 +48,6 @@ lib.define(
 lib.define(
     "swizzle_scaled_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled, Tensor scale_a, Tensor scale_b, Tensor? bias=None, Tensor? scale_result=None, ScalarType? out_dtype=None) -> Tensor"
 )
-lib.define(
-    "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
-)
-lib.define(
-    "swizzle_scaled_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled, Tensor scale_a, Tensor scale_b, Tensor? bias=None, Tensor? scale_result=None, ScalarType? out_dtype=None) -> Tensor"
-)
 # Note: we need to add the `torch._C.Tag.needs_fixed_stride_order` tag in order for inductor
 # to honor the layout constraints for `b` in the two ops below.
 lib.define(
@@ -815,68 +809,6 @@ def _(
     bias: Optional[Tensor],
     scale_result: Optional[Tensor],
     out_dtype: Optional[torch.dtype],
-) -> Tensor:
-    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
-
-
-def swizzle_mm(
-    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
-) -> Tensor:
-    """
-    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
-    """
-    return torch.ops.torchao.swizzle_mm.default(
-        mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
-    )
-
-
-@register_custom_op("torchao::swizzle_mm")
-def _(
-    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
-) -> Tensor:
-    return mat1.new_empty(mat1.shape[0], mat2.shape[1])
-
-
-def swizzle_scaled_mm(
-    mat1: Tensor,
-    mat2: Tensor,
-    mat1_is_swizzled: bool,
-    mat2_is_swizzled: bool,
-    scale_a: Tensor,
-    scale_b: Tensor,
-    bias: Optional[Tensor],
-    scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
-) -> Tensor:
-    """
-    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
-    """
-    return torch.ops.torchao.swizzle_scaled_mm.default(
-        mat1,
-        mat2,
-        mat1_is_swizzled,
-        mat2_is_swizzled,
-        scale_a,
-        scale_b,
-        bias,
-        scale_result,
-        out_dtype,
-    )
-
-
-@register_custom_op("torchao::swizzle_scaled_mm")
-def _(
-    mat1: Tensor,
-    mat2: Tensor,
-    mat1_is_swizzled: bool,
-    mat2_is_swizzled: bool,
-    scale_a: Tensor,
-    scale_b: Tensor,
-    bias: Optional[Tensor],
-    scale_result: Optional[Tensor],
-    out_dtype: Optional[dtype],
 ) -> Tensor:
     return mat1.new_empty(mat1.shape[0], mat2.shape[1])
 
