@@ -396,7 +396,6 @@ test_dtypes = (
 @pytest.mark.skipif(
     not TORCH_VERSION_AT_LEAST_2_8, reason="torch.compile requires PyTorch 2.8+"
 )
-@pytest.mark.skipif(not is_sm_at_least_100, reason="Reqs sm100")
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -405,9 +404,14 @@ def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
     """
     Smoke test for inference compile
     """
+    # TODO(future): figure out why these CUDA capability conditions are not properly
+    # applied when inside `pytest.mark.skipif` for this test
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for float4 gemm")
 
     m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
