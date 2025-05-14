@@ -30,7 +30,8 @@ jobs:
           python-version: "3.10"
           miniconda-version: "latest"
           activate-environment: venv
-      - name: Install requirements
+      - name: Install requirements mac
+        if: runner.os == 'macOS'
         run: |
           conda activate venv
           # Install executorch first because it installs its own version
@@ -38,7 +39,14 @@ jobs:
           pip install executorch
           pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
           pip install -r dev-requirements.txt
-          USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 pip install .
+          USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 pip install .
+      - name: Install requirements linux
+        if: runner.os == 'Linux'
+        run: |
+          conda activate venv
+          pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu --force-reinstall
+          pip install -r dev-requirements.txt
+          BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install .
       - name: Run python tests
         run: |
           conda activate venv
@@ -60,6 +68,7 @@ jobs:
           rm -rf /tmp/cmake-out
           popd
       - name: ET ops build
+        if: runner.os == 'macOS'
         run: |
           conda activate venv
           pushd torchao/experimental
