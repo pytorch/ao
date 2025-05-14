@@ -7,6 +7,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/valpacking/valpack.h>
 #include <cassert>
 #include <cstring>
+#include <cstdint>
 
 // Interleaves data across channels (row/column) and groups.
 // Each channel is the same size (vals_per_channel) and is
