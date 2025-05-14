@@ -190,7 +190,7 @@ struct UKernelConfig {
     TORCHAO_CHECK(pack_weights != nullptr || pack_weights_with_lut != nullptr, "pack_weights or pack_weights_with_lut must be set");
 
     bool linear_configs_set = true; // first linear config must be set
-    for (int i = 0; i < linear_configs.size(); i++) {
+    for (size_t i = 0; i < linear_configs.size(); i++) {
       if (linear_configs_set) {
         TORCHAO_CHECK(
             linear_configs[i].m_step >= 1,
@@ -225,7 +225,7 @@ struct UKernelConfig {
     assert(m >= 1);
     assert(linear_configs[0].m_step >= 1);
 
-    int i = 0;
+    size_t i = 0;
     while (i + 1 < linear_configs.size() && linear_configs[i + 1].m_step >= 1 &&
            linear_configs[i + 1].m_step <= m) {
       assert(linear_configs[i].m_step < linear_configs[i + 1].m_step);
@@ -235,7 +235,7 @@ struct UKernelConfig {
     assert(i < linear_configs.size());
     assert(linear_configs[i].m_step >= 1);
     assert(i == 0 || linear_configs[i].m_step <= m);
-    return i;
+    return static_cast<int>(i);
   }
 };
 
