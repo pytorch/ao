@@ -28,6 +28,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 from torchao.prototype.mx_formats.mx_subclass import MXFPInferenceConfig
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
@@ -400,6 +401,9 @@ test_dtypes = (
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @torch.no_grad()
+@skip_if_rocm(
+    "ROCm float4 gemm require gfx950"
+)  # TODO(future): deploy gfx950 in ROCM CI
 def test_inference_subclass(elem_dtype, bias: bool, compile: bool):
     """
     Smoke test for inference compile
