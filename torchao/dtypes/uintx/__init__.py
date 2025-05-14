@@ -6,6 +6,7 @@ from .cutlass_int4_packed_layout import (
 )
 from .int4_cpu_layout import (
     Int4CPULayout,
+    Int8DynamicActInt4WeightCPULayout,
 )
 from .int4_xpu_layout import (
     Int4XPULayout,
@@ -48,4 +49,5 @@ __all__ = [
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
     "Int4XPULayout",
+    "Int8DynamicActInt4WeightCPULayout",
 ]
