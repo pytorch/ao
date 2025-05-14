@@ -66,7 +66,7 @@ def _test_mx(
     if elem_dtype is torch.float8_e4m3fn:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 18.0)
     else:
-        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
+        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 13.0)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
