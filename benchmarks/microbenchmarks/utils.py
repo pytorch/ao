@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import csv
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -79,19 +80,17 @@ class BenchmarkConfig:
         )
         self.device = get_default_device(params.get("device", None))
         self.model_type = params.get("model_type", "linear")
-        self.output_dir = output_dir
+        self.output_dir = f"{output_dir}/{self.benchmark_mode}"
         self.name = params.get(
             "name",
             f"benchmark_{self.quantization}_{self.model_type}_m{self.m}_k{self.k}_n{self.n}{'_compile' if self.use_torch_compile else ''}",
         )
         self.enable_profiler = bool(params.get("enable_profiler", False))
+        self.enable_memory_profiler = bool(params.get("enable_memory_profiler", False))
         # Create profiler directory path without leading slash
         profiler_dir = os.path.join(self.output_dir, "profiler")
         os.makedirs(profiler_dir, exist_ok=True)
-        file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
-        self.profiler_file_name = os.path.join(
-            profiler_dir, f"{file_name}_profile.json"
-        )
+        self._file_name = f"{self.name}_{self.m}_{self.k}_{self.n}_quant_{self.quantization}_sparsity_{self.sparsity}"
 
     @staticmethod
     def _parse_precision(precision_str: str) -> torch.dtype:
@@ -114,6 +113,7 @@ class BenchmarkConfig:
             "model_type": self.model_type,
             "output_dir": self.output_dir,
             "enable_profiler": self.enable_profiler,
+            "enable_memory_profiler": self.enable_memory_profiler,
         }
 
 
@@ -124,15 +124,25 @@ class BenchmarkResult:
     ):
         self.config = config
         self.output_dir = config.output_dir
+        self.baseline_inference_time_in_ms = 0.0
         self.model_inference_time_in_ms = 0.0
+        self.speedup = 0.0
         self.profiler_json_path: Optional[str] = None
+        self.memory_profile_path: Optional[str] = None
+        self.memory_visualization_path: Optional[str] = None
+        self.memory_stats: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for main function"""
         result_dict = {
             **self.config.to_dict(),
+            "baseline_inference_time_in_ms": self.baseline_inference_time_in_ms,
             "model_inference_time_in_ms": self.model_inference_time_in_ms,
+            "speedup": self.speedup,
             "profiler_json_path": self.profiler_json_path,
+            "memory_profile_path": self.memory_profile_path,
+            "memory_visualization_path": self.memory_visualization_path,
+            "memory_stats": self.memory_stats,
         }
         return result_dict
 
@@ -293,7 +303,7 @@ def model_inference_time_in_ms(model, input_data):
         input_data: Input data for the model
 
     Returns:
-        float: Median inference time in microseconds
+        float: Median inference time in milliseconds
     """
     # First run to trigger any compilation/lazy initialization
 
@@ -309,8 +319,8 @@ def model_inference_time_in_ms(model, input_data):
     measurement = timer.timeit(number=100)
     res = measurement.mean
 
-    # Convert to microseconds
-    return res * 1e6
+    # Convert to milliseconds
+    return (res * 1e6) / 1000  # Convert microseconds to milliseconds
 
 
 def clean_caches():
@@ -330,7 +340,7 @@ def clean_caches():
 def generate_results_csv(
     results: List[BenchmarkResult],
     output_dir: str,
-    file_name: str = "results.csv",
+    file_name: Optional[str] = None,
 ):
     """Generate a CSV file with the results of the benchmarking.
 
@@ -346,6 +356,10 @@ def generate_results_csv(
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    # Generate the filename with the current date and time in the specified format
+    if file_name is None:
+        file_name = datetime.now().strftime("results_%d%m%Y_%H%M%S.csv")
+
     file_path = os.path.join(output_dir, file_name)
 
     # Create a CSV file with the results
@@ -376,7 +390,9 @@ def print_results(results: List[BenchmarkResult]):
             result.config.quantization or "baseline",
             result.config.sparsity or "none",
             f"{result.config.shape_name} ({result.config.m}, {result.config.k}, {result.config.n})",
+            f"{result.baseline_inference_time_in_ms:.2f}",
             f"{result.model_inference_time_in_ms:.2f}",
+            f"{result.speedup:.2f}x",
             str(result.config.enable_profiler),
         ]
 
@@ -388,7 +404,9 @@ def print_results(results: List[BenchmarkResult]):
         "Quantization",
         "Sparsity",
         "Shape",
+        "Baseline Inference Time (ms)",
         "Inference Time (ms)",
+        "Speedup",
         "Profiler Enabled",
     ]
 

@@ -1,31 +1,24 @@
 # Sample configuration for inference benchmarks
 benchmark_mode: "inference"
-quantization_config_recipe_names:
-  # Will run a baseline inference for model by default, without quantization for comparison
+quantization_config_recipe_names: # Will run a baseline inference for model by default, without quantization for comparison
   - "int8wo"
   - "int8dq"
-  - "float8dq"
+  - "float8dq-tensor"
   - "float8wo"
-# sparsity_config_recipe_names:
-  # Will run a baseline inference for model by default, without sparsity for comparison
-  # - "semi-sparse"
-  # - "block"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
-      - name: "custom"
-        shapes: [
-          [1024, 1024, 1024],  # [m, k, n]
-          [2048, 4096, 1024],
-          [4096, 4096, 1024]
-        ]
+      - name: "small_sweep"
+        min_power: 14
+        max_power: 16
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
     enable_profiler: true  # Enable profiling for this model
+    enable_memory_profiler: true  # Enable memory profiling for this model
 
   - name: "ln_linear_sigmoid_cuda"
     matrix_shapes:
@@ -39,6 +32,7 @@ model_params:
     device: "cuda"
     model_type: "ln_linear_sigmoid"
     enable_profiler: true
+    enable_memory_profiler: true
 
   - name: "bf16_transformer_block"
     matrix_shapes:
@@ -52,6 +46,7 @@ model_params:
     device: "cuda"
     model_type: "transformer_block" # TODO: Add a custom model (Figure out how to do this, maybe pass a .py file with model definition)
     enable_profiler: true
+    enable_memory_profiler: true
 
   - name: "large_bf16_ln_linear"
     matrix_shapes:
@@ -62,12 +57,10 @@ model_params:
       - name: "pow2_extended"  # Example of using extended power of 2 shapes
         min_power: 10  # 1024
         max_power: 11  # 2048
-      - name: "sweep"  # Example of using sweep shapes (commented out as it generates many shapes)
-        min_power: 8   # 256
-        max_power: 9   # 512
     high_precision_dtype: "torch.bfloat16"
     use_torch_compile: true
     torch_compile_mode: "max-autotune"
     device: "cuda"
     model_type: "linear"
-    enable_profiler: true  # Enable profiling for this model
+    enable_profiler: true
+    enable_memory_profiler: true

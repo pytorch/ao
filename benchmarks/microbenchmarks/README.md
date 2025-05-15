@@ -30,11 +30,12 @@ python -m benchmarks.microbenchmarks.benchmark_runner --config path/to/config.ym
 
 ```yaml
 # Sample configuration for inference benchmarks
+benchmark_mode: "inference"
 quantization_config_recipe_names:
   - "baseline"
   - "int8wo"
-  - "int4wo-128"
-  - "int4wo-128-hqq"
+  - "float8wo"
+  - "float8dq-tensor"
 
 output_dir: "benchmarks/microbenchmarks/results"
 
@@ -50,9 +51,19 @@ model_params:
   compile: "max-autotune" # Options: "default", "max-autotune", "false"
   device: "cuda"  # Options: "cuda", "mps", "xpu", "cpu"
   model_type: "linear"  # Options: "linear", "ln_linear_sigmoid"
+  enable_profiler: true  # Enable standard profiling
+  enable_memory_profiler: true  # Enable CUDA memory profiling
 ```
 
 ## Configuration Options
+
+### Profiling Options
+- `enable_profiler`: Enable standard PyTorch profiling (default: false)
+- `enable_memory_profiler`: Enable CUDA memory profiling (default: false)
+  - Only works when device is set to "cuda"
+  - Generates memory snapshots before and after inference
+  - Creates visualizations of memory usage
+  - Outputs are saved in the memory_profiler subdirectory
 
 ### Quantization Methods
 Currently, quantization string is in same format as the one being passed in llama/generate.py.
@@ -119,6 +130,18 @@ Currently, quantization string is in same format as the one being passed in llam
       max_power: 11
   ```
 
+- `small_sweep`: Generate a small sweep of shapes with increasing powers of 2 for M, K, N dimensions
+  - Parameters:
+    - `min_power`: Minimum power of 2 (default: 10, which is 1024)
+    - `max_power`: Maximum power of 2 (default: 14, which is 16,384)
+  - Note: This generates shapes where M <= K <= N (ensuring increasing order), which produces fewer combinations than the full sweep, and could be good to use for plots like heatmap
+  ```yaml
+  matrix_shapes:
+    - name: "small_sweep"
+      min_power: 10  # 2^10 = 1024
+      max_power: 15  # 2^15 = 32,768
+  ```
+
 - `sweep`: Generate a sweep of shapes with different powers of 2 for M, K, N dimensions
   - Parameters:
     - `min_power`: Minimum power of 2 (default: 8, which is 256)
@@ -130,6 +153,8 @@ Currently, quantization string is in same format as the one being passed in llam
       min_power: 8  # 2^8 = 256
       max_power: 9  # 2^9 = 512
   ```
+
+
 
 ## Output
 

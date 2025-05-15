@@ -51,6 +51,7 @@ void reference_linear_lowbit_quant_weights_cpu(
     int32_t M,
     int32_t K,
     int32_t N) {
+  int32_t ceil_K_group_size = (K + group_size - 1) / group_size;
   for (int32_t m = 0; m < M; m++) {
     for (int32_t n = 0; n < N; n++) {
       const int32_t k_block = (K + group_size - 1) / group_size;
@@ -59,8 +60,8 @@ void reference_linear_lowbit_quant_weights_cpu(
       float rc = 0.0;
       int32_t k = 0;
       for (int32_t kb = 0; kb < k_block; kb++) {
-        const float scale = float(s_ptr[kb * N + n]);
-        const float zero = float(z_ptr[kb * N + n]);
+        const float scale = float(s_ptr[n * ceil_K_group_size + kb]);
+        const float zero = float(z_ptr[n * ceil_K_group_size + kb]);
         for (int32_t idx = 0; idx < group_size && k < K; idx++, k++) {
           const auto a_val = float(A_ptr[k]);
           uint8_t w_val = w_ptr[n * K + k];
@@ -217,6 +218,7 @@ void run_test_battery() {
   run_test<T, nbit>(19, 256, 28, 256);
   run_test<T, nbit>(1, 1000, 28, 256);
   run_test<T, nbit>(19, 8, 36, 256);
+  run_test<T, nbit>(1, 1024, 1024, 64);
 }
 
 int main() {

@@ -65,12 +65,12 @@ bool check_linear_mps_args(
       "Expect group_size to be 32, 64, 128 or 256");
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
-      S.dim() == 2 && S.size(1) == N,
-      "Expect S to be 2d tensor with shape [:, N]");
+      S.dim() == 2 && S.size(0) == N,
+      "Expect S to be 2d tensor with shape [N, :]");
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
-      Z.dim() == 2 && Z.size(1) == N,
-      "Expect Z to be 2d tensor with shape [:, N]");
+      Z.dim() == 2 && Z.size(0) == N,
+      "Expect Z to be 2d tensor with shape [N, :]");
 
   return true;
 }

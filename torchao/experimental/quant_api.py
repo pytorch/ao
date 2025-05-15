@@ -529,8 +529,6 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         weight_qvals, weight_scales, weight_zeros = _quantize(
             weights, self.group_size, self.nbit, has_weight_zeros=True, signed=False
         )
-        weight_scales = torch.transpose_copy(weight_scales, 1, 0)
-        weight_zeros = torch.transpose_copy(weight_zeros, 1, 0)
         weight_zeros = -weight_zeros * weight_scales
         self.weight_scales = nn.Parameter(weight_scales, requires_grad=False)
         self.weight_zeros = nn.Parameter(weight_zeros, requires_grad=False)
@@ -550,7 +548,7 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
 
         lead_shape = x.shape[0:-1]
         k = x.shape[-1]
-        n = self.weight_scales.shape[1]
+        n = self.weight_scales.shape[0]
         return self._linear_op(
             x.reshape(-1, k),
             self.packed_weights,
