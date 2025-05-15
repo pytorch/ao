@@ -1041,6 +1041,9 @@ def choose_qparams_affine(
         eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
         scale_dtype (torch.dtype): dtype for scale Tensor
         zero_point_dtype (torch.dtype): dtype for zero_point Tensor, defaults to torch.int32
+        Now removed params:
+            zero_point_domain (ZeroPointDomain): the domain that zero_point is in, defaults to Integer or None
+            preserve_zero (bool): whether to preserve zero in the quantized Tensor, defaults to True
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
@@ -1086,6 +1089,9 @@ def choose_qparams_affine_tinygemm(
         eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
         scale_dtype (torch.dtype): dtype for scale Tensor
         zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+        Now removed params:
+            zero_point_domain (ZeroPointDomain): the domain that zero_point is in, defaults to Float
+            preserve_zero (bool): whether to preserve zero in the quantized Tensor, defaults to False
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
@@ -1152,6 +1158,9 @@ def choose_qparams_affine_dont_preserve_zero(
         eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
         scale_dtype (torch.dtype): dtype for scale Tensor
         zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+        Now removed params default values:
+            zero_point_domain (ZeroPointDomain): the domain that zero_point is in, defaults to Integer
+            preserve_zero (bool): whether to preserve zero in the quantized Tensor, defaults to False
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
