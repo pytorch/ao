@@ -949,7 +949,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
 
         if ((zero_point_domain == ZeroPointDomain.INT) and ("xpu" not in device.type)):
             raise ValueError(
-                f"Int4WeightOnlyGPTQQuantizer with ZeroPointDomain.INT is only applicable to Intel GPU. Please set device to 'xpu'."
+                f"Int4WeightOnlyGPTQQuantizer with ZeroPointDomain.INT is only applicable to Intel GPU."
             )
 
         self.get_qparams_func = lambda w: get_groupwise_affine_qparams(
