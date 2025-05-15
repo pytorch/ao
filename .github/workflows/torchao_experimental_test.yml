@@ -54,6 +54,7 @@ jobs:
           python torchao/experimental/tests/test_embedding_xbit_quantizer.py
           python torchao/experimental/tests/test_quant_passes.py
       - name: Run kernels/cpu/aarch64/tests
+        if: runner.os == 'macOS'
         run: |
           conda activate venv
           pushd torchao/experimental/kernels/cpu/aarch64/tests
@@ -61,6 +62,7 @@ jobs:
           rm -rf /tmp/cmake-out
           popd
       - name: Run torchao/experimental/ops/tests
+        if: runner.os == 'macOS'
         run: |
           conda activate venv
           pushd torchao/experimental/ops/tests
