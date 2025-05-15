@@ -395,6 +395,8 @@ def get_extensions():
         cuda_arch_flags = _get_cuda_arch_flags()
         build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
         build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
+        build_for_sm100 = "-gencode=arch=compute_100,code=sm_100" in cuda_arch_flags
+        build_for_sm100a = "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags
         if build_for_sm90 and not build_for_sm90a:
             cutlass_90a_sources = [
                 os.path.join(
@@ -418,6 +420,17 @@ def get_extensions():
                     )
                 )
             sources = [s for s in sources if s not in cutlass_90a_sources]
+
+        if build_for_sm100 and not build_for_sm100a:
+            cutlass_100a_sources = [
+                os.path.join(
+                    extensions_cuda_dir,
+                    "mx_kernels",
+                    "mx_fp_cutlass_kernels.cu",
+                ),
+            ]
+            sources = [s for s in sources if s not in cutlass_100a_sources]
+
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -448,10 +461,25 @@ def get_extensions():
         )
         ext_modules.append(
             extension(
-                "torchao._C",
+                "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    if cutlass_100a_sources is not None and len(cutlass_100a_sources) > 0:
+        cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
+        cutlass_100a_extra_compile_args["nvcc"].extend(
+            cuda_arch_flags + ["-gencode=arch=compute_100a,code=sm_100a"]
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C_cutlass_100a",
+                cutlass_100a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_100a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
