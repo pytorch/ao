@@ -1,0 +1,139 @@
+# adapted from deja vu
+
+from typing import Optional
+
+import torch
+import triton
+import triton.language as tl
+def init_to_zero(*names):
+    def init_func(nargs):
+        for name in names:
+            nargs[name].zero_()
+    return init_func
+
+# NOTE: will need to warm up kernels each time, triton autotune caching isn't a thing right now
+
+configs=[
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero("Y")), 
+
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 8, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 16}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 32}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero("Y")),
+
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero("Y")),
+
+
+    # Llama 3 variants can use BLOCK_N >= 1024
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero("Y")),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero("Y")),
+]
+
+@triton.autotune(
+    configs=configs,
+    key=["CACHE_KEY_M", "CACHE_KEY_N", "BATCHSIZE"],
+)
+@triton.jit
+def splitk_sparse_gemv_kernel(
+    Y, # Pointers to matrices
+    A, X,
+    # Matrix dimensions
+    N, M,
+    CACHE_KEY_N, CACHE_KEY_M,
+    # Meta-parameters
+    BATCHSIZE: tl.constexpr, 
+    BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr,
+):
+    start_n = tl.program_id(0)
+    start_m = tl.program_id(1)
+    # now compute the block that each program will go through
+    # rn (resp. rm) denotes a range of indices for rows (resp. col) of A
+    
+    rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    rm = start_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    
+    A_ptr = A + (rm[:, None] * N + rn[None, :])
+    X_ptr = X + rm
+    Y_ptr = Y + rn
+    
+    # eviction policy go brrr
+    if BATCHSIZE == 1:
+        x0 = tl.load(X_ptr, mask=rm < M, other=0.0, eviction_policy='evict_last') # reuse x across threadblocks
+        idx = x0 != 0 
+        # selectively load weight rows
+        a = tl.load(A_ptr, mask=idx[:, None], other=0.0, eviction_policy='evict_first') # only load weights once per threadblock
+        acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], 0)
+
+    # rematerialize rm and rn to save registers
+    rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    tl.atomic_add(Y_ptr, acc0, mask=rn < N)
+
+
+from torch.library import triton_op, wrap_triton
+
+# NOTE: assumes that weight is column major
+@triton_op("torchao::splitk_sparse_gemv", mutates_args={})
+def splitk_sparse_gemv(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute y = sparse(X) @ weight.
+    :param x: input tensor [1, 1, Z]
+    :param weight: weight matrix [N, Z]
+    :return: result tensor y
+    """
+    N, Z = weight.shape
+    beam_width, seq_len, _ = x.shape
+    assert x.shape[2] == Z
+    x = x.contiguous()
+    
+    assert weight.stride(1) > 1, "weight should be column major"
+
+    # 1D launch kernel where each block gets its own program.
+    grid = lambda META: (
+        triton.cdiv(N, META["BLOCK_N"]),
+        triton.cdiv(Z, META["BLOCK_M"]),
+    )  # noqa
+
+    output = torch.empty(
+        beam_width,
+        seq_len,
+        N,
+        device=x.device,
+        dtype=torch.float16,
+    )
+
+
+    kernel = wrap_triton(splitk_sparse_gemv_kernel)
+    kernel[grid](
+        output,  # data ptrs
+        weight,
+        x,
+        N,  # shapes
+        Z,
+        N // 16,  # key for triton cache (limit number of compilations)
+        Z // 16,
+        beam_width,  # BATCHSIZE
+        # can't use kwargs because auto-tuner requires args
+    )
+
+    if x.dtype is not output.dtype:
+        print(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
+        return output.to(dtype=x.dtype)
+
+    return output
