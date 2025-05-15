@@ -369,13 +369,6 @@ def get_groupwise_affine_qparams(
     ).reshape(w.shape[0], -1)
 
 
-def align_tinygemm_scales_and_zeros(scales, zeros):
-    guard_dtype_size(scales, "scales", dtype=scales.dtype, size=zeros.size())
-    scales_t = scales.transpose(0, 1).contiguous()
-    zeros_t = zeros.transpose(0, 1).contiguous()
-    return scales_t, zeros_t
-
-
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
     guard_dtype_size(zeros, "zeros", dtype=dtype)
@@ -396,25 +389,6 @@ def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert scales_and_zeros.shape[-1] == 2
     return torch.split(scales_and_zeros.transpose(-3, -2), 1, -1)
-
-
-def convert_weight_to_int4pack_xpu(weight, zero_point_domain_is_int=False):
-    assert weight.device.type == "xpu"
-
-    if zero_point_domain_is_int:
-        # int_data = weight.to(dtype=torch.uint8)
-        int_data = (weight[::, 1::2] << 4 | weight[::, ::2]).to(torch.uint8)
-        packed_weight = torch.ops.aten._convert_weight_to_int4pack(
-            int_data,
-            8,  # TODO:remove
-        )
-    else:
-        out = weight.to(dtype=torch.uint8)
-        out = (out[::, 1::2] << 4 | out[::, ::2]).to(torch.uint8)
-        packed_weight = out.view(torch.int32)
-
-    # Second, N * K/2 uint8 -> N * K/8 int32
-    return packed_weight
 
 
 def groupwise_affine_quantize_tensor_from_qparams(
@@ -468,6 +442,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     if (
         TORCH_VERSION_AT_LEAST_2_5
         and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1)
+        and not (check_cpu_version(w_int4x8.device))
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -478,13 +453,11 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             device=w_int4x8.device,
         )
 
-        if (not (check_cpu_version(w_int4x8.device))) and (
-            not (check_xpu_version(w_int4x8.device))
+        if (not (check_xpu_version(w_int4x8.device))
         ):
             w_int32[::, ::2] = high_bits
             w_int32[::, 1::2] = low_bits
-
-        if check_xpu_version(w_int4x8.device):
+        else:
             w_int32[::, ::2] = low_bits
             w_int32[::, 1::2] = hight_bits
 

@@ -39,7 +39,6 @@ from .utils import (
     groupwise_affine_quantize_tensor,
     groupwise_affine_quantize_tensor_from_qparams,
     pack_tinygemm_scales_and_zeros,
-    align_tinygemm_scales_and_zeros,
     per_token_dynamic_quant,
 )
 
@@ -582,7 +581,7 @@ def linear_forward_int4(
     return c
 
 
-def linear_forward_int4_zero_domain(
+def linear_forward_int4_zero_point_domain_int(
     x: torch.Tensor,
     weight_int4pack: torch.Tensor,
     scales: torch.Tensor,
@@ -591,6 +590,7 @@ def linear_forward_int4_zero_domain(
     groupsize: int,
     precision: torch.dtype = torch.bfloat16,
     scales_precision: torch.dtype = torch.bfloat16,
+    zeros_precision: torch.dtype = torch.int8,
 ):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
@@ -599,7 +599,7 @@ def linear_forward_int4_zero_domain(
         weight_int4pack,
         groupsize,
         scales.to(scales_precision),
-        zeros.to(torch.int8),
+        zeros.to(zeros_precision),
     ).to(dtype=x.dtype)
     new_shape = origin_x_size[:-1] + (out_features,)
     c = c.reshape(new_shape)
@@ -644,6 +644,9 @@ class WeightOnlyInt4Linear(torch.nn.Module):
 
         if dtype is not None:
             raise ValueError("Please specify 'precision' instead of 'dtype'")
+
+        if zero_point_domain == ZeroPointDomain.INT:
+            self.zeros_precision = torch.int8
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
         assert in_features % (inner_k_tiles * 16) == 0, (
@@ -702,7 +705,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                 "zeros",
                 torch.zeros(
                     (in_features // groupsize, out_features),
-                    dtype=torch.int8,
+                    dtype=self.zeros_precision,
                     device=device,
                 ),
             )
@@ -731,7 +734,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                 self.scales_precision,
             )
         else:
-            return linear_forward_int4_zero_domain(
+            return linear_forward_int4_zero_point_domain_int(
                 input,
                 self.weight,
                 self.scales,
@@ -740,6 +743,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
                 self.groupsize,
                 self.precision,
                 self.scales_precision,
+                self.zeros_precision,
             )
 
 
@@ -942,6 +946,12 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.device = device
         self.act_fake_quant_func = None
         n_bit = 4
+
+        if ((zero_point_domain == ZeroPointDomain.INT) and ("xpu" not in device.type)):
+            raise ValueError(
+                f"Int4WeightOnlyGPTQQuantizer with ZeroPointDomain.INT is only applicable to Intel GPU. Please set device to 'xpu'."
+            )
+
         self.get_qparams_func = lambda w: get_groupwise_affine_qparams(
             w, n_bit, groupsize, zero_point_domain=self.zero_point_domain,
         )
@@ -967,6 +977,9 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self.skip_layer_func = lambda linear_weight: not (
             _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
         )
+
+        if zero_point_domain == ZeroPointDomain.INT:
+            self.zeros_precision = torch.int8
 
         # we need to do the padding here, both for q and the qparams if necessary
 
@@ -999,8 +1012,13 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
                 )
                 return {"weight": final_q, "scales_and_zeros": final_s_and_z}
             if zero_point_domain == ZeroPointDomain.INT:
-                zeros = qparams[1].to(torch.int8).to(self.device)
-                scales, zeros = align_tinygemm_scales_and_zeros(scales, zeros)
+                zeros = qparams[1].to(self.zeros_precision).to(self.device)
+                if scales.size() != zeros.size():
+                    raise ValueError(
+                        f"Expected Tensor scales size equal to zeros, but scales size is {scales.size()} and zeros size is {zeros.size()}."
+                    )
+                scales = scales.transpose(0, 1).contiguous()
+                zeros = zeros.transpose(0, 1).contiguous()
                 # how many new groups we need for padded weight
                 delta_groups = new_k // groupsize - scales.shape[0]
                 final_s = F.pad(
