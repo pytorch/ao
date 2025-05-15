@@ -95,9 +95,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.build_cpu_aarch64:
-            assert self._is_arm64(), (
-                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
-            )
+            assert (
+                self._is_arm64()
+            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -106,9 +106,9 @@ class BuildOptions:
             "TORCHAO_BUILD_KLEIDIAI", default=False
         )
         if self.build_kleidi_ai:
-            assert self.build_cpu_aarch64, (
-                "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
-            )
+            assert (
+                self.build_cpu_aarch64
+            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
 
         # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
         self.build_experimental_mps = self._os_bool_var(
@@ -117,9 +117,9 @@ class BuildOptions:
         if self.build_experimental_mps:
             assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
             assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
-            assert torch.mps.is_available(), (
-                "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
-            )
+            assert (
+                torch.mps.is_available()
+            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
 
         # TORCHAO_PARALLEL_BACKEND specifies which parallel backend to use
         # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
@@ -132,9 +132,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.enable_arm_neon_dot:
-            assert self.build_cpu_aarch64, (
-                "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
-            )
+            assert (
+                self.build_cpu_aarch64
+            ), "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
 
         # TORCHAO_ENABLE_ARM_I8MM enable ARM 8-bit Integer Matrix Multiply instructions
         # Not enabled by default on macOS as not all silicon mac supports it
@@ -142,9 +142,9 @@ class BuildOptions:
             "TORCHAO_ENABLE_ARM_I8MM", default=False
         )
         if self.enable_arm_i8mm:
-            assert self.build_cpu_aarch64, (
-                "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
-            )
+            assert (
+                self.build_cpu_aarch64
+            ), "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
@@ -424,6 +424,7 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
+    cutlass_100a_sources = None
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
