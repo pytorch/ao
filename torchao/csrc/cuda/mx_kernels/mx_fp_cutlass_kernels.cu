@@ -3,6 +3,11 @@
 //
 // This source code is licensed under the BSD 3-Clause license found in the
 // LICENSE file in the root directory of this source tree.
+
+// Ensure this file is only compiled with sm100a architecture
+#if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ < 1000)
+#error "This file must be compiled with compute capability 10.0a or higher (Blackwell architecture)"
+#endif
 #include <torch/library.h>
 
 #include <ATen/ATen.h>

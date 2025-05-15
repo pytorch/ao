@@ -95,9 +95,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.build_cpu_aarch64:
-            assert (
-                self._is_arm64()
-            ), "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            assert self._is_arm64(), (
+                "TORCHAO_BUILD_CPU_AARCH64 requires an arm64 machine"
+            )
 
         # TORCHAO_BUILD_KLEIDIAI is disabled by default for now because
         # 1) It increases the build time
@@ -106,9 +106,9 @@ class BuildOptions:
             "TORCHAO_BUILD_KLEIDIAI", default=False
         )
         if self.build_kleidi_ai:
-            assert (
-                self.build_cpu_aarch64
-            ), "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_BUILD_KLEIDIAI requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
         # TORCHAO_BUILD_EXPERIMENTAL_MPS is disabled by default.
         self.build_experimental_mps = self._os_bool_var(
@@ -117,9 +117,9 @@ class BuildOptions:
         if self.build_experimental_mps:
             assert self._is_macos(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MacOS"
             assert self._is_arm64(), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires arm64"
-            assert (
-                torch.mps.is_available()
-            ), "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            assert torch.mps.is_available(), (
+                "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
+            )
 
         # TORCHAO_PARALLEL_BACKEND specifies which parallel backend to use
         # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
@@ -132,9 +132,9 @@ class BuildOptions:
             default=(self._is_arm64() and self._is_macos()),
         )
         if self.enable_arm_neon_dot:
-            assert (
-                self.build_cpu_aarch64
-            ), "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
         # TORCHAO_ENABLE_ARM_I8MM enable ARM 8-bit Integer Matrix Multiply instructions
         # Not enabled by default on macOS as not all silicon mac supports it
@@ -142,9 +142,9 @@ class BuildOptions:
             "TORCHAO_ENABLE_ARM_I8MM", default=False
         )
         if self.enable_arm_i8mm:
-            assert (
-                self.build_cpu_aarch64
-            ), "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
 
     def _is_arm64(self) -> bool:
         return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
@@ -425,6 +425,8 @@ def get_extensions():
     use_cutlass = False
     cutlass_90a_sources = None
     cutlass_100a_sources = None
+    build_for_sm90a = False
+    build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
         use_cutlass = True
         cutlass_dir = os.path.join(third_party_path, "cutlass")
@@ -454,44 +456,46 @@ def get_extensions():
         )
 
         cuda_arch_flags = _get_cuda_arch_flags()
-        build_for_sm90 = "-gencode=arch=compute_90,code=sm_90" in cuda_arch_flags
         build_for_sm90a = "-gencode=arch=compute_90a,code=sm_90a" in cuda_arch_flags
-        build_for_sm100 = "-gencode=arch=compute_100,code=sm_100" in cuda_arch_flags
         build_for_sm100a = "-gencode=arch=compute_100a,code=sm_100a" in cuda_arch_flags
-        if build_for_sm90 and not build_for_sm90a:
-            cutlass_90a_sources = [
+        # Define sm90a sources
+        cutlass_90a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "rowwise_scaled_linear_sparse_cutlass",
+                "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+            ),
+            os.path.join(
+                extensions_cuda_dir,
+                "to_sparse_semi_structured_cutlass_sm9x",
+                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+            ),
+            os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
+            os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
+        ]
+        for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
+            cutlass_90a_sources.append(
                 os.path.join(
                     extensions_cuda_dir,
                     "rowwise_scaled_linear_sparse_cutlass",
-                    "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
-                ),
-                os.path.join(
-                    extensions_cuda_dir,
-                    "to_sparse_semi_structured_cutlass_sm9x",
-                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
-                ),
-                os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
-                os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
-            ]
-            for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
-                cutlass_90a_sources.append(
-                    os.path.join(
-                        extensions_cuda_dir,
-                        "rowwise_scaled_linear_sparse_cutlass",
-                        "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
-                    )
+                    "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
-            sources = [s for s in sources if s not in cutlass_90a_sources]
+            )
+        # Always remove sm90a sources from main sources
+        sources = [s for s in sources if s not in cutlass_90a_sources]
 
-        if build_for_sm100 and not build_for_sm100a:
-            cutlass_100a_sources = [
-                os.path.join(
-                    extensions_cuda_dir,
-                    "mx_kernels",
-                    "mx_fp_cutlass_kernels.cu",
-                ),
-            ]
-            sources = [s for s in sources if s not in cutlass_100a_sources]
+        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
+        cutlass_100a_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "mx_kernels",
+                "mx_fp_cutlass_kernels.cu",
+            ),
+        ]
+        # Remove from main sources to prevent compilation with other architectures
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
 
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
@@ -506,6 +510,11 @@ def get_extensions():
 
     ext_modules = []
     if len(sources) > 0:
+        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
+        sources = [
+            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
+        ]
+
         ext_modules.append(
             extension(
                 "torchao._C",
@@ -516,10 +525,16 @@ def get_extensions():
             )
         )
 
-    if cutlass_90a_sources is not None and len(cutlass_90a_sources) > 0:
+    # Only build the cutlass_90a extension if sm90a is in the architecture flags
+    if (
+        cutlass_90a_sources is not None
+        and len(cutlass_90a_sources) > 0
+        and build_for_sm90a
+    ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        cutlass_90a_extra_compile_args["nvcc"].extend(
-            cuda_arch_flags + ["-gencode=arch=compute_90a,code=sm_90a"]
+        # Only use sm90a architecture for these sources, ignoring other flags
+        cutlass_90a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_90a,code=sm_90a"
         )
         ext_modules.append(
             extension(
@@ -531,10 +546,16 @@ def get_extensions():
             )
         )
 
-    if cutlass_100a_sources is not None and len(cutlass_100a_sources) > 0:
+    # Only build the cutlass_100a extension if sm100a is in the architecture flags
+    if (
+        cutlass_100a_sources is not None
+        and len(cutlass_100a_sources) > 0
+        and build_for_sm100a
+    ):
         cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        cutlass_100a_extra_compile_args["nvcc"].extend(
-            cuda_arch_flags + ["-gencode=arch=compute_100a,code=sm_100a"]
+        # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
+        cutlass_100a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_100a,code=sm_100a"
         )
         ext_modules.append(
             extension(
