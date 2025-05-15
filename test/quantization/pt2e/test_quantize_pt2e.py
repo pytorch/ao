@@ -2385,6 +2385,192 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             node_list,
         )
 
+    def test_conv3d_bn_relu(self):
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                weight_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                )
+                bias_qspec = QuantizationSpec(
+                    dtype=torch.float32,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+                )
+                # conv_transpose + bn is fused automatically in PTQ (not configurable)
+                # so we just need to annotate conv_transpose + relu for conv_transpose + bn + relu
+                # pattern
+                for n in model.graph.nodes:
+                    if (
+                        n.op != "call_function"
+                        or n.target != torch.ops.aten.relu.default
+                    ):
+                        continue
+                    relu_node = n
+                    n = n.args[0]
+                    if (
+                        n.op != "call_function"
+                        and n.target != torch.ops.aten.conv3d.input
+                    ):
+                        continue
+                    conv_t_node = n
+                    input_act = conv_t_node.args[0]
+                    weight = conv_t_node.args[1]
+                    bias = conv_t_node.args[2]
+                    conv_t_node.meta["quantization_annotation"] = (
+                        QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act: act_qspec,
+                                weight: weight_qspec,
+                                bias: bias_qspec,
+                            },
+                            _annotated=True,
+                        )
+                    )
+                    relu_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        output_qspec=act_qspec,
+                        _annotated=True,
+                    )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv3d(2, 2, 3, padding=1)
+                self.bn = torch.nn.BatchNorm3d(2)
+
+            def forward(self, x):
+                return torch.nn.functional.relu(self.bn(self.conv(x)))
+
+        example_inputs = (torch.randn(1, 2, 2, 5, 5),)
+        node_occurrence = {
+            # two for input of the first conv, one for output for the first conv
+            torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+        }
+        node_list = [
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.aten.conv3d.default,
+            torch.ops.aten.relu.default,
+            torch.ops.quantized_decomposed.quantize_per_tensor.default,
+        ]
+        model = M().eval()
+        self._test_quantizer(
+            model,
+            example_inputs,
+            BackendAQuantizer(),
+            node_occurrence,
+            node_list,
+        )
+
+    def test_conv_transpose3d_bn_relu(self):
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.uint8,
+                    quant_min=0,
+                    quant_max=255,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                weight_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                )
+                bias_qspec = QuantizationSpec(
+                    dtype=torch.float32,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+                )
+                # conv_transpose + bn is fused automatically in PTQ (not configurable)
+                # so we just need to annotate conv_transpose + relu for conv_transpose + bn + relu
+                # pattern
+                for n in model.graph.nodes:
+                    if (
+                        n.op != "call_function"
+                        or n.target != torch.ops.aten.relu.default
+                    ):
+                        continue
+                    relu_node = n
+                    n = n.args[0]
+                    if (
+                        n.op != "call_function"
+                        and n.target != torch.ops.aten.conv_transposed3d.input
+                    ):
+                        continue
+                    conv_t_node = n
+                    input_act = conv_t_node.args[0]
+                    weight = conv_t_node.args[1]
+                    bias = conv_t_node.args[2]
+                    conv_t_node.meta["quantization_annotation"] = (
+                        QuantizationAnnotation(
+                            input_qspec_map={
+                                input_act: act_qspec,
+                                weight: weight_qspec,
+                                bias: bias_qspec,
+                            },
+                            _annotated=True,
+                        )
+                    )
+                    relu_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        output_qspec=act_qspec,
+                        _annotated=True,
+                    )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_t = torch.nn.ConvTranspose3d(2, 2, 3, padding=1)
+                self.bn = torch.nn.BatchNorm3d(2)
+
+            def forward(self, x):
+                return torch.nn.functional.relu(self.bn(self.conv_t(x)))
+
+        example_inputs = (torch.randn(1, 2, 2, 5, 5),)
+        node_occurrence = {
+            # two for input of the first conv, one for output for the first conv
+            torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+        }
+        node_list = [
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.aten.conv_transpose3d.input,
+            torch.ops.aten.relu.default,
+            torch.ops.quantized_decomposed.quantize_per_tensor.default,
+        ]
+        model = M().eval()
+        self._test_quantizer(
+            model,
+            example_inputs,
+            BackendAQuantizer(),
+            node_occurrence,
+            node_list,
+        )
+
     def test_multi_users_without_output_observer(self):
         """
         Test the case in which a node is used by multiple users,

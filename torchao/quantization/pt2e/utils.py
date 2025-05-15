@@ -626,6 +626,7 @@ def _is_conv_node(n: Node):
     return n.op == "call_function" and n.target in [
         torch.ops.aten.conv1d.default,
         torch.ops.aten.conv2d.default,
+        torch.ops.aten.conv3d.default,
     ]
 
 
@@ -638,6 +639,8 @@ def _is_conv_transpose_node(n: Node):
         torch.ops.aten.conv_transpose1d.default,
         torch.ops.aten.conv_transpose2d,
         torch.ops.aten.conv_transpose2d.input,
+        torch.ops.aten.conv_transpose3d,
+        torch.ops.aten.conv_transpose3d.input,
     ]
 
 
@@ -649,7 +652,7 @@ def _is_conv_or_conv_transpose_node(n: Node):
 
 
 def _is_conv_transpose_fn(conv_fn: Callable):
-    return conv_fn in [F.conv_transpose1d, F.conv_transpose2d]
+    return conv_fn in [F.conv_transpose1d, F.conv_transpose2d, F.conv_transposed3d]
 
 
 def _is_bn_node(n: Node):
