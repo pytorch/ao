@@ -12,7 +12,6 @@ import torch
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     DTYPE_TO_SHORT_STR,
@@ -53,7 +52,7 @@ def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
         assert block_size == 32, (
             f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
         )
-        valid_dtypes = [torch.float8_e4m3fn, DTYPE_FP4]
+        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
         assert elem_dtype in valid_dtypes, (
             f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
         )
@@ -126,10 +125,11 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(gemm_kernel_choice=MXGemmKernelChoice.CUBLAS)
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
-            return MXLinearConfig(elem_dtype=DTYPE_FP4)
+            return MXLinearConfig(elem_dtype=torch.float4_e2m1fn_x2)
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
             return MXLinearConfig(
-                elem_dtype=DTYPE_FP4, gemm_kernel_choice=MXGemmKernelChoice.CUTLASS
+                elem_dtype=torch.float4_e2m1fn_x2,
+                gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
             )
         else:
             raise AssertionError(f"unknown recipe_name {recipe_name}")

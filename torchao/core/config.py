@@ -175,6 +175,7 @@ ALLOWED_AO_MODULES = {
     "torchao.quantization",
     "torchao.sparsity.sparse_api",
     "torchao.prototype.quantization",
+    "torchao.prototype.mx_formats",
 }
 
 
