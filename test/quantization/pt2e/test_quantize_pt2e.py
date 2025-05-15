@@ -2410,7 +2410,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                     observer_or_fake_quant_ctr=observer.PlaceholderObserver,
                 )
                 # conv_transpose + bn is fused automatically in PTQ (not configurable)
-                # so we just need to annotate conv_transpose + relu for conv_transpose + bn + relu
+                # so we just need to annotate conv + relu for conv + bn + relu
                 # pattern
                 for n in model.graph.nodes:
                     if (
