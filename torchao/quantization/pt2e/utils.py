@@ -652,7 +652,7 @@ def _is_conv_or_conv_transpose_node(n: Node):
 
 
 def _is_conv_transpose_fn(conv_fn: Callable):
-    return conv_fn in [F.conv_transpose1d, F.conv_transpose2d, F.conv_transposed3d]
+    return conv_fn in [F.conv_transpose1d, F.conv_transpose2d, F.conv_transpose3d]
 
 
 def _is_bn_node(n: Node):
