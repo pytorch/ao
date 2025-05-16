@@ -4,7 +4,6 @@ import itertools
 import torch
 from torch._dynamo.utils import counters
 from torch._inductor import config
-from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from torch._inductor.lowering import lowerings as L
 from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
@@ -15,6 +14,8 @@ from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
     register_lowering_pattern,
 )
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 __all__ = [
     "_int8_sdpa_init",
@@ -364,19 +365,26 @@ def _register_int8_sdpa_lowerings(custom_pass_dict):
         )
 
 
-# define the custom pass
-class _CustomPass(PatternMatcherPass, CustomGraphPass):
-    def __init__(self) -> None:
-        super().__init__()
+if TORCH_VERSION_AT_LEAST_2_7:
+    # TORCH_VERSION_AT_LEAST_2_7 is needed for custom graph pass
+    from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 
-    def __call__(self, g: torch.fx.graph.Graph):
-        self.apply(g)
+    # define the custom pass
+    class _CustomPass(PatternMatcherPass, CustomGraphPass):
+        def __init__(self) -> None:
+            super().__init__()
 
-    def uuid(self) -> bytes:
-        return get_hash_for_files((__file__,))
+        def __call__(self, g: torch.fx.graph.Graph):
+            self.apply(g)
+
+        def uuid(self) -> bytes:
+            return get_hash_for_files((__file__,))
 
 
 @functools.lru_cache(None)
 def _int8_sdpa_init():
-    config.post_grad_custom_pre_pass = _CustomPass()
-    _register_int8_sdpa_lowerings(config.post_grad_custom_pre_pass)
+    if TORCH_VERSION_AT_LEAST_2_7:
+        config.post_grad_custom_pre_pass = _CustomPass()
+        _register_int8_sdpa_lowerings(config.post_grad_custom_pre_pass)
+    else:
+        pass
