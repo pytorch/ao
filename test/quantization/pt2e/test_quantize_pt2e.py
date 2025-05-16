@@ -7,7 +7,6 @@
 # Owner(s): ["oncall: quantization"]
 # ruff: noqa: F841
 
-
 import unittest
 
 import torch

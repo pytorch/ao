@@ -91,7 +91,7 @@ def _get_q_dq_linear_patterns_replacements_and_filters(
 
     lcls = {}
 
-    pattern_str = f"""
+    pattern_str = """
 def pattern(
     a, a_block_size, a_zero_point_dtype,
     w_int_data, w_block_size, w_scale, w_zero_point, w_target_dtype,
@@ -121,7 +121,6 @@ def pattern(
         w_target_dtype,
         w_quant_min,
         w_quant_max,
-        {"'INT'" if has_weight_zeros else "'NONE'"}
     )
     return torch.ops.aten.linear.default(dq_a, dq_w, bias)
 """

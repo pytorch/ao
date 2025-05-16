@@ -1025,7 +1025,6 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(
             block_size=block_size,
             target_dtype=target_dtype,
             _layout=_layout,
-            scale_dtype=torch.float32,
         )
         weight = super(
             AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls
@@ -1068,7 +1067,6 @@ class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(
             block_size=block_size,
             target_dtype=target_dtype,
             _layout=_layout,
-            scale_dtype=torch.float32,
         )
         weight = super(
             AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls

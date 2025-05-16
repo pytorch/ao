@@ -1266,7 +1266,6 @@ def _float8_cutlass_quant(
     return to_affine_quantized_floatx(
         x,
         block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
         target_dtype=target_dtype,
         _layout=Float8Layout(mm_config=None),
     )
@@ -1279,7 +1278,6 @@ def _float8_cutlass_quant_sparse(
     return to_affine_quantized_floatx(
         x,
         block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
         target_dtype=target_dtype,
         _layout=CutlassSemiSparseLayout(),
     )
@@ -1412,7 +1410,6 @@ def _float8_weight_only_quant_tensor(weight, config):
         input_float=weight,
         block_size=block_size,
         target_dtype=config.weight_dtype,
-        scale_dtype=None,
         _layout=Float8Layout(mm_config=None),
     )
     return new_weight
@@ -1507,7 +1504,6 @@ def _input_activation_quant_func_fp8(
             input_float=x,
             block_size=block_size,
             target_dtype=activation_dtype,
-            scale_dtype=torch.float32,
             _layout=Float8Layout(mm_config=None),  # Config is stored on weight
         )
     else:
@@ -1610,7 +1606,6 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         input_float=weight,
         block_size=block_size,
         target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
         _layout=Float8Layout(mm_config=mm_config),
     )
 
@@ -1754,7 +1749,6 @@ def _float8_static_activation_float8_weight_transform(
         input_float=weight,
         block_size=block_size,
         target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
         _layout=Float8Layout(mm_config=mm_config),
     )
 
