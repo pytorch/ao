@@ -59,7 +59,7 @@ lib.define(
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 lib.define(
-    "scaled_dot_product_int8(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float? scale=None, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
+    "qscaled_dot_product(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float? scale=None, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
 
 
@@ -165,7 +165,7 @@ def _(
     return _in_feats.new_empty((BS, OC))
 
 
-def scaled_dot_product_int8(
+def qscaled_dot_product(
     query: Tensor,
     key: Tensor,
     value: Tensor,
@@ -185,7 +185,7 @@ def scaled_dot_product_int8(
     o_zp: int = 0,
 ) -> Tensor:
     """
-    Quantized SDPA with uint8 inputs and outputs.
+    Quantized SDPA with quantized inputs and outputs.
     Arguments
         query: input query tensor,
         key: input key tensor,
@@ -207,7 +207,7 @@ def scaled_dot_product_int8(
     Returns
         output of quantized SDPA
     """
-    return torch.ops.torchao.scaled_dot_product_int8.default(
+    return torch.ops.torchao.qscaled_dot_product.default(
         query,
         key,
         value,
@@ -228,7 +228,7 @@ def scaled_dot_product_int8(
     )
 
 
-@register_custom_op("torchao::scaled_dot_product_int8")
+@register_custom_op("torchao::qscaled_dot_product")
 def _(
     query: Tensor,
     key: Tensor,

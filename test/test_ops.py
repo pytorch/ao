@@ -227,7 +227,7 @@ class TestOps(TestCase):
             o_scale=o_scale,
             o_zp=o_zp,
         )
-        actual = torch.ops.torchao.scaled_dot_product_int8(
+        actual = torch.ops.torchao.qscaled_dot_product(
             q,
             k,
             v,

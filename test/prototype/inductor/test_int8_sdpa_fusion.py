@@ -124,7 +124,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             if contains:
                 # many of the patterns get re-expanded in dispatcher
                 self.assertIn(
-                    "torchao.scaled_dot_product_int8",
+                    "torchao.qscaled_dot_product",
                     source_code,
                 )
 
