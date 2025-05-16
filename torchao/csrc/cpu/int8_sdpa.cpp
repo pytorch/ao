@@ -1835,7 +1835,7 @@ at::Tensor sdpa_int8_math_kernel(
 }
 
 
-at::Tensor _scaled_dot_product_int8_cpu(
+at::Tensor _qscaled_dot_product_cpu(
     const at::Tensor& query,
     const at::Tensor& key,
     const at::Tensor& value,
@@ -1855,24 +1855,24 @@ at::Tensor _scaled_dot_product_int8_cpu(
     int64_t o_zp) {
   const auto dtype = query.scalar_type();
   TORCH_CHECK(!query.is_nested() && !key.is_nested() && !value.is_nested(),
-    "_scaled_dot_product_int8_cpu: Only accept plain inputs");
+    "_qscaled_dot_product_cpu: Only accept plain inputs");
   TORCH_CHECK(!is_causal,
-    "_scaled_dot_product_int8_cpu: is_causal not supported.");
+    "_qscaled_dot_product_cpu: is_causal not supported.");
   TORCH_CHECK(dtype == at::ScalarType::Byte,
-    "_scaled_dot_product_int8_cpu: Expected data type be U8, but got ", dtype, " instead.");
+    "_qscaled_dot_product_cpu: Expected data type be U8, but got ", dtype, " instead.");
   TORCH_CHECK(query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
-    "_scaled_dot_product_int8_cpu: Accept only 4 dims inputs shape of {B, H, T, K}");
+    "_qscaled_dot_product_cpu: Accept only 4 dims inputs shape of {B, H, T, K}");
   TORCH_CHECK(dropout_p == 0.0,
-    "_scaled_dot_product_int8_cpu: Currently do not support dropout > 0");
+    "_qscaled_dot_product_cpu: Currently do not support dropout > 0");
   TORCH_CHECK((query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
-    "_scaled_dot_product_int8_cpu: Q/K/V should have the same head size");
+    "_qscaled_dot_product_cpu: Q/K/V should have the same head size");
   TORCH_CHECK(!attn_mask.has_value() ||
           attn_mask.value().scalar_type() == at::kFloat ||
           attn_mask.value().scalar_type() == at::kBFloat16,
-    "_scaled_dot_product_int8_cpu: Expected attention mask be float or bf16");
+    "_qscaled_dot_product_cpu: Expected attention mask be float or bf16");
   TORCH_CHECK(!attn_mask.has_value() ||
           (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
-    "_scaled_dot_product_int8_cpu: Attention mask dim in {2, 4}");
+    "_qscaled_dot_product_cpu: Attention mask dim in {2, 4}");
 
   #ifdef CPU_CAPABILITY_AVX512
     if (at::native::cpublas::could_pack(dtype)) {
@@ -1903,7 +1903,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
 } // anonymous namespace
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::scaled_dot_product_int8", &_scaled_dot_product_int8_cpu);
+  m.impl("torchao::qscaled_dot_product", &_qscaled_dot_product_cpu);
 }
 
 // } // at::native

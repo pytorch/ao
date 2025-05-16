@@ -20,7 +20,7 @@ __all__ = [
     "_int8_sdpa_init",
 ]
 
-make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
+make_fallback(torch.ops.torchao.qscaled_dot_product.default)
 
 aten = torch.ops.aten
 
@@ -69,7 +69,7 @@ def _register_int8_sdpa_pattern(pattern, custom_pass_dict):
         trans_query = L[aten.permute.default](query, [0, 2, 1, 3])
         trans_key = L[aten.permute.default](key, [0, 2, 1, 3])
         trans_value = L[aten.permute.default](value, [0, 2, 1, 3])
-        output = L[torch.ops.torchao.scaled_dot_product_int8.default](
+        output = L[torch.ops.torchao.qscaled_dot_product.default](
             trans_query,
             trans_key,
             trans_value,
