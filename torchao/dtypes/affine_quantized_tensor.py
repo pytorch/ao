@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import math
 from typing import Optional, Tuple, Union
@@ -160,14 +165,18 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dq
 
     def __tensor_flatten__(self):
-        return ["tensor_impl"], [
-            self.block_size,
-            self.shape,
-            self.quant_min,
-            self.quant_max,
-            self.zero_point_domain,
-            self.dtype,
-        ]
+        # This is used in rumtime to unwrap AffineQuantizedTensor activations.
+        # AffineQuantizedTensor has __torch_function__ override:
+        # Each getattr will go through it, which is up to 10x slower than default attribute access.
+        with torch._C.DisableTorchFunctionSubclass():
+            return ["tensor_impl"], [
+                self.block_size,
+                self.shape,
+                self.quant_min,
+                self.quant_max,
+                self.zero_point_domain,
+                self.dtype,
+            ]
 
     @classmethod
     def __tensor_unflatten__(
@@ -224,6 +233,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 else input_float.dtype
             )
             device = input_float.device
+            from torchao.dtypes import Int4CPULayout
             from torchao.dtypes.uintx import TensorCoreTiledLayout
 
             data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
@@ -235,7 +245,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 device=device,
                 verbose=False,
                 raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
+                    _layout, (TensorCoreTiledLayout, PlainLayout, Int4CPULayout)
                 ),
                 # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
                 # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
@@ -274,7 +284,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data = _layout.post_process(data)
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -306,9 +318,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
         if target_dtype not in FP8_TYPES:
-            assert (
-                zero_point is not None
-            ), "zero_point must be specified for non-fp8 types"
+            assert zero_point is not None, (
+                "zero_point must be specified for non-fp8 types"
+            )
         original_shape = input_float.shape
         input_float, scale, zero_point = _layout.pre_process_static(
             input_float, scale, zero_point, block_size
@@ -325,7 +337,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
         )
 
-        int_data = _layout.post_process(int_data)
+        int_data, scale, zero_point = _layout.post_process(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
@@ -406,9 +423,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
 
-        assert isinstance(
-            _layout, FloatxTensorCoreLayout
-        ), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
+        assert isinstance(_layout, FloatxTensorCoreLayout), (
+            f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
+        )
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
         # per axis quantization, where axis = 1
@@ -419,7 +436,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
         scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed = _layout.post_process(floatx_unpacked)
+        floatx_packed, scale, _ = _layout.post_process(
+            floatx_unpacked, scale, None, block_size
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)

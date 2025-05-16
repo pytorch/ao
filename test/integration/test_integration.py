@@ -19,8 +19,7 @@ from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 
 import torchao
-from torchao.dtypes import Int4CPULayout, TensorCoreTiledLayout
-from torchao.dtypes.utils import is_device
+from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
@@ -76,6 +75,7 @@ from torchao.quantization.utils import (
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
@@ -83,6 +83,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
     TORCH_VERSION_AT_LEAST_2_7,
     benchmark_model,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -94,6 +96,7 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
+
 
 logger = logging.getLogger("INFO")
 
@@ -111,7 +114,7 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int8_weight_only(), set_inductor_config=False)
+        quantize_(mod, int8_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5 or (
             not TORCH_VERSION_AT_LEAST_2_6 and torch._inductor.config.freezing
         ):
@@ -122,7 +125,7 @@ def _int8wo_api(mod):
 
 def _int8wo_groupwise_api(mod):
     group_size = 32
-    quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
+    quantize_(mod, int8_weight_only(group_size=group_size, set_inductor_config=False))
 
 
 def _int8da_int8w_api(
@@ -134,8 +137,8 @@ def _int8da_int8w_api(
             mod,
             int8_dynamic_activation_int8_weight(
                 act_mapping_type=act_mapping_type,
+                set_inductor_config=False,
             ),
-            set_inductor_config=False,
         )
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
@@ -143,17 +146,22 @@ def _int8da_int8w_api(
         change_linear_weights_to_int8_dqtensors(mod)
 
 
-def _int4wo_api(mod):
-    if (
-        is_device(next(mod.parameters()).device.type, "cpu")
-        and TORCH_VERSION_AT_LEAST_2_6
-    ):
+def _int4wo_api(mod, use_hqq=False):
+    if check_cpu_version(next(mod.parameters()).device):
         quantize_(
-            mod, int4_weight_only(layout=Int4CPULayout()), set_inductor_config=False
+            mod,
+            int4_weight_only(
+                layout=Int4CPULayout(), use_hqq=use_hqq, set_inductor_config=False
+            ),
+        )
+        unwrap_tensor_subclass(mod)
+    elif check_xpu_version(next(mod.parameters()).device):
+        quantize_(
+            mod, int4_weight_only(layout=Int4XPULayout()), set_inductor_config=False
         )
         unwrap_tensor_subclass(mod)
     elif TORCH_VERSION_AT_LEAST_2_4:
-        quantize_(mod, int4_weight_only(), set_inductor_config=False)
+        quantize_(mod, int4_weight_only(set_inductor_config=False))
         if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
@@ -161,7 +169,7 @@ def _int4wo_api(mod):
 
 
 def _int8da_int4w_api(mod):
-    quantize_(mod, int8_dynamic_activation_int4_weight(), set_inductor_config=False)
+    quantize_(mod, int8_dynamic_activation_int4_weight(set_inductor_config=False))
     if not TORCH_VERSION_AT_LEAST_2_5:
         unwrap_tensor_subclass(mod)
 
@@ -306,9 +314,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         sqnr_fq = compute_error(y_smooth_fq_only, y_dynamic_q)
         # print('sqnr_smooth', sqnr_smooth_fq, 'sqnr_dynamic', sqnr_dynamic_q, 'sqnr_fq', sqnr_fq)
 
-        assert torch.allclose(
-            y_ref, y_smooth_nocalib
-        ), "y_ref not close to y_smooth_nocalib"
+        assert torch.allclose(y_ref, y_smooth_nocalib), (
+            "y_ref not close to y_smooth_nocalib"
+        )
         # after https://github.com/pytorch-labs/ao_benchmarks/pull/32,
         # numerics do not match exactly between production c++ code
         # and this Python code
@@ -582,6 +590,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_per_token_linear_impl("cpu", dtype)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_per_token_linear_cuda(self):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_per_token_linear_impl("cuda", dtype)
@@ -700,6 +709,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"Temporarily skipping for {device}")
@@ -719,6 +729,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"Temporarily skipping for {device}")
@@ -912,6 +923,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"Temporarily skipping for {device}")
@@ -931,6 +943,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1042,8 +1055,6 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in [(16, 1024, 16)] + (
@@ -1051,6 +1062,20 @@ class TestSubclass(unittest.TestCase):
         ):
             self._test_lin_weight_subclass_api_impl(
                 _int4wo_api, device, 15, test_shape=test_shape, test_dtype=dtype
+            )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "int4 hqq requires torch nightly.")
+    def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest(f"Fails for {dtype}")
+        for test_shape in [(16, 1024, 16), (1, 1024, 256)]:
+            api = partial(
+                _int4wo_api,
+                use_hqq=True,
+            )
+            self._test_lin_weight_subclass_api_impl(
+                api, device, 15, test_shape=test_shape, test_dtype=dtype
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1102,14 +1127,15 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
-        if device == "cpu":
-            self.skipTest(f"Temporarily skipping for {device}")
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         layout_list = []
-        if device == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        if check_cpu_version(device):
             layout_list.append(Int4CPULayout())
+        elif check_xpu_version(device):
+            layout_list.append(Int4XPULayout())
         else:
             for inner_k_tiles in [4, 2]:
                 layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))
@@ -1235,8 +1261,6 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
                 self.assertGreaterEqual(sqnr, 38)
-                if device == "cuda":
-                    self.assertTrue("mixed_mm" in code, f"got code: {code}")
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -1314,9 +1338,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, ref_q) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, ref_q) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
 
         # load model structure
         with torch.device("meta"):
@@ -1336,9 +1360,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
-        assert (
-            SQNR(ref_f, test) > min_sqnr
-        ), f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        assert SQNR(ref_f, test) > min_sqnr, (
+            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+        )
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -2010,56 +2034,21 @@ class TestExport(unittest.TestCase):
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
         if TORCH_VERSION_AT_LEAST_2_5:
-            model = torch.export.export_for_training(model, example_inputs).module()
+            model = torch.export.export_for_training(
+                model, example_inputs, strict=True
+            ).module()
         else:
             model = torch._export.capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int4w_api:
             targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.quant.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.quant.quantize_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
+            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
             self.assertFalse(torch.ops.aten.narrow.default in targets)
 
 
 class TestUtils(unittest.TestCase):
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
-    def test_get_model_size_autoquant(self, device, dtype):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            if dtype == torch.bfloat16:
-                self.skipTest("bfloat16 requires sm80+")
-        m, k, n = 16, 128, 128
-        model = (
-            torch.nn.Sequential(
-                torch.nn.ReLU(),
-                torch.nn.Linear(k, n),
-                torch.nn.ReLU(),
-            )
-            .to(device)
-            .to(dtype)
-        )
-        example_input = torch.randn(m, k, device=device, dtype=dtype)
-        size = torchao.utils.get_model_size_in_bytes(model)
-
-        from torchao.quantization.autoquant import (
-            AQInt8WeightOnlyQuantizedLinearWeight2,
-        )
-
-        qtensor_class_list = (AQInt8WeightOnlyQuantizedLinearWeight2,)
-        mod = torchao.autoquant(
-            torch.compile(model),
-            qtensor_class_list=qtensor_class_list,
-            set_inductor_config=False,
-        )
-        mod(example_input)
-        size2 = torchao.utils.get_model_size_in_bytes(mod)
-        self.assertTrue(size2 < size)
-
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )

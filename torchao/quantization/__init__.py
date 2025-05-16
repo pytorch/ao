@@ -1,10 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-
 from torchao.kernel import (
     int_scaled_matmul,
     safe_int_mm,
@@ -46,7 +39,11 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    AOPerModuleConfig,
+    CutlassInt4PackedLayout,
+    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -55,7 +52,11 @@ from .quant_api import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
+    IntxWeightOnlyConfig,
+    PlainLayout,
+    TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
@@ -133,14 +134,18 @@ __all__ = [
     "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt8WeightConfig",
+    "Int8DynamicActivationIntxWeightConfig",
     "Int4WeightOnlyConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
     "Float8StaticActivationFloat8WeightConfig",
+    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "UIntXWeightOnlyConfig",
+    "IntxWeightOnlyConfig",
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
+    "AOPerModuleConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -188,4 +193,9 @@ __all__ = [
     "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
+    # Layouts for quant_api
+    "PlainLayout",
+    "TensorCoreTiledLayout",
+    "CutlassInt4PackedLayout",
+    "Float8MMConfig",
 ]

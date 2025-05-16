@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/ptx_mma.cuh
 //
 // MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
@@ -50,14 +55,14 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
     #ifdef DEBUG_MODE
         static_assert( (TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0) );
     #endif
-    
+
     const int   warpId  = threadIdx.x / WARP_SIZE;
     int         lane_id = threadIdx.x % WARP_SIZE;
     int WARP_j = warpId % TilingConfig::BLOCK_COL_WARPS;
     int warp_start_col = TilingConfig::WARP_COL_MMA_TENSORS * MMA_8 * WARP_j;   // each warp may start from reading warp_start_col'th column of the B tile in shared memory
     #ifdef DEBUG_MODE
         assert( warp_start_col==0 );
-    #endif    
+    #endif
 
     #if __CUDA_ARCH__ == 750
     if (TilingConfig::WARP_COL_MMA_TENSORS==1) {

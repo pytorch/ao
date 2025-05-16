@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 
 import pytest
@@ -15,6 +20,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.sparsity.marlin import inject_24, pack_to_marlin_24, unpack_from_marlin_24
 from torchao.sparsity.sparse_api import apply_fake_sparsity
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
@@ -37,6 +43,7 @@ class SparseMarlin24(TestCase):
         )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_eager(self):
         apply_fake_sparsity(self.model)
         model_copy = copy.deepcopy(self.model)
@@ -48,13 +55,13 @@ class SparseMarlin24(TestCase):
         # Sparse + quantized
         quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
         sparse_result = self.model(self.input)
-
-        assert torch.allclose(
-            dense_result, sparse_result, atol=3e-1
-        ), "Results are not close"
+        assert torch.allclose(dense_result, sparse_result, atol=3e-1), (
+            "Results are not close"
+        )
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_quant_sparse_marlin_layout_compile(self):
         apply_fake_sparsity(self.model)
         model_copy = copy.deepcopy(self.model)
@@ -69,9 +76,9 @@ class SparseMarlin24(TestCase):
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 
-        assert torch.allclose(
-            dense_result, sparse_result, atol=3e-1
-        ), "Results are not close"
+        assert torch.allclose(dense_result, sparse_result, atol=3e-1), (
+            "Results are not close"
+        )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_pack_unpack_equivalence(self):
@@ -128,12 +135,12 @@ class SparseMarlin24(TestCase):
             q_w_comp, packed_scales, meta, shape, group_size, num_bits
         )
 
-        assert torch.equal(
-            w_q_24, unpacked_q_w
-        ), "Unpacked weights do not match original weights"
-        assert torch.equal(
-            scales, unpacked_scales
-        ), "Unpacked scales do not match original scales"
+        assert torch.equal(w_q_24, unpacked_q_w), (
+            "Unpacked weights do not match original weights"
+        )
+        assert torch.equal(scales, unpacked_scales), (
+            "Unpacked scales do not match original scales"
+        )
 
 
 if __name__ == "__main__":

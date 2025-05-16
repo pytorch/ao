@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import abc
 import copy
 from collections import defaultdict
@@ -200,7 +205,9 @@ class BaseSparsifier(abc.ABC):
                             and "." + info_from_tensor_fqn[key] == local_args[key]
                         )
                         # info_from_tensor_fqn will chop leading '.' from tensor_fqn so ignore that
-                    ), f"Given both `{key}` and `tensor_fqn` in the config, it is expected them to agree!"
+                    ), (
+                        f"Given both `{key}` and `tensor_fqn` in the config, it is expected them to agree!"
+                    )
             local_args.update(info_from_tensor_fqn)
             self.groups.append(local_args)
         self._prepare()

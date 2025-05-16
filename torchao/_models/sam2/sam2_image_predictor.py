@@ -116,9 +116,9 @@ class SAM2ImagePredictor(torch.nn.Module):
         # input_image = self._transforms.transforms(input_image)
         input_image = input_image[None, ...].to(dtype=self._image_dtype)
 
-        assert (
-            len(input_image.shape) == 4 and input_image.shape[1] == 3
-        ), f"input_image must be of size 1x3xHxW, got {input_image.shape}"
+        assert len(input_image.shape) == 4 and input_image.shape[1] == 3, (
+            f"input_image must be of size 1x3xHxW, got {input_image.shape}"
+        )
         logging.info("Computing image embeddings for the provided image...")
         with torch.autograd.profiler.record_function("forward_image"):
             backbone_out = self.model.forward_image(input_image)
@@ -163,9 +163,9 @@ class SAM2ImagePredictor(torch.nn.Module):
             img_batch = img_batch.to(self.device)
             img_batch = img_batch.to(self._image_dtype)
         batch_size = img_batch.shape[0]
-        assert (
-            len(img_batch.shape) == 4 and img_batch.shape[1] == 3
-        ), f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
+        assert len(img_batch.shape) == 4 and img_batch.shape[1] == 3, (
+            f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
+        )
         logging.info("Computing image embeddings for the provided images...")
         with torch.autograd.profiler.record_function("forward_image"):
             backbone_out = self.model.forward_image(img_batch)
@@ -338,9 +338,9 @@ class SAM2ImagePredictor(torch.nn.Module):
     ):
         unnorm_coords, labels, unnorm_box, mask_input = None, None, None, None
         if point_coords is not None:
-            assert (
-                point_labels is not None
-            ), "point_labels must be supplied if point_coords is supplied."
+            assert point_labels is not None, (
+                "point_labels must be supplied if point_coords is supplied."
+            )
             point_coords = (
                 torch.as_tensor(point_coords, dtype=torch.float)
                 .pin_memory()
@@ -552,9 +552,9 @@ class SAM2ImagePredictor(torch.nn.Module):
             raise RuntimeError(
                 "An image must be set with .set_image(...) to generate an embedding."
             )
-        assert (
-            self._features is not None
-        ), "Features must exist if an image has been set."
+        assert self._features is not None, (
+            "Features must exist if an image has been set."
+        )
         return self._features["image_embed"]
 
     @property

@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import List
 
 import torch
@@ -7,10 +12,6 @@ import torch.nn as nn
 from torchao.float8.config import (
     Float8LinearConfig,
     ScalingType,
-)
-from torchao.float8.float8_linear_utils import (
-    linear_requires_sync,
-    sync_float8_amax_and_scale_history,
 )
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 
@@ -26,6 +27,14 @@ def check_parity_no_mp(
     precompute: bool = False,
     compile_transformer_block: bool = False,
 ):
+    # check that requires_grad matches ref module
+    for ref_param, fsdp_param in zip(ref_model.parameters(), fsdp_model.parameters()):
+        test_cls.assertEqual(
+            ref_param.requires_grad,
+            fsdp_param.requires_grad,
+            msg=f"ref_param.requires_grad: {ref_param.requires_grad}, fsdp_param.requires_grad: {fsdp_param.requires_grad}",
+        )
+
     # TODO(before land): reorder args and make config not optional
     for iter_idx in range(10):
         losses: List[torch.Tensor] = []
@@ -35,11 +44,9 @@ def check_parity_no_mp(
             losses[-1].backward()
             if model is ref_model:
                 for param in model.parameters():
-                    dist.all_reduce(param.grad)
-                    param.grad.div_(dist.get_world_size())
-
-            if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(model)
+                    if param.requires_grad:
+                        dist.all_reduce(param.grad)
+                        param.grad.div_(dist.get_world_size())
 
             optim.step()
             if (
@@ -82,7 +89,6 @@ def check_parity_bf16_mp(
                     param_bf16.grad.div_(dist.get_world_size())
                     param_fp32.grad = param_bf16.grad.float()
                     param_bf16.grad = None
-            # TODO(future): add amax syncing once delayed scaling is supported
             optim.step()
             for param_fp32, param_bf16 in zip(
                 ref_model.parameters(), ref_model_bf16.parameters()

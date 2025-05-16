@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 # Source: https://github.com/triton-lang/kernels/blob/main/kernels/matmul_perf_model.py
 
 # This file is taken from the upstream triton-lang/kernels repo.
@@ -166,7 +171,7 @@ def estimate_matmul_time(
         print(
             f"Total time: {total_time_ms}ms, compute time: {compute_ms}ms, "
             f"loading time: {load_ms}ms, store time: {store_ms}ms, "
-            f"Activate CTAs: {active_cta_ratio*100}%"
+            f"Activate CTAs: {active_cta_ratio * 100}%"
         )
     return total_time_ms
 

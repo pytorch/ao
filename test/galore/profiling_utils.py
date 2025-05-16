@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import gc
 import logging
 import os
@@ -89,9 +94,9 @@ def export_memory_snapshot(prefix) -> None:
 
 @contextmanager
 def memory_recorder(file_name="cuda_memory_snapshot", export=False) -> None:
-    assert (
-        torch.cuda.is_available()
-    ), "Memory profiler requires GPU, check torch.cuda.is_available()"
+    assert torch.cuda.is_available(), (
+        "Memory profiler requires GPU, check torch.cuda.is_available()"
+    )
     try:
         logger.info("Starting snapshot record_memory_history")
         torch.cuda.memory._record_memory_history(

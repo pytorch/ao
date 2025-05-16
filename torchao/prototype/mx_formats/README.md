@@ -1,20 +1,69 @@
-# MX formats with native PyTorch POC
+# MX training and inference with native PyTorch
 
-This is a POC of training and inference with tensors in the MX format from the OCP spec (https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) in native PyTorch.
+This is a workflow for e2e training and inference with MX dtypes from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
+in native PyTorch.  We are currently in prototype and are actively working on optimizing these workflows on the NVIDIA B200 hardware.
 
-Note that the current version of the code is written for readability and
-numerical correctness and not yet for optimal performance. We welcome
-contributions on performance improvements.
+## Overall status
 
-Note that there are no BC guarantees at the moment and we plan to evolve
-this code as the hardware specifics of MX-accelerated matmuls become
-known.
+| workflow | emulation | performance | accuracy |
+| --- | --- | --- | --- |
+| training with mxfp8 | ✅ | 🚧 [active development](https://github.com/pytorch/ao/issues/1768) | ✅ |
+| inference (weight-only) with mxfp8, mxfp6, mxfp4 | ✅ | 🔲 | 🔲 |
 
-# Current status
+We plan to add the following features in the near future:
+* other inference workflows such as dynamic quantization
+* a unified training to inference workflow
 
-## user API (subject to change)
+ℹ️ <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) and the [performance tracker](https://github.com/pytorch/ao/issues/1768) for upcoming features.</em>
 
-### MXTensor
+# User API
+
+## MX training
+
+```python
+import torch
+from torchao.quantization import quantize_
+from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice
+
+# on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
+gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
+# gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
+
+# on older NVIDIA gpus, you can run training with emulated MX gemm
+# gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+
+m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
+config = MXLinearConfig(
+    elem_dtype=torch.float8_e4m3fn,
+    block_size=32,
+    gemm_kernel_choice=gemm_kernel_choice,
+)
+quantize_(m, config)
+
+# training loop (not shown)
+```
+
+## MX inference
+
+Note: currently only weight-only quantization is supported.
+
+```python
+import torch
+from torchao.quantization import quantize_
+from torchao.prototype.mx_formats import MXInferenceLinearConfig, MXGemmKernelChoice
+
+m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
+gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
+config = MXInferenceLinearConfig(
+    elem_dtype=torch.float8_e4m3fn,
+    block_size=32,
+    gemm_kernel_choice=gemm_kernel_choice,
+)
+quantize_(m, config=config)
+
+# do inference (not shown)
+```
+## MXTensor
 
 This is casts between high precision and MX formats implemented in native PyTorch. Currently
 only `torch.float32` and `torch.bfloat16` are supported as high precision formats.
@@ -22,10 +71,10 @@ only `torch.float32` and `torch.bfloat16` are supported as high precision format
 ```python
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 # Note: MX int8 is not implemented yet
-from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2
 x = torch.randn(32, 32, device='cuda')
 
-# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, torch.float4_e2m1fn_x2
 elem_dtype = torch.float8_e4m3fn
 
 # high precision to MX, block size defaults to 32
@@ -35,79 +84,54 @@ x_mx = MXTensor.to_mx(x, elem_dtype)
 x_hp = x_mx.to_dtype(torch.float)
 ```
 
-### MXLinear
+# performance
 
-This is a module to do MX training, the MX matmul is currently emulated.
+## mxfp8 gemm
 
-```python
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig, MXGemmKernelChoice
-from torchao.utils import is_sm_at_least_100
+On NVIDIA B200 machines, we use the cuBLAS mxfp8 gemm exposed via the `torch._scaled_mm` op.
+We observe a speedup of **2x to 3x** vs the bf16 baseline on common shapes.  To reproduce this
+on supported hardware, you can run the following command:
 
-# early prototype: on MX-enabled hardware, you can use the real MX gemm backed by
-# torchao's CUTLASS kernels. In the future, we will also add cuBLAS kernel support.
-gemm_kernel_choice = MXGemmKernelChoice.EMULATED
-if is_sm_at_least_100():
-    gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
-
-m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-config = MXLinearConfig(
-    elem_dtype=torch.float8_e4m3fn, 
-    block_size=32, 
-    gemm_kernel_choice=gemm_kernel_choice,
-)
-swap_linear_with_mx_linear(m, config=config)
-
-# training loop (not shown)
+```bash
+> python benchmarks/float8/bench_matmul.py --recipe mxfp8_cublas
+// example output: https://gist.github.com/vkuzo/a1ddb782e6e1c2aef0c726b3df99efbc
 ```
 
-### MXInferenceLinear
+## to_mx cast across dim0 and dim1
 
-This is a module to do MX inference, weights are in MX and matmul is in high precision.
+On NVIDIA B200 machines, our to_mx kernels for mxfp8 achieve **up to 5.5 TB/s** for the dim0 cast (with torch.compile),
+and **up to 3.9 TB/s** for the dim1 cast (with a triton kernel). We are actively working on improving
+the performance of this cast ([details](https://github.com/pytorch/ao/issues/1768)).
 
-```python
-from torchao.prototype.mx_formats.mx_linear import swap_linear_with_mx_inference_linear
-from torchao.prototype.mx_formats.config import MXLinearConfig
+To reproduce this on supported hardware, you can run the following command:
 
-m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-config = MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32)
-swap_linear_with_mx_inference_linear(m, config=config)
+```bash
+// dim0 cast with torch.compile
+> python benchmarks/mx_formats/cast_bench.py --mode dim0_mx --M 16384 --K 16384
+// example output: https://gist.github.com/vkuzo/06aae58de9b8aae02c82adb00eb33197
 
-# do inference (not shown)
+// dim1 cast with a handwritten triton kernel
+> python benchmarks/mx_formats/cast_bench.py --mode dim1_mx_triton --M 16384 --K 16384
+// example output: https://gist.github.com/vkuzo/7ac5fce44c9b90bfb9eae2a07b721cda
 ```
 
-## accuracy status
-* we match bitwise to other implementations of the OCP MX spec (code not in this repo), with a couple of edge cases left to resolve
-* approximate numerics pass for `MXLinear` and `MXInferenceLinear` on sample inputs
+## performance tracker
+
+Please see our [performance tracker](https://github.com/pytorch/ao/issues/1768) for the latest on MX training and inference performance!
+
+# accuracy
+
+## training
+
 * LLaMa 3 8B pretraining on 4 GPUs for 500 iterations shows that loss convergence is not meaningfully degraded (code not in this repo)
+* we match bitwise to other implementations of the OCP MX spec (code not in this repo), with a couple of edge cases left to resolve
 
-## performance status
+## inference
 
-### quant and dequant
+Coming soon!
 
-* we have a benchmark of quantizing and dequantizing mxfp8 and mxfp4 tensors with size (1, 4096, 11008)
-* latest numbers: https://gist.github.com/vkuzo/83656e4a74777cfc0915de6b27be1ff6
-
-## testing and benchmarking
+# testing
 
 ```bash
-# numerical testing of custom fp4 and fp6 casts
-pytest test/prototype/mx_formats/test_custom_cast.py
-# testing of MXTensor
-pytest test/prototype/mx_formats/test_mx_tensor.py
-# testing of MXLinear and MXInferenceLinear
-pytest test/prototype/mx_formats/test_mx_linear.py
-
-# run the quant and dequant benchmark
-python torchao/prototype/mx_formats/benchmarks/bench_qdq.py
-```
-
-## floating point format convenience functions
-
-We have a convenience script which summarizes the various properties of
-floating point formats:
-
-```bash
-python torchao/prototype/mx_formats/fp_format_spec.py
-# example output: https://gist.github.com/vkuzo/b8e114aa83736f87d6618b16aa8588c0
+pytest test/prototype/mx_formats/
 ```

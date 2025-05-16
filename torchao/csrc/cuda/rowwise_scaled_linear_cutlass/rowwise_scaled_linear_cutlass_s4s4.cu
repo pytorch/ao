@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 #include <torch/library.h>
 
 #include "rowwise_scaled_linear_cutlass.cuh"
@@ -6,22 +11,25 @@ namespace torchao {
 
 at::Tensor
 rowwise_scaled_linear_cutlass_s4s4(
-    const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
-    const at::Tensor& w_scale, const at::Tensor& bias) {
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale,
+    const std::optional<at::Tensor>& bias_opt = std::nullopt,
+    const std::optional<at::ScalarType> out_dtype_opt = std::nullopt) {
   // Validate input datatypes.
-  TORCH_CHECK(xq.dtype() == at::kChar && wq.dtype() == at::kChar,
-              __func__, " : The input datatypes combination ", xq.dtype(),
-              " for xq and ", wq.dtype(), " for wq is not supported");
+  TORCH_CHECK(Xq.dtype() == at::kChar && Wq.dtype() == at::kChar,
+              __func__, " : The input datatypes combination ", Xq.dtype(),
+              " for Xq and ", Wq.dtype(), " for Wq is not supported");
 
+#if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
   // Dispatch to appropriate kernel template.
-  #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
-  // We get ElementA/ElementB types from the header
-  return rowwise_scaled_linear_cutlass<cutlass::int4b_t, cutlass::int4b_t>(
-      xq, x_scale, wq, w_scale, bias);
-  #else
-    TORCH_CHECK(false, "CUTLASS kernels not built - rowwise_scaled_linear_cutlass_s4s4 not available");
-    return at::Tensor{};
-  #endif
+  using ElementA = cutlass::int4b_t;
+  using ElementB = cutlass::int4b_t;
+  return rowwise_scaled_linear_cutlass<ElementA, ElementB>(
+    Xq, X_scale, Wq, W_scale, bias_opt, out_dtype_opt);
+#else
+  TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
+  return at::Tensor{};
+#endif
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {

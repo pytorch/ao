@@ -1,9 +1,15 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import unittest
 
 import pytest
 import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
@@ -30,6 +36,7 @@ if not TORCH_VERSION_AT_LEAST_2_5:
         # ("largest subnormal number", [2**-126 * (1 - 2**-23), 1.1754943508222875e-38]),
     ],
 )
+@skip_if_rocm("ROCm enablement in progress")
 def test_round_scale_down_to_power_of_2_valid_inputs(
     test_case: dict,
 ):
@@ -40,10 +47,11 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
 
-    assert (
-        torch.equal(result, expected_tensor)
-        or (result.isnan() and expected_tensor.isnan())
-    ), f"test: {test_case_name}, input: {input_tensor}, expected {expected_tensor}, but got {result}"
+    assert torch.equal(result, expected_tensor) or (
+        result.isnan() and expected_tensor.isnan()
+    ), (
+        f"test: {test_case_name}, input: {input_tensor}, expected {expected_tensor}, but got {result}"
+    )
 
 
 @pytest.mark.parametrize(

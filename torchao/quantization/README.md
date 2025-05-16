@@ -348,6 +348,8 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 ### Gemlite Triton
 Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `gemlite_uintx_weight_only`.  An example can be found in `torchao/_models/llama/generate.py`.
 
+Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
+
 ### UINTx Quantization
 We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
 

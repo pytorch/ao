@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import argparse
 import os
 import time
@@ -9,9 +14,9 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.smoothquant import (
+    SmoothQuantConfig,
     SmoothQuantObservedLinear,
     insert_smooth_quant_observer_,
-    smooth_quant,
 )
 from torchao.quantization import quantize_
 
@@ -145,7 +150,7 @@ def wikitext2_ppl(
         is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
         print(f"running SmoothQuant with {quant_mode} quantization")
         t0 = time.time()
-        quantize_(model, smooth_quant(), is_observed_linear)
+        quantize_(model, SmoothQuantConfig(), is_observed_linear)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:
             print(f"Saving quantized model to {model_save_path}")

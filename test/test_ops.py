@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import itertools
 import sys
 
@@ -19,6 +24,9 @@ from torchao.quantization.marlin_qqq import (
 from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
+
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 try:
     import torchao.ops

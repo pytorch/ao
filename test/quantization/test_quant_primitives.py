@@ -11,7 +11,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from torchao.dtypes.utils import is_device
 from torchao.float8.float8_utils import EPS as float8_eps
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -38,6 +37,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    check_cpu_version,
+    check_xpu_version,
     is_fbcode,
 )
 
@@ -68,6 +69,7 @@ def _get_groupwise_affine_qparams(
     groupsize=128,
     dtype=torch.bfloat16,
     zero_point_domain=ZeroPointDomain.FLOAT,
+    zero_point_dtype=torch.bfloat16,
 ):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -86,11 +88,11 @@ def _get_groupwise_affine_qparams(
     scales = (max_val - min_val).clamp(min=1e-6) / max_int
     if zero_point_domain == ZeroPointDomain.FLOAT:
         zeros = min_val + scales * (2 ** (n_bit - 1))
-        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+        zeros = zeros.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
     else:
         zeros = quant_min - torch.round(min_val / scales)
         zeros = torch.clamp(zeros, quant_min, quant_max)
-        zeros = zeros.to(dtype=dtype).reshape(w.shape[0], -1)
+        zeros = zeros.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
     scales = scales.to(dtype=dtype).reshape(w.shape[0], -1)
     return scales, zeros
 
@@ -135,7 +137,7 @@ def _groupwise_affine_quantize_tensor_from_qparams(
         )
 
     if TORCH_VERSION_AT_LEAST_2_5:
-        if not (is_device(w.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6):
+        if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
             w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
 
     return w_int4x8
@@ -682,6 +684,7 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
 
         zero_point_domains = [ZeroPointDomain.FLOAT, ZeroPointDomain.INT]
+        zero_point_dtypes = [torch.bfloat16, torch.int32]
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 128)
@@ -689,8 +692,9 @@ class TestQuantPrimitives(unittest.TestCase):
         quant_max = 2**n_bit - 1
         eps = 1e-6
         scale_dtype = torch.bfloat16
-        zero_point_dtype = torch.bfloat16
-        for zero_point_domain in zero_point_domains:
+        for zero_point_domain, zero_point_dtype in zip(
+            zero_point_domains, zero_point_dtypes
+        ):
             scale_ref, zero_point_ref = _get_groupwise_affine_qparams(
                 input,
                 n_bit=n_bit,
@@ -744,8 +748,8 @@ class TestQuantPrimitives(unittest.TestCase):
                 zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
             if TORCH_VERSION_AT_LEAST_2_5:
                 input_tmp = input
-                if not (
-                    is_device(input.device.type, "cpu") and TORCH_VERSION_AT_LEAST_2_6
+                if (not (check_cpu_version(input.device))) and (
+                    not (check_xpu_version(input.device))
                 ):
                     input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
                 w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(

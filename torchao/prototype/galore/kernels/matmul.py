@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import torch
 import triton
 import triton.language as tl
@@ -360,12 +365,12 @@ def triton_mm_launcher(
         acc_dtype = [ab_dtype][0]
     else:
         assert isinstance(acc_dtype, torch.dtype), "acc_dtype must be a torch.dtype"
-        assert (
-            acc_dtype in TRITON_ACC_TYPES[a.dtype]
-        ), "acc_dtype not compatible with the type of a"
-        assert (
-            acc_dtype in TRITON_ACC_TYPES[b.dtype]
-        ), "acc_dtype not compatible with the type of b"
+        assert acc_dtype in TRITON_ACC_TYPES[a.dtype], (
+            "acc_dtype not compatible with the type of a"
+        )
+        assert acc_dtype in TRITON_ACC_TYPES[b.dtype], (
+            "acc_dtype not compatible with the type of b"
+        )
 
     acc_dtype = to_tl_type(acc_dtype)
     ab_dtype = to_tl_type(ab_dtype)

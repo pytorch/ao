@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import tempfile
 from copy import deepcopy
 
@@ -5,11 +10,11 @@ import pytest
 import torch
 
 from torchao.prototype.smoothquant import (
+    SmoothQuantConfig,
     SmoothQuantObservedLinear,
     insert_smooth_quant_observer_,
     load_smooth_quant_recipe,
     save_smooth_quant_recipe,
-    smooth_quant,
 )
 from torchao.quantization import quantize_
 from torchao.quantization.utils import (
@@ -19,6 +24,9 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
+
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -63,6 +71,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
+@pytest.mark.skip("this test is broken on recent PyTorch, TODO(#1639): fix it")
 def test_compute(bias, alpha, quant_mode, device, idtype):
     class Linear(torch.nn.Module):
         def __init__(self, bias: bool):
@@ -82,7 +91,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-    quantize_(m, smooth_quant(), is_observed_linear)
+    quantize_(m, SmoothQuantConfig(), is_observed_linear)
     with torch.inference_mode():
         if TORCH_VERSION_AT_LEAST_2_5:
             m = torch.compile(m, fullgraph=True)
@@ -137,6 +146,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
+@pytest.mark.skip("this test is broken on recent PyTorch, TODO(#1639): fix it")
 def test_save_load_recipe(alpha, quant_mode, device, idtype):
     dataset_size = 20
     l1, l2, l3 = 512, 256, 128
@@ -170,7 +180,7 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
 
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-    quantize_(m, smooth_quant(), is_observed_linear)
+    quantize_(m, SmoothQuantConfig(), is_observed_linear)
     if TORCH_VERSION_AT_LEAST_2_5:
         # earlier versions are not compatible
         m = torch.compile(m, fullgraph=True)

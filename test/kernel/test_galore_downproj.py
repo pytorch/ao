@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import pytest
 
 # Skip entire test if triton is not available, otherwise CI failure
@@ -11,6 +16,7 @@ from galore_test_utils import make_data
 
 from torchao.prototype.galore.kernels.matmul import set_tuner_top_k as matmul_tuner_topk
 from torchao.prototype.galore.kernels.matmul import triton_mm_launcher
+from torchao.testing.utils import skip_if_rocm
 
 torch.manual_seed(0)
 
@@ -29,6 +35,7 @@ TEST_CONFIGS = [
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize("M, N, rank, allow_tf32, fp8_fast_accum, dtype", TEST_CONFIGS)
+@skip_if_rocm("ROCm enablement in progress")
 def test_galore_downproj(M, N, rank, allow_tf32, fp8_fast_accum, dtype):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32
     MAX_DIFF = MAX_DIFF_tf32 if allow_tf32 else MAX_DIFF_no_tf32

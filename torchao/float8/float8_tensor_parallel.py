@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import torch
 import torch.nn as nn
 from torch.distributed._tensor import DTensor
@@ -27,8 +32,7 @@ from torchao.float8.float8_tensor import GemmInputRole
 
 
 def _float8_linear_supports_float8_allgather(m):
-    # TODO(future): add support for delayed scaling for activations
-    # and gradients
+    # TODO(future PR): also gate this by granularity
     return (
         m.scaling_type_input == ScalingType.DYNAMIC
         and m.scaling_type_grad_output == ScalingType.DYNAMIC
@@ -218,9 +222,9 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 # assert inp.placements[0] == input_layout
                 dt_inp = input
             else:
-                assert isinstance(
-                    input, torch.Tensor
-                ), "expecting input to be a torch.Tensor!"
+                assert isinstance(input, torch.Tensor), (
+                    "expecting input to be a torch.Tensor!"
+                )
                 dt_inp = DTensor.from_local(
                     input, mesh, (input_layout,), run_check=False
                 )
@@ -252,9 +256,9 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                     if self.linear_mm_config is None:
                         self.linear_mm_config = mod.linear_mm_config
                     else:
-                        assert (
-                            self.linear_mm_config == mod.linear_mm_config
-                        ), "All the Float8Linear modules should have same linear_mm_config!"
+                        assert self.linear_mm_config == mod.linear_mm_config, (
+                            "All the Float8Linear modules should have same linear_mm_config!"
+                        )
 
         assert self.linear_mm_config is not None
         super()._apply(module, device_mesh)

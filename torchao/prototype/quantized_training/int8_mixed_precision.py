@@ -1,11 +1,20 @@
-from typing import Any, NamedTuple, Optional, Tuple, Union
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple, Union
 
 import torch
 import torch.utils._pytree as pytree
 from torch import Tensor, nn
 from torch.utils._triton import has_triton
 
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.core.config import AOBaseConfig
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 from torchao.utils import TorchAOBaseTensor
 
 from .int8 import quantize_int8_rowwise
@@ -23,10 +32,16 @@ else:
         return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 
-class Int8MixedPrecisionTrainingConfig(NamedTuple):
+@dataclass
+class Int8MixedPrecisionTrainingConfig(AOBaseConfig):
     output: bool = True
     grad_input: bool = True
     grad_weight: bool = True
+    module_swap: bool = False
+
+
+# for bc
+int8_mixed_precision_training = Int8MixedPrecisionTrainingConfig
 
 
 _DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
@@ -265,25 +280,23 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias, None
 
 
-def int8_mixed_precision_training(
-    config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG,
-    *,
-    module_swap: bool = False,
+@register_quantize_module_handler(Int8MixedPrecisionTrainingConfig)
+def _int8_mixed_precision_training_transform(
+    module: torch.nn.Module,
+    config: Int8MixedPrecisionTrainingConfig,
 ):
+    module_swap = config.module_swap
+
     # TODO: skip small layers that don't have perf gain.
     if module_swap:
         # module swap implementation
-        def convert_linear(linear: nn.Linear):
-            linear.__class__ = Int8MixedPrecisionTrainingLinear
-            linear.config = config
-            return linear
-
-        return convert_linear
+        module.__class__ = Int8MixedPrecisionTrainingLinear
+        module.config = config
+        return module
 
     else:
         # tensor subclass implementation
-        return _get_linear_subclass_inserter(
-            Int8MixedPrecisionTrainingLinearWeight,
-            config=config,
-            allow_requires_grad=True,
-        )
+
+        new_weight = Int8MixedPrecisionTrainingLinearWeight(module.weight, config)
+        module.weight = torch.nn.Parameter(new_weight, requires_grad=True)
+        return module

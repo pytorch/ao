@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 # Owner(s): ["module: unknown"]
 import copy
 import logging
@@ -1057,9 +1062,9 @@ class TestFPGMPruner(TestCase):
         mask1 = pruner.groups[0]["module"].parametrizations.weight[0].mask[-1]
         mask2 = pruner.groups[0]["module"].parametrizations.weight[0].mask[-2]
         # Check if either of the least-norm filters is not pruned
-        assert (
-            mask1.item() is not False or mask2.item() is not False
-        ), "Do not prune all least-norm filters"
+        assert mask1.item() is not False or mask2.item() is not False, (
+            "Do not prune all least-norm filters"
+        )
 
         # fusion step
         pruned_model = pruner.prune()

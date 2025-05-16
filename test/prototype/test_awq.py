@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import os
 from copy import deepcopy
 
@@ -5,7 +10,11 @@ import pytest
 import torch
 
 from torchao.quantization import quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
+from torchao.testing.utils import skip_if_rocm
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
 
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
@@ -113,6 +122,7 @@ def test_awq_loading(device, qdtype):
 
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires nightly pytorch")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@skip_if_rocm("ROCm enablement in progress")
 def test_save_weights_only():
     dataset_size = 100
     l1, l2, l3 = 512, 256, 128

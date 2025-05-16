@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 """
 SpinQuant implementation (https://arxiv.org/abs/2405.16406)
 
@@ -64,9 +69,9 @@ def apply_spinquant(
     # pretrained_rotation_path = "7B_W4A16KV16_lr_1.5_seed_0/R.bin"
 
     if pretrained_rotation_path is not None:
-        assert Path(
-            pretrained_rotation_path
-        ).is_file(), "Pretrained rotation path does not exist"
+        assert Path(pretrained_rotation_path).is_file(), (
+            "Pretrained rotation path does not exist"
+        )
         assert Path(pretrained_rotation_path).suffix == ".bin", "Expected a .bin file."
 
     if use_r1:

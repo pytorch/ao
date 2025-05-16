@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import json
 import time
 from collections import OrderedDict
@@ -551,7 +556,7 @@ def main(
         sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle"
     )
     if export_model != "":
-        if not Path(output_folder).is_dir():
+        if not Path(export_model).is_dir():
             raise ValueError(f"Expected {export_model} to be a directory.")
         print(f"Exporting model to {export_model}.")
         from compile_export_utils import export_model as export_model_fn

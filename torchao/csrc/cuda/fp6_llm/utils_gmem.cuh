@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_gmem.cuh
 //
 // MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
@@ -25,12 +30,12 @@
 #include "configs.h"
 #include "ptx_cp.async.cuh"
 
-/* 
+/*
  * Copying A1/A2 from global memory to shared memory.
  * Usually 1024 or 2048 Bytes
  */
 template<int SMEM_SIZE_IN_BYTES_PER_WARP>
-__device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR, 
+__device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
                                                         const uint4* GPTR,
                                                         bool pred_guard = true) {
     #ifdef DEBUG_MODE
@@ -58,19 +63,19 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
 
 }
 
-/* 
+/*
  * Copying 64 Quant Scales (FP16) from global memory to shared memory.
  */
 __device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantScales,
                                                               const half* GPTR_A_Scales) {
     int lane_id         = threadIdx.x % WARP_SIZE;
-    int Offset_Shared   = lane_id*2; 
+    int Offset_Shared   = lane_id*2;
     int Offset_Global   = lane_id/4 + (lane_id%4)*16;
     for(int i=0; i<2; i++)  SPTR_QuantScales[Offset_Shared+i] = GPTR_A_Scales[Offset_Global+i*8];
 }
 
 // MODIFICATION NOTE: to support MSVC, half __restrict__ (*SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
-/* 
+/*
  * (1) Copying X  rows * 64 columns of FP16 values, originally in row    major
  * (2) Copying 64 rows * X  columns of FP16 values, originally in column major
  * 16 Bytes per thread -> 512 Bytes per WARP = 4 line per WARP = 1 line per 8 Threads
@@ -83,9 +88,9 @@ __device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ Shar
                                                        bool                 Pred = true) {
     // static parameters: 1 Group (8 Threads) can copy 1 line (64 FP16) each time
     const int NumOfThreads  = BLOCK_WARPS * WARP_SIZE;
-    const int NumOfGroups   = NumOfThreads / 8; 
+    const int NumOfGroups   = NumOfThreads / 8;
     const int MaxIteration  = (MaxNumOfLinesToCopy-1) / NumOfGroups + 1;
-    // runtime variables   
+    // runtime variables
     const int line_id       = threadIdx.x / 8;
     const int line_offset   = (threadIdx.x%8) * 8;
     // PTR for source global memory and target shared memory

@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import math
 import resource
 import time
@@ -539,9 +544,9 @@ def run(
         runner = profile_top_runner
 
     if memory_path is not None:
-        assert (
-            use_compile != "max-autotune"
-        ), f"Memory path does not support {use_compile}"
+        assert use_compile != "max-autotune", (
+            f"Memory path does not support {use_compile}"
+        )
         import functools
 
         runner = functools.partial(memory_runner, memory_path)

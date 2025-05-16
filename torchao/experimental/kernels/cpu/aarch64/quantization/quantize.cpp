@@ -9,6 +9,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <algorithm>
 #include <cassert>
+#include <cfenv>
 #include <cmath>
 
 void torchao::quantization::get_qvals_range(
@@ -64,8 +65,6 @@ void torchao::kernels::cpu::aarch64::quantization::quantize(
     int8_t zero,
     int8_t qmin,
     int8_t qmax) {
-  assert(size % 8 == 0);
-
   float32_t invScale = 1.0 / (scale + 1e-16);
   float32x4_t vec_zero = vdupq_n_f32(zero);
   float32x4_t vec_invScale = vdupq_n_f32(invScale);
@@ -78,7 +77,8 @@ void torchao::kernels::cpu::aarch64::quantization::quantize(
   int16x4_t vec_qval_s16_0;
   int16x4_t vec_qval_s16_1;
 
-  for (int i = 0; i < size; i += 8) {
+  int i = 0;
+  for (; (i + 8) < size; i += 8) {
     //////////////////////////////////////
     // Quantize first 4 element chunk to int16
     //////////////////////////////////////
@@ -112,6 +112,23 @@ void torchao::kernels::cpu::aarch64::quantization::quantize(
     int8x8_t vec_qval_s8_01 = vqmovn_s16(vec_qval_s16_01);
     vst1_s8(qvals + i, vec_qval_s8_01);
   }
+  auto curr_rounding_mode = fegetround();
+  fesetround(FE_TONEAREST);
+  for (; i < size; ++i) {
+    // Quantize remaining elements using scalar code
+    float32_t val = vals[i];
+    float32_t qval_f32 = zero + val * invScale;
+    int32_t qval_s32 = static_cast<int32_t>(std::nearbyint(qval_f32));
+
+    // Clip to qmin and qmax
+    qval_s32 = std::max(
+        static_cast<int32_t>(qmin),
+        std::min(qval_s32, static_cast<int32_t>(qmax)));
+
+    // Store the quantized value
+    qvals[i] = static_cast<int8_t>(qval_s32);
+  }
+  fesetround(int(curr_rounding_mode));
 }
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

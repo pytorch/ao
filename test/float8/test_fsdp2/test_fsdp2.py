@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 import itertools
 import threading
@@ -43,6 +48,9 @@ from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parit
 if not is_sm_at_least_89():
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
+if torch.version.hip is not None:
+    pytest.skip("ROCm enablement in progress", allow_module_level=True)
+
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -64,7 +72,10 @@ class TestFloat8Common:
         return module
 
     def init_transformer(
-        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
+        self,
+        weight_tying: bool,
+        dtype: Optional[torch.dtype] = None,
+        requires_grad: bool = True,
     ) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
@@ -78,6 +89,13 @@ class TestFloat8Common:
         module = Transformer(args).cuda()
         if dtype is not None:
             module = module.to(dtype=dtype)
+
+        # if requires_grad=False, just set requires_grad to False
+        # in the first layer to ensure we still train some params.
+        if requires_grad is False:
+            for param in module.layers[0].parameters():
+                param.requires_grad = requires_grad
+
         self.broadcast_module(module)
         return module
 
@@ -101,10 +119,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
-                    ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [False, True],
                 "dtype": [torch.float32, torch.bfloat16],
+                "requires_grad": [True, False],
             },
             self._test_transformer_parity,
         )
@@ -115,11 +133,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         precompute: bool,
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
+        requires_grad: bool,
         dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
-            return
-        elif scaling_type_weight is ScalingType.DELAYED and precompute:
             return
 
         # NOTE: Weight-tying does not compose with fp8 all-gather because the
@@ -127,7 +144,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
         weight_tying = not enable_fsdp_float8_all_gather
-        module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
+        module = self.init_transformer(
+            weight_tying=weight_tying, dtype=dtype, requires_grad=requires_grad
+        )
+
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
@@ -462,16 +482,10 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED, ScalingType.STATIC],
+            [ScalingType.DYNAMIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
-            if scaling_type_weight is ScalingType.STATIC:
-                cast_config_weight = CastConfig(
-                    scaling_type=scaling_type_weight,
-                    static_scale=torch.tensor([1.0], device="cuda"),
-                )
-            else:
-                cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
 
             float8_linear_config1 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=False,
@@ -514,7 +528,7 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED],
+            [ScalingType.DYNAMIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
             float8_linear_config1 = Float8LinearConfig(
@@ -583,26 +597,6 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
             torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True),
             self.get_local_inp(torch.bfloat16),
         )
-
-    @unittest.skipIf(not TEST_CUDA, "no cuda")
-    def test_delayed_scaling_inplace_update(self):
-        """
-        Verify that `WeightWithDelayedFloat8CastTensor` updates buffers inplace
-        """
-        module = self.init_single_module()
-        float8_linear_config = Float8LinearConfig(
-            enable_fsdp_float8_all_gather=True,
-            cast_config_weight=CastConfig(scaling_type=ScalingType.DELAYED),
-        )
-        m_fp8 = convert_to_float8_training(
-            module,
-            config=float8_linear_config,
-        )
-
-        fp8_amax_weight_old = m_fp8.fp8_amax_weight.clone().detach()
-        dummy_mesh = None
-        data, scale = m_fp8.weight.fsdp_pre_all_gather(dummy_mesh)
-        self.assertNotEqual(fp8_amax_weight_old.item(), m_fp8.fp8_amax_weight.item())
 
 
 if __name__ == "__main__":

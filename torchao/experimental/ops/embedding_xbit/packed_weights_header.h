@@ -16,7 +16,7 @@ inline torchao::ops::PackedWeightsHeader get_packed_weights_header_universal(
     int max_value_chunk_size,
     int version = 1) {
   return torchao::ops::PackedWeightsHeader(
-      torchao::ops::PackedWeightsFormat::embedding_xbit_universal,
+      torchao::ops::PackedWeightsType::embedding_xbit_universal,
       {version,
        weight_nbit,
        min_value_chunk_size,

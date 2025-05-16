@@ -21,6 +21,8 @@ export CMAKE_OUT=cmake-out
 cmake -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH} \
     -DCMAKE_INSTALL_PREFIX=${CMAKE_OUT} \
     -DTORCHAO_BUILD_EXECUTORCH_OPS="${TORCHAO_BUILD_EXECUTORCH_OPS}" \
+    -DTORCHAO_BUILD_CPU_AARCH64=ON \
+    -DTORCHAO_ENABLE_ARM_NEON_DOT=ON \
     -S . \
     -B ${CMAKE_OUT}
 cmake --build  ${CMAKE_OUT} -j 16 --target install --config Release

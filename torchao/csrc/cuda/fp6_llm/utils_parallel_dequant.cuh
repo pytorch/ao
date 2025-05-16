@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 //    Copyright 2024 FP6-LLM authors
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +16,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-// 
+//
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/utils_parallel_dequant.cuh
 // To support MSVC, all instances of u_int32_t are changed to uint32_t.
 
@@ -20,9 +25,7 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
-#endif
 #include <cuda_runtime.h>
 
 /*
@@ -57,7 +60,7 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scal
     uint32_t output;
     half* output_half_ptr = reinterpret_cast<half*>(&output);
     output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
-    output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);   
+    output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);
     return output;
 }
 
@@ -84,9 +87,9 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
 // - u_int32_t __restrict__ Reg[][4] is changed to below.
 // - u_int32_t __restrict__ *read_RPTR_1bit is changed to below. similarly for read_RPTR_2bit and read_RPTR_4bit
 template<int EXPONENT, int MANTISSA, bool USE_BF16>
-__device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)[4], 
+__device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)[4],
                                                    uint32_t  * __restrict__ read_RPTR_1bit,
-                                                   uint32_t  * __restrict__ read_RPTR_2bit, 
+                                                   uint32_t  * __restrict__ read_RPTR_2bit,
                                                    uint32_t  * __restrict__ read_RPTR_4bit,
                                                    uint32_t  *              Scales) {
     // 1+2+4 weight split
@@ -103,7 +106,7 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
     scalar_t *Scale_RPTR = reinterpret_cast<scalar_t*>(Scales);
     // Dequantizing 32 FP6, each Loop dequantizing 4 FP6
     #pragma unroll(8)
-    for(int i=0; i<8; i++) { 
+    for(int i=0; i<8; i++) {
         uint32_t Packed_FP6 = 0;
         uint32_t tmp        = 0;
         // 1bit Frag
@@ -137,11 +140,11 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
         // Updating offset for FP16/BF16 scales for every two iterations
         if(i%2==1)  Scale_RPTR += 2;
     }
-    
+
 }
 
 /*
- * 
+ *
  */
 __device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, half* WARP_SPTR_Scales) {
     int lane_id = threadIdx.x % WARP_SIZE;
@@ -149,8 +152,8 @@ __device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, 
     uint32_t tmpReg = SPTR_uint[lane_id];
     #pragma unroll
     for(int i=0; i<4; i++) {
-        // T __shfl_sync(unsigned mask, T var, int srcLane, int width=warpSize); 
-        Scales[i] = __shfl_sync(0xffffffff, tmpReg, i, 4); 
+        // T __shfl_sync(unsigned mask, T var, int srcLane, int width=warpSize);
+        Scales[i] = __shfl_sync(0xffffffff, tmpReg, i, 4);
     }
 }
 

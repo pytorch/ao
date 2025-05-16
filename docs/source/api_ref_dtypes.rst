@@ -28,6 +28,7 @@ Layouts and Tensor Subclasses
     MarlinQQQLayout
     Int4CPULayout
     CutlassInt4PackedLayout
+    CutlassSemiSparseLayout
 
 Quantization techniques
 -----------------------

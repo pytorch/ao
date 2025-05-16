@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 import unittest
 
@@ -27,6 +32,7 @@ from torchao.quantization import (
     fpx_weight_only,
     quantize_,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -109,6 +115,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("bias", [False, True])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     @unittest.skipIf(is_fbcode(), reason="broken in fbcode")
+    @skip_if_rocm("ROCm enablement in progress")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
         device = "cuda"

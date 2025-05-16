@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import unittest
 
 import torch
@@ -9,6 +14,7 @@ from torchao.quantization import (
     quantize_,
     uintx_weight_only,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
 )
@@ -109,6 +115,7 @@ class TestHQQ(unittest.TestCase):
             ref_dot_product_error=0.000704,
         )
 
+    @skip_if_rocm("ROCm enablement in progress")
     def test_hqq_plain_4bit(self):
         self._test_hqq(
             dtype=torch.uint4,

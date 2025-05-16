@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
@@ -73,9 +78,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(
-                input, torch.Tensor
-            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            assert isinstance(input, torch.Tensor), (
+                f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            )
             self.count += 1
             self.values.append(input)
         return self
@@ -578,9 +583,9 @@ class GPTQQuantizer(Quantizer):
         assert self.get_qparams_func is not None, "get_qparams_func must be set"
         assert self.quantize_func is not None, "quantize_func must be set"
         assert self.dequantize_func is not None, "dequantize_func must be set"
-        assert (
-            self.combine_qparams_list_func is not None
-        ), "combine_qparams_list_func must be set"
+        assert self.combine_qparams_list_func is not None, (
+            "combine_qparams_list_func must be set"
+        )
         assert self.make_qtensor is not None, "make_qtensor must be set"
         assert self.skip_layer_func is not None, "skip_layer_func must be set"
 

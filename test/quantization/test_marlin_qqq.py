@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 
 import pytest
@@ -18,9 +23,11 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_and_quantize_affine_qqq,
 )
+from torchao.testing.utils import skip_if_rocm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
+@skip_if_rocm("ROCm enablement in progress")
 class TestMarlinQQQ(TestCase):
     def setUp(self):
         super().setUp()
@@ -40,6 +47,7 @@ class TestMarlinQQQ(TestCase):
         )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @skip_if_rocm("ROCm development in progress")
     def test_marlin_qqq(self):
         output_ref = self.model(self.input)
         for group_size in [-1, 128]:
@@ -55,12 +63,13 @@ class TestMarlinQQQ(TestCase):
             )
             output = modelq(self.input)
 
-            assert torch.allclose(
-                output, output_ref, atol=1e-1
-            ), "Results are not close"
+            assert torch.allclose(output, output_ref, atol=1e-1), (
+                "Results are not close"
+            )
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @skip_if_rocm("ROCm development in progress")
     def test_marlin_qqq_compile(self):
         model_copy = copy.deepcopy(self.model)
         model_copy.forward = torch.compile(model_copy.forward, fullgraph=True)
@@ -80,9 +89,9 @@ class TestMarlinQQQ(TestCase):
             modelq.forward = torch.compile(modelq.forward, fullgraph=True)
             output = modelq(self.input)
 
-            assert torch.allclose(
-                output, output_ref, atol=1e-1
-            ), "Results are not close"
+            assert torch.allclose(output, output_ref, atol=1e-1), (
+                "Results are not close"
+            )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_pack_unpack_equivalence(self):
@@ -114,15 +123,15 @@ class TestMarlinQQQ(TestCase):
                 group_size,
             )
 
-            assert torch.equal(
-                q_w, unpacked_q_w
-            ), "Unpacked weights do not match original weights"
-            assert torch.equal(
-                s_channel, unpacked_s_channel
-            ), "Unpacked s_channel do not match original s_channel"
-            assert torch.equal(
-                s_group, unpacked_s_group
-            ), "Unpacked s_group do not match original s_group"
+            assert torch.equal(q_w, unpacked_q_w), (
+                "Unpacked weights do not match original weights"
+            )
+            assert torch.equal(s_channel, unpacked_s_channel), (
+                "Unpacked s_channel do not match original s_channel"
+            )
+            assert torch.equal(s_group, unpacked_s_group), (
+                "Unpacked s_group do not match original s_group"
+            )
 
 
 if __name__ == "__main__":

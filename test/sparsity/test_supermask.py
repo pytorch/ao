@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import unittest
 
@@ -5,8 +10,6 @@ import pytest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
-
-from torchao.sparsity import sparsify_
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -30,13 +33,10 @@ class TestSupermask(common_utils.TestCase):
         from torchao.sparsity import SupermaskLinear
 
         M, N = model[0].weight.shape
-        sparsify_(
-            model,
-            lambda x: SupermaskLinear.from_linear(
-                x, sparsity_level=sparsity_level, blocksize=blocksize
-            ),
+        model[0] = SupermaskLinear.from_linear(
+            model[0], sparsity_level=sparsity_level, blocksize=blocksize
         )
-        sparsify_(model, SupermaskLinear.to_linear)
+        model[0] = SupermaskLinear.to_linear(model[0])
         weight_bsr = model[0].weight.to_sparse_bsr(blocksize=blocksize)
 
         # Test correct sparsity level

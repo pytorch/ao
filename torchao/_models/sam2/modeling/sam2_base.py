@@ -670,6 +670,10 @@ class SAM2Base(torch.nn.Module):
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
 
+        current_vision_feats = [c.clone() for c in current_vision_feats]
+        current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
+        memory = memory.clone()
+        memory_pos_embed = memory_pos_embed.clone()
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,
             curr_pos=current_vision_pos_embeds,
@@ -677,6 +681,7 @@ class SAM2Base(torch.nn.Module):
             memory_pos=memory_pos_embed,
             num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
+        pix_feat_with_mem = pix_feat_with_mem.clone()
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem
@@ -783,12 +788,18 @@ class SAM2Base(torch.nn.Module):
             if prev_sam_mask_logits is not None:
                 assert point_inputs is not None and mask_inputs is None
                 mask_inputs = prev_sam_mask_logits
+            else:
+                assert mask_inputs is None
             multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
+
+            assert multimask_output
+            if point_inputs is not None:
+                point_inputs = {k: point_inputs[k].contiguous() for k in point_inputs}
             sam_outputs = self._forward_sam_heads(
-                backbone_features=pix_feat,
+                backbone_features=pix_feat.contiguous(),
                 point_inputs=point_inputs,
                 mask_inputs=mask_inputs,
-                high_res_features=high_res_features,
+                high_res_features=[h.contiguous() for h in high_res_features],
                 multimask_output=multimask_output,
             )
 

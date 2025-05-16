@@ -1,9 +1,14 @@
-import argparse
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import os
 import time
 from datetime import datetime
 from pathlib import Path
 
+import fire
 import numpy as np
 import requests
 import torch
@@ -43,11 +48,11 @@ def download_file(url, download_dir):
     response = requests.get(url, stream=True)
     response.raise_for_status()  # Raise an error for bad responses
     # Write the file to the specified directory
-    print(f"Downloading '{file_name}' to '{download_dir}'")
+    timestamped_print(f"Downloading '{file_name}' to '{download_dir}'")
     with open(file_path, "wb") as file:
         for chunk in response.iter_content(chunk_size=8192):
             file.write(chunk)
-    print(f"Downloaded '{file_name}' to '{download_dir}'")
+    timestamped_print(f"Downloaded '{file_name}' to '{download_dir}'")
 
 
 def model_type_to_paths(checkpoint_path, model_type):
@@ -57,7 +62,7 @@ def model_type_to_paths(checkpoint_path, model_type):
         )
     sam2_checkpoint = Path(checkpoint_path) / Path(MODEL_TYPES_TO_MODEL[model_type])
     if not sam2_checkpoint.exists():
-        print(
+        timestamped_print(
             f"Can't find checkpoint {sam2_checkpoint} in folder {checkpoint_path}. Downloading."
         )
         download_file(MODEL_TYPES_TO_URL[model_type], checkpoint_path)
@@ -103,12 +108,12 @@ class CodeTimer:
 
     def print_all_timings(self, warmup: int = 5):
         if not self.elapsed_times:
-            print("No timings recorded.")
+            timestamped_print("No timings recorded.")
             return
-        print("Average timings for all sections:")
+        timestamped_print("Average timings for all sections:")
         for section_name in self.elapsed_times:
             average_time = self.get_average_time(section_name, warmup)
-            print(f"{section_name}, {average_time*1000.0:.6f}")
+            timestamped_print(f"{section_name}, {average_time * 1000.0:.6f}")
 
 
 global_timer = CodeTimer()
@@ -121,7 +126,7 @@ def max_memory_allocated():
         100 * (max_memory_allocated_bytes / total_memory)
     )
     max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-    print(
+    timestamped_print(
         f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%"
     )
 
@@ -150,12 +155,12 @@ def synthesize_video_data(
     vy = np.random.choice([-1, 1]) * speed
 
     # TODO: If these frames exist, they will not be deleted in subsequent runs with less frames.
-    print(f"Generate {n_frames} frames under path {out_dir}")
+    timestamped_print(f"Generate {n_frames} frames under path {out_dir}")
     if not synthesize_overwrite and len(os.listdir(out_dir)) > 0:
         raise ValueError(
             f"Expected folder {out_dir} to be empty unless --synthesize-overwrite is specified."
         )
-    # Generate 100 frames
+    # Generate n_frames
     for i in range(n_frames):
         # Create a new image with a black background
         img = Image.new("RGB", (width, height), (0, 0, 0))
@@ -181,7 +186,7 @@ def profiler_runner(path, fn, *args, **kwargs):
     if path is None:
         path = os.path.join(
             os.path.expanduser("~/traces"),
-            f'{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.json.gz',
+            f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json.gz",
         )
     with torch.profiler.profile(
         activities=[
@@ -192,7 +197,7 @@ def profiler_runner(path, fn, *args, **kwargs):
     ) as prof:
         result = fn(*args, **kwargs)
     prof.export_chrome_trace(path)
-    print(f"Exported trace to {path}")
+    timestamped_print(f"Exported trace to {path}")
     return result
 
 
@@ -220,26 +225,36 @@ def main_loop(
         return num_output_frames
 
 
-def run_test(
+def timestamped_print(*args, **kwargs):
+    # Get the current timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+    # Prepend the timestamp to the original print arguments
+    print(f"[{timestamp}]: ", *args, **kwargs)
+
+
+def main(
     checkpoint_path: str,
     model_type: str,
-    profile: bool,
-    video_dir: str,
-    radius: int,
-    seed: int,
-    speed: int,
-    width: int,
-    height: int,
-    n_frames: int,
-    use_compile: bool,
-    frame_batch_size: int,
-    batch_size: int,
-    synthesize: bool,
-    synthesize_overwrite: bool,
-    store_output: str,
-    compare_output: str,
-    print_all_timings: bool,
-    use_baseline: bool,
+    video_dir="/tmp/segment-anything-2/synth_video",
+    profile=None,
+    radius=50,
+    seed=42,
+    speed=20,
+    width=1024,
+    height=1024,
+    n_frames=200,
+    use_compile=False,
+    batch_size=1,
+    frame_batch_size=1,
+    synthesize=False,
+    synthesize_overwrite=False,
+    store_output="",
+    compare_output="",
+    print_all_timings=False,
+    use_baseline=False,
+    export_model="",
+    load_exported_model="",
+    furious=False,
 ):
     np.random.seed(seed)
     start_x = np.random.randint(radius, width - radius)
@@ -281,10 +296,17 @@ def run_test(
         # hydra_overrides_extra=hydra_overrides_extra,
     )
     predictor._frame_batch_size = frame_batch_size
+    predictor.image_encoder.trunk = predictor.image_encoder.trunk.to(torch.bfloat16)
+    from torchao._models.sam2.modeling.sam.transformer import RoPEAttention
+
+    rope_attention_modules = [
+        module for module in predictor.modules() if isinstance(module, RoPEAttention)
+    ]
+    for r in rope_attention_modules:
+        r.freqs_cis = r.compute_cis(end_x=64, end_y=64, device=device)
 
     inference_states = []
     for i in range(batch_size):
-        print("i: ", i)
         inference_state = predictor.init_state(
             video_path=f"{video_dir}_{i}", async_loading_frames=False
         )
@@ -301,77 +323,54 @@ def run_test(
     else:
         inference_state = predictor.batch_inference_states(inference_states)
 
+    if export_model != "":
+        if not Path(export_model).is_dir():
+            raise ValueError(f"Expected {export_model} to be a directory.")
+        timestamped_print(f"Exporting model to {export_model}.")
+        from compile_export_utils import export_model as export_model_fn
+
+        export_model_fn(
+            predictor,
+            export_model,
+            furious=furious,
+            batch_size=1,
+            overwrite=False,
+        )
+
+    if load_exported_model != "":
+        from compile_export_utils import load_exported_model as load_exported_model_fn
+
+        load_exported_model_fn(
+            predictor, load_exported_model, furious=furious, batch_size=1
+        )
+
     if use_compile:
-        print("Using torch.compile")
-        predictor.image_encoder.trunk.forward = torch.compile(
-            predictor.image_encoder.trunk.forward,
-            # mode="max-autotune-no-cudagraphs",
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
+        from compile_export_utils import set_fast
 
-        predictor.sam_prompt_encoder.forward = torch.compile(
-            predictor.sam_prompt_encoder.forward,
-            # mode="max-autotune-no-cudagraphs",
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=False,
-        )
+        set_fast(predictor, (load_exported_model != ""))
 
-        predictor.sam_mask_decoder.transformer = torch.compile(
-            predictor.sam_mask_decoder.transformer,
-            mode="max-autotune",
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        predictor._forward_sam_heads = torch.compile(
-            predictor._forward_sam_heads,
-            mode="max-autotune",
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        predictor.memory_attention = torch.compile(
-            predictor.memory_attention,
-            # mode="max-autotune",
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=True,
-        )
-
-        predictor.memory_encoder.forward = torch.compile(
-            predictor.memory_encoder.forward,
-            mode="max-autotune",
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-    print("\nWarm-up round and gather outputs.")
+    timestamped_print("Warm-up round and gather outputs.")
     global_timer.reset()
     result = main_loop(
         predictor=predictor, inference_state=inference_state, accumulate_result=True
     )
     if store_output:
-        print(f"Writing results to {store_output}")
+        timestamped_print(f"Writing results to {store_output}")
         torch.save(result, store_output)
     if compare_output:
-        print(f"Comparing to results from {compare_output}")
+        timestamped_print(f"Comparing to results from {compare_output}")
         ref_result = torch.load(compare_output)
         torch.testing.assert_close(result, ref_result)
-        print("Passed comparison!")
+        timestamped_print("Passed comparison!")
     if print_all_timings:
         global_timer.print_all_timings()
 
     global_timer.reset()
-    print("\nProfile round.")
     if profile is None:
+        timestamped_print("Practice round")
         main_loop(predictor=predictor, inference_state=inference_state)
     else:
+        timestamped_print(f"Saving profile under {profile}")
         profiler_runner(
             profile,
             main_loop,
@@ -381,7 +380,7 @@ def run_test(
     if print_all_timings:
         global_timer.print_all_timings()
 
-    print("\nFinal timing and memory usage round.")
+    timestamped_print("Final timing and memory usage round.")
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     global_timer.reset()
@@ -390,7 +389,7 @@ def run_test(
         predictor=predictor, inference_state=inference_state, count_result=True
     )
     t = time.time() - t0
-    print(
+    timestamped_print(
         f"main_loop took {t}s for {num_output_frames} frames at {num_output_frames / t}fps"
     )
     max_memory_allocated()
@@ -399,131 +398,4 @@ def run_test(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "checkpoint_path",
-        type=str,
-        help="Path to folder containing checkpoints from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints",
-    )
-    parser.add_argument(
-        "model_type",
-        type=str,
-        help=f"Choose one of {list(MODEL_TYPES_TO_MODEL.keys())}",
-    )
-    parser.add_argument(
-        "--video_dir",
-        type=str,
-        default="/tmp/segment-anything-2/synth_video",
-        help="Directory to store the synthetic video",
-    )
-    parser.add_argument(
-        "--profile",
-        type=str,
-        dest="profile",
-        help="If specified stores profile at given path.",
-    )
-    parser.add_argument(
-        "--radius",
-        type=int,
-        default=50,
-        help="Radius of the circle for synthetic video",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Seed for initial position and velocity",
-    )
-    parser.add_argument(
-        "--speed", type=int, default=20, help="Speed of the circle for synthetic video"
-    )
-    parser.add_argument(
-        "--width", type=int, default=1024, help="Width of the synthetic video"
-    )
-    parser.add_argument(
-        "--height", type=int, default=1024, help="Height of the synthetic video"
-    )
-    parser.add_argument(
-        "--n_frames",
-        type=int,
-        default=200,
-        help="Number of frames in the synthetic video",
-    )
-    parser.add_argument(
-        "--use-compile",
-        action="store_true",
-        dest="use_compile",
-        help="Use torch.compile to speed things up. First iteration will be much slower.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="batch_size",
-    )
-    parser.add_argument(
-        "--frame-batch-size",
-        type=int,
-        default=1,
-        help="frame_batch_size",
-    )
-    parser.add_argument(
-        "--synthesize",
-        action="store_true",
-        dest="synthesize",
-        help="Synthesize data for the benchmark.",
-    )
-    parser.add_argument(
-        "--synthesize-overwrite",
-        action="store_true",
-        dest="synthesize_overwrite",
-        help="Overwrite data if it already exists when synthesizing.",
-    )
-    parser.add_argument(
-        "--store-output",
-        type=str,
-        default="",
-        help="Pass a .pt file to store outputs in.",
-    )
-    parser.add_argument(
-        "--compare-output",
-        type=str,
-        default="",
-        help="Pass a .pt file to load for comparison.",
-    )
-    parser.add_argument(
-        "--print-all-timings",
-        action="store_true",
-        dest="print_all_timings",
-        help="Use torch.compile to speed things up. First iteration will be much slower.",
-    )
-    parser.add_argument(
-        "--use-baseline",
-        action="store_true",
-        dest="use_baseline",
-        help="Use sam2 package instead of torchao._models.sam2",
-    )
-
-    args = parser.parse_args()
-
-    run_test(
-        args.checkpoint_path,
-        args.model_type,
-        profile=args.profile,
-        video_dir=args.video_dir,
-        radius=args.radius,
-        seed=args.seed,
-        speed=args.speed,
-        width=args.width,
-        height=args.height,
-        n_frames=args.n_frames,
-        use_compile=args.use_compile,
-        frame_batch_size=args.frame_batch_size,
-        batch_size=args.batch_size,
-        synthesize=args.synthesize,
-        synthesize_overwrite=args.synthesize_overwrite,
-        store_output=args.store_output,
-        compare_output=args.compare_output,
-        print_all_timings=args.print_all_timings,
-        use_baseline=args.use_baseline,
-    )
+    fire.Fire(main)

@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,9 +16,9 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.uintx.plain_layout import (
-    _aqt_is_int8_reduced_range,
+    _aqt_is_int8,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout
+from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 
 aten = torch.ops.aten
 
@@ -25,6 +30,17 @@ def _aqt_is_int4(aqt):
         aqt.tensor_impl.dtype == torch.int8
         and aqt.quant_min == -8
         and aqt.quant_max == 7
+    )
+
+
+def _same_metadata(self: "Int4PackedTensorImpl", src: "Int4PackedTensorImpl") -> bool:
+    return (
+        isinstance(self, Int4PackedTensorImpl)
+        and isinstance(src, Int4PackedTensorImpl)
+        and self.shape == src.shape
+        and self.int_data.shape == src.int_data.shape
+        and self.scale.shape == src.scale.shape
+        and type(self._layout) == type(src._layout)
     )
 
 
@@ -77,14 +93,24 @@ class Int4PackedTensorImpl(AQTTensorImpl):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
+        elif func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+            )
+
         raise NotImplementedError(
             f"Int4PackedTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale"], [
-            self._layout,
-        ]
+        return ["int_data", "scale"], [self._layout]
 
     @classmethod
     def __tensor_unflatten__(
@@ -92,13 +118,13 @@ class Int4PackedTensorImpl(AQTTensorImpl):
     ):
         int_data = tensor_data_dict["int_data"]
         scale = tensor_data_dict["scale"]
-        _layout = tensor_attributes
+        (_layout,) = tensor_attributes
         return cls(int_data, scale, _layout)
 
     def get_plain(self):
         int_data = torch.stack(
-            ((self.int_data << 4) >> 4, self.int_data >> 4), dim=2
-        ).view((self.int_data.shape[0], 2 * self.int_data.shape[1]))
+            ((self.int_data << 4) >> 4, self.int_data >> 4), dim=-1
+        ).view(self.int_data.shape[:-1] + (2 * self.int_data.shape[-1],))
         return int_data, self.scale, None
 
     @classmethod
@@ -110,8 +136,7 @@ class Int4PackedTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         assert zero_point is None or torch.all(zero_point == 0)
-
-        int_data_s4 = ((int_data[:, 1::2] & 0xF) << 4) | (int_data[:, 0::2] & 0xF)
+        int_data_s4 = ((int_data[..., 1::2] & 0xF) << 4) | (int_data[..., 0::2] & 0xF)
         return cls(
             int_data_s4,
             scale,
@@ -130,16 +155,18 @@ class Int4PackedTensorImpl(AQTTensorImpl):
 def _linear_int8_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias):
     return (
         isinstance(input_tensor, AffineQuantizedTensor)
-        and _aqt_is_int8_reduced_range(input_tensor)
+        and isinstance(input_tensor._layout, PlainLayout)
+        and _aqt_is_int8(input_tensor)
         and input_tensor.dtype in (torch.float16, torch.bfloat16)
         and len(input_tensor.shape) >= 2
-        and input_tensor.tensor_impl.scale.dtype == input_tensor.dtype
+        and input_tensor.tensor_impl.scale.dtype == torch.float32
         and len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape) - 1
         and isinstance(weight_tensor, AffineQuantizedTensor)
+        and isinstance(weight_tensor._layout, CutlassInt4PackedLayout)
         and _aqt_is_int4(weight_tensor)
         and weight_tensor.dtype == input_tensor.dtype
         and len(weight_tensor.shape) == 2
-        and weight_tensor.tensor_impl.scale.dtype == weight_tensor.dtype
+        and weight_tensor.tensor_impl.scale.dtype == torch.float32
         and len(weight_tensor.tensor_impl.scale.shape) == 1
         and (bias is None or bias.dtype == input_tensor.dtype)
         and (bias is None or len(bias.shape) == 1)
@@ -153,9 +180,10 @@ def _linear_int8_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias)
     weight_scale = weight_tensor.tensor_impl.scale
     input = input_tensor.tensor_impl.int_data
     input_scale = input_tensor.tensor_impl.scale
+    out_dtype = input_tensor.dtype
 
     out = rowwise_scaled_linear_cutlass_s8s4(
-        input, input_scale, weight, weight_scale, bias
+        input, input_scale, weight, weight_scale, bias, out_dtype
     )
 
     return out
@@ -164,16 +192,18 @@ def _linear_int8_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias)
 def _linear_int4_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias):
     return (
         isinstance(input_tensor, AffineQuantizedTensor)
+        and isinstance(input_tensor._layout, CutlassInt4PackedLayout)
         and _aqt_is_int4(input_tensor)
         and input_tensor.dtype in (torch.float16, torch.bfloat16)
         and len(input_tensor.shape) >= 2
-        and input_tensor.tensor_impl.scale.dtype == input_tensor.dtype
+        and input_tensor.tensor_impl.scale.dtype == torch.float32
         and len(input_tensor.tensor_impl.scale.shape) == len(input_tensor.shape) - 1
         and isinstance(weight_tensor, AffineQuantizedTensor)
+        and isinstance(weight_tensor._layout, CutlassInt4PackedLayout)
         and _aqt_is_int4(weight_tensor)
         and weight_tensor.dtype == input_tensor.dtype
         and len(weight_tensor.shape) == 2
-        and weight_tensor.tensor_impl.scale.dtype == weight_tensor.dtype
+        and weight_tensor.tensor_impl.scale.dtype == torch.float32
         and len(weight_tensor.tensor_impl.scale.shape) == 1
     )
 
@@ -185,9 +215,10 @@ def _linear_int4_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias)
     weight_scale = weight_tensor.tensor_impl.scale
     input = input_tensor.tensor_impl.int_data
     input_scale = input_tensor.tensor_impl.scale
+    out_dtype = input_tensor.dtype
 
     out = rowwise_scaled_linear_cutlass_s4s4(
-        input, input_scale, weight, weight_scale, bias
+        input, input_scale, weight, weight_scale, bias, out_dtype
     )
 
     return out

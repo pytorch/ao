@@ -10,8 +10,10 @@
 
 #include <arm_neon.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
+#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <cassert>
+#include <vector>
 
 namespace torchao::kernels::cpu::aarch64::embedding {
 
@@ -177,6 +179,7 @@ inline void embedding_(
     if (weight_zeros != nullptr) {
       zero = weight_zeros[group_idx];
     }
+
     internal::vec_dequantize_and_store_16_values(out + i, qvals0, scale, zero);
     internal::vec_dequantize_and_store_16_values(
         out + i + 16, qvals1, scale, zero);
@@ -320,6 +323,62 @@ inline void pack_embedding_weight_qvals(
       packed_qvals_byte_ptr + index * packed_bytes_per_embedding,
       embedding_dim,
       qvals + index * embedding_dim);
+}
+
+// Embedding op that shares weights with unembedding linear op
+template <int weight_nbit, int nr, int kr, int sr>
+inline void shared_embedding(
+    // Output
+    float* out,
+    // Inputs
+    const void* packed_weights,
+    int n,
+    int k,
+    int group_size,
+    bool has_weight_zeros,
+    bool has_bias,
+    int index) {
+  assert(k % group_size == 0);
+  assert(group_size % 16 == 0);
+
+  int groups_per_k = k / group_size;
+  std::vector<int8_t> weight_qvals(k * nr);
+  std::vector<float> weight_scales(groups_per_k * nr);
+  std::vector<int8_t> weight_zeros(groups_per_k * nr);
+  std::vector<float> bias(nr);
+
+  // Set n_idx to multiple of nr that is at most index
+  // j is index of "index" in nr group
+  int n_idx = index / nr;
+  n_idx = n_idx * nr;
+  int j = index - n_idx;
+
+  torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
+          unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
+              weight_qvals.data(),
+              weight_scales.data(),
+              has_weight_zeros ? weight_zeros.data() : nullptr,
+              has_bias ? bias.data() : nullptr,
+              n_idx,
+              n,
+              k,
+              group_size,
+              has_weight_zeros,
+              has_bias,
+              packed_weights);
+
+  // Dequantize and store to output (size k)
+  int8x16_t qvals;
+  for (int i = 0; i < k; i += 16) {
+    qvals = vld1q_s8(weight_qvals.data() + j * k + i);
+    float scale = weight_scales[j * groups_per_k + i / group_size];
+    float zero = 0.0;
+    if (has_weight_zeros) {
+      zero = weight_zeros[j * groups_per_k + i / group_size];
+    }
+    internal::vec_dequantize_and_store_16_values(out + i, qvals, scale, zero);
+  }
 }
 
 } // namespace torchao::kernels::cpu::aarch64::embedding

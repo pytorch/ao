@@ -42,6 +42,9 @@ __all__ = [
     "choose_qparams_affine_float8",
     "quantize_affine_float8",
     "dequantize_affine_float8",
+    "choose_qparams_gguf",
+    "quantize_gguf",
+    "dequantize_gguf",
 ]
 
 
@@ -195,9 +198,11 @@ _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
+_GGUF_QK_K = 256
+
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
-quant_lib = torch.library.Library("quant", "FRAGMENT")
+quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
 register_custom_op = _register_custom_op(quant_lib)
 
@@ -256,9 +261,9 @@ def _get_reduction_params(block_size, input_size):
     cur_dim = 0
     for i in range(len(block_size)):
         if block_size[i] != input_size[i] and block_size[i] > 1:
-            assert (
-                input_size[i] % block_size[i] == 0
-            ), f"Expecting input size at {i} dimension: {input_size[i]} to be divisible by block_size at {i} dimension: {block_size[i]}"
+            assert input_size[i] % block_size[i] == 0, (
+                f"Expecting input size at {i} dimension: {input_size[i]} to be divisible by block_size at {i} dimension: {block_size[i]}"
+            )
             shape_for_reduction.append(input_size[i] // block_size[i])
             shape_for_reduction.append(block_size[i])
             # reduce over the block_size[i] dim
@@ -396,9 +401,9 @@ def _quantize_affine_no_dtype_cast(
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported input dtype: {input.dtype}"
-    assert (
-        len(block_size) == input.dim()
-    ), f"Got input dim:{input.dim()}, block_size: {block_size}"
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -421,9 +426,9 @@ def _quantize_affine_no_dtype_cast(
             torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         )
     elif zero_point_domain == ZeroPointDomain.NONE.name:
-        assert (
-            zero_point is None
-        ), "zero_point should be None when zero_point_domain is NONE"
+        assert zero_point is None, (
+            "zero_point should be None when zero_point_domain is NONE"
+        )
         if _is_float8_type(quant_dtype):
             quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
         else:
@@ -507,9 +512,9 @@ def _dequantize_affine(
     """op definition that has compatible signatures with custom op library"""
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
-        assert (
-            input.dtype == input_dtype
-        ), f"Expected: {input_dtype}, got: {input.dtype}"
+        assert input.dtype == input_dtype, (
+            f"Expected: {input_dtype}, got: {input.dtype}"
+        )
     assert output_dtype in [
         torch.float32,
         torch.float16,
@@ -546,9 +551,9 @@ def _dequantize_affine_no_dtype_check(
     2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
     3. reshape the quantized result to origianl shape and change dtype to the output_dtype
     """
-    assert (
-        len(block_size) == input.dim()
-    ), f"Got input dim:{input.dim()}, block_size: {block_size}"
+    assert len(block_size) == input.dim(), (
+        f"Got input dim:{input.dim()}, block_size: {block_size}"
+    )
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -571,15 +576,15 @@ def _dequantize_affine_no_dtype_check(
         dequant = dequant.to(output_dtype)
         dequant = dequant * scale
     elif zero_point_domain == ZeroPointDomain.NONE.name:
-        assert (
-            zero_point is None
-        ), "zero_point should be None when zero_point_domain is NONE"
+        assert zero_point is None, (
+            "zero_point should be None when zero_point_domain is NONE"
+        )
         dequant = input.to(output_dtype)
         dequant = dequant * scale
     else:
-        assert (
-            zero_point_domain == ZeroPointDomain.FLOAT.name
-        ), f"Unexpected zero point domain: {zero_point_domain}"
+        assert zero_point_domain == ZeroPointDomain.FLOAT.name, (
+            f"Unexpected zero point domain: {zero_point_domain}"
+        )
         # TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)
         mid_point = (quant_max + quant_min + 1) / 2
         # This should allocate new memory and avoid input modification
@@ -774,6 +779,7 @@ def choose_qparams_affine(
     """
     if zero_point_domain is None:
         raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+
     return _choose_qparams_affine(
         input,
         mapping_type.name,
@@ -863,21 +869,19 @@ def _choose_qparams_affine(
         MappingType.ASYMMETRIC.name,
     ], f"Unsupported mapping type: {mapping_type}"
     if target_dtype in FP8_TYPES:
-        assert (
-            mapping_type == MappingType.SYMMETRIC.name
-        ), f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
+        assert mapping_type == MappingType.SYMMETRIC.name, (
+            f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
+        )
 
     if input is not None:
         if scale_dtype is None:
             scale_dtype = input.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = input.dtype
         if eps is None:
             eps = torch.finfo(input.dtype).eps
 
-        assert (
-            len(block_size) == input.dim()
-        ), f"Got input dim:{input.dim()}, block_size: {block_size}"
+        assert len(block_size) == input.dim(), (
+            f"Got input dim:{input.dim()}, block_size: {block_size}"
+        )
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, input.size()
         )
@@ -886,17 +890,15 @@ def _choose_qparams_affine(
         min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
         max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
     else:
-        assert (
-            min_val is not None and max_val is not None
-        ), "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
-        assert (
-            min_val.dtype == max_val.dtype
-        ), "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
+        assert min_val is not None and max_val is not None, (
+            "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
+        )
+        assert min_val.dtype == max_val.dtype, (
+            "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
+        )
 
         if scale_dtype is None:
             scale_dtype = min_val.dtype
-        if zero_point_dtype is None:
-            zero_point_dtype = min_val.dtype
         if eps is None:
             eps = torch.finfo(min_val.dtype).eps
 
@@ -950,19 +952,20 @@ def _choose_qparams_affine(
         scale = torch.clamp(scale, min=eps)
         if zero_point_domain == ZeroPointDomain.NONE.name:
             zero_point = None
+        elif zero_point_domain == ZeroPointDomain.INT.name:
+            zero_point = quant_min - torch.round(min_val_neg / scale)
+            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+            if zero_point_dtype is None:
+                zero_point_dtype = torch.int32
         else:
-            if preserve_zero:
-                zero_point = quant_min - torch.round(min_val_neg / scale)
-                zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            else:
-                assert (
-                    zero_point_domain == ZeroPointDomain.FLOAT.name
-                ), "if not preserve_zero, zero_point must be in FLOAT domain"
-                mid_point = (quant_max + quant_min + 1) / 2
-                # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
-                # TODO move the conversion of zero_point out of quant_primitives
-                # and into TensorCoreTiledLayout.from_plain
-                zero_point = min_val_neg + scale * mid_point
+            assert zero_point_domain == ZeroPointDomain.FLOAT.name, (
+                "zero_point must be in FLOAT/INT/None domain for asymmetric quantization"
+            )
+            mid_point = (quant_max + quant_min + 1) / 2
+            # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+            # TODO move the conversion of zero_point out of quant_primitives
+            # and into TensorCoreTiledLayout.from_plain
+            zero_point = min_val_neg + scale * mid_point
 
     if zero_point is not None:
         zero_point = zero_point.to(dtype=zero_point_dtype)
@@ -1037,6 +1040,214 @@ def choose_qparams_and_quantize_affine_qqq(
         s_channel = s_channel.reshape(size_n, -1).contiguous().to(torch.float)
 
     return q_w, s_group, s_channel, w_ref
+
+
+def choose_qparams_gguf(
+    input: Optional[torch.Tensor],
+    block_size: List[int],
+    target_dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    There are two sets of qparams: quantized_block_scale, quantized_block_min and super_block_scale_scale and super_block_min_scale
+    the relationship is the following:
+    block_scale = quantized_block_scale * super_block_sclae
+    block_min = quantized_block_min * super_block_min
+    quantized_val = (float_val - block_min) / block_scale + quant_min
+    first we calculate block_scale and block_min
+    then we calculate super_block_scale_scale and super_block_min_scale
+    after that we can calculate quantized_block_scale and quantized_min_scale
+    the returned values are: super_block_scale_scale, super_block_min_scale, quantized_block_scale
+    and quantized_min_scale
+    """
+    dtype = input.dtype
+
+    # 1. get block_scale block_min
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    input = input.view(shape_for_reduction)
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    quant_max = 15
+    quant_min = 0
+    # asymmetric quant to fully utilize the range
+    block_scale = max_val / (float(quant_max - quant_min) / 2)
+    block_scale = (max_val - min_val) / float(quant_max - quant_min)
+    block_min = min_val
+
+    # 2. get super_block_scale_scale and super_block_min_scale
+    assert _GGUF_QK_K % block_size[-1] == 0
+    super_block_size = (1, _GGUF_QK_K // block_size[-1])
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, block_scale.size()
+    )
+    block_scale = block_scale.view(shape_for_reduction)
+    block_min = block_min.view(shape_for_reduction)
+
+    shape_after_reduction = shape_for_reduction.copy()
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+
+    block_scale_absmax = torch.amax(
+        torch.abs(block_scale), dim=reduction_dims, keepdim=False
+    )
+    block_min_absmax = torch.amax(
+        torch.abs(block_min), dim=reduction_dims, keepdim=False
+    )
+
+    # 2. get super_block_scale_scale and super_block_min_scale
+    # TODO: make this configurable
+    # we also quantize the quantization parameters (scale and min) for each block to 6 bit
+    # for Q4_K
+    qparam_quant_max = 2**6 - 1
+    qparam_quant_min = 0
+    super_block_scale_scale = block_scale_absmax / float(
+        qparam_quant_max - qparam_quant_min
+    )
+    super_block_min_scale = block_min_absmax / float(
+        qparam_quant_max - qparam_quant_min
+    )
+    super_block_scale_scale_view = super_block_scale_scale.view(shape_after_reduction)
+    super_block_min_scale_view = super_block_min_scale.view(shape_after_reduction)
+
+    # 3. quantize block scale and min are stored in 6 bits using super_block_scale_scale and super_block_min_scale
+    quantized_block_scale = torch.clamp(
+        block_scale / super_block_scale_scale_view, qparam_quant_min, qparam_quant_max
+    )
+    quantized_block_min = torch.clamp(
+        block_min / super_block_min_scale_view, qparam_quant_min, qparam_quant_max
+    )
+    return (
+        super_block_scale_scale.to(dtype),
+        super_block_min_scale.to(dtype),
+        quantized_block_scale.to(dtype),
+        quantized_block_min.to(dtype),
+    )
+
+
+def quantize_gguf(
+    input: torch.Tensor,
+    block_size: List[int],
+    target_dtype: torch.dtype,
+    super_block_scale_scale: torch.Tensor,
+    super_block_min_scale: torch.Tensor,
+    quantized_block_scale: torch.Tensor,
+    quantized_block_min: torch.Tensor,
+) -> torch.Tensor:
+    assert target_dtype == torch.uint4
+
+    # step 1: first order quantization
+    # just going through shape calculation for block_scale and block_min to get the correct shape
+    input_shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    block_qparam_shape_after_reduction = input_shape_for_reduction.copy()
+    for i in reduction_dims:
+        block_qparam_shape_after_reduction[i] = 1
+    original_shape = input.shape
+    input = input.view(input_shape_for_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        block_qparam_shape_after_reduction
+    )
+    quantized_block_min = quantized_block_min.view(block_qparam_shape_after_reduction)
+
+    # step 2: second order quantization, recover unquantized block_scale and block_min
+    super_block_size = (1, _GGUF_QK_K // block_size[-1], 1)
+    super_block_input_shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, quantized_block_scale.size()
+    )
+    super_block_qparam_shape_after_reduction = (
+        super_block_input_shape_for_reduction.copy()
+    )
+    for i in reduction_dims:
+        super_block_qparam_shape_after_reduction[i] = 1
+
+    quantized_block_scale = quantized_block_scale.view(
+        super_block_input_shape_for_reduction
+    )
+    quantized_block_min = quantized_block_min.view(
+        super_block_input_shape_for_reduction
+    )
+    super_block_scale_scale = super_block_scale_scale.view(
+        super_block_qparam_shape_after_reduction
+    )
+    super_block_min_scale = super_block_min_scale.view(
+        super_block_qparam_shape_after_reduction
+    )
+
+    block_scale = super_block_scale_scale * quantized_block_scale
+    block_min = super_block_min_scale * quantized_block_min
+
+    # step 3: quantization with the unquantized block_scale and block_min
+    block_scale = block_scale.view(block_qparam_shape_after_reduction)
+    block_min = block_min.view(block_qparam_shape_after_reduction)
+    int_data = (input - block_min) / block_scale
+    int_data = int_data.view(original_shape)
+
+    return int_data
+
+
+def dequantize_gguf(
+    input: torch.Tensor,
+    block_size: List[int],
+    target_dtype: torch.dtype,
+    super_block_scale_scale: torch.Tensor,
+    super_block_min_scale: torch.Tensor,
+    quantized_block_scale: torch.Tensor,
+    quantized_block_min: torch.Tensor,
+    output_dtype: Optional[torch.dtype] = None,
+) -> torch.Tensor:
+    # step 1. reshape input and quantized block scale and min to the shape
+    # after first quantization
+    input_shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, input.size()
+    )
+    block_qparam_shape_after_reduction = input_shape_for_reduction.copy()
+    for i in reduction_dims:
+        block_qparam_shape_after_reduction[i] = 1
+
+    original_shape = input.shape
+    input = input.view(input_shape_for_reduction)
+    quantized_block_scale = quantized_block_scale.view(
+        block_qparam_shape_after_reduction
+    )
+    quantized_block_min = quantized_block_min.view(block_qparam_shape_after_reduction)
+
+    # step 2. calculate and reshape block_qparams for second quantization step
+    super_block_size = (1, _GGUF_QK_K // block_size[-1], 1)
+    super_block_input_shape_for_reduction, reduction_dims = _get_reduction_params(
+        super_block_size, quantized_block_scale.size()
+    )
+    super_block_qparam_shape_after_reduction = (
+        super_block_input_shape_for_reduction.copy()
+    )
+    for i in reduction_dims:
+        super_block_qparam_shape_after_reduction[i] = 1
+    quantized_block_scale = quantized_block_scale.view(
+        super_block_input_shape_for_reduction
+    )
+    quantized_block_min = quantized_block_min.view(
+        super_block_input_shape_for_reduction
+    )
+    super_block_scale_scale = super_block_scale_scale.view(
+        super_block_qparam_shape_after_reduction
+    )
+    super_block_min_scale = super_block_min_scale.view(
+        super_block_qparam_shape_after_reduction
+    )
+
+    block_scale = super_block_scale_scale * quantized_block_scale
+    block_min = super_block_min_scale * quantized_block_min
+
+    # step 3. dequantize with block_scale and block_min
+    block_scale = block_scale.view(block_qparam_shape_after_reduction)
+    block_min = block_min.view(block_qparam_shape_after_reduction)
+    dequant = input * block_scale + block_min
+    dequant = dequant.view(original_shape)
+    if output_dtype is not None:
+        dequant = dequant.to(output_dtype)
+
+    return dequant
 
 
 def dequantize_affine_qqq(

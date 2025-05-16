@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import argparse
 import os
 
@@ -16,7 +21,7 @@ def run(args):
 
     benchmark = get_benchmark(M, N, dtype, allow_tf32=allow_tf32)
     save_path = (
-        f'benchmark_{M}x{N}_{rank}_{args.dtype}_{"tf32" if allow_tf32 else "no-tf32"}'
+        f"benchmark_{M}x{N}_{rank}_{args.dtype}_{'tf32' if allow_tf32 else 'no-tf32'}"
     )
     if not os.path.exists(save_path):
         os.makedirs(save_path)

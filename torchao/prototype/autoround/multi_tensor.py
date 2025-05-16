@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import dataclasses
 from typing import List
 
@@ -50,9 +55,9 @@ class MultiTensor(torch.Tensor):
             for inp in input:
                 self.add_tensors(inp)
         else:
-            assert isinstance(
-                input, torch.Tensor
-            ), f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            assert isinstance(input, torch.Tensor), (
+                f"MultiTensor can only use add_tensors for Tensors or lists of tensors but got {type(input)}"
+            )
             self.count += 1
             self.values.append(input)
         return self

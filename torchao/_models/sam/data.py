@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import diskcache
 import numpy as np
 import skimage.color as color
@@ -136,7 +141,7 @@ def build_datapoint(
 ):
     img = coco.loadImgs(imgId)[0]
 
-    file_location = f'{coco_root_dir}/{coco_slice_name}/{img["file_name"]}'
+    file_location = f"{coco_root_dir}/{coco_slice_name}/{img['file_name']}"
     I = io.imread(file_location)
     if len(I.shape) == 2:
         # some images, like img_id==61418, are grayscale

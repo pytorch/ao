@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from itertools import chain
 from operator import getitem
 from typing import Callable, Dict, Optional, Set, Tuple, Type, Union
@@ -92,12 +97,10 @@ def _get_supported_activation_modules():
     return SUPPORTED_ACTIVATION_MODULES
 
 
-def _get_default_structured_pruning_patterns() -> (
-    Dict[
-        Tuple[Union[Type[nn.Module], Callable, MatchAllNode, str], ...],
-        Callable[..., None],
-    ]
-):
+def _get_default_structured_pruning_patterns() -> Dict[
+    Tuple[Union[Type[nn.Module], Callable, MatchAllNode, str], ...],
+    Callable[..., None],
+]:
     """
     Returns the patterns for conv2d / linear conversion for each element in the activation functions/modules defined above.
     """

@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 #include <metal_simdgroup>
 #include <metal_stdlib>
 using namespace metal;
@@ -21,12 +26,11 @@ using namespace metal;
    @param [in] B is weight matrix of size M x K. Each byte contains 4 2-bit
    values, along K dim, packed together.
    @param [in] scales_ptr is scales ptr corresponding each
-   output channel x groups. These are packed as [num_groups = ceil(K / group_size), N]. N = output
+   output channel x groups. These are packed as [N, num_groups = ceil(K / group_size)]. N = output
    channels.
    @param [in] zeros_ptr is zero points corresponding each
-   output channel x groups. These are packed as [num_groups = ceil(K / group_size), N]. N = output
+   output channel x groups. These are packed as [N, num_groups = ceil(K / group_size)]. N = output
    channels.
-   output channel x groups. These are packed as [num_groups = ceil(K / group_size), N, 2]. N = output
    @param [out] output_data is output matrix of size M x N.
    @param [in] sizes array contains values of M, K and N.
    @param [in] thread_index is global thread id.
@@ -46,6 +50,7 @@ kernel void int2pack_mm(constant T *A [[buffer(0)]],
   constexpr uint k_pack_factor = 4;
   const uint K = sizes.y;
   const uint N = sizes.z;
+  const uint num_groups = (K + group_size - 1) / group_size;
   uint n = thread_index.x; // 0..N/4-1
   uint m = thread_index.z; // 0..M
   n = n / threads_per_channel;
@@ -70,13 +75,18 @@ kernel void int2pack_mm(constant T *A [[buffer(0)]],
     // Find specific group to which channels handled by this thread
     // belong.
     uint k_block_index = k / group_size;
-    uint scales_group_offset = (k_block_index * N + n);
+    uint scales_group_offset = (n * num_groups + k_block_index);
 
     vecT scales =
-        (reinterpret_cast<constant vecT *>(scales_ptr + scales_group_offset))[0];
-    // Adding zero point results in 10% perf penalty.
+        vecT(scales_ptr[scales_group_offset],
+             scales_ptr[scales_group_offset + num_groups],
+             scales_ptr[scales_group_offset + 2 * num_groups],
+             scales_ptr[scales_group_offset + 3 * num_groups]);
     vecT zeros =
-        (reinterpret_cast<constant vecT *>(zeros_ptr + scales_group_offset))[0];
+        vecT(zeros_ptr[scales_group_offset],
+             zeros_ptr[scales_group_offset + num_groups],
+             zeros_ptr[scales_group_offset + 2 * num_groups],
+             zeros_ptr[scales_group_offset + 3 * num_groups]);
     float4 zeros_float = float4(zeros);
 
     float4 a_val = float4(A_ptr[k / 4]);

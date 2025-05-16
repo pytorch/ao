@@ -1,8 +1,17 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+import logging
 import os
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, check_cpu_version
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 try:
     # Only works for torch2.2 or newer.
@@ -10,8 +19,10 @@ try:
         from torchao.kernel import intmm_triton
     else:
         intmm_triton = None
-except ImportError as e:
-    print("import error:", e)
+except ImportError:
+    logger.warning(
+        "Warning: Detected no triton, on systems without Triton certain kernels will not work"
+    )
     # On cpu-only builds might not be available.
     intmm_triton = None
 
@@ -47,9 +58,9 @@ if TORCH_VERSION_AT_LEAST_2_2:
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
         # error checking for cublas path
-        assert (
-            mat2.device == input.device
-        ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
+        assert mat2.device == input.device, (
+            f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
+        )
         device_cpu = "cpu" in [mat2.device.type, input.device.type]
         # with input.shape = [i,j] and mat2.shape = [j,k]
         j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] > 0)
@@ -143,7 +154,7 @@ def int_scaled_matmul(
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
 
-    if scales1.device.type == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+    if check_cpu_version(scales1.device):
         # CPU prefers decomposed version of int_scaled_matmul
         # to leverage the fusion capability of Inductor
         c = torch._int_mm(a, b)

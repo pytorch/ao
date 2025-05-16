@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Optional
 
 import torch
@@ -96,9 +101,9 @@ class AWQObserver(AffineQuantizedObserverBase):
     def calculate_qparams(self):
         # import pdb
         # pdb.set_trace()
-        assert (
-            self.outputs != None
-        ), "calibrate observer first by running model on exemplar data"
+        assert self.outputs != None, (
+            "calibrate observer first by running model on exemplar data"
+        )
         self.average /= self.calibration_token_count
         for i in range(self.n_validation_examples):
             self.inputs[i] = self.inputs[i].to(self.device)

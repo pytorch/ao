@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import time
 from pathlib import Path
 from typing import Optional
@@ -16,7 +21,6 @@ from torchao._models.sam2.sam2_image_predictor import SAM2ImagePredictor
 TASK_TYPES = ["amg", "sps", "mps"]
 
 
-# NOTE: We have to declare a separate class, because torch.export demands it.
 # We build this explicitly for the sole purpose of exporting _predict_masks
 # We made sure _predict_masks is fullgraph=True compileable so it can be exported
 # We must be sure to export using example args that are big enough and past
@@ -115,9 +119,10 @@ def aot_compile(
             "triton.cudagraphs": True,
         }
 
-    from torch.export import export_for_inference
+    from torch.export import export_for_training
 
-    exported = export_for_inference(fn, sample_args, sample_kwargs)
+    exported = export_for_training(fn, sample_args, sample_kwargs, strict=True)
+    exported.run_decompositions()
     output_path = torch._inductor.aoti_compile_and_package(
         exported,
         package_path=str(path),
@@ -153,13 +158,13 @@ def export_model(
         set_furious(mask_generator)
     assert task_type in TASK_TYPES, f"Expected {task_type} to be one of {TASK_TYPES}"
     if task_type in ["sps", "amg"]:
-        assert (
-            points_per_batch is not None
-        ), f"Specify points_per_batch for task {task_type}"
+        assert points_per_batch is not None, (
+            f"Specify points_per_batch for task {task_type}"
+        )
     if task_type == "sps":
-        assert (
-            points_per_batch == 1
-        ), f"Expected points_per_batch set to 1 for {task_type} but got {points_per_batch}"
+        assert points_per_batch == 1, (
+            f"Expected points_per_batch set to 1 for {task_type} but got {points_per_batch}"
+        )
 
     example_input = torch.empty(batch_size, 3, 1024, 1024)
     example_input = example_input.to(mask_generator.predictor._image_dtype)
