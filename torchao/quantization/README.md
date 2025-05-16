@@ -405,7 +405,7 @@ checkpoint_path = Path(checkpoint_file_name)
 model = Transformer.from_name(checkpoint_path.parent.name)
 checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
 model.load_state_dict(checkpoint, assign=True)
-model = model.to(dtype=precision, device="cpu")
+model = model.to(dtype=precision, device=device)
 model.eval()
 tokenizer_path = checkpoint_path.parent / "tokenizer.model"
 assert tokenizer_path.is_file(), tokenizer_path
@@ -427,7 +427,7 @@ inputs = InputRecorder(
     input_prep_func,
     pad_calibration_inputs,
     model.config.vocab_size,
-    device="cpu",
+    device=device,
 ).record_inputs(
     calibration_tasks,
     calibration_limit,
@@ -438,7 +438,9 @@ quantizer = Int4WeightOnlyGPTQQuantizer(
     percdamp,
     groupsize,
 )
-model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+
+with torch.device(device):
+    model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
 model = quantizer.quantize(model, inputs).cuda()
 
 ```
