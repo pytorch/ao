@@ -63,8 +63,6 @@ configs = [
     GemliteUIntXWeightOnlyConfig(
         group_size=128,  # Optional, has default of 64
         bit_width=8,  # Optional, has default of 4
-        packing_bitwidth=8,  # Optional, has default of 32
-        contiguous=True,  # Optional, has default of None
     ),
     FPXWeightOnlyConfig(ebits=4, mbits=8),
     # Sparsity configs
