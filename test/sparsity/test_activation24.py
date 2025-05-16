@@ -18,7 +18,7 @@ from torchao.prototype.sparsity.activation.srelu_linear import (
     SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 )
 from torchao.sparsity import sparsify_
-from torchao.sparsity.utils import create_semi_structured_tensor
+from torchao.sparsity.utils import create_semi_structured_tensor, create_binary_tensor
 from torchao.utils import is_sm_at_least_90
 
 
@@ -141,3 +141,19 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         custom_output = reference_linear_copy(input_tensor)
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
+
+
+
+def test_splitk_sparse_gemv():
+    torch.manual_seed(0)
+
+    activation = create_binary_tensor((1, 1, 1024), 0.5).cuda().to(torch.float16)
+    weight = torch.randn(1024, 1024, dtype=torch.float16).cuda()
+
+    # weight must be column major
+    weight_transposed = weight.T.contiguous().T
+
+    sparse_res = torch.ops.torchao.splitk_sparse_gemv(activation, weight_transposed)
+    dense_res = F.linear(activation, weight_transposed)
+
+    torch.testing.assert_close(sparse_res, dense_res, rtol=0.1, atol=0.01)

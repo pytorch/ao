@@ -13,6 +13,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.kernel.sparse_gemv.sparse_gemv import splitk_sparse_gemv
 
 
 @dataclass
@@ -84,4 +85,52 @@ class FP8SemiSparseActivationLinear(nn.Module):
         if linear.weight.dtype != torch.bfloat16:
             raise NotImplementedError("weight dtype must be bf16")
 
+        return cls(linear.weight.data, config)
+
+
+@dataclass
+class ActivationSparseLinearConfig(AOBaseConfig):
+    """
+    Adds in acceleration for activation sparsity to linear layers for decode. 
+
+    Args:
+        `activation_dtype`: data type for quantized activation tensor.
+        `weight_dtype`: data type for quantized weight tensor.
+    """
+
+    activation_dtype: torch.dtype = torch.float8_e4m3fn
+    weight_dtype: torch.dtype = torch.float8_e4m3fn
+
+@register_quantize_module_handler(
+    ActivationSparseLinearConfig
+)
+def _activation_spare_linear_transform(
+    module: torch.nn.Module,
+    config: ActivationSparseLinearConfig,
+):
+    return ActivationSparseLinear.from_dense(module, config)
+
+
+class ActivationSparseLinear(nn.Module):
+    """
+    Replacement nn.Linear that supports runtime fp8 activation sparsity
+    """
+
+    def __init__(self, weight, config) -> None:
+        super().__init__()
+        self.config = config
+        self.weight_transposed = weight.T.contiguous().T
+
+    def forward(self, x):
+        if x.shape[1] == 1:
+            return torch.ops.torchao.splitk_sparse_gemv(x, self.weight_transposed)
+        else:
+            return torch.nn.functional.linear(x, self.weight_transposed)
+
+    @classmethod
+    def from_dense(
+        cls, linear, config:ActivationSparseLinearConfig 
+    ):
+        if linear.bias is not None:
+            raise NotImplementedError("bias is not supported")
         return cls(linear.weight.data, config)

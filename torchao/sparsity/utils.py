@@ -47,6 +47,27 @@ def create_semi_structured_tensor(r, c, dtype):
     return sparse_weight.to(dtype)
 
 
+def create_binary_tensor(shape, percent_zeros):
+    """
+    Creates a PyTorch tensor with a specific percentage of zeros and ones.
+    
+    Args:
+        shape (tuple): The shape of the tensor to create
+        percent_zeros (float): Percentage of zeros in the tensor (between 0 and 1)
+    
+    Returns:
+        torch.Tensor: A tensor with specified percentage of zeros and ones
+    """
+    total_elements = torch.prod(torch.tensor(shape)).item()
+    num_zeros = int(total_elements * percent_zeros)
+    tensor = torch.ones(total_elements)
+    zero_indices = torch.randperm(total_elements)[:num_zeros]
+    tensor[zero_indices] = 0
+    tensor = tensor.reshape(shape)
+
+    return tensor
+
+
 # Observers
 class PerChannelNormObserver(UniformQuantizationObserverBase):
     """
