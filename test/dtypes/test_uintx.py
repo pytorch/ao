@@ -4,7 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+
 import torch
+from torch.testing._internal.common_quantization import QuantizationTestCase
+from torch.testing._internal.common_utils import (
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 
 from torchao.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
@@ -19,13 +26,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
 )
-from torch.testing._internal.common_utils import (
-    instantiate_parametrized_tests,
-    parametrize,
-    run_tests,
-)
-from torch.testing._internal.common_quantization import QuantizationTestCase
-
 
 # torch.uintx dtypes are introduced in 2.3
 if TORCH_VERSION_AT_LEAST_2_3:
@@ -75,7 +75,8 @@ class TestUintx(QuantizationTestCase):
     @parametrize("group_size", group_sizes)
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
+        not TORCH_VERSION_AT_LEAST_2_5,
+        reason="only works with fix in the nightly build",
     )
     def test_uintx_quant_on_cpu_then_move_to_cuda(self, dtype, group_size):
         scale = 512
@@ -88,18 +89,18 @@ class TestUintx(QuantizationTestCase):
         output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
         self.assertTrue(
             torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3),
-            "The output of the model on CPU and CUDA should be close"
+            "The output of the model on CPU and CUDA should be close",
         )
-
 
     @parametrize("dtype", dtypes)
     @parametrize("group_size", group_sizes)
     @parametrize("device", devices)
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
+        not TORCH_VERSION_AT_LEAST_2_5,
+        reason="only works with fix in the nightly build",
     )
-    def test_uintx_weight_only_model_quant(self,dtype, group_size, device):
+    def test_uintx_weight_only_model_quant(self, dtype, group_size, device):
         scale = 512
         fp16 = Linear16(scale, device)
         quantize_(fp16, uintx_weight_only(dtype, group_size=group_size))
@@ -108,15 +109,15 @@ class TestUintx(QuantizationTestCase):
         output = uintx.forward(test_input)
         self.assertTrue(output is not None, "model quantization failed")
 
-
     @parametrize("dtype", dtypes)
     @parametrize("group_size", group_sizes)
     @parametrize("device", devices)
     @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build"
+        not TORCH_VERSION_AT_LEAST_2_5,
+        reason="only works with fix in the nightly build",
     )
-    def test_uintx_weight_only_quant(self,dtype, group_size, device):
+    def test_uintx_weight_only_quant(self, dtype, group_size, device):
         input_float = torch.randn((1, 256), dtype=torch.float16, device=device)
         mapping_type = MappingType.SYMMETRIC
         eps = torch.finfo(torch.float32).eps
@@ -153,20 +154,18 @@ class TestUintx(QuantizationTestCase):
         )
         self.assertTrue(deqaunt is not None, "deqauntization failed")
 
-
     @parametrize("dtype", dtypes)
     @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_3, reason="sub byte dtype requires torch 2.3+"
     )
-    def test_uintx_target_dtype(self,dtype):
+    def test_uintx_target_dtype(self, dtype):
         from torchao.quantization.quant_api import uintx_weight_only
 
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         # make sure it runs
         quantize_(linear, uintx_weight_only(dtype))
         linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
-
 
     @parametrize("dtype", dtypes)
     @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
@@ -182,7 +181,6 @@ class TestUintx(QuantizationTestCase):
         quantize_(linear, uintx_weight_only(dtype))
         linear = torch.compile(linear)
         linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
-
 
     @parametrize("dtype", dtypes)
     @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
@@ -213,6 +211,7 @@ class TestUintx(QuantizationTestCase):
         quantize_(linear[0], uintx_weight_only(dtype))
         quantized_size = get_model_size_in_bytes(linear)
         self.assertTrue(bf16_size * _dtype_to_ratio[dtype] == quantized_size)
+
 
 instantiate_parametrized_tests(TestUintx)
 
