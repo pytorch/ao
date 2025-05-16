@@ -4,11 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import itertools
+import math
+import os
 import sys
 
 import pytest
 import torch
 from torch.testing._internal.common_utils import (
+    IS_LINUX,
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
@@ -23,7 +26,13 @@ from torchao.quantization.marlin_qqq import (
 )
 from torchao.quantization.quant_primitives import choose_qparams_and_quantize_affine_qqq
 from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_7,
+    compute_max_diff,
+)
+
+use_cpp_avx512 = os.getenv("USE_AVX512", "0") == "1"
 
 if torch.version.hip is not None:
     pytest.skip("Skipping the test in ROCm", allow_module_level=True)
@@ -108,6 +117,136 @@ class TestOps(TestCase):
         relative_error = error / gt
         rtol = 1e-2 if dtype == torch.bfloat16 else 1e-3
         assert relative_error < rtol
+
+    def _scaled_dot_product_int8_op_ref(
+        self,
+        q,
+        k,
+        v,
+        attn_mask=None,
+        dropout_p=0,
+        is_causal=False,
+        q_scale=1.0,
+        q_zp=0,
+        k_scale=1.0,
+        k_zp=0,
+        v_scale=1.0,
+        v_zp=0,
+        a_scale=1.0,
+        a_zp=0,
+        o_scale=1.0,
+        o_zp=0,
+    ):
+        q = (q.to(torch.float) - q_zp) * q_scale
+        k = (k.to(torch.float) - k_zp) * k_scale
+        v = (v.to(torch.float) - v_zp) * v_scale
+        scale_factor = 1 / math.sqrt(q.size(-1))
+        attn = q @ k.transpose(-2, -1)
+        attn = attn * scale_factor
+        if attn_mask is not None:
+            attn = attn + attn_mask.to(torch.float)
+        attn_max = attn.max(dim=-1, keepdim=True).values
+        attn = attn - attn_max
+        attn = torch.exp(attn)
+        attn_sum = torch.sum(attn, dim=-1, keepdim=True)
+        attn = attn / attn_sum
+        attn = torch.clamp(torch.round(attn / a_scale) + a_zp, min=0, max=255)
+        attn = (attn - a_zp) * a_scale
+        out = attn @ v
+        out = torch.clamp(torch.round(out / o_scale) + o_zp, min=0, max=255)
+        return out.to(torch.uint8)
+
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
+    )
+    @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
+    @pytest.mark.skipif(not use_cpp_avx512, reason="cpp kernels not built")
+    @parametrize("batch_size", [56, 120])
+    @parametrize("n_head", [2, 16])
+    @parametrize("q_seq_len", [18, 89])
+    @parametrize("kv_seq_len", [100, 253])
+    @parametrize("head_dim", [32, 64])
+    @parametrize("mask_dtype", [None, torch.float32, torch.bfloat16])
+    def test_scaled_dot_product_int8_op(
+        self, batch_size, n_head, q_seq_len, kv_seq_len, head_dim, mask_dtype
+    ):
+        torch.manual_seed(1234)
+        device = "cpu"
+        q_scale = float(1.7907238006591797)
+        q_zp = int(127)
+        k_scale = float(1.8039721250534058)
+        k_zp = int(125)
+        v_scale = float(1.839004635810852)
+        v_zp = int(127)
+        a_scale = float(0.003919653594493866)
+        a_zp = int(120)
+        o_scale = float(1.8191684484481812)
+        o_zp = int(128)
+        q_shape = [batch_size, q_seq_len, n_head, head_dim]
+        kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
+        mask_shape = [batch_size, 1, 1, kv_seq_len]
+        q = torch.randn(q_shape, dtype=torch.float, device=device).transpose(1, 2) * 100
+        k = (
+            torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
+            * 100
+        )
+        v = (
+            torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
+            * 100
+        )
+        q = q.to(torch.uint8)
+        k = k.to(torch.uint8)
+        v = v.to(torch.uint8)
+        attn_mask = (
+            torch.randn(mask_shape, dtype=mask_dtype, device=device)
+            if mask_dtype is not None
+            else None
+        )
+        q2, k2, v2, attn_mask_2 = (
+            q.clone(),
+            k.clone(),
+            v.clone(),
+            attn_mask.clone() if mask_dtype is not None else None,
+        )
+
+        math_ref = self._scaled_dot_product_int8_op_ref(
+            q2,
+            k2,
+            v2,
+            attn_mask=attn_mask,
+            dropout_p=0.0,
+            is_causal=False,
+            q_scale=q_scale,
+            q_zp=q_zp,
+            k_scale=k_scale,
+            k_zp=k_zp,
+            v_scale=v_scale,
+            v_zp=v_zp,
+            a_scale=a_scale,
+            a_zp=a_zp,
+            o_scale=o_scale,
+            o_zp=o_zp,
+        )
+        actual = torch.ops.torchao.scaled_dot_product_int8(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask_2,
+            dropout_p=0.0,
+            is_causal=False,
+            q_scale=q_scale,
+            q_zp=q_zp,
+            k_scale=k_scale,
+            k_zp=k_zp,
+            v_scale=v_scale,
+            v_zp=v_zp,
+            a_scale=a_scale,
+            a_zp=a_zp,
+            o_scale=o_scale,
+            o_zp=o_zp,
+        )
+
+        self.assertEqual(actual, math_ref, atol=1.0, rtol=5e-6)
 
 
 instantiate_parametrized_tests(TestOps)
