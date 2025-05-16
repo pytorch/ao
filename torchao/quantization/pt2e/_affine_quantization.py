@@ -114,7 +114,7 @@ def _get_reduction_params(block_size, input_size):
           reduction_dim: [0, 1, 3, 4]
     """
     assert block_size == [-1] or len(block_size) == len(input_size)
-    block_size = [-1] * len(input_size) if block_size == [-1] else block_size
+    block_size = input_size if block_size == [-1] else block_size
     shape_for_reduction = []
     reduction_dims = []
     cur_dim = 0

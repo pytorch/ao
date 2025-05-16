@@ -255,7 +255,8 @@ def _get_reduction_params(block_size, input_size):
           shape_for_reduction: (3, 3, 5, 2, 10)
           reduction_dim: [0, 1, 3, 4]
     """
-    assert len(block_size) == len(input_size)
+    assert block_size == [-1] or len(block_size) == len(input_size)
+    block_size = input_size if block_size == [-1] else block_size
     shape_for_reduction = []
     reduction_dims = []
     cur_dim = 0
@@ -367,7 +368,7 @@ def _quantize_affine(
         output_dtype = torch.uint8
     if block_size == [-1]:
         # per-tensor quantization
-        block_size = [-1] * input.dim()
+        block_size = input.shape
     return _quantize_affine_no_dtype_cast(
         input,
         block_size,
@@ -525,7 +526,7 @@ def _dequantize_affine(
     ], f"Unsupported output dtype: {output_dtype}"
     if block_size == [-1]:
         # per-tensor quantization
-        block_size = [-1] * input.dim()
+        block_size = input.shape
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
     return _dequantize_affine_no_dtype_check(
         input,
@@ -886,7 +887,7 @@ def _choose_qparams_affine(
             eps = torch.finfo(input.dtype).eps
         if block_size == [-1]:
             # per-tensor quantization
-            block_size = [-1] * input.dim()
+            block_size = input.shape
 
         assert len(block_size) == input.dim(), (
             f"Got input dim:{input.dim()}, block_size: {block_size}"

@@ -73,7 +73,7 @@ def get_block_size(
         granularity: The granularity type of the quantization
     """
     if isinstance(granularity, PerTensor):
-        return input_shape
+        return [-1]
     elif isinstance(granularity, PerAxis):
         block_size = list(input_shape)
         block_size[granularity.axis] = 1
