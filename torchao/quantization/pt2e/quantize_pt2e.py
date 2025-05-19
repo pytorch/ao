@@ -239,10 +239,10 @@ def _is_torchao_prepared_do_not_use_outside_this_file(model):
     from torchao.quantization.pt2e.fake_quantize import (
         FakeQuantize as torchao_FakeQuantize,
     )
-    from torchao.quantization.pt2e.observer import ObserverBase as torchao_ObserverBase
     from torchao.quantization.pt2e.observer import (
         AffineQuantizedObserverBase as torchao_AffineQuantizedObserverBase,
     )
+    from torchao.quantization.pt2e.observer import ObserverBase as torchao_ObserverBase
 
     is_torch_ao_prepared = False
     is_torchao_prepared = False
