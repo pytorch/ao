@@ -160,34 +160,19 @@ def test_splitk_sparse_gemv():
     torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
 
 
-# baseline feather est. speed input: 26053.69 toks/s, output: 3087.22 toks/s
+def test_splitk_sparse_gemv_fp8():
 
+    torch.nn.Linear()
+    torch.manual_seed(0)
 
-## PHI int4
-# Avg latency: 0.9666175044667095 seconds                                                                                                                     
-# 10% percentile latency: 0.9595451743996819 seconds                                                                                                          
-# 25% percentile latency: 0.9622359074999167 seconds                                                                                                          
-# 50% percentile latency: 0.9658922594994692 seconds                                                                                                          
-# 75% percentile latency: 0.9698955072499302 seconds                                                                                                          
-# 90% percentile latency: 0.973863469400294 seconds                                                                                                           
-# 99% percentile latency: 0.9819546566300688 seconds     
+    activation = create_binary_tensor((1, 1, 4096), 0.2).cuda().to(torch.float16)
+    weight = torch.randn(16384, 4096, dtype=torch.float16).cuda()
 
-## PHI baseline
-# Avg latency: 1.5343882635333708 seconds
-# 10% percentile latency: 1.521387348999906 seconds
-# 25% percentile latency: 1.5298032142500233 seconds
-# 50% percentile latency: 1.536684918499759 seconds
-# 75% percentile latency: 1.5403528439999263 seconds
-# 90% percentile latency: 1.5427267418004704 seconds
-# 99% percentile latency: 1.5486474337500475 seconds
+    # weight must be column major
+    weight_transposed = weight.T.contiguous().T
 
-# Feather baseline:
-# Avg latency: 2.43545591363345 seconds                                                                                                                       
-# 10% percentile latency: 2.419638815799408 seconds                                                                                                           
-# 25% percentile latency: 2.423865938751078 seconds                                                                                                           
-# 50% percentile latency: 2.435959159500271 seconds                                                                                                           
-# 75% percentile latency: 2.447552447250473 seconds                                                                                                           
-# 90% percentile latency: 2.4524878560003343 seconds                                                                                                          
-# 99% percentile latency: 2.4566773237699637 seconds 
+    sparse_res = torch.ops.torchao.splitk_sparse_gemv(activation, weight_transposed)
+    dense_res = F.linear(activation, weight_transposed)
 
-# Feather fp8:
+    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output. 
+    torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
