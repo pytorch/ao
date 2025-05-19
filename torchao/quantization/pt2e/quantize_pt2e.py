@@ -251,7 +251,8 @@ def _is_torchao_prepared_do_not_use_outside_this_file(model):
         if isinstance(m, torchao_FakeQuantize) or isinstance(m, torchao_ObserverBase):
             is_torchao_prepared = True
     assert is_torch_ao_prepared or is_torchao_prepared, (
-        "Must be prepared using torch.ao or torchao"
+        "Must be prepared using torch.ao or torchao, but did not see any FakeQuantize or ObserverBase modules in model: "
+        + str([f"{n}: {type(m)}" for n, m in model.named_modules()])
     )
     if is_torch_ao_prepared:
         assert not is_torchao_prepared, (
