@@ -69,7 +69,9 @@ class SquaredReLU(torch.nn.Module):
         super().__init__()
 
     def forward(self, x):
-        return F.relu(x) ** 2
+        res = F.relu(x) ** 2
+        # print((res==0).sum() / res.numel())
+        return res
 
 
 def profiler_runner(path, fn, *args, **kwargs):

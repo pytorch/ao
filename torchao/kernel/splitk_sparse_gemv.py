@@ -3,7 +3,8 @@ This code is adapted from https://github.com/FasterDecoding/TEAL/blob/main/kerne
 
 Since we already have sparse activations from ReLU, we can get rid of the thresholding step and just use the sparse tensor directly.
 """
-
+import sys
+import warnings
 from typing import Optional
 
 import torch
@@ -11,40 +12,39 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
-def init_to_zero(*args, **kwargs):
-    # print(type)
-    args[0]["Y"].zero_()
-
-# NOTE: will need to warm up kernels each time, triton autotune caching isn't a thing right now
+if not sys.warnoptions:
+    # to suppress repeated warnings when being used in a training loop.
+    warnings.simplefilter("once")
 
 configs=[
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero), 
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 8, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 32, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 16}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 32}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 32, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 16, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2), 
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4),
+    triton.Config({"BLOCK_M": 8, "BLOCK_N": 128}, num_warps=2),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 256}, num_warps=4),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 16}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 32}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 512}, num_warps=4),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 512}, num_warps=4),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 512}, num_warps=4),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 512}, num_warps=4),
 
     # # Llama 3 variants can use BLOCK_N >= 1024
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 32, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero),
-    triton.Config({"BLOCK_M": 16, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 1024}, num_warps=4),
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 1024}, num_warps=4),
+    triton.Config({"BLOCK_M": 32, "BLOCK_N": 1024}, num_warps=4),
+    triton.Config({"BLOCK_M": 16, "BLOCK_N": 1024}, num_warps=4),
 ]
 
 @triton.autotune(
     configs=configs,
     key=["CACHE_KEY_M", "CACHE_KEY_N", "BATCHSIZE"],
+    reset_to_zero=["Y"],  # reset the content of Y to zero before computation
 )
 @triton.jit
 def splitk_sparse_gemv_kernel(
@@ -78,8 +78,7 @@ def splitk_sparse_gemv_kernel(
         acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], axis=0)
 
     # rematerialize rm and rn to save registers
-    # rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
-
+    rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
     tl.atomic_add(Y_ptr, acc0, mask=rn < N)
 
 
@@ -89,6 +88,7 @@ def splitk_sparse_gemv_kernel(
 def splitk_sparse_gemv(
     x: torch.Tensor,
     weight: torch.Tensor,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
     Compute y = sparse(X) @ weight.
@@ -131,8 +131,11 @@ def splitk_sparse_gemv(
         # can't use kwargs because auto-tuner requires args
     )
 
-    if x.dtype is not output.dtype:
-        print(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
-        return output.to(dtype=x.dtype)
+    # if x.dtype is not output.dtype:
+    #     warnings.warn(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
+    #     return output.to(dtype=x.dtype)
+
+    if out_dtype:
+        return output.to(dtype=out_dtype)
 
     return output
