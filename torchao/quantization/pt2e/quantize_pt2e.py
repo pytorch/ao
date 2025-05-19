@@ -240,15 +240,24 @@ def _is_torchao_prepared_do_not_use_outside_this_file(model):
         FakeQuantize as torchao_FakeQuantize,
     )
     from torchao.quantization.pt2e.observer import ObserverBase as torchao_ObserverBase
+    from torchao.quantization.pt2e.observer import (
+        AffineQuantizedObserverBase as torchao_AffineQuantizedObserverBase,
+    )
 
     is_torch_ao_prepared = False
     is_torchao_prepared = False
     for _, m in model.named_modules():
-        if isinstance(
-            m, torch.ao.quantization.fake_quantize.FakeQuantize
-        ) or isinstance(m, torch.ao.quantization.observer.ObserverBase):
+        if (
+            isinstance(m, torch.ao.quantization.fake_quantize.FakeQuantize)
+            or isinstance(m, torch.ao.quantization.observer.ObserverBase)
+            or isinstance(m, torch.ao.quantization.observer.AffineQuantizedObserverBase)
+        ):
             is_torch_ao_prepared = True
-        if isinstance(m, torchao_FakeQuantize) or isinstance(m, torchao_ObserverBase):
+        if (
+            isinstance(m, torchao_FakeQuantize)
+            or isinstance(m, torchao_ObserverBase)
+            or isinstance(m, torchao_AffineQuantizedObserverBase)
+        ):
             is_torchao_prepared = True
     assert is_torch_ao_prepared or is_torchao_prepared, (
         "Must be prepared using torch.ao or torchao, but did not see any FakeQuantize or ObserverBase modules in model: "
