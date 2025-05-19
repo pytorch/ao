@@ -19,7 +19,6 @@ def init_to_zero(*args, **kwargs):
 
 configs=[
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero), 
-
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 8, "BLOCK_N": 128}, num_warps=2, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
@@ -31,12 +30,10 @@ configs=[
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4, pre_hook=init_to_zero),
-
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 32, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
     triton.Config({"BLOCK_M": 16, "BLOCK_N": 512}, num_warps=4, pre_hook=init_to_zero),
-
 
     # # Llama 3 variants can use BLOCK_N >= 1024
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 1024}, num_warps=4, pre_hook=init_to_zero),
@@ -74,16 +71,16 @@ def splitk_sparse_gemv_kernel(
     
     # eviction policy go brrr
     if BATCHSIZE == 1:
-        x0 = tl.load(X_ptr, mask=rm < M, other=0, eviction_policy='evict_last') # reuse x across threadblocks
+        x0 = tl.load(X_ptr, mask=rm < M, other=0.0, eviction_policy='evict_last') # reuse x across threadblocks
         idx = (x0 != 0)
         # selectively load weight rows
-        a = tl.load(A_ptr, mask=idx[:, None], other=0, eviction_policy='evict_first') # only load weights once per threadblock
-        acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], 0)
+        a = tl.load(A_ptr, mask=idx[:, None], other=0.0, eviction_policy='evict_first') # only load weights once per threadblock
+        acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], axis=0)
 
     # rematerialize rm and rn to save registers
-    rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    # rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
 
-    tl.atomic_add(Y_ptr, acc0, mask=rn < N, sem="relaxed")
+    tl.atomic_add(Y_ptr, acc0, mask=rn < N)
 
 
 

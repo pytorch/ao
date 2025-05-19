@@ -13,7 +13,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.kernel.sparse_gemv.sparse_gemv import splitk_sparse_gemv
+from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
 
 
 @dataclass
