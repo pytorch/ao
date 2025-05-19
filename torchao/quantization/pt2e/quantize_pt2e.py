@@ -95,6 +95,15 @@ def prepare_pt2e(
         # run calibration
         # calibrate(m, sample_inference_data)
     """
+    # We will temporarily make prepare_pt2e backward compatible with quantizers that configs, observers,
+    # and fake quantizers from torch.ao instead of torchao
+    if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
+        from torch.ao.quantization.quantize_pt2e import (
+            prepare_pt2e as torch_prepare_pt2e,
+        )
+
+        return torch_prepare_pt2e(model, quantizer)
+
     torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
@@ -172,6 +181,15 @@ def prepare_qat_pt2e(
         train_loop(prepared_model, train_loop)
 
     """
+    # We will temporarily make prepare_qat_pt2e backward compatible with quantizers that configs, observers,
+    # and fake quantizers from torch.ao instead of torchao
+    if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
+        from torch.ao.quantization.quantize_pt2e import (
+            prepare_qat_pt2e as torch_prepare_qat_pt2e,
+        )
+
+        return torch_prepare_qat_pt2e(model, quantizer)
+
     torch._C._log_api_usage_once("quantization_api.quantize_pt2e.prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
@@ -217,6 +235,31 @@ def _quant_node_constraint(n: Node) -> bool:
     return n.op == "call_function" and n.target in _QUANT_OPS
 
 
+def _is_torchao_prepared_do_not_use_outside_this_file(model):
+    from torchao.quantization.pt2e.fake_quantize import (
+        FakeQuantize as torchao_FakeQuantize,
+    )
+    from torchao.quantization.pt2e.observer import ObserverBase as torchao_ObserverBase
+
+    is_torch_ao_prepared = False
+    is_torchao_prepared = False
+    for _, m in model.named_modules():
+        if isinstance(
+            m, torch.ao.quantization.fake_quantize.FakeQuantize
+        ) or isinstance(m, torch.ao.quantization.observer.ObserverBase):
+            is_torch_ao_prepared = True
+        if isinstance(m, torchao_FakeQuantize) or isinstance(m, torchao_ObserverBase):
+            is_torchao_prepared = True
+    assert is_torch_ao_prepared or is_torchao_prepared, (
+        "Must be prepared using torch.ao or torchao"
+    )
+    if is_torch_ao_prepared:
+        assert not is_torchao_prepared, (
+            "Cannot be prepared using both torch.ao and torchao"
+        )
+    return is_torchao_prepared
+
+
 def convert_pt2e(
     model: GraphModule,
     use_reference_representation: bool = False,
@@ -243,6 +286,15 @@ def convert_pt2e(
         quantized_model = convert_pt2e(prepared_model)
 
     """
+    # We will temporarily make convert_pt2e backward compatible with quantizers that configs, observers,
+    # and fake quantizers from torch.ao instead of torchao
+    if not _is_torchao_prepared_do_not_use_outside_this_file(model):
+        from torch.ao.quantization.quantize_pt2e import (
+            convert_pt2e as torch_convert_pt2e,
+        )
+
+        return torch_convert_pt2e(model, use_reference_representation, fold_quantize)
+
     torch._C._log_api_usage_once("quantization_api.quantize_pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(
