@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import itertools
 import math
-import os
 import sys
 
 import pytest
@@ -31,8 +30,6 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_7,
     compute_max_diff,
 )
-
-use_cpp_avx512 = os.getenv("USE_AVX512", "0") == "1"
 
 if torch.version.hip is not None:
     pytest.skip("Skipping the test in ROCm", allow_module_level=True)
@@ -160,7 +157,10 @@ class TestOps(TestCase):
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
     @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
-    @pytest.mark.skipif(not use_cpp_avx512, reason="cpp kernels not built")
+    @pytest.mark.skipif(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @parametrize("batch_size", [56, 120])
     @parametrize("n_head", [2, 16])
     @parametrize("q_seq_len", [18, 89])

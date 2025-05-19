@@ -365,6 +365,7 @@ def _register_int8_sdpa_lowerings(custom_pass_dict):
         )
 
 
+custom_pass = None
 if TORCH_VERSION_AT_LEAST_2_7:
     # TORCH_VERSION_AT_LEAST_2_7 is needed for custom graph pass
     from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
@@ -380,11 +381,12 @@ if TORCH_VERSION_AT_LEAST_2_7:
         def uuid(self) -> bytes:
             return get_hash_for_files((__file__,))
 
+    custom_pass = _CustomPass()
+
 
 @functools.lru_cache(None)
 def _int8_sdpa_init():
     if TORCH_VERSION_AT_LEAST_2_7:
-        config.post_grad_custom_pre_pass = _CustomPass()
         _register_int8_sdpa_lowerings(config.post_grad_custom_pre_pass)
     else:
         pass

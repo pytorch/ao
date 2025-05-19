@@ -23,8 +23,9 @@ from torch._inductor.pattern_matcher import PatternMatcherPass
 
 # Example usage
 class _CustomPass(...): # create a custom pass class
-config.custom_pass = _CustomPass() # define the custom pass with the patterns
-_register_patterns(...) # register your own patterns
+custom_pass = _CustomPass() # create an instance of custom pass
+with config.patch(config.custom_pass=custom_pass):
+    _register_patterns(config.custom_pass) # register your own passes
 
 ```
 

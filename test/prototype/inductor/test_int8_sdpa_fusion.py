@@ -1,5 +1,4 @@
 import itertools
-import os
 import unittest
 
 import torch
@@ -12,10 +11,11 @@ from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
 from torch.testing._internal.inductor_utils import HAS_CPU
 
 import torchao
-from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import _int8_sdpa_init
+from torchao.prototype.inductor.fx_passes.int8_sdpa_fusion import (
+    _int8_sdpa_init,
+    custom_pass,
+)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
-
-use_cpp_avx512 = os.getenv("USE_AVX512", "0") == "1"
 
 
 class SelfAttnLikeModule(torch.nn.Module):
@@ -147,7 +147,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
-    @unittest.skipIf(not use_cpp_avx512, reason="cpp kernels not built")
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @config.patch({"freezing": True})
     def _test_sdpa_int8_rewriter(self):
         from torch.export import export_for_training
@@ -184,6 +187,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torch.amp.autocast(
                     self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
+                config.patch(post_grad_custom_pre_pass=custom_pass),
             ):
                 _int8_sdpa_init()
                 quantizer = X86InductorQuantizer()
