@@ -421,6 +421,17 @@ class TestAffineQuantizedBasic(TestCase):
         # making sure param.data is updated
         assert param.data.dequantize()[0][0] != 0
 
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_mm_int4wo(self, device, dtype):
+        l = torch.nn.Linear(1024, 512).to(device).to(dtype)
+        quantize_(l, Int4WeightOnlyConfig())
+        # weight shape: (512, 1024)
+        weight = l.weight
+        input = torch.randn(1, 512, device=device, dtype=dtype)
+        # make sure it runs
+        torch.mm(input, weight)
+
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedBasic)

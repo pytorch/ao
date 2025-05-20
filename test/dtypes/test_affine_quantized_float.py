@@ -27,6 +27,7 @@ from torch.testing._internal import common_utils
 
 from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
     float8_dynamic_activation_float8_weight,
     float8_weight_only,
     quantize_,
@@ -291,6 +292,21 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 any(expected in msg for msg in log_context.output),
                 f"Expected warning message containing: {expected}",
             )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+    )
+    def test_mm_float8dq(self):
+        device = "cuda"
+        dtype = torch.bfloat16
+        l = torch.nn.Linear(1024, 512).to(device).to(dtype)
+        quantize_(l, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
+        # weight shape: (512, 1024)
+        weight = l.weight
+        input = torch.randn(1, 512, device=device, dtype=dtype)
+        # make sure it runs
+        torch.mm(input, weight)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

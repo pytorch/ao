@@ -133,3 +133,9 @@ class AQTTensorImpl(TorchAOBaseTensor):
         data, scale, zero_point = self.get_plain()
         _layout = self.get_layout()
         return f"{self.__class__.__name__}(data={str(data)}... , scale={str(scale)}... , zero_point={str(zero_point)}... , _layout={_layout})"
+
+
+class QuantizedLinearNotImplementedError(NotImplementedError):
+    """Thin wrapper around NotImplementedError to make it easier to catch this error in the dispatch table"""
+
+    pass
