@@ -423,6 +423,8 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
+    @skip_if_no_cuda()
+    @skip_if_rocm("ROCm enablement in progress")
     def test_mm_int4wo(self, device, dtype):
         l = torch.nn.Linear(1024, 512).to(device).to(dtype)
         quantize_(l, Int4WeightOnlyConfig())
