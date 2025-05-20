@@ -238,6 +238,7 @@ class GenericGPTQRunner(fx.Interpreter):
 
                 # get output if its not a linear
                 out = super().call_function(target, cur_args, cur_kwargs)
+                # TODO:There is a xpu issue(https://github.com/pytorch/pytorch/issues/153903). And it will be remove if after issue fixed. 
                 if target.__name__ == "scaled_dot_product_attention.default" and isinstance(out, torch.Tensor) and (not cur_args[0].is_contiguous()) and ('xpu' in cur_args[0].device.type):
                     out = out.transpose(1, 2).contiguous().transpose(1, 2)
                 if isinstance(out, torch.Tensor):
