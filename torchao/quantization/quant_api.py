@@ -52,6 +52,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
+from torchao.float8.config import e4m3_dtype, e5m2_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observed_tensor import (
@@ -1396,7 +1397,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
         The actual matmul will be computed in original precision of the weight tensor.
     """
 
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
 
 
@@ -1569,8 +1570,8 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
     """
 
-    activation_dtype: torch.dtype = torch.float8_e4m3fn
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    activation_dtype: torch.dtype = e4m3_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ] = None
@@ -1660,8 +1661,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     """
 
     layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = torch.float8_e5m2
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    activation_dtype: torch.dtype = e5m2_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
@@ -1706,8 +1707,8 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
 
     scale: torch.Tensor
-    activation_dtype: torch.dtype = torch.float8_e4m3fn
-    weight_dtype: torch.dtype = torch.float8_e4m3fn
+    activation_dtype: torch.dtype = e4m3_dtype
+    weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ] = None
