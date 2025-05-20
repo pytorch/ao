@@ -55,7 +55,7 @@ build_macos_arm_auto = (
     and platform.system() == "Darwin"
 )
 
-use_cpp_avx512 = os.getenv("USE_AVX512", "0") == "1"
+use_cpp_kernels = os.getenv("USE_CPP_KERNELS", "0") == "1"
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
@@ -312,7 +312,7 @@ def get_extensions():
         )
 
         if (
-            use_cpp_avx512
+            use_cpp_kernels
             and platform.system() == "Linux"
             and TORCH_VERSION_AT_LEAST_2_7
         ):
@@ -347,7 +347,7 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-    if not use_cpp_avx512 or platform.system() != "Linux":
+    if not use_cpp_kernels or platform.system() != "Linux":
         # Remove csrc/cpu/*.cpp
         excluded_sources = list(
             glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
