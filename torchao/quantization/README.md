@@ -438,7 +438,6 @@ quantizer = Int4WeightOnlyGPTQQuantizer(
     percdamp,
     groupsize,
 )
-
 model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
 model = quantizer.quantize(model, inputs).cuda()
 
