@@ -459,7 +459,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             w_int32[::, 1::2] = low_bits
         else:
             w_int32[::, ::2] = low_bits
-            w_int32[::, 1::2] = hight_bits
+            w_int32[::, 1::2] = high_bits
 
     else:
         w_int32 = w_int4x8

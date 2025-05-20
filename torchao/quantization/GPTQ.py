@@ -75,20 +75,21 @@ class GenericGPTQRunner(fx.Interpreter):
         blocksize=128,
         percdamp=0.01,
         groupsize=128,
+        device: torch.device = torch.device("cuda"),
     ):
-        self.device = self.get_device(model, inputs)
+        self.device = device
         self.id_to_name = {
             id(value): name for name, value in dict(model.named_parameters()).items()
         }
 
         # trace model for one input
-        one_input = [multi.values[0] for multi in inputs]  # pyre-ignore[16]
+        one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
         # needed for GPTQ on the torchao llama model
         import torchao
 
         torchao._models.llama.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
-            model, aten_graph=True, pre_dispatch=True, tracing_mode="fake"
+            model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
         super().__init__(exported_model.graph_module)
 
@@ -103,18 +104,6 @@ class GenericGPTQRunner(fx.Interpreter):
         self.gptq_done = False
         self.debug = False
         
-
-    def get_device(self, model, inputs: _MultiInput):
-        for name, param in model.named_parameters():
-            if isinstance(param, torch.Tensor):
-                return param.device
-
-        for multi in inputs:
-            if isinstance(multi.values[0], torch.Tensor):
-                return multi.values[0].device
-
-        return torch.device("cpu")
-
 
     def configure_quantization_mode(
         self,
@@ -249,6 +238,8 @@ class GenericGPTQRunner(fx.Interpreter):
 
                 # get output if its not a linear
                 out = super().call_function(target, cur_args, cur_kwargs)
+                if target.__name__ == "scaled_dot_product_attention.default" and isinstance(out, torch.Tensor) and (not cur_args[0].is_contiguous()) and ('xpu' in cur_args[0].device.type):
+                    out = out.transpose(1, 2).contiguous().transpose(1, 2)
                 if isinstance(out, torch.Tensor):
                     outputs.append(out.cpu())
                 else:
@@ -518,6 +509,7 @@ class GPTQQuantizer(Quantizer):
             blocksize,
             percdamp,
             groupsize,
+            self.device,
         ).configure_quantization_mode(
             self.get_qparams_func,  # pyre-ignore[16]
             self.quantize_func,  # pyre-ignore[16]
@@ -758,6 +750,7 @@ def _replace_linear_int4(
     linear_class: Type[torch.nn.Module] = WeightOnlyInt4Linear,
     copy_weights: bool = False,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+    device: torch.device = torch.device("cuda"),
 ):
     for name, child in module.named_children():
         # TODO: support linear bias
@@ -774,7 +767,7 @@ def _replace_linear_int4(
                     child.in_features,
                     child.out_features,
                     bias=False,
-                    device=child.weight.device,
+                    device=device,
                     groupsize=groupsize,
                     inner_k_tiles=inner_k_tiles,
                     precision=precision,
@@ -799,7 +792,8 @@ def _replace_linear_int4(
                 scales_precision,
                 linear_class,
                 copy_weights,
-                zero_point_domain = zero_point_domain,
+                zero_point_domain=zero_point_domain,
+                device=device,
             )
 
 
@@ -810,6 +804,7 @@ def replace_linear_int4(
     padding_allowed,
     skip_layer_func=None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+    device: torch.device = torch.device("cuda"),
 ):
     _replace_linear_int4(
         module,
@@ -819,6 +814,7 @@ def replace_linear_int4(
         skip_layer_func,
         linear_class=WeightOnlyInt4Linear,
         zero_point_domain = zero_point_domain,
+        device = device,
     )
 
 
@@ -913,6 +909,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
             skip_layer_func=None,
             precision=self.precision,
             scales_precision=self.precision,
+            device=self.device,
         )
         return model
 
@@ -1040,7 +1037,8 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             self.inner_k_tiles,
             self.padding_allowed,
             skip_layer_func=self.skip_layer_func,
-            zero_point_domain = self.zero_point_domain,
+            zero_point_domain=self.zero_point_domain,
+            device=self.device,
         )
         return model
 
@@ -1357,6 +1355,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         inner_k_tiles=8,
         padding_allowed=True,
         precision=torch.float32,
+        device: torch.device = torch.device("cuda"),
     ):
         self.blocksize = blocksize
         self.percdamp = percdamp
@@ -1364,6 +1363,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
         self.precision = precision
+        self.device = device
 
         self.act_fake_quant_func = per_token_dynamic_quant
         n_bit = 4
