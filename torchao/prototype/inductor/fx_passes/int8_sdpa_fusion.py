@@ -18,7 +18,7 @@ from torch._inductor.pattern_matcher import (
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 if TORCH_VERSION_AT_LEAST_2_7:
-    # TORCH_VERSION_AT_LEAST_2_7 is needed for int8 sdpa lowering
+    # TORCH_VERSION_AT_LEAST_2_7 is needed for functions in int8 sdpa lowering
     from ..int8_sdpa_lowering import register_int8_sdpa  # noqa: F401
 else:
     make_fallback(torch.ops.torchao.qscaled_dot_product.default)
