@@ -461,6 +461,7 @@
     <span class="n">make_packed_linear_int8_dynamic_activation_intx_weight_tensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Layout</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">e4m3_dtype</span><span class="p">,</span> <span class="n">e5m2_dtype</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8MMConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.linear_activation_weight_observed_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -1805,7 +1806,7 @@
 <span class="sd">        The actual matmul will be computed in original precision of the weight tensor.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 
 
@@ -1978,8 +1979,8 @@
 
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
-    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
         <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
     <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
@@ -2069,8 +2070,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">layout</span><span class="p">:</span> <span class="n">Layout</span> <span class="o">=</span> <span class="n">CutlassSemiSparseLayout</span><span class="p">()</span>
-    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span>
-    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e5m2_dtype</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Float8DynamicActivationFloat8SemiSparseWeightConfig</span><span class="p">)</span>
@@ -2115,8 +2116,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
-    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
-    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
+    <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
         <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
     <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
