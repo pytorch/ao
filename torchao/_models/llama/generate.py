@@ -609,13 +609,13 @@ def main(
                     float8_dynamic_activation_float8_weight(granularity=granularity),
                 )
         elif "autoquant_v2" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
             from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -627,7 +627,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
@@ -699,12 +699,12 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         elif "autoquant" in quantization:
-            from torchao._models._eval import InputRecorder
+            from torchao._models._eval import LMEvalInputRecorder
             from torchao._models.llama.model import prepare_inputs_for_model
 
             calibration_seq_length = 256
             inputs = (
-                InputRecorder(
+                LMEvalInputRecorder(
                     tokenizer,
                     calibration_seq_length,
                     prepare_inputs_for_model,
@@ -716,7 +716,7 @@ def main(
                     ["wikitext"],
                     1,
                 )
-                .get_inputs()[0]
+                .get_recorded_inputs()[0]
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
