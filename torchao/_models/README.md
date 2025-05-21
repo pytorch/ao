@@ -1,4 +1,6 @@
-# Eval on Llama 3.1 8B and Llama 3.2 3B
+# LLAMA
+
+## Eval on Llama 3.1 8B and Llama 3.2 3B
 
 We use lm-eval tasks for evaluating TorchAO Quantization APIs on HuggingFace models. The results are in the table below:
 
@@ -35,7 +37,7 @@ python benchmarks/_models/eval_hf_models.py --model_id meta-llama/Llama-3.1-8B -
 ```
 Replace model id, quantization and tasks with your desired values Please refer to ([HuggingFace <-> TorchAO](https://huggingface.co/docs/transformers/main/en//quantization/torchao)) integration docs for more details about the supported quantization techniques.
 
-## SAM2
+# SAM2
 sam2 is a fork of https://github.com/facebookresearch/sam2 at commit c2ec8e14a185632b0a5d8b161928ceb50197eddc
 
 It includes
