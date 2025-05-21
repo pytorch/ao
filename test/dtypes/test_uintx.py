@@ -10,7 +10,6 @@ from torchao.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
 from torchao.quantization.quant_primitives import (
     MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -112,7 +111,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     mapping_type = MappingType.SYMMETRIC
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int32
-    zero_point_domain = ZeroPointDomain.INT
     block_size = (1, group_size)
 
     scale, zero_point = choose_qparams_affine(
@@ -123,8 +121,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         eps=eps,
         scale_dtype=torch.float32,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=True,
-        zero_point_domain=zero_point_domain,
     )
 
     aqt = quantize_affine(
@@ -133,15 +129,12 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         scale,
         zero_point,
         dtype,
-        zero_point_domain=zero_point_domain,
     )
     # Note: output will be uint8 tensor for sub byte tensors for now
 
     q = to_uintx(aqt, dtype, -1)
     assert q is not None, "quantization failed"
-    deqaunt = dequantize_affine(
-        q, block_size, scale, zero_point, dtype, zero_point_domain=zero_point_domain
-    )
+    deqaunt = dequantize_affine(q, block_size, scale, zero_point, dtype)
     assert deqaunt is not None, "deqauntization failed"
 
 

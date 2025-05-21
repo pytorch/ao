@@ -90,7 +90,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.quantization.quant_primitives import dequantize_affine
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
+)
 from torchao.utils import (
     fill_defaults,
 )
@@ -313,7 +318,14 @@ def _(func, types, args, kwargs):
     # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
     # we need to increase block size to correct dim
     new_blocks = idx.dim() - 1
-    return dequantize_affine(
+    if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = dequantize_affine_float_zero_point
+    elif args[1].zero_point_domain == ZeroPointDomain.NONE:
+        _dequantize_affine = dequantize_affine_no_zero_point
+    else:
+        _dequantize_affine = dequantize_affine
+
+    return _dequantize_affine(
         sliced_data,
         new_blocks * [1] + list(args[1].block_size),
         sliced_scale,
@@ -321,7 +333,6 @@ def _(func, types, args, kwargs):
         sliced_data.dtype,
         args[1].quant_min,
         args[1].quant_max,
-        args[1].zero_point_domain,
         output_dtype=sliced_scale.dtype,
     )
 
@@ -476,12 +487,15 @@ def _(func, types, args, kwargs):
     shape = list(self.shape)
     shape[dim] = end - start
     block_size = self.block_size
-    assert len(block_size) == 2, (
-        f"Slice only works for 2d block_size right now, got: {block_size}"
-    )
+    assert len(block_size) in [
+        2,
+        3,
+    ], f"Slice only works for 2 and 3d block_size right now, got: {block_size}"
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
-    block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
+    if len(block_size) == 2:
+        block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
+
     new = self.__class__(
         aten.slice.Tensor(self.tensor_impl, dim, start, end, step),
         block_size,
@@ -490,7 +504,53 @@ def _(func, types, args, kwargs):
         self.quant_max,
         self.zero_point_domain,
         dtype=self.dtype,
-        strides=self.stride(),
+        strides=self.stride() if len(block_size) == 2 else None,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.index.Tensor)
+def _(func, types, args, kwargs):
+    self, indices = args
+    assert len(indices) == 1, (
+        f"op {func} currently only implemented for single dimensional indexing but got indices: {indices}"
+    )
+    new_tensor_impl = aten.index.Tensor(self.tensor_impl, indices)
+    shape = tuple([indices[0].numel(), *self.shape[1:]])
+
+    block_size = self.block_size
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = fill_defaults(args, 3, [0, 0])
+    assert dim == 0, f"op {func} currently only implemented for dim=0 but got dim={dim}"
+    assert self.dim() == 3, (
+        f"op {func} currently only implemented for 3 dimensional tensors but got shape={self.shape}"
+    )
+
+    new_tensor_impl = aten.select.int(self.tensor_impl, dim, index)
+
+    shape = self.shape[1:]
+    block_size = self.block_size[1:]
+    new = self.__class__(
+        new_tensor_impl,
+        block_size,
+        shape,
+        self.quant_min,
+        self.quant_max,
+        self.zero_point_domain,
+        dtype=self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 

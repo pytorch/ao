@@ -107,7 +107,7 @@ void run_gemm(at::Tensor& a, at::Tensor& b, at::Tensor& a_scale,
   using StrideD   = typename Gemm::GemmKernel::StrideD;
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using Sm100BlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+  using Sm100BlkScaledConfig = typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   // Initialize strides using packed stride configuration
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, make_shape(M, K, 1));
@@ -221,33 +221,6 @@ void validate(at::Tensor a, at::Tensor b, at::Tensor a_scale, at::Tensor b_scale
         "Input tensor 'b' must be contiguous in the K dimension (column-major)");
 }
 
-
-at::Tensor mx_fp8_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
-                       at::Tensor b_scale) {
-#if defined(BUILD_MX_KERNELS_CUTLASS)
-  validate(a, b, a_scale, b_scale);
-  auto M = a.size(0);
-  auto K = a.size(1);
-  auto N = b.size(1);
-
-  auto out =
-      at::empty({M, N}, a.options().dtype(at::kBFloat16));
-  using ElementA = cutlass::mx_float8_t<cutlass::float_e4m3_t>;
-  using ElementB = cutlass::mx_float8_t<cutlass::float_e4m3_t>;
-  using ElementD = cutlass::bfloat16_t;
-
-  using MmaTileShape        = Shape<_128,_128,_128>;
-  using ClusterShape        = Shape<_2,_1,_1>;
-  using PerSmTileShape_MNK  = Shape<_128,_128,_128>;
-
-  run_gemm<ElementA, ElementB, ElementD, MmaTileShape, ClusterShape, PerSmTileShape_MNK>(a, b, a_scale, b_scale, out, M, K, N);
-  return out;
-  #else
-  TORCH_CHECK_NOT_IMPLEMENTED(false, __func__);
-  return at::Tensor{};
-#endif
-}
-
 at::Tensor mx_fp4_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
                        at::Tensor b_scale) {
 #if defined(BUILD_MX_KERNELS_CUTLASS)
@@ -278,9 +251,6 @@ at::Tensor mx_fp4_bf16(at::Tensor a, at::Tensor b, at::Tensor a_scale,
 #endif
 }
 
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::mx_fp8_bf16", &mx_fp8_bf16);
-}
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::mx_fp4_bf16", &mx_fp4_bf16);
 }

@@ -10,12 +10,12 @@ import sys
 import pytest
 import torch
 from torch.testing._internal.common_utils import (
+    IS_LINUX,
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
 )
 from torch.testing._internal.optests import opcheck
-from torch.utils.cpp_extension import IS_WINDOWS
 
 import torchao
 from torchao.dtypes.floatx import from_scaled_tc_floatx
@@ -31,8 +31,8 @@ from torchao.utils import (
     compute_max_diff,
 )
 
-IS_CUDA = torch.cuda.is_available() and torch.version.cuda
-IS_ROCM = torch.cuda.is_available() and torch.version.hip
+if torch.version.hip is not None:
+    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 try:
     import torchao.ops
@@ -58,7 +58,7 @@ class TestOps(TestCase):
         fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
-    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     def test_quant_llm_linear(self, ebits, mbits, dtype):
@@ -88,7 +88,7 @@ class TestOps(TestCase):
             test_utils=test_utils,
         )
 
-    @pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -156,7 +156,11 @@ class TestOps(TestCase):
     @pytest.mark.skipif(
         not TORCH_VERSION_AT_LEAST_2_7, reason="int8 sdpa requires torch 2.7 or later"
     )
-    @pytest.mark.skipif(IS_WINDOWS, reason="int8 sdpa does not support windows yet")
+    @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
+    @pytest.mark.skipif(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @parametrize("batch_size", [56, 120])
     @parametrize("n_head", [2, 16])
     @parametrize("q_seq_len", [18, 89])
@@ -223,7 +227,7 @@ class TestOps(TestCase):
             o_scale=o_scale,
             o_zp=o_zp,
         )
-        actual = torch.ops.torchao.scaled_dot_product_int8(
+        actual = torch.ops.torchao.qscaled_dot_product(
             q,
             k,
             v,
@@ -274,7 +278,7 @@ def make_test_id(param):
         return f"tiles_{param}"
 
 
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
@@ -292,7 +296,7 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
 
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=make_test_id)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
@@ -338,7 +342,7 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     return dq.reshape(n, k)
 
 
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -406,7 +410,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(
 
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -472,7 +476,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(
     assert diff_op_ao < 1e-1
 
 
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 # @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize(
     "shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str
@@ -583,7 +587,7 @@ def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int
     )
 
 
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
     MARLIN_TEST_PARAMS,
@@ -673,7 +677,7 @@ MARLIN_TEST_PARAMS = list(
 )
 
 
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
     MARLIN_TEST_PARAMS,
@@ -748,28 +752,6 @@ def test_marlin_qqq(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_fact
     opcheck(
         torch.ops.torchao.marlin_qqq_gemm,
         fn_inputs,
-        test_utils=test_utils,
-    )
-
-
-@pytest.mark.skipif(not IS_ROCM, reason="ROCm not available")
-def test_swizzle_mm():
-    test_utils = [
-        "test_schema",
-        "test_autograd_registration",
-        "test_faketensor",
-    ]
-
-    # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AT_LEAST_2_5:
-        test_utils.append("test_aot_dispatch_dynamic")
-
-    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16, 32), device="cuda")
-    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32, 16), device="cuda")
-
-    opcheck(
-        torch.ops.torchao.swizzle_mm,
-        (mat1, mat2, False, False),
         test_utils=test_utils,
     )
 

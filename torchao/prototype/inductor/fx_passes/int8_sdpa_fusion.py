@@ -4,7 +4,6 @@ import itertools
 import torch
 from torch._dynamo.utils import counters
 from torch._inductor import config
-from torch._inductor.fx_passes.post_grad import register_lowering_pattern
 from torch._inductor.lowering import lowerings as L
 from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
@@ -13,16 +12,18 @@ from torch._inductor.pattern_matcher import (
     KeywordArg,
     Match,
     PatternMatcherPass,
+    register_lowering_pattern,
 )
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 __all__ = [
     "_int8_sdpa_init",
 ]
 
-make_fallback(torch.ops.torchao.scaled_dot_product_int8.default)
+make_fallback(torch.ops.torchao.qscaled_dot_product.default)
 
 aten = torch.ops.aten
-patterns = PatternMatcherPass()
 
 
 def _is_valid_int8_sdpa_pattern():
@@ -43,10 +44,9 @@ def _is_valid_int8_sdpa_pattern():
     return fn
 
 
-def _register_int8_sdpa_pattern(pattern):
+def _register_int8_sdpa_pattern(pattern, custom_pass_dict):
     @register_lowering_pattern(
-        pattern,
-        extra_check=_is_valid_int8_sdpa_pattern(),
+        pattern, extra_check=_is_valid_int8_sdpa_pattern(), pass_dict=custom_pass_dict
     )
     def int8_sdpa(match: Match, *args, **kwargs):
         query = kwargs["query"]
@@ -70,7 +70,7 @@ def _register_int8_sdpa_pattern(pattern):
         trans_query = L[aten.permute.default](query, [0, 2, 1, 3])
         trans_key = L[aten.permute.default](key, [0, 2, 1, 3])
         trans_value = L[aten.permute.default](value, [0, 2, 1, 3])
-        output = L[torch.ops.torchao.scaled_dot_product_int8.default](
+        output = L[torch.ops.torchao.qscaled_dot_product.default](
             trans_query,
             trans_key,
             trans_value,
@@ -350,7 +350,7 @@ def _get_int8_sdpa_final_pattern(
     )
 
 
-def _register_int8_sdpa_lowerings():
+def _register_int8_sdpa_lowerings(custom_pass_dict):
     for has_mask, is_batch_size_1, is_reduced_type, has_convert in itertools.product(
         [True, False], [True, False], [True, False], [True, False]
     ):
@@ -360,11 +360,33 @@ def _register_int8_sdpa_lowerings():
                 is_batch_size_1=is_batch_size_1,
                 is_reduced_type=is_reduced_type,
                 has_convert=has_convert,
-            )
+            ),
+            custom_pass_dict,
         )
+
+
+custom_pass = None
+if TORCH_VERSION_AT_LEAST_2_7:
+    # TORCH_VERSION_AT_LEAST_2_7 is needed for custom graph pass
+    from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
+
+    # define the custom pass
+    class _CustomPass(PatternMatcherPass, CustomGraphPass):
+        def __init__(self) -> None:
+            super().__init__()
+
+        def __call__(self, g: torch.fx.graph.Graph):
+            self.apply(g)
+
+        def uuid(self) -> bytes:
+            return get_hash_for_files((__file__,))
+
+    custom_pass = _CustomPass()
 
 
 @functools.lru_cache(None)
 def _int8_sdpa_init():
-    _register_int8_sdpa_lowerings()
-    config.post_grad_custom_pre_pass = patterns.apply
+    if TORCH_VERSION_AT_LEAST_2_7:
+        _register_int8_sdpa_lowerings(config.post_grad_custom_pre_pass)
+    else:
+        pass

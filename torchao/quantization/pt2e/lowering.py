@@ -24,7 +24,7 @@ def lower_pt2e_quantized_to_x86(
     * `example_inputs` (tuple[torch.Tensor, ...]): example inputs for the model.
 
     Return:
-    A GraphModule lowered to x86 backend.
+    A module lowered to x86 backend.
     """
 
     def _post_autograd_decomp_table():  # type: ignore[no-untyped-def]

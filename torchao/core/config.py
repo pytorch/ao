@@ -175,6 +175,8 @@ ALLOWED_AO_MODULES = {
     "torchao.quantization",
     "torchao.sparsity.sparse_api",
     "torchao.prototype.quantization",
+    "torchao.prototype.mx_formats",
+    "torchao.dtypes",
 }
 
 
@@ -255,6 +257,14 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
                 else item
                 for item in value
             ]
+        elif isinstance(value, dict):
+            # Handle dicts of possible configs
+            processed_data[key] = {
+                k: config_from_dict(v)
+                if isinstance(v, dict) and "_type" in v and "_data" in v
+                else v
+                for k, v in value.items()
+            }
         else:
             processed_data[key] = value
 

@@ -9,14 +9,23 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     F4_E2M1_EXP_BIAS,
     F6_E2M3_EXP_BIAS,
     F6_E3M2_EXP_BIAS,
 )
-from torchao.prototype.mx_formats.custom_cast import (
+from torchao.prototype.mx_formats.fp_format_spec import (
+    _assert_equals,
+    dtype_to_interesting_values,
+    float4_e2m1_interesting_values,
+    float6_e2m3_interesting_values,
+    float6_e3m2_interesting_values,
+    get_sem_bits,
+    sem_bits_to_sem_vals,
+    sem_vals_to_f32,
+)
+from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
@@ -33,17 +42,8 @@ from torchao.prototype.mx_formats.custom_cast import (
     triton_to_mxfp8_dim1_reference,
     unpack_uint4,
 )
-from torchao.prototype.mx_formats.fp_format_spec import (
-    _assert_equals,
-    dtype_to_interesting_values,
-    float4_e2m1_interesting_values,
-    float6_e2m3_interesting_values,
-    float6_e3m2_interesting_values,
-    get_sem_bits,
-    sem_bits_to_sem_vals,
-    sem_vals_to_f32,
-)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
@@ -334,11 +334,13 @@ def test_fp4_triton_unscaled_cast():
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor_ref = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor_ref = MXTensor.to_mx(
+        orig_vals, block_size=32, elem_dtype=torch.float4_e2m1fn_x2
+    )
     mxtensor_triton = MXTensor.to_mx(
         orig_vals,
         block_size=32,
-        elem_dtype=DTYPE_FP4,
+        elem_dtype=torch.float4_e2m1fn_x2,
         use_fp4_custom_triton_dequant_kernel=True,
     )
 
@@ -465,3 +467,24 @@ def test_triton_mxfp8_dim1_randn(M, K):
     x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (63, 1023),
+        (128, 4),
+        (128, 8),
+        (256, 8),
+        (300, 9),
+        (133, 512),
+        (528, 512),
+        (128, 1),
+    ],
+)
+def test_rearrange(shape):
+    scales = torch.randint(256, size=shape, device="cuda", dtype=torch.uint8)
+    eager = to_blocked(scales, False)
+    triton = to_blocked(scales, True)
+    torch.testing.assert_close(eager, triton, atol=0, rtol=0)

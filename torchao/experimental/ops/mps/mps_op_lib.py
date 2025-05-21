@@ -37,10 +37,10 @@ for nbit in range(1, 8):
 
         assert scales.is_contiguous()
         assert scales.dim() == 2
-        assert scales.size(1) == n
+        assert scales.size(0) == n
 
         assert zeros.is_contiguous()
         assert zeros.dim() == 2
-        assert zeros.size(1) == n
+        assert zeros.size(0) == n
 
         return torch.empty(m, n, dtype=activations.dtype, device="meta")

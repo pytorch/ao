@@ -26,10 +26,13 @@ namespace torchao {
 
 namespace {
 
-inline double calculate_scale(
+inline c10::SymFloat calculate_scale(
     const at::Tensor& query,
-    double scale) {
-  return scale == 0.0 ? 1.0 / std::sqrt(query.size(-1)) : scale;
+    std::optional<double> scale) {
+  const auto softmax_scale = scale.has_value()
+      ? scale.value()
+      : (c10::SymFloat(1.0) / (c10::SymFloat(query.sym_size(-1)).sqrt()));
+  return c10::SymFloat(softmax_scale);
 }
 
 #ifdef CPU_CAPABILITY_AVX512
@@ -736,7 +739,7 @@ sdpa_int8_fused_kernel_impl(
     double dropout_p,
     bool is_causal,
     std::optional<at::Tensor> attention_mask,
-    double scale,
+    std::optional<double> scale,
     float q_scale,
     int32_t q_zp,
     float k_scale,
@@ -758,7 +761,7 @@ sdpa_int8_fused_kernel_impl(
   at::Tensor value = v.transpose(1, 2);
 
   using accum_t = float;
-  accum_t scaling_factor = calculate_scale(query, scale);
+  accum_t scaling_factor = calculate_scale(query, scale).expect_float();
   int block_64 = 64;
   auto u8_dt = at::ScalarType::Byte;
 
@@ -1103,7 +1106,7 @@ sdpa_int8_fused_kernel_impl(
                 at::native::cpublas::brgemm(
                     qSplitSize, block_64, av_gemm_K,
                     av_gemm_K, // lda
-                    rndHeadSize, //block_64, //ldb
+                    rndHeadSize, //ldb
                     rndHeadSize, //ldc
                     s != 0,
                     qk_reduced_data + s * qk_reduce_strideL,
@@ -1164,7 +1167,7 @@ sdpa_int8_fused_kernel_impl(
     double dropout_p,
     bool is_causal,
     std::optional<at::Tensor> attention_mask,
-    double scale,
+    std::optional<double> scale,
     float q_scale,
     int32_t q_zp,
     float k_scale,
@@ -1186,7 +1189,7 @@ sdpa_int8_fused_kernel_impl(
   at::Tensor value = v.transpose(1, 2);
 
   using accum_t = float;
-  accum_t scaling_factor = calculate_scale(query, scale);
+  accum_t scaling_factor = calculate_scale(query, scale).expect_float();
   int block_64 = 64;
   auto u8_dt = at::ScalarType::Byte;
 
@@ -1631,7 +1634,7 @@ sdpa_int8_fused_kernel_impl(
     double dropout_p,
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
-    double scale,
+    std::optional<double> scale,
     float q_scale,
     int32_t q_zp,
     float k_scale,
@@ -1689,7 +1692,7 @@ void sdpa_int8_fused_kernel(
     double dropout_p,
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
-    double scale,
+    std::optional<double> scale,
     float q_scale,
     int32_t q_zp,
     float k_scale,
@@ -1796,7 +1799,7 @@ at::Tensor sdpa_int8_math_kernel(
     double dropout_p,
     bool is_causal,
     std::optional<at::Tensor> attn_mask,
-    double scale,
+    std::optional<double> scale,
     float q_scale,
     int32_t q_zp,
     float k_scale,
@@ -1832,14 +1835,14 @@ at::Tensor sdpa_int8_math_kernel(
 }
 
 
-at::Tensor _scaled_dot_product_int8_cpu(
+at::Tensor _qscaled_dot_product_cpu(
     const at::Tensor& query,
     const at::Tensor& key,
     const at::Tensor& value,
     std::optional<at::Tensor> attn_mask,
     double dropout_p,
     bool is_causal,
-    double scale,
+    std::optional<double> scale,
     double q_scale,
     int64_t q_zp,
     double k_scale,
@@ -1852,24 +1855,24 @@ at::Tensor _scaled_dot_product_int8_cpu(
     int64_t o_zp) {
   const auto dtype = query.scalar_type();
   TORCH_CHECK(!query.is_nested() && !key.is_nested() && !value.is_nested(),
-    "_scaled_dot_product_int8_cpu: Only accept plain inputs");
+    "_qscaled_dot_product_cpu: Only accept plain inputs");
   TORCH_CHECK(!is_causal,
-    "_scaled_dot_product_int8_cpu: is_causal not supported.");
+    "_qscaled_dot_product_cpu: is_causal not supported.");
   TORCH_CHECK(dtype == at::ScalarType::Byte,
-    "_scaled_dot_product_int8_cpu: Expected data type be U8, but got ", dtype, " instead.");
+    "_qscaled_dot_product_cpu: Expected data type be U8, but got ", dtype, " instead.");
   TORCH_CHECK(query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
-    "_scaled_dot_product_int8_cpu: Accept only 4 dims inputs shape of {B, H, T, K}");
+    "_qscaled_dot_product_cpu: Accept only 4 dims inputs shape of {B, H, T, K}");
   TORCH_CHECK(dropout_p == 0.0,
-    "_scaled_dot_product_int8_cpu: Currently do not support dropout > 0");
+    "_qscaled_dot_product_cpu: Currently do not support dropout > 0");
   TORCH_CHECK((query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
-    "_scaled_dot_product_int8_cpu: Q/K/V should have the same head size");
+    "_qscaled_dot_product_cpu: Q/K/V should have the same head size");
   TORCH_CHECK(!attn_mask.has_value() ||
           attn_mask.value().scalar_type() == at::kFloat ||
           attn_mask.value().scalar_type() == at::kBFloat16,
-    "_scaled_dot_product_int8_cpu: Expected attention mask be float or bf16");
+    "_qscaled_dot_product_cpu: Expected attention mask be float or bf16");
   TORCH_CHECK(!attn_mask.has_value() ||
           (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
-    "_scaled_dot_product_int8_cpu: Attention mask dim in {2, 4}");
+    "_qscaled_dot_product_cpu: Attention mask dim in {2, 4}");
 
   #ifdef CPU_CAPABILITY_AVX512
     if (at::native::cpublas::could_pack(dtype)) {
@@ -1900,7 +1903,7 @@ at::Tensor _scaled_dot_product_int8_cpu(
 } // anonymous namespace
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::scaled_dot_product_int8", &_scaled_dot_product_int8_cpu);
+  m.impl("torchao::qscaled_dot_product", &_qscaled_dot_product_cpu);
 }
 
 // } // at::native
