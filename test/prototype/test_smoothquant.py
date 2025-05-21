@@ -68,8 +68,8 @@ if TORCH_VERSION_AT_LEAST_2_5:
 
 
 @pytest.mark.skipif(
-    is_sm_at_least_90(), reason="Does not run on H100"
-)  # TODO: fix this test on H100
+    is_sm_at_least_90(), reason="Test failing on H100"
+)  # TODO: Fix this test on H100
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)
 @pytest.mark.parametrize("quant_mode", quant_mode_list)
@@ -147,7 +147,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 
 
 @pytest.mark.skipif(
-    is_sm_at_least_90(), reason="Does not run on H100"
+    is_sm_at_least_90(), reason="Test failing on H100"
 )  # TODO: fix this test on H100
 @pytest.mark.parametrize("alpha", alpha_list)
 @pytest.mark.parametrize("quant_mode", quant_mode_list)

@@ -312,7 +312,7 @@ class TestAffineQuantizedBasic(TestCase):
         if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
             raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")
         if device == "cuda" and dtype == torch.bfloat16 and is_sm_at_least_90():
-            raise unittest.SkipTest("TODO: Failing on H100")
+            raise unittest.SkipTest("TODO: Fix failing on H100")
         apply_quant_list = get_quantization_functions(False, True, device)
         for apply_quant in apply_quant_list:
             linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)

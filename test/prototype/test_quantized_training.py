@@ -302,7 +302,7 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @pytest.mark.skipif(
         is_sm_at_least_90(), reason="Skipping test on SM90+"
-    )  # TODO: fix
+    )  # TODO: Fix failing on H100
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
@@ -397,7 +397,7 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @pytest.mark.skipif(
         is_sm_at_least_90(), reason="Skipping test on SM90+"
-    )  # TODO: fix
+    )  # TODO: Fix failing on H100
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,

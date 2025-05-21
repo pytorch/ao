@@ -433,7 +433,7 @@ class TestFSDP2(FSDPTest):
     @skip_if_rocm("ROCm enablement in progress")
     @pytest.mark.skipif(
         is_sm_at_least_90(), reason="Will need more investigation on H100"
-    )
+    )  # TODO: investigate why this test fails on H100
     def test_fsdp2(self):
         # we do this to avoid all combinations
         args_list = [
