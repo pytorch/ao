@@ -1,4 +1,11 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 #pragma once
+
+#include <optional>
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
@@ -11,6 +18,8 @@
 #endif
 
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
+#include <cuda_runtime.h>
+#include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm_universal.h>
 #include <cutlass/gemm/device/gemm_universal_adapter.h>
 #include <cutlass/gemm/kernel/default_gemm_universal_with_visitor.h>
@@ -25,60 +34,61 @@ namespace torchao {
 
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
 template<
+    typename DtypeXq,
+    typename DtypeWq,
+    typename DtypeY,
+    typename UseBias,
+    typename DtypeBias,
+    typename DtypeXScale,
+    typename DtypeWScale,
     typename ThreadblockShape,
     typename WarpShape,
     typename InstructionShape,
     typename ThreadblockSwizzle,
-    int NumStages,
-    typename ElementA,
-    typename ElementB,
-    typename ElementOutput,
-    typename ElementC,
-    typename UseTensorC,
-    typename ElementAScale,
-    typename ElementBScale>
+    int NumStages>
 void rowwise_scaled_linear_kernel_cutlass_sm8x(
-    const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
-    const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const at::Tensor& bias, at::Tensor& Y) {
+  using SmArch = cutlass::arch::Sm80;
+
+  // Use CUTLASS naming conventions for naming datatypes.
+  using ElementA = DtypeXq;
+  using ElementB = DtypeWq;
+  using ElementD = DtypeY;
+  using ElementAScale = DtypeXScale;
+  using ElementBScale = DtypeWScale;
+  using ElementBias = DtypeBias;
+
   static_assert((cutlass::sizeof_bits<ElementA>::value >= 8 ||
                  8 % cutlass::sizeof_bits<ElementA>::value == 0) &&
                 (cutlass::sizeof_bits<ElementB>::value >= 8 ||
                  8 % cutlass::sizeof_bits<ElementB>::value == 0));
 
-  using SmArch = cutlass::arch::Sm80;
+  using LayoutTagA = cutlass::layout::RowMajor;
+  using LayoutTagB = cutlass::layout::ColumnMajor;
+  using LayoutTagD = cutlass::layout::RowMajor;
 
-  using LayoutA = cutlass::layout::RowMajor;
-  using LayoutB = cutlass::layout::ColumnMajor;
-  using LayoutOutput = cutlass::layout::RowMajor;
-
-  // TODO: use FP32 if either ElementA/B is FP
+  // TODO: use FP32 if either ElementA/ElementB is FP
   using ElementAccumulator = int32_t;
   using Operator =
       std::conditional_t<std::is_same<ElementA, ElementB>::value,
                          cutlass::arch::OpMultiplyAddSaturate,
                          cutlass::arch::OpMultiplyAddMixedInputUpcast>;
 
-  using ElementEpilogue = float;
+  using ElementCompute = float;
 
   constexpr auto NumEVTEpilogueStages = 1;
 
-  const int m = tensor_a.size(0);
-  const int n = tensor_b.size(0);
-  int k = tensor_a.size(1);
+  const int m = Xq.size(0);
+  const int n = Wq.size(0);
+  int k = Xq.size(1);
   if constexpr (cutlass::sizeof_bits<ElementA>::value < 8) {
     k *= 8 / cutlass::sizeof_bits<ElementA>::value;
   }
 
   constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
-  constexpr int AlignmentAScale =
-      128 / cutlass::sizeof_bits<ElementAScale>::value;
   constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
-  constexpr int AlignmentBScale =
-      128 / cutlass::sizeof_bits<ElementBScale>::value;
-  constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
-  constexpr int AlignmentOutput =
-      128 / cutlass::sizeof_bits<ElementOutput>::value;
+  constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
 
   // Check for current CUTLASS limitations w.r.t. alignments.
   TORCH_CHECK(k % AlignmentA == 0, OPERATOR_NAME,
@@ -87,16 +97,16 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   TORCH_CHECK(k % AlignmentB == 0, OPERATOR_NAME,
               " : Number of columns of tensor B must be divisible by ",
               AlignmentB);
-  TORCH_CHECK(n % AlignmentC == 0, OPERATOR_NAME,
-              " : Number of columns of tensor C must be divisible by ",
-              AlignmentC);
+  TORCH_CHECK(n % AlignmentD == 0, OPERATOR_NAME,
+              " : Number of columns of output tensor must be divisible by ",
+              AlignmentD);
 
   using OutputTileThreadMap =
       cutlass::epilogue::threadblock::OutputTileThreadLayout<
           ThreadblockShape,
           WarpShape,
-          ElementOutput,
-          AlignmentOutput,
+          ElementD,
+          AlignmentD,
           NumEVTEpilogueStages>;
 
   using Accum = cutlass::epilogue::threadblock::VisitorAccFetch;
@@ -116,18 +126,18 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   using TensorBScaleArguments = typename TensorBScale::Arguments;
 
   using TensorCScalar =
-      cutlass::epilogue::threadblock::VisitorScalarBroadcast<ElementC>;
+      cutlass::epilogue::threadblock::VisitorScalarBroadcast<ElementBias>;
   using TensorCTensor =
       cutlass::epilogue::threadblock::VisitorRowBroadcast<
           OutputTileThreadMap,
-          ElementC,
+          ElementBias,
           cute::Stride<cute::_0, cute::_1, int64_t>>;
   using TensorC =
-      std::conditional_t<UseTensorC::value, TensorCTensor, TensorCScalar>;
+      std::conditional_t<UseBias::value, TensorCTensor, TensorCScalar>;
   using TensorCArguments = typename TensorC::Arguments;
 
   using ApplyAScale = cutlass::epilogue::threadblock::VisitorCompute<
-      cutlass::multiplies, ElementEpilogue, ElementEpilogue,
+      cutlass::multiplies, ElementCompute, ElementCompute,
       cutlass::FloatRoundStyle::round_to_nearest
   >;
   using EVTApplyAScale = cutlass::epilogue::threadblock::Sm80EVT<
@@ -136,7 +146,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       TensorAScale>;
 
   using ApplyBScale = cutlass::epilogue::threadblock::VisitorCompute<
-      cutlass::multiplies, ElementEpilogue, ElementEpilogue,
+      cutlass::multiplies, ElementCompute, ElementCompute,
       cutlass::FloatRoundStyle::round_to_nearest
   >;
   using EVTApplyBScale = cutlass::epilogue::threadblock::Sm80EVT<
@@ -145,7 +155,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       TensorBScale>;
 
   using ApplySum = cutlass::epilogue::threadblock::VisitorCompute<
-      cutlass::plus, ElementEpilogue, ElementEpilogue,
+      cutlass::plus, ElementCompute, ElementCompute,
       cutlass::FloatRoundStyle::round_to_nearest
   >;
   using EVTApplySum = cutlass::epilogue::threadblock::Sm80EVT<
@@ -154,7 +164,7 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
       TensorC>;
 
   using Output = cutlass::epilogue::threadblock::VisitorAuxStore<
-      OutputTileThreadMap, ElementOutput,
+      OutputTileThreadMap, ElementD,
       cutlass::FloatRoundStyle::round_to_nearest,
       cute::Stride<int64_t, cute::_1, int64_t> // StrideMNL
   >;
@@ -165,11 +175,11 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
 
   using EVTKernel = torchao::enable_2x_kernel_for_sm80_or_later<
       typename cutlass::gemm::kernel::DefaultGemmWithVisitor<
-          ElementA, LayoutA, cutlass::ComplexTransform::kNone, AlignmentA,
-          ElementB, LayoutB, cutlass::ComplexTransform::kNone, AlignmentB,
-          ElementOutput, LayoutOutput, AlignmentOutput,
+          ElementA, LayoutTagA, cutlass::ComplexTransform::kNone, AlignmentA,
+          ElementB, LayoutTagB, cutlass::ComplexTransform::kNone, AlignmentB,
+          ElementD, LayoutTagD, AlignmentD,
           ElementAccumulator,
-          ElementEpilogue,
+          ElementCompute,
           cutlass::arch::OpClassTensorOp,
           SmArch,
           ThreadblockShape,
@@ -187,55 +197,55 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   cutlass::gemm::GemmCoord problem_size(m, n, k);
   constexpr auto SplitKFactor = 1;
 
-  TensorAScaleArguments tensor_a_scale_arguments{
-    (ElementAScale*)tensor_a_scale.data_ptr(),
+  TensorAScaleArguments X_scale_arguments{
+    (ElementAScale*)X_scale.data_ptr(),
     ElementAScale(1),
     {cute::_1{}, cute::_0{}, problem_size.m()}
   };
-  TensorBScaleArguments tensor_b_scale_arguments{
-    (ElementBScale*)tensor_b_scale.data_ptr(),
+  TensorBScaleArguments W_scale_arguments{
+    (ElementBScale*)W_scale.data_ptr(),
     ElementBScale(1),
     {cute::_0{}, cute::_1{}, problem_size.n()}
   };
-  TensorCArguments tensor_c_arguments{
+  TensorCArguments bias_arguments{
     [&]() -> TensorCArguments {
-      if constexpr (UseTensorC::value) {
-        return {(ElementC*)tensor_c.data_ptr(),
-                ElementC(0),
+      if constexpr (UseBias::value) {
+        return {(ElementBias*)bias.data_ptr(),
+                ElementBias(0),
                 {cute::_0{}, cute::_1{}, problem_size.n()}};
       } else {
-        return {ElementC(0)};
+        return {{ElementBias(0)}};
       }
     }()
   };
   typename Output::Arguments output_arguments{
-    (ElementOutput*)tensor_d.data_ptr(),
+    (ElementD*)Y.data_ptr(),
     {problem_size.n(), cute::_1{}, problem_size.mn().product()}
   };
   typename EVTOutput::Arguments callback_arguments{
     {
       {
         {
-          {},                        // Accum
-          tensor_a_scale_arguments,  // TensorAScale
-          {}                         // ApplyAScale
-        },                           // EVTApplyAScale
-        tensor_b_scale_arguments,    // TensorBScale
-        {},                          // ApplyBScale
-      },                             // EVTApplyBScale
-      tensor_c_arguments,            // TensorC
-      {}                             // ApplySum
-    },                               // EVTApplySum
-    output_arguments                 // Output
-  };                                 // EVTOutput
+          {},                 // Accum
+          X_scale_arguments,  // TensorAScale
+          {}                  // ApplyAScale
+        },                    // EVTApplyAScale
+        W_scale_arguments,    // TensorBScale
+        {},                   // ApplyBScale
+      },                      // EVTApplyBScale
+      bias_arguments,         // TensorC
+      {}                      // ApplySum
+    },                        // EVTApplySum
+    output_arguments          // Output
+  };                          // EVTOutput
 
   typename Gemm::Arguments arguments(
     cutlass::gemm::GemmUniversalMode::kGemm,
     problem_size,
     SplitKFactor,
     callback_arguments,              // arguments of EVT callbacks
-    (ElementA*)tensor_a.data_ptr(),
-    (ElementB*)tensor_b.data_ptr(),
+    (ElementA*)Xq.data_ptr(),
+    (ElementB*)Wq.data_ptr(),
     nullptr,                         // ptr C (unused)
     nullptr,                         // ptr D (unused)
     problem_size.mk().product(),     // batch stride A
@@ -259,8 +269,8 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
 
   // Allocate workspace for CUTLASS mixed datatypes GEMM kernel.
   const auto workspace_size = Gemm::get_workspace_size(arguments);
-  auto workspace = tensor_a.new_empty({(int64_t)workspace_size},
-                                      at::TensorOptions().dtype(at::kByte));
+  auto workspace = Xq.new_empty({(int64_t)workspace_size},
+                                at::TensorOptions().dtype(at::kByte));
 
   // Initialize CUTLASS mixed datatypes GEMM object.
   status = gemm_op.initialize(arguments, workspace.data_ptr(),
@@ -274,95 +284,87 @@ void rowwise_scaled_linear_kernel_cutlass_sm8x(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
-template<typename ElementA, typename ElementB, typename... Types>
+template<typename DtypeXq, typename DtypeWq, typename... Types>
 static void select_config(
-    const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
-    const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const at::Tensor& bias, at::Tensor& Y) {
   const auto dprops = at::cuda::getCurrentDeviceProperties();
   const auto is_sm8x = dprops->major == 8;
 
   if (is_sm8x) {
-    if constexpr (std::is_same<ElementA, cutlass::int4b_t>::value &&
-                  std::is_same<ElementB, cutlass::int4b_t>::value) {
+    if constexpr (std::is_same<DtypeXq, cutlass::int4b_t>::value &&
+                  std::is_same<DtypeWq, cutlass::int4b_t>::value) {
       using InstructionShape = cutlass::gemm::GemmShape<16, 8, 64>;
       using ThreadblockSwizzle =
         cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<1>;
 
       // some basic tuning
-      if (tensor_a.size(0) <= 16) {
+      if (Xq.size(0) <= 16) {
         using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<16, 32, 256>;
         constexpr auto NumStages = 5;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-            NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-              tensor_d);
-      } else if (tensor_a.size(0) <= 32) {
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
+      } else if (Xq.size(0) <= 32) {
         using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<32, 32, 256>;
         constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-            NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-              tensor_d);
-      } else if (tensor_a.size(0) <= 128) {
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
+      } else if (Xq.size(0) <= 128) {
         using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 256>;
         using WarpShape = cutlass::gemm::GemmShape<64, 32, 256>;
         constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-            NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-            tensor_d);
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
       } else {
         using ThreadblockShape = cutlass::gemm::GemmShape<128, 256, 128>;
         using WarpShape = cutlass::gemm::GemmShape<64, 64, 128>;
         constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-            NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-            tensor_d);
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
       }
       return;
-    } else if constexpr (std::is_same<ElementA, int8_t>::value &&
-                  std::is_same<ElementB, cutlass::int4b_t>::value) {
+    } else if constexpr (std::is_same<DtypeXq, int8_t>::value &&
+                         std::is_same<DtypeWq, cutlass::int4b_t>::value) {
       using InstructionShape = cutlass::gemm::GemmShape<16, 8, 32>;
       using ThreadblockSwizzle =
         cutlass::gemm::threadblock::ThreadblockSwizzleStreamK;
 
       // A minimal heuristic to improve performance for small number
       // of inputs cases.
-      if (tensor_a.size(0) <= 16) {
+      if (Xq.size(0) <= 16) {
         using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<16, 32, 128>;
         constexpr auto NumStages = 6;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-          NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-              tensor_d);
-      } else if (tensor_a.size(0) <= 32) {
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
+      } else if (Xq.size(0) <= 32) {
         using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<32, 32, 128>;
         constexpr auto NumStages = 5;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-          NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-              tensor_d);
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
       } else {
         using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 128>;
         using WarpShape = cutlass::gemm::GemmShape<64, 32, 128>;
         constexpr auto NumStages = 4;
         rowwise_scaled_linear_kernel_cutlass_sm8x<
-          ThreadblockShape, WarpShape, InstructionShape, ThreadblockSwizzle,
-          NumStages, ElementA, ElementB, Types...>(
-              tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-              tensor_d);
+            DtypeXq, DtypeWq, Types..., ThreadblockShape, WarpShape,
+            InstructionShape, ThreadblockSwizzle, NumStages>(
+              Xq, X_scale, Wq, W_scale, bias, Y);
       }
       return;
     }
@@ -372,115 +374,124 @@ static void select_config(
               dprops->major, ".", dprops->minor, " for given operands");
 }
 
-template<
-   typename ElementA,
-   typename ElementB,
-   typename ElementOutput,
-   typename... Types>
+template<typename... Types>
 static void
-dispatch_on_tensor_c(
-    const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
-    const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
-  if (tensor_c.numel() == 0) {
-    using ElementC = ElementOutput;
-    using UseTensorC = std::false_type;
-    select_config<
-      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
-          tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-          tensor_d);
+dispatch_on_X_scale_and_W_scale(
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const at::Tensor& bias, at::Tensor& Y) {
+  if (X_scale.scalar_type() == at::ScalarType::Half &&
+      W_scale.scalar_type() == at::ScalarType::Half) {
+    using DtypeXScale = cutlass::half_t;
+    using DtypeWScale = cutlass::half_t;
+    select_config<Types..., DtypeXScale, DtypeWScale>(
+        Xq, X_scale, Wq, W_scale, bias, Y);
     return;
-  }
-
-  using UseTensorC = std::true_type;
-  if (tensor_c.scalar_type() == at::ScalarType::Half) {
-    using ElementC = cutlass::half_t;
-    select_config<
-      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
-          tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-          tensor_d);
+  } else if (X_scale.scalar_type() == at::ScalarType::BFloat16 &&
+             W_scale.scalar_type() == at::ScalarType::BFloat16) {
+    using DtypeXScale = cutlass::bfloat16_t;
+    using DtypeWScale = cutlass::bfloat16_t;
+    select_config<Types..., DtypeXScale, DtypeWScale>(
+        Xq, X_scale, Wq, W_scale, bias, Y);
     return;
-  } else if (tensor_c.scalar_type() == at::ScalarType::BFloat16) {
-    using ElementC = cutlass::bfloat16_t;
-    select_config<
-      ElementA, ElementB, ElementOutput, ElementC, UseTensorC, Types...>(
-          tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c,
-          tensor_d);
-    return;
-  }
-
-  TORCH_CHECK(false, OPERATOR_NAME, " : Operator not supported for datatype ",
-              tensor_c.scalar_type(), " for addend");
-}
-
-template<typename ElementA, typename ElementB>
-static void
-dispatch_on_tensor_a_scale_and_tensor_b_scale(
-    const at::Tensor& tensor_a, const at::Tensor& tensor_a_scale,
-    const at::Tensor& tensor_b, const at::Tensor& tensor_b_scale,
-    const at::Tensor& tensor_c, at::Tensor& tensor_d) {
-  TORCH_CHECK(tensor_d.scalar_type() == tensor_a_scale.scalar_type(),
-              OPERATOR_NAME, " : Operator not supported for output datatype ",
-              tensor_d.scalar_type(), " as it's different from the first ",
-              " operand scale datatype ", tensor_a_scale.scalar_type());
-
-  if (tensor_a_scale.scalar_type() == at::ScalarType::Half &&
-      tensor_b_scale.scalar_type() == at::ScalarType::Half) {
-    using ElementAScale = cutlass::half_t;
-    using ElementBScale = cutlass::half_t;
-    using ElementOutput = cutlass::half_t;
-    dispatch_on_tensor_c<ElementA, ElementB, ElementOutput, ElementAScale,
-      ElementBScale>(
-        tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c, tensor_d);
-    return;
-  } else if (tensor_a_scale.scalar_type() == at::ScalarType::BFloat16 &&
-             tensor_b_scale.scalar_type() == at::ScalarType::BFloat16) {
-    using ElementAScale = cutlass::bfloat16_t;
-    using ElementBScale = cutlass::bfloat16_t;
-    using ElementOutput = cutlass::bfloat16_t;
-    dispatch_on_tensor_c<ElementA, ElementB, ElementOutput, ElementAScale,
-      ElementBScale>(
-        tensor_a, tensor_a_scale, tensor_b, tensor_b_scale, tensor_c, tensor_d);
+  } else if (X_scale.scalar_type() == at::ScalarType::Float &&
+             W_scale.scalar_type() == at::ScalarType::Float) {
+    using DtypeXScale = float;
+    using DtypeWScale = float;
+    select_config<Types..., DtypeXScale, DtypeWScale>(
+        Xq, X_scale, Wq, W_scale, bias, Y);
     return;
   }
 
   TORCH_CHECK(false, OPERATOR_NAME,
               " : Operator not supported for combination of data types ",
-              tensor_a_scale.scalar_type(), " for first operand scale and ",
-              tensor_b_scale.scalar_type(), " for second operand scale");
+              X_scale.scalar_type(), " for first operand scale and ",
+              W_scale.scalar_type(), " for second operand scale");
 }
 
-template<typename ElementA, typename ElementB>
+template<typename DtypeXq, typename DtypeWq, typename DtypeY>
+static void
+dispatch_on_bias(
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const std::optional<at::Tensor>& bias_opt,
+    at::Tensor& Y) {
+  if (bias_opt.has_value()) {
+    const auto bias = *bias_opt;
+    TORCH_CHECK(bias.scalar_type() == Y.scalar_type(),
+                OPERATOR_NAME, " : Operator not supported for bias datatype ",
+                bias.scalar_type(), " as it's different from the output ",
+                " datatype ", Y.scalar_type());
+  }
+
+  using DtypeBias = DtypeY;
+  if (bias_opt.has_value()) {
+    using UseBias = std::true_type;
+    const auto bias = *bias_opt;
+    dispatch_on_X_scale_and_W_scale<
+      DtypeXq, DtypeWq, DtypeY, UseBias, DtypeBias>(
+          Xq, X_scale, Wq, W_scale, bias, Y);
+  } else {
+    using UseBias = std::false_type;
+    dispatch_on_X_scale_and_W_scale<
+      DtypeXq, DtypeWq, DtypeY, UseBias, DtypeBias>(
+          Xq, X_scale, Wq, W_scale, Y, Y);
+  }
+}
+
+template<typename DtypeXq, typename DtypeWq>
+static void
+dispatch_on_Y(
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const std::optional<at::Tensor>& bias_opt,
+    at::Tensor& Y) {
+  if (Y.scalar_type() == at::ScalarType::Half) {
+    using DtypeY = cutlass::half_t;
+    dispatch_on_bias<DtypeXq, DtypeWq, DtypeY>(
+        Xq, X_scale, Wq, W_scale, bias_opt, Y);
+    return;
+  } else if (Y.scalar_type() == at::ScalarType::BFloat16) {
+    using DtypeY = cutlass::bfloat16_t;
+    dispatch_on_bias<DtypeXq, DtypeWq, DtypeY>(
+        Xq, X_scale, Wq, W_scale, bias_opt, Y);
+    return;
+  }
+
+  TORCH_CHECK(false, OPERATOR_NAME,
+              " : Operator not supported for output data type ",
+              Y.scalar_type());
+}
+
+template<typename DtypeXq, typename DtypeWq>
 void
-rowwise_scaled_linear_cutlass_check_inputs(
-    const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
-    const at::Tensor& w_scale, const at::Tensor& bias){
+check_inputs(
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const std::optional<at::Tensor>& bias_opt) {
   // Validate layouts of arguments.
-  TORCH_CHECK(xq.dim() >= 2, OPERATOR_NAME,
-              " : Expected xq argument to be 2D or higher-dimensional tensor, "
-              "got ", xq.dim(), " dims");
-  TORCH_CHECK(xq.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected xq argument to be strided, got layout ",
-              xq.layout());
-  TORCH_CHECK(x_scale.dim() == xq.dim() - 1, OPERATOR_NAME,
-              " : Expected xq scale argument to be ", xq.dim() - 1,
-              "D tensor, got ", x_scale.dim(), " dims");
-  TORCH_CHECK(x_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected xq scale argument to be strided, got layout ",
-              x_scale.layout());
-  TORCH_CHECK(wq.dim() == 2, OPERATOR_NAME,
-              " : Expected wq argument to be 2D tensor, got ", wq.dim(),
+  TORCH_CHECK(Xq.dim() >= 2, OPERATOR_NAME,
+              " : Expected Xq argument to be 2D or higher-dimensional tensor, "
+              "got ", Xq.dim(), " dims");
+  TORCH_CHECK(Xq.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected Xq argument to be strided, got layout ",
+              Xq.layout());
+  TORCH_CHECK(X_scale.dim() == Xq.dim() - 1, OPERATOR_NAME,
+              " : Expected Xq scale argument to be ", Xq.dim() - 1,
+              "D tensor, got ", X_scale.dim(), " dims");
+  TORCH_CHECK(X_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected Xq scale argument to be strided, got layout ",
+              X_scale.layout());
+  TORCH_CHECK(Wq.dim() == 2, OPERATOR_NAME,
+              " : Expected Wq argument to be 2D tensor, got ", Wq.dim(),
               " dims");
-  TORCH_CHECK(wq.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected wq argument to be strided, got layout ",
-              wq.layout());
-  TORCH_CHECK(w_scale.dim() == 1 || w_scale.dim() == 2, OPERATOR_NAME,
-              " : Expected wq scale argument to be 1D or 2D tensor, ", "got ",
-              w_scale.dim(), " dims");
-  TORCH_CHECK(w_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected wq scale argument to be strided, got layout ",
-              w_scale.layout());
-  if (bias.numel() > 0) {
+  TORCH_CHECK(Wq.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected Wq argument to be strided, got layout ",
+              Wq.layout());
+  TORCH_CHECK(W_scale.dim() == 1 || W_scale.dim() == 2, OPERATOR_NAME,
+              " : Expected Wq scale argument to be 1D or 2D tensor, ", "got ",
+              W_scale.dim(), " dims");
+  TORCH_CHECK(W_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
+              " : Expected Wq scale argument to be strided, got layout ",
+              W_scale.layout());
+  if (bias_opt.has_value()) {
+    const auto bias = *bias_opt;
     TORCH_CHECK(bias.dim() == 1, OPERATOR_NAME,
                 " : Expected bias argument to be 1D tensor, got ", bias.dim(),
                 " dims");
@@ -490,43 +501,45 @@ rowwise_scaled_linear_cutlass_check_inputs(
   }
 
   // Validate sizes of arguments.
-  const auto xq_sizes = xq.sizes().vec();
-  TORCH_CHECK(xq_sizes.back() == wq.size(1) ||
-                  xq_sizes.back() == 2 * wq.size(1),
-              OPERATOR_NAME, " : Expected xq argument to have ", wq.size(1),
-              " or ", 2 * wq.size(1), " columns, but got ", xq_sizes.back());
-  const auto x_scale_sizes = x_scale.sizes().vec();
-  for (auto i = 0; i < x_scale_sizes.size(); ++i)
-    TORCH_CHECK(x_scale_sizes[i] == xq_sizes[i], OPERATOR_NAME,
-                " : Expected xq scale argument size at position ", i, " to be ",
-                xq_sizes[i], ", but got ", x_scale_sizes[i]);
-  TORCH_CHECK(w_scale.numel() == wq.size(0), OPERATOR_NAME,
-              " : Expected wq scale argument to have ", wq.size(0),
-              " elements, got ", w_scale.numel(), " elements");
-  if (bias.numel() > 0) {
-    TORCH_CHECK(bias.numel() == wq.size(0), OPERATOR_NAME,
-                " : Expected bias argument to have ", wq.size(0),
+  const auto Xq_sizes = Xq.sizes().vec();
+  TORCH_CHECK(Xq_sizes.back() == Wq.size(1) ||
+              Xq_sizes.back() == 2 * Wq.size(1),
+              OPERATOR_NAME, " : Expected Xq argument to have ", Wq.size(1),
+              " or ", 2 * Wq.size(1), " columns, but got ", Xq_sizes.back());
+  const auto X_scale_sizes = X_scale.sizes().vec();
+  for (auto i = 0; i < X_scale_sizes.size(); ++i)
+    TORCH_CHECK(X_scale_sizes[i] == Xq_sizes[i], OPERATOR_NAME,
+                " : Expected Xq scale argument size at position ", i, " to be ",
+                Xq_sizes[i], ", but got ", X_scale_sizes[i]);
+  TORCH_CHECK(W_scale.numel() == Wq.size(0), OPERATOR_NAME,
+              " : Expected Wq scale argument to have ", Wq.size(0),
+              " elements, got ", W_scale.numel(), " elements");
+  if (bias_opt.has_value()) {
+    const auto bias = *bias_opt;
+    TORCH_CHECK(bias.numel() == Wq.size(0), OPERATOR_NAME,
+                " : Expected bias argument to have ", Wq.size(0),
                 " elements, got ", bias.numel(), " elements");
   }
 
   // Validate strides of arguments.
-  const auto xq_strides = xq.strides();
-  TORCH_CHECK(xq_strides[xq_strides.size() - 1] == 1, OPERATOR_NAME,
-              " : Expected xq argument in row-major layout");
-  auto xq_stride_expected = xq_strides[xq_strides.size() - 2];
-  for (int i = xq_strides.size() - 3; i >= 0; --i) {
-    xq_stride_expected *= xq_sizes[i + 1];
-    TORCH_CHECK(xq_strides[i] == xq_stride_expected, OPERATOR_NAME,
-                " : Expected xq argument in row-major layout");
+  const auto Xq_strides = Xq.strides();
+  TORCH_CHECK(Xq_strides[Xq_strides.size() - 1] == 1, OPERATOR_NAME,
+              " : Expected Xq argument in row-major layout");
+  auto Xq_stride_expected = Xq_strides[Xq_strides.size() - 2];
+  for (int i = Xq_strides.size() - 3; i >= 0; --i) {
+    Xq_stride_expected *= Xq_sizes[i + 1];
+    TORCH_CHECK(Xq_strides[i] == Xq_stride_expected, OPERATOR_NAME,
+                " : Expected Xq argument in row-major layout");
   }
-  TORCH_CHECK(x_scale.is_contiguous(), OPERATOR_NAME,
-              " : Expected xq scale argument to be contiguous");
-  const auto wq_strides = wq.strides();
-  TORCH_CHECK(wq_strides[0] >= 1 && wq_strides[1] == 1, OPERATOR_NAME,
-              " : Expected wq argument in row-major layout");
-  TORCH_CHECK(w_scale.is_contiguous(), OPERATOR_NAME,
-              " : Expected wq scale argument to be contiguous");
-  if (bias.numel() > 0) {
+  TORCH_CHECK(X_scale.is_contiguous(), OPERATOR_NAME,
+              " : Expected Xq scale argument to be contiguous");
+  const auto Wq_strides = Wq.strides();
+  TORCH_CHECK(Wq_strides[0] >= 1 && Wq_strides[1] == 1, OPERATOR_NAME,
+              " : Expected Wq argument in row-major layout");
+  TORCH_CHECK(W_scale.is_contiguous(), OPERATOR_NAME,
+              " : Expected Wq scale argument to be contiguous");
+  if (bias_opt.has_value()) {
+    const auto bias = *bias_opt;
     const auto bias_strides = bias.strides();
     TORCH_CHECK(bias_strides[0] == 1, OPERATOR_NAME,
                 " : Expected bias argument to be contiguous");
@@ -536,42 +549,41 @@ rowwise_scaled_linear_cutlass_check_inputs(
 
 // Perform linear operation, using corresponding CUTLASS datatypes
 // GEMM kernel, to given arguments - result produced is:
-// (tensor_a * tensor_a_scale) @ (tensor_b * tensor_b_scale).T + tensor_c
-//
-// Notes: The "tensor_a" and "tensor_b" are expected to be 2D tensors.
-// The "tensor_a_scale" tensor is expected to be a vector, of size
-// equal to number of rows of "tensor_a" tensor.  The "tensor_b_scale"
-// tensor is expected to be a vector, of size equal to number of rows
-// of "tensor_b" tensor. The "tensor_c" tensor is expected to be a
-// vector, of size equal to number of rows of "tensor_b" tensor.
-template <typename ElementA, typename ElementB>
+//     (Xq * X_scale) @ (Wq * W_scale).T + bias
+template <typename DtypeXq, typename DtypeWq>
 at::Tensor
 rowwise_scaled_linear_cutlass(
-    const at::Tensor& xq, const at::Tensor& x_scale, const at::Tensor& wq,
-    const at::Tensor& w_scale, const at::Tensor& bias) {
+    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
+    const at::Tensor& W_scale, const std::optional<at::Tensor>& bias_opt,
+    const std::optional<at::ScalarType> out_dtype_opt) {
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_CUTLASS)
-  // Check inputs.
-  rowwise_scaled_linear_cutlass_check_inputs<ElementA, ElementB>(
-      xq, x_scale, wq, w_scale, bias);
+  // Check inputs.  Note that data types are checked in the
+  // corresponding dispatch methods.  The limitations on data types
+  // there are mostly to control the number of templates to
+  // instantiate - the number of data type combinations that could be
+  // supported is actually much larger.
+  check_inputs<DtypeXq, DtypeWq>(Xq, X_scale, Wq, W_scale, bias_opt);
 
   // Squash the input tensors as appropriate.
-  const auto xq_sizes = xq.sizes().vec();
-  const auto xq_2d = xq.reshape({-1, xq_sizes.back()});
-  const auto x_scale_1d = x_scale.reshape({-1});
-  const auto w_scale_1d = w_scale.reshape({-1});
+  const auto Xq_sizes = Xq.sizes().vec();
+  const auto Xq_2d = Xq.reshape({-1, Xq_sizes.back()});
+  const auto X_scale_1d = X_scale.reshape({-1});
+  const auto W_scale_1d = W_scale.reshape({-1});
 
   // Create result tensor.
-  at::Tensor result =
-      x_scale.new_empty({xq_2d.size(0), wq.size(0)});
+  const auto options = out_dtype_opt.has_value()
+                         ? X_scale.options().dtype(*out_dtype_opt)
+                         : X_scale.options();
+  at::Tensor Y = at::empty({Xq_2d.size(0), Wq.size(0)}, options);
 
   // Dispatch to appropriate kernel template.
-  dispatch_on_tensor_a_scale_and_tensor_b_scale<ElementA, ElementB>(
-      xq_2d, x_scale_1d, wq, w_scale_1d, bias, result);
+  dispatch_on_Y<DtypeXq, DtypeWq>(
+    Xq_2d, X_scale_1d, Wq, W_scale_1d, bias_opt, Y);
 
   // Reshape and return result tensor.
-  auto result_sizes = xq_sizes;
-  result_sizes.back() = wq.size(0);
-  return result.reshape(result_sizes);
+  auto Y_sizes = Xq_sizes;
+  Y_sizes.back() = Wq.size(0);
+  return Y.reshape(Y_sizes);
 #else
   TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
   return at::Tensor{};

@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Any, Callable, Dict, Optional
 
 import torch
@@ -77,6 +82,8 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     def _quantized_linear_op(
         input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
     ):
+        if input_tensor.numel() == 0:
+            return input_tensor
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
@@ -110,6 +117,18 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
             self.input_quant_func,
             self.quant_kwargs,
         )
+
+
+def _same_metadata(
+    self: LinearActivationQuantizedTensor, src: LinearActivationQuantizedTensor
+):
+    return (
+        isinstance(self, LinearActivationQuantizedTensor)
+        and isinstance(src, LinearActivationQuantizedTensor)
+        and self.shape == src.shape
+        and self.input_quant_func == src.input_quant_func
+        and self.quant_kwargs == src.quant_kwargs
+    )
 
 
 implements = LinearActivationQuantizedTensor.implements
@@ -167,10 +186,10 @@ def _(func, types, args, kwargs):
         return func(qtensor, original_weight_tensor)
 
 
-@implements(aten.detach.default)
+@implements([aten.detach.default, aten.alias.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+        func, args, kwargs, args[0]._apply_fn_to_data(func)
     )
 
 
@@ -191,6 +210,20 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    self = args[0]
+    src = args[1]
+    if _same_metadata(self, src):
+        self_tensors = self.__tensor_flatten__()[0]
+        for tensor_name in self_tensors:
+            getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+        return
+    raise ValueError(
+        f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+    )
+
+
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -199,6 +232,34 @@ def _(func, types, args, kwargs):
 
 
 @implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        LinearActivationQuantizedTensor(
+            func(args[0].original_weight_tensor, *args[1:]),
+            args[0].input_quant_func,
+            args[0].quant_kwargs,
+        ),
+    )
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        LinearActivationQuantizedTensor(
+            func(args[0].original_weight_tensor, *args[1:]),
+            args[0].input_quant_func,
+            args[0].quant_kwargs,
+        ),
+    )
+
+
+@implements(aten.index.Tensor)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func,

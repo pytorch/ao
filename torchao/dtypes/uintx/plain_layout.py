@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Optional, Tuple
 
 import torch
@@ -20,6 +25,23 @@ from torchao.quantization.quant_primitives import (
 from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
+
+
+def _same_metadata(self: "PlainAQTTensorImpl", src: "PlainAQTTensorImpl") -> bool:
+    return (
+        isinstance(self, PlainAQTTensorImpl)
+        and isinstance(src, PlainAQTTensorImpl)
+        and self.shape == src.shape
+        and self.int_data.shape == src.int_data.shape
+        and self.scale.shape == src.scale.shape
+        and (self.zero_point is None and src.zero_point is None)
+        or (
+            self.zero_point is not None
+            and src.zero_point is not None
+            and self.zero_point.shape == src.zero_point.shape
+        )
+        and type(self._layout) == type(src._layout)
+    )
 
 
 @register_layout(PlainLayout)
@@ -108,9 +130,21 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
-        if func is aten.clone.default:
+        elif func is aten.clone.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        elif func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
             )
 
         elif func is aten.t.default:
@@ -119,6 +153,14 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                 tensor.int_data.t(), tensor.scale, tensor.zero_point, tensor._layout
             )
             return return_and_correct_aliasing(func, args, kwargs, new)
+
+        elif func in [aten.select.int, aten.index.Tensor]:
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
+            )
 
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
@@ -132,9 +174,9 @@ class PlainAQTTensorImpl(AQTTensorImpl):
                     ),
                 )
             elif dim == 1:
-                assert (
-                    len(self.scale.shape) == 1
-                ), f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                assert len(self.scale.shape) == 1, (
+                    f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                )
                 return PlainAQTTensorImpl(
                     aten.slice.Tensor(self.int_data, dim, start, end, step),
                     self.scale.view(-1),

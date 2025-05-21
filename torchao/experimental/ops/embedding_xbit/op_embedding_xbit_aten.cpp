@@ -6,27 +6,39 @@
 
 #include <torchao/experimental/ops/embedding_xbit/op_embedding_xbit-impl.h>
 
-#define DEFINE_OP(weight_nbit)                                                                                                                                            \
-  m.def("_pack_embedding_" #weight_nbit "bit(Tensor weight_qvals) -> Tensor");                                                                                            \
-  m.def(                                                                                                                                                                  \
-      "_embedding_" #weight_nbit                                                                                                                                          \
-      "bit(Tensor packed_weight_qvals, Tensor num_embeddings_tensor, Tensor embedding_dim_tensor, Tensor weight_scales, Tensor weight_zeros, Tensor indices) -> Tensor"); \
-  m.def(                                                                                                                                                                  \
-      "_embedding_" #weight_nbit                                                                                                                                          \
-      "bit.out(Tensor packed_weight_qvals, Tensor num_embeddings_tensor, Tensor embedding_dim_tensor, Tensor weight_scales, Tensor weight_zeros, Tensor indices, *, Tensor(a!) out) -> Tensor(a!)");
+#define DEFINE_OP(weight_nbit)                                                                                                                                                                       \
+  m.def("_pack_embedding_" #weight_nbit "bit(Tensor weight_qvals) -> Tensor");                                                                                                                       \
+  m.def(                                                                                                                                                                                             \
+      "_embedding_" #weight_nbit                                                                                                                                                                     \
+      "bit(Tensor packed_weight_qvals, int num_embeddings, int embedding_dim, Tensor weight_scales, Tensor weight_zeros, Tensor indices) -> Tensor");                                                \
+  m.def(                                                                                                                                                                                             \
+      "_embedding_" #weight_nbit                                                                                                                                                                     \
+      "bit.out(Tensor packed_weight_qvals, int num_embeddings, int embedding_dim, Tensor weight_scales, Tensor weight_zeros, Tensor indices, *, Tensor(a!) out) -> Tensor(a!)");                     \
+  m.def(                                                                                                                                                                                             \
+      "_shared_embedding_" #weight_nbit                                                                                                                                                              \
+      "bit.out(Tensor packed_weights, int group_size, int n, int k, Tensor indices, *, Tensor(a!) out) -> Tensor(a!)");                                                                              \
+  m.def(                                                                                                                                                                                             \
+      "_shared_embedding_" #weight_nbit                                                                                                                                                              \
+      "bit(Tensor packed_weights, int group_size, int n, int k, Tensor indices) -> Tensor");
 
-#define DEFINE_CPU_IMPL(weight_nbit)                                     \
-  m.impl(                                                                \
-      "_pack_embedding_" #weight_nbit "bit",                             \
-      &pack_embedding_cpu<weight_nbit>);                                 \
-  m.impl("_embedding_" #weight_nbit "bit", &embedding_cpu<weight_nbit>); \
-  m.impl("_embedding_" #weight_nbit "bit.out", &embedding_out_cpu<weight_nbit>);
+#define DEFINE_CPU_IMPL(weight_nbit)                                          \
+  m.impl(                                                                     \
+      "_pack_embedding_" #weight_nbit "bit",                                  \
+      &pack_embedding_cpu<weight_nbit>);                                      \
+  m.impl("_embedding_" #weight_nbit "bit", &embedding_cpu<weight_nbit>);      \
+  m.impl(                                                                     \
+      "_embedding_" #weight_nbit "bit.out", &embedding_out_cpu<weight_nbit>); \
+  m.impl(                                                                     \
+      "_shared_embedding_" #weight_nbit "bit",                                \
+      &shared_embedding_cpu<weight_nbit>);                                    \
+  m.impl(                                                                     \
+      "_shared_embedding_" #weight_nbit "bit.out",                            \
+      &shared_embedding_out_cpu<weight_nbit>);
 
-#define DEFINE_META_IMPL(weight_nbit)        \
-  m.impl(                                    \
-      "_pack_embedding_" #weight_nbit "bit", \
-      &pack_embedding_meta<weight_nbit>);    \
-  m.impl("_embedding_" #weight_nbit "bit", &embedding_meta<weight_nbit>);
+#define DEFINE_META_IMPL(weight_nbit)                                     \
+  m.impl(                                                                 \
+      "_pack_embedding_" #weight_nbit "bit",                              \
+      &pack_embedding_meta<weight_nbit>);
 
 TORCH_LIBRARY_FRAGMENT(torchao, m) {
   DEFINE_OP(1);

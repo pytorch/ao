@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 import functools
 import unittest
@@ -82,6 +87,38 @@ def skip_if_rocm(message=None):
         func = message
         message = None
         return decorator(func)
+    return decorator
+
+
+def skip_if_no_cuda():
+    import unittest
+
+    def decorator(test_func):
+        @functools.wraps(test_func)
+        def wrapper(*args, **kwargs):
+            if not torch.cuda.is_available():
+                raise unittest.SkipTest("No cuda available")
+            return test_func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def skip_if_no_gemlite():
+    import unittest
+
+    def decorator(test_func):
+        @functools.wraps(test_func)
+        def wrapper(*args, **kwargs):
+            try:
+                import gemlite  # noqa: F401
+            except:
+                raise unittest.SkipTest("No gemlite available")
+            return test_func(*args, **kwargs)
+
+        return wrapper
+
     return decorator
 
 

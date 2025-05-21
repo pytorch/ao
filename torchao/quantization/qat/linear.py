@@ -177,6 +177,8 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
+        # TODO: generalize this
+        self.activation_scales_precision = torch.float32
 
     def prepare(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
@@ -208,7 +210,7 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 quantized_linear = Int8DynActInt4WeightLinear(
                     child.in_features,
                     child.out_features,
-                    bias=False,
+                    child.bias is not None,
                     groupsize=config.group_size,
                     precision=child.weight.dtype,
                     scales_precision=config.scale_precision,
@@ -219,8 +221,12 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 n_bit = 4
                 (qmin, qmax) = _get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(
-                    child.weight, n_bit, config.group_size
+                    child.weight,
+                    n_bit,
+                    config.group_size,
+                    precision=config.scale_precision,
                 )
+                zp = zp.to(config.zero_point_precision)
                 from torchao._executorch_ops import (
                     _quantized_decomposed_quantize_per_channel_group_wrapper,
                 )
@@ -237,11 +243,13 @@ class Int8DynActInt4WeightQATQuantizer(_LegacyQATQuantizer):
                 quantized_linear.weight = q_weight
                 quantized_linear.scales = s
                 quantized_linear.zeros = zp
+                if child.bias is not None:
+                    quantized_linear.bias = child.bias
             else:
                 self._convert_qat_linear_8da4w(child)
 
     def get_activation_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
-        return _get_8da4w_activation_config(self.scales_precision)
+        return _get_8da4w_activation_config(self.activation_scales_precision)
 
     def get_weight_fake_quantize_config(self) -> Optional[FakeQuantizeConfig]:
         return _get_8da4w_weight_config(self.groupsize, self.scales_precision)
@@ -256,6 +264,10 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         groupsize: the number of elements in each quantized group for weights
         precision: precision of weights
         scales_precision: precision of per group scales and zero points
+
+    Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).
+    To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights
+    and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.
     """
 
     def __init__(
@@ -268,7 +280,10 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
-        activation_config = _get_8da4w_activation_config(scales_precision)
+        # Use torch.float32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant,
+        # which is used in PTQ routines
+        # TODO: generalize this
+        activation_config = _get_8da4w_activation_config(torch.float32)
         weight_config = _get_8da4w_weight_config(groupsize, scales_precision)
         super().__init__(
             in_features,
@@ -308,6 +323,8 @@ def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantize
     """
     Return the activation `FakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.
     """
+    # TODO: generalize this
+    assert qparams_precision == torch.float32
     return FakeQuantizeConfig(
         dtype=torch.int8,
         granularity="per_token",
@@ -315,6 +332,7 @@ def _get_8da4w_activation_config(qparams_precision: torch.dtype) -> FakeQuantize
         is_dynamic=True,
         scale_precision=qparams_precision,
         zero_point_precision=qparams_precision,
+        eps=torch.finfo(qparams_precision).eps,
     )
 
 

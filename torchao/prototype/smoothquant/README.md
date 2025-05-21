@@ -27,7 +27,7 @@ python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or st
 ## Usage of API
 The following APIs are provided:
 - insert_smooth_quant_observer_
-- smooth_quant
+- SmoothQuantConfig
 - save_smooth_quant_recipe (advanced)
 - load_smooth_quant_recipe (advanced)
 
@@ -37,11 +37,11 @@ insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
 ```
 After insertion, run the model for calibration on a certain dataset or (advanced) load a recipe.
 
-`smooth_quant` applies SmoothQuant to each linear layer of the model. Use it by calling `torchao.quantization.quantize_`. For example:
+`SmoothQuantConfig` configures appliying SmoothQuant to each linear layer of the model. Use it by calling `torchao.quantization.quantize_`. For example:
 ```python
 from torchao.prototype.smoothquant import SmoothQuantObservedLinear
 is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-torchao.quantization.quantize_(model, smooth_quant(), is_observed_linear)
+torchao.quantization.quantize_(model, SmoothQuantConfig(), is_observed_linear)
 ```
 `is_observed_linear` is a filter so that we only quantize observed linear layers.
 

@@ -13,8 +13,16 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, MXLinearConfig
+from torchao.prototype.mx_formats.config import (
+    MXGemmKernelChoice,
+    MXInferenceLinearConfig,
+    MXLinearConfig,
+)
+from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
 
 
 @torch._dynamo.allow_in_graph
@@ -37,6 +45,7 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype: Any,
         block_size: int,
         gemm_kernel_choice: MXGemmKernelChoice,
+        use_fp8_dim1_cast_triton_kernel: bool,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -44,6 +53,7 @@ class mx_mm(torch.autograd.Function):
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
         ctx.gemm_kernel_choice = gemm_kernel_choice
+        ctx.use_fp8_dim1_cast_triton_kernel = use_fp8_dim1_cast_triton_kernel
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
@@ -63,12 +73,12 @@ class mx_mm(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output_hp: torch.Tensor):
         input_hp, weight_hp = ctx.saved_tensors
-        weight_hp_t_c = weight_hp.t().contiguous()
         in_elem_dtype = ctx.in_elem_dtype
         w_elem_dtype = ctx.w_elem_dtype
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
         gemm_kernel_choice = ctx.gemm_kernel_choice
+        use_fp8_dim1_cast_triton_kernel = ctx.use_fp8_dim1_cast_triton_kernel
 
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
@@ -83,34 +93,84 @@ class mx_mm(torch.autograd.Function):
             block_size,
             gemm_kernel_choice=gemm_kernel_choice,
         )
-        weight_mx_dim1 = MXTensor.to_mx(
-            weight_hp_t_c,
-            w_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
+
+        if use_fp8_dim1_cast_triton_kernel:
+            weight_mx_dim1_data, weight_mx_dim1_scale = triton_to_mxfp8_dim1(
+                weight_hp, block_size
+            )
+            weight_mx_dim1 = MXTensor(
+                weight_mx_dim1_scale.reshape(-1),
+                weight_mx_dim1_data.t(),
+                w_elem_dtype,
+                block_size,
+                weight_hp.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+
+        else:
+            weight_hp_t_c = weight_hp.t().contiguous()
+            weight_mx_dim1 = MXTensor.to_mx(
+                weight_hp_t_c,
+                w_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
         )
 
         # input_t @ grad_output = grad_weight
-        grad_output_mx_dim1 = MXTensor.to_mx(
-            grad_output_hp_r.t().contiguous(),
-            grad_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
-        input_t_mx_dim0_tmp = MXTensor.to_mx(
-            input_hp_r.t().contiguous(),
-            in_elem_dtype,
-            block_size,
-            gemm_kernel_choice=gemm_kernel_choice,
-        )
-        input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        if use_fp8_dim1_cast_triton_kernel:
+            grad_output_mx_dim1_data, grad_output_mx_dim1_scale = triton_to_mxfp8_dim1(
+                grad_output_hp_r, block_size
+            )
+            grad_output_mx_dim1 = MXTensor(
+                grad_output_mx_dim1_scale.reshape(-1),
+                grad_output_mx_dim1_data.t(),
+                grad_elem_dtype,
+                block_size,
+                grad_output_hp_r.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+        else:
+            grad_output_mx_dim1 = MXTensor.to_mx(
+                grad_output_hp_r.t().contiguous(),
+                grad_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
+
+        if use_fp8_dim1_cast_triton_kernel:
+            input_t_mx_dim0_tmp_data, input_t_mx_dim0_tmp_scale = triton_to_mxfp8_dim1(
+                input_hp_r, block_size
+            )
+            input_t_mx_dim0_tmp = MXTensor(
+                input_t_mx_dim0_tmp_scale.reshape(-1),
+                input_t_mx_dim0_tmp_data.t(),
+                in_elem_dtype,
+                block_size,
+                input_hp_r.dtype,
+                False,
+                gemm_kernel_choice,
+                False,
+            )
+            input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
+        else:
+            input_t_mx_dim0_tmp = MXTensor.to_mx(
+                input_hp_r.t().contiguous(),
+                in_elem_dtype,
+                block_size,
+                gemm_kernel_choice=gemm_kernel_choice,
+            )
+            input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None, None, None, None
+        return grad_input, grad_weight, None, None, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -130,7 +190,7 @@ class MXLinear(torch.nn.Linear):
         mod,
         config: Optional[MXLinearConfig] = MXLinearConfig(),
     ):
-        # TODO(before land): remove this
+        assert isinstance(mod, torch.nn.Linear), f"unsupported type(mod) {type(mod)}"
         assert isinstance(config, MXLinearConfig)
         mod.__class__ = MXLinear
         mod.config = config
@@ -154,10 +214,15 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
             config.gemm_kernel_choice,
+            config.use_fp8_dim1_cast_triton_kernel,
         )
         if self.bias is not None:
             y = y + self.bias
         return y
+
+    def extra_repr(self):
+        s = f"{super().extra_repr()}, {self.config.short_str()}"
+        return s
 
 
 class MXInferenceLinear(torch.nn.Linear):
@@ -173,7 +238,7 @@ class MXInferenceLinear(torch.nn.Linear):
     def from_float(
         cls,
         mod,
-        config: Optional[MXLinearConfig] = MXLinearConfig(),
+        config: Optional[MXInferenceLinearConfig] = MXInferenceLinearConfig(),
     ):
         with torch.device("meta"):
             super_kwargs = {
@@ -189,6 +254,7 @@ class MXInferenceLinear(torch.nn.Linear):
             config.elem_dtype,
             block_size=config.block_size,
             gemm_kernel_choice=config.gemm_kernel_choice,
+            pack_fp6=config.pack_fp6,
         )
         new_mod.bias = mod.bias
         new_mod.config = config
@@ -200,70 +266,18 @@ class MXInferenceLinear(torch.nn.Linear):
         y = F.linear(x, w_hp, self.bias)
         return y
 
-
-def replace_with_custom_fn_if_matches_filter(
-    model, replacement_fn, filter_fn, cur_fqn=""
-) -> None:
-    """
-    For each `child` in `model`, replaces it with `replacement_fn(child)`
-    if `filter_fn(child)` is `True`
-    """
-    name_to_child = dict(model.named_children())
-    for name, child in name_to_child.items():
-        if cur_fqn == "":
-            new_fqn = name
-        else:
-            new_fqn = f"{cur_fqn}.{name}"
-        if filter_fn(child, new_fqn):
-            new_child = replacement_fn(child)
-            setattr(model, name, new_child)
-        else:
-            replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, new_fqn
-            )
+    def extra_repr(self):
+        s = f"{super().extra_repr()}, {self.config.short_str()}"
+        return s
 
 
-def _is_linear(mod, fqn):
-    return isinstance(mod, torch.nn.Linear)
+@register_quantize_module_handler(MXLinearConfig)
+def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
+    return MXLinear.from_float(module, config=config)
 
 
-def swap_linear_with_mx_linear(
-    model,
-    *,
-    config: Optional[MXLinearConfig] = None,
-    filter_fn=None,
+@register_quantize_module_handler(MXInferenceLinearConfig)
+def _mx_inference_linear_transform(
+    module: torch.nn.Module, config: MXInferenceLinearConfig
 ):
-    if filter_fn is None:
-        combined_filter_fn = _is_linear
-    else:
-
-        def __fn(mod, fqn):
-            return _is_linear(mod, fqn) and filter_fn(mod, fqn)
-
-        combined_filter_fn = __fn
-    replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: MXLinear.from_float(mod, config=config),
-        combined_filter_fn,
-    )
-
-
-def swap_linear_with_mx_inference_linear(
-    model,
-    *,
-    config: Optional[MXLinearConfig] = None,
-    filter_fn=None,
-):
-    if filter_fn is None:
-        combined_filter_fn = _is_linear
-    else:
-
-        def __fn(mod, fqn):
-            return _is_linear(mod, fqn) and filter_fn(mod, fqn)
-
-        combined_filter_fn = __fn
-    replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: MXInferenceLinear.from_float(mod, config=config),
-        combined_filter_fn,
-    )
+    return MXInferenceLinear.from_float(module, config=config)

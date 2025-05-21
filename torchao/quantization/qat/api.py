@@ -85,6 +85,7 @@ class FakeQuantizeConfig:
     zero_point_domain: ZeroPointDomain
     is_dynamic: bool = True
     range_learning: bool = False
+    eps: Optional[float] = None
 
     def __init__(
         self,
@@ -96,6 +97,7 @@ class FakeQuantizeConfig:
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         is_dynamic: bool = True,
         range_learning: bool = False,
+        eps: Optional[float] = None,
         *,
         group_size: Optional[int] = None,
         is_symmetric: Optional[bool] = None,
@@ -110,6 +112,7 @@ class FakeQuantizeConfig:
         self.zero_point_domain = zero_point_domain
         self.is_dynamic = is_dynamic
         self.range_learning = range_learning
+        self.eps = eps
 
         # Validate dtype
         all_dtypes = [torch.int8, torch.uint8]

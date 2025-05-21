@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import unittest
 
 import pytest
@@ -42,10 +47,11 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
 
-    assert (
-        torch.equal(result, expected_tensor)
-        or (result.isnan() and expected_tensor.isnan())
-    ), f"test: {test_case_name}, input: {input_tensor}, expected {expected_tensor}, but got {result}"
+    assert torch.equal(result, expected_tensor) or (
+        result.isnan() and expected_tensor.isnan()
+    ), (
+        f"test: {test_case_name}, input: {input_tensor}, expected {expected_tensor}, but got {result}"
+    )
 
 
 @pytest.mark.parametrize(

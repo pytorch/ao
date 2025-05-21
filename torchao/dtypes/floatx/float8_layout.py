@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 
@@ -23,6 +28,23 @@ from torchao.utils import _is_float8_type, fill_defaults
 aten = torch.ops.aten
 
 
+def _same_metadata(self: "Float8AQTTensorImpl", src: "Float8AQTTensorImpl") -> bool:
+    # Special handling for transposed attribute
+    transposed_match = (self.transposed == src.transposed) or (
+        self.transposed is False and src.transposed is None
+    )
+
+    return (
+        isinstance(self, Float8AQTTensorImpl)
+        and isinstance(src, Float8AQTTensorImpl)
+        and self.shape == src.shape
+        and self.float8_data.shape == src.float8_data.shape
+        and self.scale.shape == src.scale.shape
+        and transposed_match
+        and type(self._layout) == type(src._layout)
+    )
+
+
 @dataclass(frozen=True)
 class Float8Layout(Layout):
     """Represents the layout configuration for Float8 affine quantized tensors.
@@ -32,6 +54,9 @@ class Float8Layout(Layout):
     """
 
     mm_config: Optional[Float8MMConfig] = None
+
+
+_fallback_warning_shown = False
 
 
 @register_layout(Float8Layout)
@@ -78,12 +103,35 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 
     def _apply_fn_to_data(self, fn):
         """Applys a fn to all tensor components stored on this class"""
-        return self.__class__(
-            fn(self.float8_data),
-            fn(self.scale),
-            self.transposed,
-            self._layout,
-        )
+        global _fallback_warning_shown
+
+        try:
+            return self.__class__(
+                fn(self.float8_data),
+                fn(self.scale),
+                self.transposed,
+                self._layout,
+            )
+        except RuntimeError as e:
+            if '"index_cuda" not implemented for ' in str(e):
+                if not _fallback_warning_shown:
+                    import warnings
+
+                    warnings.warn(
+                        f"When trying to index Float8AQTTensorImpl, got known error {e}, will use slower fallback but "
+                        + "note: You can torch.compile the model to avoid this problem.",
+                        UserWarning,
+                    )
+                    _fallback_warning_shown = True
+
+                return self.__class__(  # do indexing in bfloat16 then convert back
+                    fn(self.float8_data.to(torch.bfloat16)).to(self.float8_data.dtype),
+                    fn(self.scale),
+                    self.transposed,
+                    self._layout,
+                )
+            else:
+                raise e
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -126,6 +174,24 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             """
             args[0].transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, args[0])
+        elif func is aten.copy_.default:
+            self = args[0]
+            src = args[1]
+            if _same_metadata(self, src):
+                self_tensors = self.__tensor_flatten__()[0]
+                for tensor_name in self_tensors:
+                    getattr(self, tensor_name).copy_(getattr(src, tensor_name))
+                return
+            raise ValueError(
+                f"Not supported args for copy_ due to metadata mistach: {args[0], args[1]}"
+            )
+        elif func in [aten.select.int, aten.index.Tensor]:
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
+            )
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
@@ -195,12 +261,12 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         """Main entrypoint for constructing Float8TensorImpl"""
-        assert _is_float8_type(
-            data.dtype
-        ), f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
-        assert isinstance(
-            _layout, Float8Layout
-        ), f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
+        assert _is_float8_type(data.dtype), (
+            f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
+        )
+        assert isinstance(_layout, Float8Layout), (
+            f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
+        )
         return cls(data, scale, False, _layout)
 
     def __repr__(self):
@@ -270,9 +336,9 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Handle rowwise case
     if _is_rowwise_scaled(weight_tensor):
-        assert _is_rowwise_scaled(
-            input_tensor
-        ), "Input tensor must be rowwise block size"
+        assert _is_rowwise_scaled(input_tensor), (
+            "Input tensor must be rowwise block size"
+        )
         w_scale = w_scale.unsqueeze(-1).T
         input_scale = preprocess_scale(input_scale, input_tensor.shape)
 

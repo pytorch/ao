@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import functools
 from typing import Callable, Dict
 
@@ -42,5 +47,6 @@ def register_quantize_module_handler(config_type):
     @functools.wraps(config_type)
     def decorator(func):
         _QUANTIZE_CONFIG_HANDLER[config_type] = func
+        return func  # needed to make the functions usable externally
 
     return decorator

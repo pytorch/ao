@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import pytest
 import torch
 
@@ -5,7 +10,6 @@ from torchao.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
 from torchao.quantization.quant_primitives import (
     MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -73,9 +77,9 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     fp16_mod_on_cuda = fp16_mod_on_cpu.to("cuda")
     test_input_on_cuda = test_input_on_cpu.to("cuda")
     output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
-    assert torch.allclose(
-        output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3
-    ), "The output of the model on CPU and CUDA should be close"
+    assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), (
+        "The output of the model on CPU and CUDA should be close"
+    )
 
 
 @pytest.mark.parametrize("dtype", dtypes)
@@ -107,7 +111,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     mapping_type = MappingType.SYMMETRIC
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int32
-    zero_point_domain = ZeroPointDomain.INT
     block_size = (1, group_size)
 
     scale, zero_point = choose_qparams_affine(
@@ -118,8 +121,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         eps=eps,
         scale_dtype=torch.float32,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=True,
-        zero_point_domain=zero_point_domain,
     )
 
     aqt = quantize_affine(
@@ -128,15 +129,12 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
         scale,
         zero_point,
         dtype,
-        zero_point_domain=zero_point_domain,
     )
     # Note: output will be uint8 tensor for sub byte tensors for now
 
     q = to_uintx(aqt, dtype, -1)
     assert q is not None, "quantization failed"
-    deqaunt = dequantize_affine(
-        q, block_size, scale, zero_point, dtype, zero_point_domain=zero_point_domain
-    )
+    deqaunt = dequantize_affine(q, block_size, scale, zero_point, dtype)
     assert deqaunt is not None, "deqauntization failed"
 
 

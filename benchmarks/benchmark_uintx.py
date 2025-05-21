@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from copy import deepcopy
 
 import torch
@@ -62,16 +67,16 @@ def profile_bitpack():
     prof.export_chrome_trace("trace.json")
     """
     CPU perf:
-        unpack_gpu 
+        unpack_gpu
         Self CPU time total: 602.501ms
-        
-        unpack_cpu 
+
+        unpack_cpu
         Self CPU time total: 415.469ms
     GPU perf:
-        unpack_gpu  on gpu: 
+        unpack_gpu  on gpu:
         Self CPU time total: 58.512ms
         Self CUDA time total: 5.083ms
-    
+
         unpack_cpu:
         Self CPU time total: 96.947ms
         Self CUDA time total: 5.253ms
@@ -104,7 +109,7 @@ def uintx_vs_fp16(nbits=[1, 2, 3, 4, 5, 6, 7], scales=[256, 512, 1024], repeats=
     for result in results:
         print(f"scale: {result[0]} fp16 time:{result[1]: .2f}ms speedups:")
         for i in range(2, len(result)):
-            print(f"int{nbits[i-2]}: {result[1]/result[i]: .2f}x")
+            print(f"int{nbits[i - 2]}: {result[1] / result[i]: .2f}x")
 
 
 if __name__ == "__main__":

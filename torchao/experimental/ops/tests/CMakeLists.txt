@@ -21,6 +21,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 enable_testing()
+
+if(TORCHAO_BUILD_CPU_AARCH64)
+  add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64=1)
+  add_compile_definitions(TORCHAO_ENABLE_ARM_NEON_DOT)
+endif()
+
 if(TORCHAO_BUILD_KLEIDIAI)
     add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
 endif()
@@ -37,7 +43,11 @@ endif()
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
 set(TORCHAO_PARALLEL_BACKEND "test_dummy")
-add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
+
+if (TORCHAO_BUILD_CPU_AARCH64)
+  add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
+  add_compile_definitions(TORCHAO_BUILD_CPU_AARCH64)
+endif()
 
 include(${TORCHAO_ROOT}/Utils.cmake)
 
@@ -62,8 +72,14 @@ target_link_libraries(
   test_linear_8bit_act_xbit_weight
   PRIVATE
   GTest::gtest_main
-  torchao_kernels_aarch64
 )
+if (TORCHAO_BUILD_CPU_AARCH64)
+  target_link_libraries(
+    test_linear_8bit_act_xbit_weight
+    PRIVATE
+    torchao_kernels_aarch64
+  )
+endif()
 target_link_torchao_parallel_backend(test_linear_8bit_act_xbit_weight "${TORCHAO_PARALLEL_BACKEND}")
 
 include(GoogleTest)

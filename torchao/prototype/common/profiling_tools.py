@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import os
 import types
 from datetime import datetime
@@ -190,7 +195,7 @@ _PERF_COLUMNS = [
     "self_cpu_time",
     "self_cpu_time_total",
     "cpu_time",
-    "cpu_time_total" "self_device_memory_usage",
+    "cpu_time_totalself_device_memory_usage",
     "device_memory_usage",
     "self_cpu_memory_usage",
     "cpu_memory_usage",

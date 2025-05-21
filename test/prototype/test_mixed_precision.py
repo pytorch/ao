@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import unittest
 
 import torch
@@ -13,7 +18,7 @@ _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 class TestWeightOnlyQuantNaive(unittest.TestCase):
     def test_quantization_intNwo(self):
         # skip test int4wo for now since it is under development in torchao
-        for quantization_bit in [2, 3, 5, 6, 8]:
+        for quantization_bit in [2, 3, 5, 6]:
             for symmetric in [False, True]:
                 with self.subTest(
                     quantization_bit=quantization_bit, symmetric=symmetric

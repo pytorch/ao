@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import logging
 import unittest
 
@@ -30,9 +35,9 @@ class TestWandaSparsifier(TestCase):
             assert hasattr(module.parametrizations["weight"][0], "mask")
             # Check parametrization exists and is correct
             assert is_parametrized(module, "weight")
-            assert isinstance(
-                module.parametrizations.weight[0], FakeSparsity
-            ), "FakeSparsity not found"
+            assert isinstance(module.parametrizations.weight[0], FakeSparsity), (
+                "FakeSparsity not found"
+            )
             # check activation observer is present
             assert hasattr(module, "activation_post_process")
 
@@ -107,9 +112,9 @@ class TestWandaSparsifier(TestCase):
             if isinstance(m, nn.Linear):
                 cnt += 1
                 sparsity_level = (m.weight == 0).float().mean()
-                assert (
-                    sparsity_level == 0.5
-                ), f"sparsity for linear layer {cnt} should be 0.5"
+                assert sparsity_level == 0.5, (
+                    f"sparsity for linear layer {cnt} should be 0.5"
+                )
 
         sparsifier.squash_mask()
 
@@ -136,13 +141,13 @@ class TestWandaSparsifier(TestCase):
                 cnt += 1
                 sparsity_level = (m.weight == 0).float().mean()
                 if cnt == 1:  # First Linear layer should have 50% sparsity
-                    assert (
-                        sparsity_level == 0.5
-                    ), f"sparsity for linear layer {cnt} should be 0.5"
+                    assert sparsity_level == 0.5, (
+                        f"sparsity for linear layer {cnt} should be 0.5"
+                    )
                 else:  # Other layers should not be sparsified
-                    assert (
-                        sparsity_level != 0.5
-                    ), f"sparsity for linear layer {cnt} should not be 0.5"
+                    assert sparsity_level != 0.5, (
+                        f"sparsity for linear layer {cnt} should not be 0.5"
+                    )
 
         sparsifier.squash_mask()
 

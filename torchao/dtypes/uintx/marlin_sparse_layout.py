@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
 
 import torch
@@ -269,9 +274,9 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features
-        assert (
-            group_size <= in_features
-        ), "Group size must be less than or equal to in_features."
+        assert group_size <= in_features, (
+            "Group size must be less than or equal to in_features."
+        )
 
         if group_size not in const.SUPPORTED_GROUP_SIZES:
             raise ValueError(

@@ -85,9 +85,9 @@ def run_evaluation(
             else:
                 use_hqq = False
             groupsize = int(quantization.split("-")[1])
-            assert (
-                groupsize in [32, 64, 128, 256]
-            ), f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            assert groupsize in [32, 64, 128, 256], (
+                f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            )
             quantize_(
                 model.to(device),
                 int4_weight_only(group_size=groupsize, use_hqq=use_hqq),
@@ -124,12 +124,12 @@ def run_evaluation(
             from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
 
             groupsize = int(quantization.split("-")[-2])
-            assert (
-                groupsize in [32, 64, 128, 256]
-            ), f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            assert (
-                precision == torch.bfloat16
-            ), f"{quantization} requires precision or bfloat16 but got {precision}"
+            assert groupsize in [32, 64, 128, 256], (
+                f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            )
+            assert precision == torch.bfloat16, (
+                f"{quantization} requires precision or bfloat16 but got {precision}"
+            )
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
             inputs = (
                 MultiTensorInputRecorder(

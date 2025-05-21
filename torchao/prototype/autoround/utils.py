@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round
 # ==------------------------------------------------------------------------------------------==
@@ -99,9 +104,9 @@ def see_memory_usage(message: str = "", force=True):
     logging.warning(message)
     bytes_to_gb = 1024 * 1024 * 1024
     logging.warning(
-        f"AllocatedMem {round(torch.cuda.memory_allocated() / (bytes_to_gb),2 )} GB \
-        MaxAllocatedMem {round(torch.cuda.max_memory_allocated() / (bytes_to_gb),2)} GB \
-        ReservedMem {round(torch.cuda.memory_reserved() / (bytes_to_gb),2)} GB \
+        f"AllocatedMem {round(torch.cuda.memory_allocated() / (bytes_to_gb), 2)} GB \
+        MaxAllocatedMem {round(torch.cuda.max_memory_allocated() / (bytes_to_gb), 2)} GB \
+        ReservedMem {round(torch.cuda.memory_reserved() / (bytes_to_gb), 2)} GB \
         MaxReservedMem {round(torch.cuda.max_memory_reserved() / (bytes_to_gb))} GB "
     )
 

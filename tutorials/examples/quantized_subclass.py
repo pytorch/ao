@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 from typing import Any, List, Tuple
 
@@ -124,9 +129,9 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 # matmul impl
 @register_op([torch.ops.aten.mm.default])
 def int8_mm(func, x, weight):
-    assert isinstance(
-        weight, Int8SymmetricTensor
-    ), "Int8SymmetricTensor: matmul currently only supports the weight in low precision, not the input!"
+    assert isinstance(weight, Int8SymmetricTensor), (
+        "Int8SymmetricTensor: matmul currently only supports the weight in low precision, not the input!"
+    )
     return torch.mm(x, weight.int_data.to(x.dtype)) * weight.scale
 
 

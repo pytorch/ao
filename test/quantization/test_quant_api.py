@@ -19,14 +19,30 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torch.testing._internal import common_utils
+from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.dtypes import AffineQuantizedTensor
-from torchao.quantization import LinearActivationQuantizedTensor
+from torchao.dtypes import (
+    AffineQuantizedTensor,
+    Int4CPULayout,
+    Int4XPULayout,
+    PlainLayout,
+    QDQLayout,
+    TensorCoreTiledLayout,
+)
+from torchao.quantization import (
+    LinearActivationQuantizedTensor,
+    PerGroup,
+)
 from torchao.quantization.quant_api import (
+    AOPerModuleConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt4WeightConfig,
+    Int8WeightOnlyConfig,
+    IntxWeightOnlyConfig,
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
@@ -54,6 +70,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -115,10 +132,10 @@ class TorchCompileDynamicQuantizer(Quantizer):
 
 
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64):
+    def __init__(self, m=64, n=32, k=64, bias=False):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=False).to(torch.float)
+        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
+        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
 
     def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
         return (
@@ -189,6 +206,10 @@ _ref_change_linear_weights_to_int4_woqtensors = (
 
 
 class TestQuantFlow(TestCase):
+    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
+        ["xpu"] if torch.xpu.is_available() else []
+    )
+
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
@@ -229,6 +250,34 @@ class TestQuantFlow(TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_8, "only works for torch 2.8+")
+    def test_int4_wo_quant_save_load(self):
+        m = ToyLinearModel().eval().cpu()
+
+        def api(model):
+            quantize_(model, int4_weight_only(layout=Int4XPULayout()))
+            unwrap_tensor_subclass(model)
+
+        api(m)
+
+        example_inputs = m.example_inputs()
+        ref = m(*example_inputs)
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(m.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f)
+
+        m2 = ToyLinearModel().eval().cpu()
+        api(m2)
+
+        m2.load_state_dict(state_dict)
+        m2 = m2.to(device="xpu")
+        example_inputs = map(lambda x: x.xpu(), example_inputs)
+        res = m2(*example_inputs)
+
+        torch.testing.assert_close(ref, res.cpu())
+
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "only works for torch 2.4+")
     def test_int8_wo_quant_save_load(self):
@@ -266,6 +315,21 @@ class TestQuantFlow(TestCase):
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = ToyLinearModel().eval()
+        example_inputs = m.example_inputs()
+        m = quantizer.quantize(m)
+        assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
+        m(*example_inputs)
+
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
+    )
+    def test_8da4w_quantizer_linear_bias(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
+        m = ToyLinearModel(bias=True).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
@@ -339,9 +403,9 @@ class TestQuantFlow(TestCase):
             1,
         )
 
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.88
-        ), f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.88, (
+            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     @unittest.skipIf(
@@ -378,9 +442,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
@@ -448,9 +512,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             None,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
-        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
@@ -486,9 +550,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
@@ -518,9 +582,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 7.77
-        ), f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
@@ -553,9 +617,9 @@ class TestQuantFlow(TestCase):
             ["wikitext"],
             1,
         )
-        assert (
-            result["results"]["wikitext"]["word_perplexity,none"] < 8.24
-        ), f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
@@ -600,25 +664,31 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_quantized_tensor_subclass_int4(self):
-        # use 1024 so that we don't need padding
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
-        m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        for device in self.GPU_DEVICES:
+            # use 1024 so that we don't need padding
+            m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to(device)
+            m_copy = copy.deepcopy(m)
+            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
-        group_size = 32
-        quantize_(m, int4_weight_only(group_size=group_size))
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
+            group_size = 32
+            if device == "xpu":
+                quantize_(
+                    m, int4_weight_only(group_size=group_size, layout=Int4XPULayout())
+                )
+            else:
+                quantize_(m, int4_weight_only(group_size=group_size))
+            assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+            assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
-        # reference
-        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
+            # reference
+            _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
 
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
+            res = m(*example_inputs)
+            ref = m_copy(*example_inputs)
 
-        self.assertTrue(torch.equal(res, ref))
+            self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -782,9 +852,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
-    def test_int4wo_cpu(self, dtype, x_dim):
-        from torchao.dtypes import Int4CPULayout
-
+    @common_utils.parametrize("use_hqq", [True, False])
+    def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
         device = "cpu"
         m = ToyLinearModel().eval().to(dtype).to(device)
         example_inputs = m.example_inputs(dtype=dtype, device=device)
@@ -792,7 +861,12 @@ class TestQuantFlow(TestCase):
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
         with torch.no_grad():
-            quantize_(m, int4_weight_only(group_size=32, layout=Int4CPULayout()))
+            quantize_(
+                m,
+                int4_weight_only(
+                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq
+                ),
+            )
             # ensure the expected op is in the code
             _, code = torch._inductor.utils.run_and_get_code(
                 torch.compile(m, fullgraph=True, dynamic=True),
@@ -870,6 +944,78 @@ class TestQuantFlow(TestCase):
 
         sqnr = compute_error(y_ref, y_q)
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_default(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"_default": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_module_name(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config2 = Int8WeightOnlyConfig()
+        config = AOPerModuleConfig({"linear1": config1, "linear2": config2})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear2.weight._layout, PlainLayout)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch 2.6+")
+    def test_ao_per_module_config_embedding_linear(self):
+        weight_dtype = torch.int8
+        granularity = PerGroup(8)
+        mapping_type = MappingType.SYMMETRIC
+        embedding_config = IntxWeightOnlyConfig(
+            weight_dtype=weight_dtype,
+            granularity=granularity,
+            mapping_type=mapping_type,
+            scale_dtype=None,
+        )
+        # example model linear is Linear(16, 8)
+        linear_config = Int8DynamicActivationInt4WeightConfig(group_size=16)
+
+        config = AOPerModuleConfig({"emb": embedding_config, "linear": linear_config})
+        indices = torch.randint(0, 10, (32,))
+        indices = indices.unsqueeze(0)
+        example_inputs = (indices,)
+        model = TestHelperModules.EmbeddingConvLinearModule().eval()
+        model(*example_inputs)
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda x, fqn: isinstance(x, torch.nn.Linear)
+            or isinstance(x, torch.nn.Embedding),
+        )
+        model(*example_inputs)
+
+        assert isinstance(model.emb.weight, AffineQuantizedTensor)
+        assert isinstance(model.emb.weight._layout, QDQLayout)
+        assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_ao_per_module_config_skip(self):
+        config1 = Int4WeightOnlyConfig(group_size=32)
+        config = AOPerModuleConfig({"_default": config1, "linear2": None})
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        quantize_(model, config)
+        model(*example_inputs)
+        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
 
 
 class TestMultiTensorFlow(TestCase):

@@ -40,6 +40,7 @@ cmake \
     ${EXTRA_ARGS} \
     -DCMAKE_BUILD_TYPE=Debug \
     -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
+    -DTORCHAO_BUILD_CPU_AARCH64=ON \
     -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/tests \
     -B ${CMAKE_OUT}
 
@@ -59,3 +60,5 @@ ${CMAKE_OUT}/test_bitpacking
 ${CMAKE_OUT}/test_linear
 ${CMAKE_OUT}/test_valpacking
 ${CMAKE_OUT}/test_embedding
+${CMAKE_OUT}/test_weight_packing
+${CMAKE_OUT}/test_qmatmul

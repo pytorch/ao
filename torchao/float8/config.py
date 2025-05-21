@@ -11,6 +11,8 @@ from typing import Optional, Union
 
 import torch
 
+from torchao.utils import is_MI300
+
 logger: logging.Logger = logging.getLogger()
 
 
@@ -52,7 +54,7 @@ class Float8TypeConfig:
     """
     Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
 
-    Currently, ROCm only supports fnuz variants.
+    Currently, ROCm supports 1. fnuz variants in MI300. 2. OCP F8 variants in MI350/Navi4.
     """
 
     # The preferred e4m3 type.
@@ -62,12 +64,9 @@ class Float8TypeConfig:
     e5m2_dtype = torch.float8_e5m2
 
     def __post_init__(self):
-        if torch.version.hip and torch.cuda.is_available():
-            prop = torch.cuda.get_device_properties(0)
-            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
-            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
-                self.e4m3_dtype = torch.float8_e4m3fnuz
-                self.e5m2_dtype = torch.float8_e5m2fnuz
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            self.e4m3_dtype = torch.float8_e4m3fnuz
+            self.e5m2_dtype = torch.float8_e5m2fnuz
 
 
 # User defined type for using the individual F8 type based on config
@@ -92,9 +91,9 @@ class CastConfig:
 
     def __post_init__(self):
         if self.scaling_granularity is ScalingGranularity.AXISWISE:
-            assert (
-                self.scaling_type is ScalingType.DYNAMIC
-            ), "only dynamic scaling type is supported for axiswise scaling granularity"
+            assert self.scaling_type is ScalingType.DYNAMIC, (
+                "only dynamic scaling type is supported for axiswise scaling granularity"
+            )
         assert self.target_dtype is None or (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
         ), "must specify a 8-bit floating-point dtype"
@@ -240,7 +239,9 @@ class Float8LinearConfig:
 
         # float8 all-gather only supports tensorwise, in the future may support blockwise
         if self.cast_config_weight.scaling_granularity != ScalingGranularity.TENSORWISE:
-            assert not self.enable_fsdp_float8_all_gather, f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
+            assert not self.enable_fsdp_float8_all_gather, (
+                f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
+            )
 
         # save some characters in the compatibility checks below
         cc_i = self.cast_config_input
@@ -259,9 +260,9 @@ class Float8LinearConfig:
         ):
             is_disabled_1 = cc1.scaling_type is ScalingType.DISABLED
             is_disabled_2 = cc1.scaling_type is ScalingType.DISABLED
-            assert (
-                is_disabled_1 == is_disabled_2
-            ), f"incompatible operand precision for {gemm_name}"
+            assert is_disabled_1 == is_disabled_2, (
+                f"incompatible operand precision for {gemm_name}"
+            )
 
         for cc1, cc2, operand_name, default_dtype in [
             (cc_i, cc_i_gw, "input", e4m3_dtype),
@@ -273,9 +274,9 @@ class Float8LinearConfig:
                 object.__setattr__(cc1, "target_dtype", default_dtype)
             if cc2.target_dtype is None:
                 object.__setattr__(cc2, "target_dtype", default_dtype)
-            assert (
-                cc1.target_dtype == cc2.target_dtype
-            ), f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
+            assert cc1.target_dtype == cc2.target_dtype, (
+                f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
+            )
 
         # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
         if (
@@ -296,9 +297,9 @@ class Float8LinearConfig:
         """
         if type(recipe_name) == str:
             valid_names = [n.value for n in Float8LinearRecipeName]
-            assert (
-                recipe_name in valid_names
-            ), f"recipe_name {recipe_name} not in valid names {valid_names}"
+            assert recipe_name in valid_names, (
+                f"recipe_name {recipe_name} not in valid names {valid_names}"
+            )
             recipe_name = Float8LinearRecipeName(recipe_name)
 
         if recipe_name is Float8LinearRecipeName.TENSORWISE:

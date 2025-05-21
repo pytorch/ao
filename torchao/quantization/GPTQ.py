@@ -24,7 +24,10 @@ from torchao.utils import (
     find_multiple,
 )
 
-from .quant_primitives import MappingType
+from .quant_primitives import (
+    MappingType,
+    dequantize_affine,
+)
 from .unified import Quantizer
 from .utils import (
     _MultiInput,
@@ -139,16 +142,16 @@ class GenericGPTQRunner(fx.Interpreter):
         return self
 
     def run(self):
-        assert (
-            self.get_qparams_func is not None
-        ), "need to configure quantization mode before running"
+        assert self.get_qparams_func is not None, (
+            "need to configure quantization mode before running"
+        )
         self.gptq_done = True
         super().run(*self.inputs)
 
     def get_quantized_state_dict(self):
-        assert (
-            self.gptq_done
-        ), "need to run GPTQRunner before you can get_quantized_state_dict"
+        assert self.gptq_done, (
+            "need to run GPTQRunner before you can get_quantized_state_dict"
+        )
         quantized_state_dict = self.new_state_dict
         # Don't want to store/load the kv_cache so remove it from the state_dict
         del_list = []
@@ -596,9 +599,9 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             raise ValueError("Please specify 'precision' instead of 'dtype'")
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
-        assert (
-            in_features % (inner_k_tiles * 16) == 0
-        ), "require in_features % (innerKTiles * 16) == 0"
+        assert in_features % (inner_k_tiles * 16) == 0, (
+            "require in_features % (innerKTiles * 16) == 0"
+        )
         if is_device(device.type, "cpu"):
             self.register_buffer(
                 "weight",
@@ -741,16 +744,15 @@ class Int4WeightOnlyQuantizer(Quantizer):
     ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
+            if isinstance(mod, torch.nn.Linear) and mod.bias is None:
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
                 logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
-                assert (
-                    in_features % self.groupsize == 0
-                ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                assert in_features % self.groupsize == 0, (
+                    f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                )
 
                 weight = mod.weight.data
                 if not _check_linear_int4_k(
@@ -924,13 +926,24 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
 def linear_forward_8da4w(
     x,
     weight_int8,
+    bias,
     scales,
     zeros,
     out_features,
     groupsize,
-    precision,
+    output_precision,
 ):
-    x = per_token_dynamic_quant(x)
+    # uses fp32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant
+    # and activation_scale_dtype in QAT configs
+    # TODO: in future add ability to specify activation_scale_dtype to PTQ configs
+    # and enable similar change here
+    x = per_token_dynamic_quant(
+        x,
+        scale_dtype=torch.float32,
+        zero_point_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
+    )
+
     # TODO: verify and remove following reshape code
     # origin_x_size = x.size()
     # x = x.reshape(-1, origin_x_size[-1])
@@ -940,24 +953,22 @@ def linear_forward_8da4w(
     n_bit = 4
     quant_min = -(2 ** (n_bit - 1))
     quant_max = 2 ** (n_bit - 1) - 1
-    from torchao._executorch_ops import (
-        _quantized_decomposed_dequantize_per_channel_group_wrapper,
-    )
+    block_size = (1, groupsize)
 
-    w_dq = _quantized_decomposed_dequantize_per_channel_group_wrapper(
+    w_dq = dequantize_affine(
         weight_int8,
+        block_size,
         scales,
         zeros,
+        torch.int8,
         quant_min,
         quant_max,
-        torch.int8,
-        groupsize,
-        precision,
+        output_dtype=output_precision,
     )
 
     # x = x.to(torch.float16)
     # w_dq = w_dq.to(torch.float16)
-    c = torch.nn.functional.linear(x, w_dq)
+    c = torch.nn.functional.linear(x, w_dq, bias)
 
     # new_shape = origin_x_size[:-1] + (out_features,)
     # c = c.reshape(new_shape)
@@ -971,6 +982,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
     in_features: int
     out_features: int
     weight: torch.Tensor
+    bias: torch.Tensor
 
     """
     This module implements a dynamic quantized linear layer with int4 weight.
@@ -996,15 +1008,14 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         super().__init__()
         # always pad if needed since it becomes a noop at runtime if not needed
         # self.origin_in_features = in_features
-        assert (
-            in_features % groupsize == 0
-        ), f"require in_features:{in_features} % groupsize:{groupsize} == 0"
+        assert in_features % groupsize == 0, (
+            f"require in_features:{in_features} % groupsize:{groupsize} == 0"
+        )
         # in_features = _calc_padded_size_linear_int4(
         #    in_features, groupsize
         # )
         self.in_features = in_features
         self.out_features = out_features
-        assert not bias, "require bias=False"
         # TODO: align groupsize naming
         self.groupsize = groupsize
         # Precision of the activation which also indicates
@@ -1035,6 +1046,11 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
             ),
         )
 
+        if bias:
+            self.register_buffer("bias", torch.zeros(out_features, dtype=precision))
+        else:
+            self.bias = None
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(self.precision)
         # padding is removed for perf
@@ -1042,6 +1058,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         return linear_forward_8da4w(
             input,
             self.weight,
+            self.bias,
             self.scales,
             self.zeros,
             self.out_features,
@@ -1063,18 +1080,15 @@ def _replace_linear_8da4w(
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
     def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
-        # TODO: support linear bias
-        return (
-            isinstance(child, nn.Linear)
-            and child.bias is None
-            and (_check_linear_int4_k(child.in_features, groupsize) or padding_allowed)
+        return isinstance(child, nn.Linear) and (
+            _check_linear_int4_k(child.in_features, groupsize) or padding_allowed
         )
 
     def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
         new_linear = linear_class(
             child.in_features,
             child.out_features,
-            bias=False,
+            bias=child.bias is not None,
             device=child.weight.device,
             groupsize=groupsize,
             precision=precision,
@@ -1085,6 +1099,7 @@ def _replace_linear_8da4w(
         # copy the weights, and doing so will result in an error
         if copy_weights and child.weight.device != torch.device("meta"):
             new_linear.weight = child.weight
+            new_linear.bias = child.bias
         return new_linear
 
     _replace_with_custom_fn_if_matches_filter(module, replacement_fn, filter_fn)
@@ -1132,15 +1147,14 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
             if isinstance(mod, torch.nn.Linear):
-                assert not mod.bias
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
                 logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
-                assert (
-                    in_features % self.groupsize == 0
-                ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                assert in_features % self.groupsize == 0, (
+                    f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+                )
 
                 weight = mod.weight.data
                 if not _check_linear_int4_k(in_features, self.groupsize):
@@ -1174,7 +1188,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
                 cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)
                 cur_state_dict[f"{fqn}.zeros"] = zeros.to(self.device)
-                # TODO: support bias?
 
         return cur_state_dict
 

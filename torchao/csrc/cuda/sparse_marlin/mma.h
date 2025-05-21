@@ -1,3 +1,8 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
 /*
  * Copyright (C) 2024 Roberto Lopez Castro (roberto.lopez.castro@udc.es). All
  * Rights Reserved.
@@ -17,7 +22,10 @@
 
 #pragma once
 #include "base.h"
+
+#ifndef USE_ROCM
 #include <cudaTypedefs.h>
+#endif
 
 namespace torchao {
 
@@ -27,7 +35,11 @@ namespace torchao {
 //  | Advisory: Modifier ‘.sp::ordered_metadata’ should be used on instruction
 //  | ‘mma’ instead of modifier ‘.sp’ as it is expected to have substantially
 //  | reduced performance on some future architectures
-#if defined CUDA_VERSION && CUDA_VERSION >= 12050
+
+#if defined(USE_ROCM)
+  // HIP ISA doesn't have an equivalent for ordered_metadata, so we'll use the standard mma instruction
+  #define MMA_SP_INST "v_mfma_f32_16x16x16f16 "
+#elif defined(CUDA_VERSION) && CUDA_VERSION >= 12050
   #define MMA_SP_INST \
     "mma.sp::ordered_metadata.sync.aligned.m16n8k32.row.col.f32.f16.f16.f32 "
 #else
@@ -84,15 +96,28 @@ __device__ inline void mma_sp(const FragB& a_frag0, const FragB& a_frag1,
 template <int lut>
 __device__ inline int lop3(int a, int b, int c) {
   int res;
+  #ifdef USE_ROCM
+  // AMD GPUs don't have a direct equivalent to lop3, so we implement it using bitwise operations
+  res = (a & b & c) | (a & b & ~c) | (a & ~b & c) | (~a & b & c);
+  // Apply the LUT
+  res = (res & lut) | (~res & ~lut);
+  #else
   asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
                : "=r"(res)
                : "r"(a), "r"(b), "r"(c), "n"(lut));
+  #endif
   return res;
 }
 
 __device__ __forceinline__ uint2 to_half4(float c0, float c1, float c2,
                                           float c3) {
   uint2 r;
+  #ifdef USE_ROCM
+  // AMD implementation
+  r.x = __builtin_amdgcn_cvt_pkrtz(c0, c1);
+  r.y = __builtin_amdgcn_cvt_pkrtz(c2, c3);
+  #else
+  // NVIDIA implementation
   asm("{\n\t"
       ".reg .f16 a, b, c, d; \n\t"
       "cvt.rn.f16.f32 a, %2; \n\t"
@@ -104,6 +129,7 @@ __device__ __forceinline__ uint2 to_half4(float c0, float c1, float c2,
       "}"
       : "=r"(r.x), "=r"(r.y)
       : "f"(c0), "f"(c1), "f"(c2), "f"(c3));
+  #endif
   return r;
 }
 
@@ -112,9 +138,16 @@ __device__ __forceinline__ uint2 to_half4(float c0, float c1, float c2,
 template <int start_byte, int mask>
 __device__ inline uint32_t prmt(uint32_t a) {
   uint32_t res;
+  #ifdef USE_ROCM
+  // AMD implementation
+  res = ((a & 0xFF) << 24) | ((a & 0xFF00) << 8) | ((a & 0xFF0000) >> 8) | ((a & 0xFF000000) >> 24);
+  res = (res >> (start_byte * 8)) & mask;
+  #else
+  // NVIDIA implementation
   asm volatile("prmt.b32 %0, %1, %2, %3;\n"
                : "=r"(res)
                : "r"(a), "n"(start_byte), "n"(mask));
+  #endif
   return res;
 }
 
@@ -136,11 +169,24 @@ __device__ inline FragB dequant_4bit(int q) {
   const int ADD = 0xd480d480;
 
   FragB frag_b;
+  #ifdef USE_ROCM
+  // AMD implementation
+  __half2* lo_ptr = reinterpret_cast<__half2*>(&lo);
+  __half2* hi_ptr = reinterpret_cast<__half2*>(&hi);
+  const __half2* SUB_ptr = reinterpret_cast<const __half2*>(&SUB);
+  const __half2* MUL_ptr = reinterpret_cast<const __half2*>(&MUL);
+  const __half2* ADD_ptr = reinterpret_cast<const __half2*>(&ADD);
+
+  frag_b[0] = __hsub(*lo_ptr, *SUB_ptr);
+  frag_b[1] = __hfma(*hi_ptr, *MUL_ptr, *ADD_ptr);
+  #else
+  // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
                       *reinterpret_cast<const half2*>(&SUB));
   frag_b[1] = __hfma2(*reinterpret_cast<half2*>(&hi),
                       *reinterpret_cast<const half2*>(&MUL),
                       *reinterpret_cast<const half2*>(&ADD));
+  #endif
   return frag_b;
 }
 
@@ -159,24 +205,56 @@ __device__ inline FragB dequant_8bit(int q) {
   static constexpr uint32_t I8s_TO_F16s_MAGIC_NUM = 0x64806480;
 
   FragB frag_b;
+  #ifdef USE_ROCM
+  // AMD implementation
+  __half2* lo_ptr = reinterpret_cast<__half2*>(&lo);
+  __half2* hi_ptr = reinterpret_cast<__half2*>(&hi);
+  const __half2* magic_num_ptr = reinterpret_cast<const __half2*>(&I8s_TO_F16s_MAGIC_NUM);
+
+  frag_b[0] = __hsub(*lo_ptr, *magic_num_ptr);
+  frag_b[1] = __hsub(*hi_ptr, *magic_num_ptr);
+  #else
+  // NVIDIA implementation
   frag_b[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
                       *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
   frag_b[1] = __hsub2(*reinterpret_cast<half2*>(&hi),
                       *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
+  #endif
   return frag_b;
 }
 
 // Multiply dequantized values by the corresponding quantization scale; used
 // only for grouped quantization.
 __device__ inline void scale(FragB& frag_b, FragS& frag_s, int i) {
+  #ifdef USE_ROCM
+  // AMD implementation
+  __half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
+  frag_b[0] = __hmul(frag_b[0], s);
+  frag_b[1] = __hmul(frag_b[1], s);
+  #else
+  // NVIDIA implementation
   half2 s = __half2half2(reinterpret_cast<__half*>(&frag_s)[i]);
   frag_b[0] = __hmul2(frag_b[0], s);
   frag_b[1] = __hmul2(frag_b[1], s);
+  #endif
 }
 
 __device__ inline void scale_floats(float* c0, float* c1, float* c2, float* c3,
                                     FragS& s0, float* c4, float* c5, float* c6,
                                     float* c7, FragS& s1) {
+  #ifdef USE_ROCM
+  // AMD implementation
+  *c0 = __builtin_amdgcn_fmul_legacy(*c0, __half2float(s0[0].x));
+  *c1 = __builtin_amdgcn_fmul_legacy(*c1, __half2float(s0[0].y));
+  *c2 = __builtin_amdgcn_fmul_legacy(*c2, __half2float(s0[1].x));
+  *c3 = __builtin_amdgcn_fmul_legacy(*c3, __half2float(s0[1].y));
+
+  *c4 = __builtin_amdgcn_fmul_legacy(*c4, __half2float(s1[0].x));
+  *c5 = __builtin_amdgcn_fmul_legacy(*c5, __half2float(s1[0].y));
+  *c6 = __builtin_amdgcn_fmul_legacy(*c6, __half2float(s1[1].x));
+  *c7 = __builtin_amdgcn_fmul_legacy(*c7, __half2float(s1[1].y));
+  #else
+  // NVIDIA implementation
   *c0 = __fmul_rn(*c0, __half2float(s0[0].x));
   *c1 = __fmul_rn(*c1, __half2float(s0[0].y));
   *c2 = __fmul_rn(*c2, __half2float(s0[1].x));
@@ -186,6 +264,7 @@ __device__ inline void scale_floats(float* c0, float* c1, float* c2, float* c3,
   *c5 = __fmul_rn(*c5, __half2float(s1[0].y));
   *c6 = __fmul_rn(*c6, __half2float(s1[1].x));
   *c7 = __fmul_rn(*c7, __half2float(s1[1].y));
+  #endif
 }
 
 }  // namespace torchao

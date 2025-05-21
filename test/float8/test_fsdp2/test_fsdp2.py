@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 import itertools
 import threading
@@ -67,7 +72,10 @@ class TestFloat8Common:
         return module
 
     def init_transformer(
-        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
+        self,
+        weight_tying: bool,
+        dtype: Optional[torch.dtype] = None,
+        requires_grad: bool = True,
     ) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
@@ -81,6 +89,13 @@ class TestFloat8Common:
         module = Transformer(args).cuda()
         if dtype is not None:
             module = module.to(dtype=dtype)
+
+        # if requires_grad=False, just set requires_grad to False
+        # in the first layer to ensure we still train some params.
+        if requires_grad is False:
+            for param in module.layers[0].parameters():
+                param.requires_grad = requires_grad
+
         self.broadcast_module(module)
         return module
 
@@ -107,6 +122,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 ],
                 "compile_transformer_block": [False, True],
                 "dtype": [torch.float32, torch.bfloat16],
+                "requires_grad": [True, False],
             },
             self._test_transformer_parity,
         )
@@ -117,6 +133,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         precompute: bool,
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
+        requires_grad: bool,
         dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
@@ -127,7 +144,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
         weight_tying = not enable_fsdp_float8_all_gather
-        module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
+        module = self.init_transformer(
+            weight_tying=weight_tying, dtype=dtype, requires_grad=requires_grad
+        )
+
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),

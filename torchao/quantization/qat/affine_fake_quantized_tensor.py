@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 from typing import Callable, Optional, Tuple
 
 import torch
@@ -9,6 +14,8 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     _get_and_check_qmin_qmax,
     choose_qparams_affine,
+    choose_qparams_affine_dont_preserve_zero,
+    choose_qparams_affine_tinygemm,
 )
 from torchao.utils import TorchAOBaseTensor
 
@@ -47,19 +54,42 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         def apply_fake_quant_fn(t: torch.Tensor):
             assert isinstance(t, AffineFakeQuantizedTensor)
             qmin, qmax = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-            scale, zero_point = choose_qparams_affine(
-                t.original_tensor,
-                mapping_type,
-                block_size,
-                target_dtype,
-                qmin,
-                qmax,
-                eps,
-                scale_dtype,
-                zero_point_dtype,
-                preserve_zero,
-                zero_point_domain,
-            )
+            if zero_point_domain == ZeroPointDomain.FLOAT and not preserve_zero:
+                scale, zero_point = choose_qparams_affine_tinygemm(
+                    t.original_tensor,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    qmin,
+                    qmax,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
+            elif zero_point_domain == ZeroPointDomain.INT and not preserve_zero:
+                scale, zero_point = choose_qparams_affine_dont_preserve_zero(
+                    t.original_tensor,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    qmin,
+                    qmax,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
+            else:  # Default case: zero_point_domain == ZeroPointDomain.INT and preserve_zero
+                scale, zero_point = choose_qparams_affine(
+                    t.original_tensor,
+                    mapping_type,
+                    block_size,
+                    target_dtype,
+                    qmin,
+                    qmax,
+                    eps,
+                    scale_dtype,
+                    zero_point_dtype,
+                )
             fq = _GenericFakeQuantize.apply(
                 t,
                 block_size,

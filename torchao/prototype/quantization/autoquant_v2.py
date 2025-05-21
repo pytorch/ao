@@ -1,3 +1,8 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
 import copy
 import csv
 import logging
@@ -1334,12 +1339,12 @@ def autoquant_v2(
     torch._inductor.config.pre_grad_custom_pass = None
 
     # verify debug logs and summary got saved
-    assert os.path.isfile(
-        os.path.join(target_folder, "debug_logs_0.txt")
-    ), "No debug log saved, autoquant_v2 can't work for this model right now"
-    assert os.path.isfile(
-        os.path.join(target_folder, "summary_0.csv")
-    ), "No debug log saved, autoquant_v2 can't work for this model right now"
+    assert os.path.isfile(os.path.join(target_folder, "debug_logs_0.txt")), (
+        "No debug log saved, autoquant_v2 can't work for this model right now"
+    )
+    assert os.path.isfile(os.path.join(target_folder, "summary_0.csv")), (
+        "No debug log saved, autoquant_v2 can't work for this model right now"
+    )
 
     # first, find how many torch.compile'd regions we have
     extraction_idxs = []

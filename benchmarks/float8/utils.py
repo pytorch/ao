@@ -75,13 +75,16 @@ def profiler_output_to_filtered_time_by_kernel_name(
             continue
         elif e.key == "aten::add_":
             # accumulating gradients into leaf tensors
-            assert e.count == (
-                num_iter * num_leaf_tensors
-            ), f"unexpected number of iter for {e.key}"
+            assert e.count == (num_iter * num_leaf_tensors), (
+                f"unexpected number of iter for {e.key}"
+            )
             continue
         elif e.key == "cudaDeviceSynchronize":
             continue
         elif e.key == "Activity Buffer Request":
+            continue
+        elif e.key == "Unrecognized":
+            # TODO I think these are nvjet related
             continue
 
         kernel_name_to_gpu_time_us[e.key] = e.self_device_time_total
@@ -136,9 +139,9 @@ def get_name_to_shapes_iter(
     N: Optional[int],
 ):
     if shape_gen_name == "llama":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        assert M == K == N == None, (
+            f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
         bsz, seq_len = 4, 4096
         M = bsz * seq_len
         # LLaMa 2 70B single-node weight shapes
@@ -152,22 +155,36 @@ def get_name_to_shapes_iter(
         }
         return name_to_shapes_70b.items()
 
-    elif shape_gen_name == "square":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+    elif shape_gen_name == "pow2":
+        assert M == K == N == None, (
+            f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
         name_to_shapes = {}
-        min_power_of_2 = 8  # 256
-        max_power_of_2 = 15  # 32,768
+        min_power_of_2 = 10  # 1024
+        max_power_of_2 = 14  # 16,384
         for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
             val = 2**power_of_2
             name_to_shapes[idx] = val, val, val
         return name_to_shapes.items()
 
+    elif shape_gen_name == "pow2_extended":
+        assert M == K == N == None, (
+            f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
+        name_to_shapes = {}
+        min_power_of_2 = 10  # 1024
+        max_power_of_2 = 14  # 16,384
+        for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
+            val1 = 2**power_of_2
+            name_to_shapes[idx * 2] = val1, val1, val1
+            val2 = 2**power_of_2 + 2 ** (power_of_2 - 1)
+            name_to_shapes[idx * 2 + 1] = val2, val2, val2
+        return name_to_shapes.items()
+
     elif shape_gen_name == "sweep":
-        assert (
-            M == K == N == None
-        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        assert M == K == N == None, (
+            f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
         name_to_shapes = {}
         min_p2 = 8  # 256
         max_p2 = 15  # 32,768
@@ -183,9 +200,9 @@ def get_name_to_shapes_iter(
         return name_to_shapes.items()
 
     elif shape_gen_name == "custom":
-        assert (
-            M is not None and K is not None and N is not None
-        ), "M, K, N must be specified for custom shape_gen"
+        assert M is not None and K is not None and N is not None, (
+            "M, K, N must be specified for custom shape_gen"
+        )
         name_to_shapes = {
             1: (M, K, N),
         }

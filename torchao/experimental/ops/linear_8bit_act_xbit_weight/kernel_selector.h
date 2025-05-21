@@ -6,82 +6,57 @@
 
 #pragma once
 #include <cpuinfo.h>
-#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
-#include <torchao/experimental/ops/packed_weights_header.h>
-
-#if defined(__aarch64__) || defined(__ARM_NEON)
-#include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
-
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/kernel_config.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_format.h>
 #include <optional>
 #include <string>
 #include <unordered_map>
 
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+#include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
+
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #endif // TORCHAO_ENABLE_KLEIDI
+#endif // TORCHAO_BUILD_CPU_AARCH64
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
-struct PackedWeightsFormat {
-  torchao::ops::PackedWeightsType type;
-  int weight_nbit;
-  bool has_weight_zeros;
-  bool has_bias;
-  int nr;
-  int kr;
-  int sr;
-
-  PackedWeightsFormat(torchao::ops::PackedWeightsType type, int weight_nbit,
-                      bool has_weight_zeros, bool has_bias, int nr, int kr,
-                      int sr)
-      : type{type}, weight_nbit{weight_nbit},
-        has_weight_zeros{has_weight_zeros}, has_bias{has_bias}, nr{nr}, kr{kr},
-        sr{sr} {}
-
-  static PackedWeightsFormat
-  from_packed_weights_header(torchao::ops::PackedWeightsHeader header) {
-    return PackedWeightsFormat(
-        header.type, header.params[0], static_cast<bool>(header.params[1]),
-        static_cast<bool>(header.params[2]), header.params[3], header.params[4],
-        header.params[5]);
-  }
-
-  inline torchao::ops::PackedWeightsHeader to_packed_weights_header() const {
-    return torchao::ops::PackedWeightsHeader(
-        type, {weight_nbit, has_weight_zeros, has_bias, nr, kr, sr});
-  }
-};
-
 struct UKernelConfigRegistrationTable {
-private:
+ private:
   using Key = std::pair<torchao::ops::PackedWeightsHeader, cpuinfo_uarch>;
   struct KeyHasher {
-    std::size_t operator()(const Key &k) const {
+    std::size_t operator()(const Key& k) const {
       return std::hash<torchao::ops::PackedWeightsHeader>()(k.first) ^
-             std::hash<int>()(static_cast<int>(k.second));
+          std::hash<int>()(static_cast<int>(k.second));
     }
   };
   std::unordered_map<Key, UKernelConfig, KeyHasher> registration_table_;
-  inline Key make_key(torchao::ops::PackedWeightsHeader header,
-                      cpuinfo_uarch uarch) const {
+  inline Key make_key(
+      torchao::ops::PackedWeightsHeader header,
+      cpuinfo_uarch uarch) const {
     return std::make_pair(header, uarch);
   }
 
-public:
-  void register_ukernel_config(PackedWeightsFormat format, cpuinfo_uarch uarch,
-                               UKernelConfig config) {
+ public:
+  void register_ukernel_config(
+      PackedWeightsFormat format,
+      cpuinfo_uarch uarch,
+      UKernelConfig config) {
     auto header = format.to_packed_weights_header();
     auto key = make_key(header, uarch);
     if (registration_table_.find(key) != registration_table_.end()) {
       throw std::runtime_error(
           "UKernelConfig is already registered for this format");
     }
+    config.validate();
     registration_table_[key] = config;
   }
-  std::optional<UKernelConfig>
-  get_ukernel_config(torchao::ops::PackedWeightsHeader header,
-                     cpuinfo_uarch uarch) const {
+  std::optional<UKernelConfig> get_ukernel_config(
+      torchao::ops::PackedWeightsHeader header,
+      cpuinfo_uarch uarch) const {
     auto key = make_key(header, uarch);
     auto it = registration_table_.find(key);
     if (it == registration_table_.end()) {
@@ -91,208 +66,301 @@ public:
   }
 };
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias>
-void check_format(PackedWeightsFormat format,
-                  torchao::ops::PackedWeightsType type) {
-  if (format.type != type) {
-    throw std::runtime_error("Kernel expects packed_weights type=" +
-                             std::to_string(static_cast<int>(type)) +
-                             ", but got packed_weights with type=" +
-                             std::to_string(static_cast<int>(format.type)));
-  }
-  if (format.weight_nbit != weight_nbit) {
-    throw std::runtime_error(
-        "Kernel expects weight_nbit=" + std::to_string(weight_nbit) +
-        ", but got packed_weights with weight_nbit=" +
-        std::to_string(format.weight_nbit));
-  }
-  if (format.has_weight_zeros != has_weight_zeros) {
-    throw std::runtime_error(
-        "Kernel expects has_weight_zeros=" + std::to_string(has_weight_zeros) +
-        ", but got packed_weights with has_weight_zeros=" +
-        std::to_string(format.has_weight_zeros));
-  }
-  if (format.has_bias != has_bias) {
-    throw std::runtime_error(
-        "Kernel expects has_bias=" + std::to_string(has_bias) +
-        ", but got packed_weights with has_bias=" +
-        std::to_string(format.has_bias));
-  }
+void log_registration(PackedWeightsFormat format, std::string description) {
+  // Logging is only supported in ATen mode
+#ifdef USE_ATEN
+  LOG(INFO) << "Registering ukernel config for linear_8bit_act_xbit_weight"
+            << std::endl
+            << "\tDescription: " << description << std::endl
+            << "\tformat.type=" << static_cast<int>(format.type) << std::endl
+            << "\tformat.weight_nbit=" << format.weight_nbit << std::endl
+            << "\tformat.has_weight_zeros=" << format.has_weight_zeros
+            << std::endl
+            << "\tformat.has_bias=" << format.has_bias << std::endl
+            << "\tformat.nr=" << format.nr << std::endl
+            << "\tformat.kr=" << format.kr << std::endl
+            << "\tformat.sr=" << format.sr << std::endl;
+#endif // USE_ATEN
 }
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-void register_ukernel_config_universal(UKernelConfigRegistrationTable &table,
-                                       PackedWeightsFormat format,
-                                       cpuinfo_uarch uarch) {
+template <int weight_nbit>
+void register_ukernel_config_universal(
+    UKernelConfigRegistrationTable& table,
+    PackedWeightsFormat format,
+    cpuinfo_uarch uarch) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  check_format<weight_nbit, has_weight_zeros, has_bias>(
+
+  check_format(
       format,
-      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal);
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
+      weight_nbit);
+
+  namespace kernel = torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight;
+
+  constexpr bool has_lut = false;
+  int preferred_alignment = 16;
 
   if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
-#if defined(__aarch64__) || defined(__ARM_NEON)
+    constexpr int n_step = 8;
+    constexpr int nr = 8;
+    constexpr int kr = 16;
+    constexpr int sr = 2;
+    constexpr int mr = 1;
+    constexpr int m_step = 1;
+
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      namespace kernel = torchao::kernels::cpu::aarch64::linear::
-          channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
-      table.register_ukernel_config(
-          format, uarch,
-          UKernelConfig{
-              /*preferred_alignment*/ 16,
-              /*nr*/ 8,
-              /*weight_packing_config*/
-              {/*weight_data_size_fn*/
-               &kernel::weight_data_size<weight_nbit, has_weight_zeros,
-                                         has_bias>,
-               /*prepare_weight_data_fn*/
-               &kernel::prepare_weight_data<weight_nbit, has_weight_zeros,
-                                            has_bias>},
-              /*linear_configs*/
-              {{{/*mr*/ 1,
-                 /*activation_data_size_fn*/
-                 &kernel::activation_data_size<has_weight_zeros>,
-                 /*prepare_activation_data_fn*/
-                 &kernel::prepare_activation_data<has_weight_zeros>,
-                 /*kernel*/
-                 &kernel::kernel<weight_nbit, has_weight_zeros, has_bias,
-                                 has_clamp>}}}});
-      return;
+      log_registration(format, "universal: kernel_1x8x16_f32_neondot");
+      auto uk = UKernelConfig::make(
+          preferred_alignment,
+          n_step,
+          nr,
+          kr,
+          sr,
+          weight_nbit,
+          format.has_weight_zeros,
+          format.has_bias,
+          &kernel::packed_weights_size,
+          &kernel::packed_weights_offset,
+          &kernel::pack_weights<weight_nbit, nr, kr, sr>,
+          /*linear_configs*/ {});
+
+      if (format.has_weight_zeros) {
+        constexpr bool has_weight_zeros = true;
+        uk.linear_configs[0] = UKernelConfig::linear_config_type(
+            {m_step,
+             mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations<mr, kr, sr>,
+             &kernel::kernel_1x8x16_f32_neondot<
+                 weight_nbit,
+                 has_weight_zeros,
+                 has_lut>});
+
+        table.register_ukernel_config(format, uarch, std::move(uk));
+        return;
+      } else {
+        constexpr bool has_weight_zeros = false;
+        uk.linear_configs[0] = UKernelConfig::linear_config_type(
+            {m_step,
+             mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations<mr, kr, sr>,
+             &kernel::kernel_1x8x16_f32_neondot<
+                 weight_nbit,
+                 has_weight_zeros,
+                 has_lut>});
+
+        table.register_ukernel_config(format, uarch, std::move(uk));
+        return;
+      }
     }
-#endif // defined(__aarch64__) || defined(__ARM_NEON)
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 }
 
+template <int weight_nbit>
+void register_ukernel_config_lut(
+    UKernelConfigRegistrationTable& table,
+    PackedWeightsFormat format,
+    cpuinfo_uarch uarch) {
+    if (!cpuinfo_initialize()) {
+      throw std::runtime_error("Failed to initialize cpuinfo!");
+    }
+    check_format(
+      format,
+      torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut,
+      weight_nbit
+    );
+    constexpr bool has_lut = true;
+    int preferred_alignment = 16;
+
+    #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    namespace kernel = torchao::kernels::cpu::aarch64::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight;
+
+    if (cpuinfo_has_arm_neon_dot()) {
+      return;
+    }
+    if (format.has_weight_zeros) {
+      return;
+    }
+    constexpr bool has_weight_zeros = false;
+    if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
+      log_registration(format, "lut: kernel_1x8x16_f32_neondot");
+      constexpr int n_step = 8;
+      constexpr int nr = 8;
+      constexpr int kr = 16;
+      constexpr int sr = 2;
+      constexpr int mr = 1;
+      constexpr int m_step = 1;
+      auto uk = UKernelConfig::make_with_lut(
+          preferred_alignment,
+          n_step,
+          nr,
+          kr,
+          sr,
+          weight_nbit,
+          format.has_weight_zeros,
+          format.has_bias,
+          &kernel::packed_weights_with_lut_size,
+          &kernel::packed_weights_with_lut_offset,
+          &kernel::pack_weights_with_lut<weight_nbit, nr, kr, sr>,
+          /*linear_configs*/ {});
+       uk.linear_configs[0] = UKernelConfig::linear_config_type(
+            {m_step,
+             mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations<mr, kr, sr>,
+             &kernel::kernel_1x8x16_f32_neondot<
+                 weight_nbit,
+                 has_weight_zeros,
+                 has_lut>});
+        table.register_ukernel_config(format, uarch, std::move(uk));
+        return;
+    }
+   #endif // TORCHAO_ENABLE_ARM_NEON_DOT
+}
+
 #if defined(TORCHAO_ENABLE_KLEIDI)
-template <typename kernel_struct, int m_step, int mr, int n_step, int nr,
-          int kr, int sr>
-UKernelConfig::linear_config_type get_linear_config_kleidi() {
+template <typename kernel_struct>
+UKernelConfig::linear_config_type
+get_linear_config_kleidi(int n_step, int nr, int kr, int sr) {
   namespace op = torchao::kernels::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
-  assert(m_step == kernel_struct::get_ukernel().get_m_step());
-  assert(mr == kernel_struct::get_ukernel().get_mr());
   assert(n_step == kernel_struct::get_ukernel().get_n_step());
   assert(nr == kernel_struct::get_ukernel().get_nr());
   assert(kr == kernel_struct::get_ukernel().get_kr());
   assert(sr == kernel_struct::get_ukernel().get_sr());
-  return UKernelConfig::linear_config_type{
-      /*mr*/ m_step,
-      /*activation_data_size_fn*/ &op::activation_data_size<mr, kr, sr>,
-      /*prepare_activation_data_fn*/ &op::prepare_activation_data<mr, kr, sr>,
-      /*kernel*/ &kernel_struct::kernel};
+  return UKernelConfig::linear_config_type(
+      {static_cast<int>(kernel_struct::get_ukernel().get_m_step()),
+       static_cast<int>(kernel_struct::get_ukernel().get_mr()),
+       &op::packed_activations_size,
+       &op::packed_activations_offset,
+       &op::pack_activations,
+       &kernel_struct::kernel});
 }
 
-template <int nr, int kr, int sr>
-UKernelConfig::weight_packing_config_type get_weight_packing_config_kleidi() {
-  namespace op = torchao::kernels::cpu::aarch64::kleidi::
-      kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
-  return UKernelConfig::weight_packing_config_type(
-      {/*weight_data_size_fn*/ &op::weight_data_size<nr, kr, sr>,
-       /*prepare_weight_data_fn*/ &op::prepare_weight_data<nr, kr, sr>});
-}
-
-template <int weight_nbit, bool has_weight_zeros>
-void register_ukernel_config_kleidi(UKernelConfigRegistrationTable &table,
-                                    PackedWeightsFormat format,
-                                    cpuinfo_uarch uarch) {
+template <int weight_nbit>
+void register_ukernel_config_kleidi(
+    UKernelConfigRegistrationTable& table,
+    PackedWeightsFormat format,
+    cpuinfo_uarch uarch) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  check_format<weight_nbit, has_weight_zeros, /*has_bias*/ true>(
-      format, torchao::ops::PackedWeightsType::kleidi_ai);
+  check_format(format, torchao::ops::PackedWeightsType::kleidi_ai, weight_nbit);
   namespace op = torchao::kernels::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
+  auto uk = UKernelConfig::make(
+      /*preferred_alignment*/ op::get_preferred_alignement(),
+      /*n_step*/ format.nr,
+      format.nr,
+      format.kr,
+      format.sr,
+      format.weight_nbit,
+      format.has_weight_zeros,
+      format.has_bias,
+      &op::packed_weights_size,
+      &op::packed_weights_offset,
+      &op::pack_weights,
+      {} /*linear_configs*/);
+
   if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
-    constexpr int nr = 8;
-    constexpr int kr = 16;
-    constexpr int sr = 2;
+    uk.n_step = 8;
+
 #if defined(TORCHAO_ENABLE_ARM_I8MM)
     if (cpuinfo_has_arm_i8mm()) {
-      constexpr int n_step = 8;
-      table.register_ukernel_config(
-          format, uarch,
-          UKernelConfig{
-              /*preferred_alignment*/ op::get_preferred_alignement(),
-              /*nr*/ n_step,
-              /*weight_packing_config*/
-              get_weight_packing_config_kleidi<nr, kr, sr>(),
-              /*linear_configs*/
-              {{get_linear_config_kleidi<
-                  op::matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm,
-                  /*m_step*/ 4, /*mr*/ 4, n_step, nr, kr, sr>()}}});
+      log_registration(
+          format,
+          "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod, matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm");
+      /*m_step=1*/
+      uk.linear_configs[0] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+
+      /*m_step=4*/
+      uk.linear_configs[1] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+      table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
 #endif // TORCHAO_ENABLE_ARM_I8MM
 
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      constexpr int n_step = 8;
-      table.register_ukernel_config(
-          format, uarch,
-          UKernelConfig{
-              /*preferred_alignment*/ op::get_preferred_alignement(),
-              /*nr*/ n_step,
-              /*weight_packing_config*/
-              get_weight_packing_config_kleidi<nr, kr, sr>(),
-              /*linear_configs*/
-              {{get_linear_config_kleidi<
-                  op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
-                  /*m_step*/ 1, /*mr*/ 1, n_step, nr, kr, sr>()}}});
+      log_registration(
+          format,
+          "kleidiai: matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod");
+      /*m_step=1*/
+      uk.linear_configs[0] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+      table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 
-  if (format.nr == 4 && format.kr == 16 && format.sr == 2) {
-    constexpr int nr = 4;
-    constexpr int kr = 16;
-    constexpr int sr = 2;
+  if (format.nr == 8 && format.kr == 8 && format.sr == 2) {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      constexpr int n_step = 4;
-      table.register_ukernel_config(
-          format, uarch,
-          UKernelConfig{
-              /*preferred_alignment*/ op::get_preferred_alignement(),
-              /*nr*/ n_step,
-              /*weight_packing_config*/
-              get_weight_packing_config_kleidi<nr, kr, sr>(),
-              /*linear_configs*/
-              {{get_linear_config_kleidi<
-                  op::matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
-                  /*m_step*/ 1, /*mr*/ 1, n_step, nr, kr, sr>()}}});
+      log_registration(
+          format,
+          "kleidiai: matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod, matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod");
+      // m_step 1
+      uk.linear_configs[0] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp1x4_qsi4c32p8x4_1x8_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+      // m_step 4
+      uk.linear_configs[1] = get_linear_config_kleidi<
+          op::matmul_clamp_f32_qai8dxp4x4_qsi4c32p8x4_4x8_neon_dotprod>(
+          uk.n_step, uk.nr, uk.kr, uk.sr);
+      table.register_ukernel_config(format, uarch, std::move(uk));
       return;
     }
+#endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 }
 #endif // TORCHAO_ENABLE_KLEIDI
 
-template <int weight_nbit, bool has_weight_zeros>
-void register_ukernel_config(UKernelConfigRegistrationTable &table,
-                             PackedWeightsFormat format, cpuinfo_uarch uarch) {
+template <int weight_nbit>
+void register_ukernel_config(
+    UKernelConfigRegistrationTable& table,
+    PackedWeightsFormat format,
+    cpuinfo_uarch uarch) {
   switch (format.type) {
-  case torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal: {
-    if (format.has_bias) {
-      register_ukernel_config_universal<weight_nbit, has_weight_zeros,
-                                        /*has_bias*/ true, /*has_clamp*/ false>(
-          table, format, uarch);
-    } else {
-      register_ukernel_config_universal<weight_nbit, has_weight_zeros,
-                                        /*has_bias*/ false,
-                                        /*has_clamp*/ false>(table, format,
-                                                             uarch);
+    case torchao::ops::PackedWeightsType::
+        linear_8bit_act_xbit_weight_universal: {
+      register_ukernel_config_universal<weight_nbit>(table, format, uarch);
+      break;
     }
-    break;
-  }
-  case torchao::ops::PackedWeightsType::kleidi_ai: {
+    case torchao::ops::PackedWeightsType::kleidi_ai: {
 #ifdef TORCHAO_ENABLE_KLEIDI
-    register_ukernel_config_kleidi<weight_nbit, has_weight_zeros>(table, format,
-                                                                  uarch);
+      register_ukernel_config_kleidi<weight_nbit>(table, format, uarch);
 #endif // TORCHAO_ENABLE_KLEIDI
-    break;
-  }
-  default:
-    throw std::runtime_error(
-        "No registration available for packed_weights_type=" +
-        std::to_string(static_cast<int>(format.type)));
+      break;
+    }
+    case torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut: {
+      // LUT kernels static assert on weight_nbit <= 4
+      // This is needed to avoid compilation error
+      if constexpr (weight_nbit <= 4) {
+        register_ukernel_config_lut<weight_nbit>(table, format, uarch);
+      }
+      break;
+    }
+    default:
+      throw std::runtime_error(
+          "No registration available for packed_weights_type=" +
+          std::to_string(static_cast<int>(format.type)));
   }
 
   auto config =
@@ -303,7 +371,7 @@ void register_ukernel_config(UKernelConfigRegistrationTable &table,
 }
 
 // Not thread safe
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit>
 UKernelConfig select_ukernel_config(torchao::ops::PackedWeightsHeader header) {
   static UKernelConfigRegistrationTable table;
 
@@ -320,41 +388,84 @@ UKernelConfig select_ukernel_config(torchao::ops::PackedWeightsHeader header) {
   }
 
   auto format = PackedWeightsFormat::from_packed_weights_header(header);
-  register_ukernel_config<weight_nbit, has_weight_zeros>(table, format, uarch);
+  register_ukernel_config<weight_nbit>(table, format, uarch);
 
   ukernel = table.get_ukernel_config(header, uarch);
   assert(ukernel.has_value());
   return ukernel.value();
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit>
 UKernelConfig select_ukernel_config(PackedWeightsFormat format) {
-  return select_ukernel_config<weight_nbit, has_weight_zeros>(
-      format.to_packed_weights_header());
+  return select_ukernel_config<weight_nbit>(format.to_packed_weights_header());
 }
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias>
-PackedWeightsFormat
-select_packed_weights_format(std::optional<std::string> target = std::nullopt) {
+template <int weight_nbit>
+PackedWeightsFormat select_packed_weights_format(
+    std::optional<std::string> target,
+    bool has_weight_zeros,
+    bool has_bias) {
 // Select KleidiAI format
 #if defined(TORCHAO_ENABLE_KLEIDI)
-  if (!target || *target == "kleidi_ai") {
-    if constexpr (weight_nbit == 4 &&
-                  (!has_weight_zeros)) { // TODO: add has_bias here
+  if (!target || *target == "kleidiai") {
+    if (weight_nbit == 4 && (!has_weight_zeros)) {
+#if defined(TORCHAO_ENABLE_ARM_I8MM)
       return PackedWeightsFormat(
-          torchao::ops::PackedWeightsType::kleidi_ai, weight_nbit,
-          has_weight_zeros, /*has_bias*/ true, /*nr*/ 8, /*kr*/ 16, /*sr*/ 2);
+          torchao::ops::PackedWeightsType::kleidi_ai,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          /*nr*/ 8,
+          /*kr*/ 16,
+          /*sr*/ 2);
+#elif defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+      return PackedWeightsFormat(
+          torchao::ops::PackedWeightsType::kleidi_ai,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          /*nr*/ 8,
+          /*kr*/ 8,
+          /*sr*/ 2);
+#endif
     }
   }
 #endif // defined(TORCHAO_ENABLE_KLEIDI)
 
   // Select universal format
   if (!target || *target == "universal") {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     return PackedWeightsFormat(
         torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
-        weight_nbit, has_weight_zeros, has_bias, /*nr*/ 8, /*kr*/ 16, /*sr*/ 2);
+        weight_nbit,
+        has_weight_zeros,
+        has_bias,
+        /*nr*/ 8,
+        /*kr*/ 16,
+        /*sr*/ 2);
+#endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
   }
 
+  throw std::runtime_error("No packed_weights_format was selected");
+}
+
+template <int weight_nbit>
+PackedWeightsFormat select_packed_weights_with_lut_format(
+    std::optional<std::string> target,
+    bool has_weight_zeros,
+    bool has_bias) {
+  if (!target) {
+#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    return PackedWeightsFormat(
+        torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut,
+        weight_nbit,
+        has_weight_zeros,
+        has_bias,
+        /*nr*/ 8,
+        /*kr*/ 16,
+        /*sr*/ 2);
+#endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+  }
   throw std::runtime_error("No packed_weights_format was selected");
 }
 
