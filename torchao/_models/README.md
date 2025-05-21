@@ -1,6 +1,4 @@
-# TODO: Add info for _models here
-
-## Eval on Llama 3.1 8B and Llama 3.2 3B
+# Eval on Llama 3.1 8B and Llama 3.2 3B
 
 We use lm-eval tasks for evaluating TorchAO Quantization APIs on HuggingFace models. The results are in the table below:
 
