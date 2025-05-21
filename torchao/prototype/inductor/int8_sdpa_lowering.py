@@ -13,17 +13,17 @@ from torch._inductor.select_algorithm import (
 from .codegen.cpp_int8_sdpa_template import CppInt8SdpaTemplate
 
 op_int8_sdpa = ExternKernelChoice(
-    torch.ops.torchao.scaled_dot_product_int8.default,
-    "torchao::scaled_dot_product_int8",
+    torch.ops.torchao.qscaled_dot_product.default,
+    "torchao::qscaled_dot_product",
     has_out_variant=False,
     use_fallback_kernel=True,
-    op_overload=torch.ops.torchao.scaled_dot_product_int8.default,
+    op_overload=torch.ops.torchao.qscaled_dot_product.default,
 )
 
 
 def register_int8_sdpa():
     @register_lowering(
-        torch.ops.torchao.scaled_dot_product_int8.default, type_promotion_kind=None
+        torch.ops.torchao.qscaled_dot_product.default, type_promotion_kind=None
     )
     def int8_sdpa(
         query: TensorBox,
