@@ -181,6 +181,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.min_val,
             self.max_val,
             self.mapping_type,
+            [],
             self.target_dtype,
             self.quant_min,
             self.quant_max,

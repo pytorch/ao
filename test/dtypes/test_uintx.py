@@ -111,7 +111,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     mapping_type = MappingType.SYMMETRIC
     eps = torch.finfo(torch.float32).eps
     zero_point_dtype = torch.int32
-    # zero_point_domain is ZeroPointDomain.INT
     block_size = (1, group_size)
 
     scale, zero_point = choose_qparams_affine(

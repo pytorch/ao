@@ -254,7 +254,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        # zero_point_domain is ZeroPointDomain.FLOAT
+        # zero_point_domain is ZeroPointDomain.FLOAT  # TODO: clean up later
         assert len(block_size) == 2 and block_size[0] == 1
         dequantized = torch.ops.aten._weight_int4pack_mm_for_cpu(
             torch.eye(eye_shape, device=device, dtype=original_dtype),
