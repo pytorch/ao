@@ -90,7 +90,12 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.quantization.quant_primitives import dequantize_affine
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    dequantize_affine,
+    dequantize_affine_float_zero_point,
+    dequantize_affine_no_zero_point,
+)
 from torchao.utils import (
     fill_defaults,
 )
@@ -313,7 +318,14 @@ def _(func, types, args, kwargs):
     # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
     # we need to increase block size to correct dim
     new_blocks = idx.dim() - 1
-    return dequantize_affine(
+    if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = dequantize_affine_float_zero_point
+    elif args[1].zero_point_domain == ZeroPointDomain.NONE:
+        _dequantize_affine = dequantize_affine_no_zero_point
+    else:
+        _dequantize_affine = dequantize_affine
+
+    return _dequantize_affine(
         sliced_data,
         new_blocks * [1] + list(args[1].block_size),
         sliced_scale,
@@ -321,7 +333,6 @@ def _(func, types, args, kwargs):
         sliced_data.dtype,
         args[1].quant_min,
         args[1].quant_max,
-        args[1].zero_point_domain,
         output_dtype=sliced_scale.dtype,
     )
 
