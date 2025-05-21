@@ -428,12 +428,21 @@
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
     <span class="n">choose_qparams_affine</span><span class="p">,</span>
+    <span class="n">choose_qparams_affine_dont_preserve_zero</span><span class="p">,</span>
+    <span class="n">choose_qparams_affine_float8</span><span class="p">,</span>
     <span class="n">choose_qparams_affine_floatx</span><span class="p">,</span>
+    <span class="n">choose_qparams_affine_tinygemm</span><span class="p">,</span>
     <span class="n">choose_qparams_and_quantize_affine_hqq</span><span class="p">,</span>
     <span class="n">dequantize_affine</span><span class="p">,</span>
+    <span class="n">dequantize_affine_float8</span><span class="p">,</span>
+    <span class="n">dequantize_affine_float_zero_point</span><span class="p">,</span>
     <span class="n">dequantize_affine_floatx</span><span class="p">,</span>
+    <span class="n">dequantize_affine_no_zero_point</span><span class="p">,</span>
     <span class="n">quantize_affine</span><span class="p">,</span>
+    <span class="n">quantize_affine_float8</span><span class="p">,</span>
+    <span class="n">quantize_affine_float_zero_point</span><span class="p">,</span>
     <span class="n">quantize_affine_floatx</span><span class="p">,</span>
+    <span class="n">quantize_affine_no_zero_point</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
@@ -538,7 +547,7 @@
         <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">output_dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
 
-        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatxTensorCoreLayout</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.floatx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Layout</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayout</span>
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayout</span><span class="p">):</span>
             <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
@@ -549,19 +558,44 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="o">.</span><span class="n">mbits</span><span class="p">,</span>
                 <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
             <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">Float8Layout</span><span class="p">):</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">dequantize_affine_float8</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">output_dtype</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
-            <span class="n">dq</span> <span class="o">=</span> <span class="n">dequantize_affine</span><span class="p">(</span>
-                <span class="n">data</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
-                <span class="n">scale</span><span class="p">,</span>
-                <span class="n">zero_point</span><span class="p">,</span>
-                <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span>
-                <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
-            <span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">:</span>
+                <span class="n">dq</span> <span class="o">=</span> <span class="n">dequantize_affine_float_zero_point</span><span class="p">(</span>
+                    <span class="n">data</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+                <span class="n">dq</span> <span class="o">=</span> <span class="n">dequantize_affine_no_zero_point</span><span class="p">(</span>
+                    <span class="n">data</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dq</span> <span class="o">=</span> <span class="n">dequantize_affine</span><span class="p">(</span>
+                    <span class="n">data</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.uintx</span><span class="w"> </span><span class="kn">import</span> <span class="n">TensorCoreTiledLayout</span>
 
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span> <span class="n">TensorCoreTiledLayout</span><span class="p">):</span>
@@ -665,32 +699,74 @@
             <span class="p">)</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">choose_qparams_affine</span><span class="p">(</span>
-                <span class="n">input_float</span><span class="p">,</span>
-                <span class="n">mapping_type</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="p">,</span>
-                <span class="n">target_dtype</span><span class="p">,</span>
-                <span class="n">quant_min</span><span class="p">,</span>
-                <span class="n">quant_max</span><span class="p">,</span>
-                <span class="n">eps</span><span class="p">,</span>
-                <span class="n">scale_dtype</span><span class="p">,</span>
-                <span class="n">zero_point_dtype</span><span class="p">,</span>
-                <span class="n">preserve_zero</span><span class="p">,</span>
-                <span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">preserve_zero</span><span class="p">:</span>
+                <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">choose_qparams_affine_tinygemm</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">mapping_type</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">eps</span><span class="p">,</span>
+                    <span class="n">scale_dtype</span><span class="p">,</span>
+                    <span class="n">zero_point_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">preserve_zero</span><span class="p">:</span>
+                <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">choose_qparams_affine_dont_preserve_zero</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">mapping_type</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">eps</span><span class="p">,</span>
+                    <span class="n">scale_dtype</span><span class="p">,</span>
+                    <span class="n">zero_point_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>  <span class="c1"># Default case: zero_point_domain == ZeroPointDomain.INT/NONE and preserve_zero</span>
+                <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">choose_qparams_affine</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">mapping_type</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                    <span class="n">eps</span><span class="p">,</span>
+                    <span class="n">scale_dtype</span><span class="p">,</span>
+                    <span class="n">zero_point_dtype</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="c1"># choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None</span>
             <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
                 <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
-                <span class="n">input_float</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="p">,</span>
-                <span class="n">scale</span><span class="p">,</span>
-                <span class="n">zero_point</span><span class="p">,</span>
-                <span class="n">target_dtype</span><span class="p">,</span>
-                <span class="n">quant_min</span><span class="p">,</span>
-                <span class="n">quant_max</span><span class="p">,</span>
-                <span class="n">zero_point_domain</span><span class="p">,</span>
-            <span class="p">)</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine_no_zero_point</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine_float_zero_point</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
+                    <span class="n">input_float</span><span class="p">,</span>
+                    <span class="n">block_size</span><span class="p">,</span>
+                    <span class="n">scale</span><span class="p">,</span>
+                    <span class="n">zero_point</span><span class="p">,</span>
+                    <span class="n">target_dtype</span><span class="p">,</span>
+                    <span class="n">quant_min</span><span class="p">,</span>
+                    <span class="n">quant_max</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="c1"># Note: output will be uint8 tensor for sub byte tensors for now</span>
 
         <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
@@ -726,25 +802,42 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span> <span class="ow">and</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;zero_point should be None when zero_point_domain is NONE&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
-                <span class="s2">&quot;zero_point must be specified for non-fp8 types&quot;</span>
-            <span class="p">)</span>
         <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process_static</span><span class="p">(</span>
             <span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">block_size</span>
         <span class="p">)</span>
 
-        <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
-            <span class="n">input_float</span><span class="p">,</span>
-            <span class="n">block_size</span><span class="p">,</span>
-            <span class="n">scale</span><span class="p">,</span>
-            <span class="n">zero_point</span><span class="p">,</span>
-            <span class="n">target_dtype</span><span class="p">,</span>
-            <span class="n">quant_min</span><span class="p">,</span>
-            <span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">zero_point_domain</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+            <span class="n">zero_point</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine_no_zero_point</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">quant_min</span><span class="p">,</span>
+                <span class="n">quant_max</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">:</span>
+            <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine_float_zero_point</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">quant_min</span><span class="p">,</span>
+                <span class="n">quant_max</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">quant_min</span><span class="p">,</span>
+                <span class="n">quant_max</span><span class="p">,</span>
+            <span class="p">)</span>
 
         <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
             <span class="n">int_data</span><span class="p">,</span>
@@ -776,20 +869,22 @@
     <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a high precision tensor to a float8 quantized tensor.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_hp_to_intx</span><span class="p">(</span>
-                <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
-                <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
-                <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
-                <span class="n">quant_min</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
-                <span class="n">quant_max</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
-                <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
-                <span class="n">scale_dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">,</span>
-                <span class="n">zero_point_dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                <span class="n">preserve_zero</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-                <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
-                <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
+            <span class="n">input_float</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
+
+            <span class="n">scale</span> <span class="o">=</span> <span class="n">choose_qparams_affine_float8</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine_float8</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">)</span>
+
+            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+                <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">block_size</span>
+            <span class="p">)</span>
+            <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
+            <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+                <span class="n">tensor_impl</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">original_shape</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
@@ -804,19 +899,36 @@
         <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
         <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="n">_layout</span><span class="p">:</span> <span class="n">Layout</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
     <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_hp_to_intx_static</span><span class="p">(</span>
-                <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
-                <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
-                <span class="n">zero_point</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
-                <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
-                <span class="n">quant_min</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
-                <span class="n">quant_max</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
-                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-                <span class="n">_layout</span><span class="o">=</span><span class="n">_layout</span><span class="p">,</span>
+            <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
+            <span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process_static</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span> <span class="n">block_size</span>
+            <span class="p">)</span>
+
+            <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine_float8</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span>
+                <span class="n">scale</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">scale_dtype</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
+                <span class="n">data</span><span class="p">,</span>
+                <span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_layout</span><span class="p">))</span>
+            <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">_layout</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+                <span class="n">tensor_impl</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="p">,</span>
+                <span class="n">original_shape</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
