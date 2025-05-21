@@ -873,7 +873,9 @@ def _choose_qparams_affine(
             f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
         )
 
+    scale_device = None
     if input is not None:
+        scale_device = input.device
         if scale_dtype is None:
             scale_dtype = input.dtype
         if eps is None:
@@ -901,6 +903,8 @@ def _choose_qparams_affine(
             scale_dtype = min_val.dtype
         if eps is None:
             eps = torch.finfo(min_val.dtype).eps
+
+        scale_device = min_val.device
 
     if preserve_zero:
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
@@ -948,7 +952,9 @@ def _choose_qparams_affine(
         scale = torch.clamp(scale, min=eps)
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        scale = (max_val_pos - min_val_neg) / torch.tensor(
+            float(quant_max - quant_min), dtype=scale_dtype, device=scale_device
+        )
         scale = torch.clamp(scale, min=eps)
         if zero_point_domain == ZeroPointDomain.NONE.name:
             zero_point = None
