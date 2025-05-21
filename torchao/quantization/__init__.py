@@ -15,10 +15,8 @@ from .autoquant import (
 )
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
-    Int4WeightOnlyQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightLinear,
-    Int8DynActInt4WeightQuantizer,
+    MultiTensor,
+    MultiTensorInputRecorder,
 )
 from .granularity import (
     PerAxis,
@@ -33,6 +31,11 @@ from .linear_activation_quantized_tensor import (
 )
 from .linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
+)
+from .linear_quant_modules import (
+    Int4WeightOnlyQuantizer,
+    Int8DynActInt4WeightLinear,
+    Int8DynActInt4WeightQuantizer,
 )
 from .observer import (
     AffineQuantizedMinMaxObserver,
@@ -191,9 +194,7 @@ __all__ = [
     "PerRow",
     "PerToken",
     "LinearActivationQuantizedTensor",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
     "WeightOnlyInt8QuantLinear",
@@ -204,4 +205,8 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
+    # GPTQ
+    "Int4WeightOnlyGPTQQuantizer",
+    "MultiTensor",
+    "MultiTensorInputRecorder",
 ]
