@@ -181,7 +181,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.min_val,
             self.max_val,
             self.mapping_type,
-            [],
+            [],  # BlockSize is not needed because the min/max are already reduced
             self.target_dtype,
             self.quant_min,
             self.quant_max,
