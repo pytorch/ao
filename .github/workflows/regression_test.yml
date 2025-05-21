@@ -44,6 +44,7 @@ jobs:
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
+      docker-image: "pytorch/almalinux-builder:cpu-a1d2e6e4486a9b57f5f9f848ef38902f960adbc9"
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
@@ -104,6 +105,7 @@ jobs:
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
+      docker-image: "pytorch/almalinux-builder:cpu-a1d2e6e4486a9b57f5f9f848ef38902f960adbc9"
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
