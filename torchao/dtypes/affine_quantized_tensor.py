@@ -456,6 +456,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         _layout: Layout,
+        scale_dtype: Optional[torch.dtype] = None,
     ):
         """Convert a high precision tensor to a float8 quantized tensor."""
         if target_dtype in FP8_TYPES:
@@ -489,6 +490,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         _layout: Layout,
+        scale_dtype: torch.dtype = torch.float32,
     ):
         """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
         if target_dtype in FP8_TYPES:
@@ -501,6 +503,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 input_float,
                 scale,
                 target_dtype,
+                scale_dtype,
             )
 
             data, scale, zero_point = _layout.post_process(

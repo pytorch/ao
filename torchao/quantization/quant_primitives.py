@@ -1969,6 +1969,7 @@ def dequantize_affine_floatx(
 def choose_qparams_affine_float8(
     tensor: torch.Tensor,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
+    scale_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
     Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.
@@ -1983,7 +1984,7 @@ def choose_qparams_affine_float8(
     max_val_pos = torch.max(tensor)
     max_val_pos = torch.max(-min_val_neg, max_val_pos)
     scale = max_val_pos / (float(quant_max - quant_min) / 2)
-    return scale.to(dtype=torch.float32)
+    return scale.to(dtype=scale_dtype)
 
 
 def quantize_affine_float8(
