@@ -20,7 +20,6 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
-    AOPerModuleConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -30,6 +29,7 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    ModuleFqnToConfig,
     PerRow,
     UIntXWeightOnlyConfig,
 )
@@ -68,9 +68,9 @@ configs = [
     # Sparsity configs
     SemiSparseWeightConfig(),
     BlockSparseWeightConfig(blocksize=128),
-    AOPerModuleConfig({}),
-    AOPerModuleConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
-    AOPerModuleConfig(
+    ModuleFqnToConfig({}),
+    ModuleFqnToConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
+    ModuleFqnToConfig(
         {
             "linear1": Int4WeightOnlyConfig(),
             "linear2": Int8DynamicActivationInt4WeightConfig(),
