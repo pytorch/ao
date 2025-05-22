@@ -47,11 +47,12 @@ jobs:
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
+        conda list
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        pytest test --verbose -s
+        pytest test --debug -s
   test:
     strategy:
       fail-fast: false
@@ -106,11 +107,11 @@ jobs:
         conda create -n venv python=3.9 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
-        dnf install -y gcc-toolset-10-binutils
-        export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
+        # dnf install -y gcc-toolset-10-binutils
+        # export PATH=/opt/rh/gcc-toolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
         pip install -r dev-requirements.txt
         pip install .
-        pytest test --verbose -s
+        pytest test --debug -s
