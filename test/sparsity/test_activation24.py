@@ -143,7 +143,6 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
 
 
-
 def test_splitk_sparse_gemv():
     torch.manual_seed(0)
 
@@ -156,23 +155,5 @@ def test_splitk_sparse_gemv():
     sparse_res = torch.ops.torchao.splitk_sparse_gemv(activation, weight_transposed)
     dense_res = F.linear(activation, weight_transposed)
 
-    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output. 
-    torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
-
-
-def test_splitk_sparse_gemv_fp8():
-
-    torch.nn.Linear()
-    torch.manual_seed(0)
-
-    activation = create_binary_tensor((1, 1, 4096), 0.2).cuda().to(torch.float16)
-    weight = torch.randn(16384, 4096, dtype=torch.float16).cuda()
-
-    # weight must be column major
-    weight_transposed = weight.T.contiguous().T
-
-    sparse_res = torch.ops.torchao.splitk_sparse_gemv(activation, weight_transposed)
-    dense_res = F.linear(activation, weight_transposed)
-
-    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output. 
+    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output.
     torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
