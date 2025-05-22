@@ -161,7 +161,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 # TODO: we could add an API for this if there are more use cases
                 # (e.g. dequant_post_process) in TensorImpl or Layout
                 for dim, dim_size in enumerate(self.shape):
-                    print("dq shape:", dq.shape)
                     dq = dq.narrow(dim, 0, dim_size)
             return dq
 
