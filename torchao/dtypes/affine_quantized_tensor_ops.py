@@ -235,8 +235,8 @@ def _register_aqt_quantized_linear_dispatches():
             _linear_q_dq_impl,
         ),
         (
-            _linear_bf16_act_uint4_weight_int8_zero_check,
-            _linear_bf16_act_uint4_weight_int8_zero_impl,
+            _linear_fp_act_uint4_weight_int8_zero_check,
+            _linear_fp_act_uint4_weight_int8_zero_impl,
         ),
         (
             _linear_bf16_act_uint4_weight_float_zero_check,
