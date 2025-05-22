@@ -4,6 +4,12 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/library.h>
 
+#if defined(TORCHAO_USE_CUTLASS) && !defined(_WIN32) &&                   \
+    defined(CUDA_VERSION) && (CUDA_VERSION >= 12020)
+#define BUILD_SM90_24_FP8_CUTLASS_GEMM
+#endif
+
+#if defined(BUILD_SM90_24_FP8_CUTLASS_GEMM)
 #include <cute/algorithm/functional.hpp>
 #include <cutlass/gemm/device/gemm_universal_adapter.h>
 #include <cutlass/util/packed_stride.hpp>
@@ -342,3 +348,4 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
       TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
       TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<true>));
 }
+#endif
