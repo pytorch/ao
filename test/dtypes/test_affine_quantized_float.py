@@ -300,13 +300,18 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     def test_mm_float8dq(self):
         device = "cuda"
         dtype = torch.bfloat16
-        l = torch.nn.Linear(1024, 512).to(device).to(dtype)
+        weight = torch.randn(512, 1024).to(device).to(dtype)
+        weight = weight.t()
+
+        l = torch.nn.Linear(512, 1024).to(device).to(dtype)
+        l.weight = torch.nn.Parameter(weight)
         quantize_(l, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
-        # weight shape: (512, 1024)
+        # weight shape: 1024 x 512
         weight = l.weight
+
         input = torch.randn(1, 512, device=device, dtype=dtype)
         # make sure it runs
-        torch.mm(input, weight)
+        torch.nn.functional.linear(input, weight)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

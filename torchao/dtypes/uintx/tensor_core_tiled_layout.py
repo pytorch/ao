@@ -16,12 +16,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import (
-    AQTTensorImpl,
-    Layout,
-    QuantizedLinearNotImplementedError,
-    is_device,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
@@ -73,16 +68,13 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
-    if weight_tensor.block_size[0] != 1:
-        raise QuantizedLinearNotImplementedError(
-            f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
-        )
-
-    if input_tensor.shape[-1] != weight_tensor.shape[1]:
-        raise QuantizedLinearNotImplementedError(
-            f"need input_tensor shape: {input_tensor.shape} final"
-            f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
-        )
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
+    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+        f"need input_tensor shape: {input_tensor.shape} final"
+        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+    )
 
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py

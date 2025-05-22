@@ -90,7 +90,6 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.dtypes.utils import QuantizedLinearNotImplementedError
 from torchao.quantization.quant_primitives import dequantize_affine
 from torchao.utils import (
     fill_defaults,
@@ -150,6 +149,12 @@ def _same_metadata(self: AffineQuantizedTensor, src: AffineQuantizedTensor):
         )
         and isinstance(self.tensor_impl, type(src.tensor_impl))
     )
+
+
+class QuantizedLinearNotImplementedError(NotImplementedError):
+    """Thin wrapper around NotImplementedError to make it easier to catch this error in the dispatch table"""
+
+    pass
 
 
 # input_tensor: dimension is (M1, M2, ..., in_features)

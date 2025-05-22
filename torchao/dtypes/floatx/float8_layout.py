@@ -16,12 +16,7 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import (
-    AQTTensorImpl,
-    Layout,
-    QuantizedLinearNotImplementedError,
-    get_out_shape,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.float8.inference import (
     Float8MMConfig,
     _is_rowwise_scaled,
@@ -324,16 +319,12 @@ def _linear_fp8_act_fp8_weight_impl(
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
     scaled_mm_config = weight_tensor._layout.mm_config
-    if scaled_mm_config is None:
-        raise QuantizedLinearNotImplementedError("scaled_mm_config must not be None")
-
+    assert scaled_mm_config is not None
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
     # Weight tensor preprocessing
     w_tensor_impl = weight_tensor.tensor_impl
-    if w_tensor_impl.transposed:
-        raise QuantizedLinearNotImplementedError("Weight tensor must not be transposed")
-
+    assert not w_tensor_impl.transposed, "Weight tensor must be contiguous"
     w_data = w_tensor_impl.float8_data
     w_scale = w_tensor_impl.scale
 
