@@ -1,93 +1,82 @@
 # torchao: PyTorch Architecture Optimization
 
-[![](https://dcbadge.vercel.app/api/server/gpumode?style=flat)](https://discord.gg/gpumode)
+[![](https://dcbadge.vercel.app/api/server/gpumode?style=flat&label=TorchAO%20in%20GPU%20Mode)](https://discord.com/channels/1189498204333543425/1205223658021458100)
 
-[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Composability](#composability) | [Custom Kernels](#custom-kernels) | [Alpha Features](#alpha-features) | [Installation](#installation) | [Integrations](#integrations) | [Videos](#videos) | [License](#license) | [Citation](#citation)
+
+[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Installation](#installation) |[Composability](#composability) | [Prototype Features](#prototype-features)  | [Integrations](#integrations) | [Videos](#videos) | [For Developers](#for-developers) | [License](#license) | [Citation](#citation)
 
 ## Introduction
 
-torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training.
+`torchao` accelerates PyTorch models with minimal code changes through advanced quantization and sparsification techniques. Optimize weights, gradients, activations, and more for both inference and training.
 
 From the team that brought you the fast series
 * 9.5x inference speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
 * 10x inference speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
 * 3x inference speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
-torchao works for training too, with [up to 1.5x e2e speedups](https://pytorch.org/blog/training-using-float8-fsdp2/) on large scale (512 GPU / 405B parameter count) pretraining jobs with `torchao.float8`!
+`torchao` isn't just for inference - it delivers substantial speedups at scale, from [up to 1.5x speedups](https://pytorch.org/blog/training-using-float8-fsdp2/) on 512 GPU clusters, to [1.34-1.43x speedups](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/) on 2K H200 clusters with the latest `torchao.float8` rowwise
 
-torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models on Huggingface out of the box.
+`torchao` works out-of-the-box with `torch.compile()` and `FSDP2` across most Hugging Face PyTorch models
+
 
 ## Inference
 
-### Post Training Quantization
+`torchao` delivers substantial performance gains with minimal code changes:
 
-Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model.
+### Performance Highlights
 
-There are 2 methods of post-training quantization, shown in the code snippets below:
-1. Using torchao APIs directly.
-2. Loading a huggingface model with a quantization config.
+- **INT4 Weight-Only Quantization**: 2x throughput (180 vs 107 tokens/sec) with 60% less memory (6.88 GB vs 16.43 GB) on LLaMA-3-7B
+- **Float8 Dynamic Quantization**: 53.88% speedup on Flux.1-Dev* and 27.33% speedup on CogVideoX-5b on H100 GPU with preserved quality
+- **INT4 + 2:4 Sparsity**: 2.4x throughput (226 vs 95 tokens/sec) with 80% memory reduction (5.3GB vs 16.4GB) on LLaMA-3-8B
 
-#### Quantizing for inference with torchao APIs
+[View detailed benchmarks](torchao/quantization/README.md) |  [Learn about sparsity](torchao/sparsity/README.md)
+
+### Getting Started with Quantization
+
+Quantize any model with `nn.Linear` layers (including HuggingFace models) in just one line:
+
+#### Option 1: Direct TorchAO API
+
 ```python
-from torchao.quantization.quant_api import (
-    quantize_,
-    Int8DynamicActivationInt8WeightConfig,
-    Int4WeightOnlyConfig,
-    Int8WeightOnlyConfig
+from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
+quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+```
+
+#### Option 2: HuggingFace Integration
+
+```python
+from transformers import TorchAoConfig, AutoModelForCausalLM
+from torchao.quantization.quant_api import Int4WeightOnlyConfig
+
+# Create quantization configuration
+quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+
+# Load and automatically quantize
+quantized_model = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Phi-4-mini-instruct",
+    torch_dtype="auto",
+    device_map="auto",
+    quantization_config=quantization_config
 )
-quantize_(m, Int4WeightOnlyConfig())
 ```
 
-You can find a more comprehensive usage instructions for quantization [here](torchao/quantization/) and for sparsity [here](/torchao/_models/sam/README.md).
+### Deployment with vLLM
 
-#### Quantizing for inference with huggingface configs
+Deploy quantized models with one command:
 
-See [docs](https://huggingface.co/docs/transformers/main/en/quantization/torchao) for more details.
-
-For inference, we have the option of
-1. Quantize only the weights: works best for memory bound models
-2. Quantize the weights and activations: works best for compute bound models
-2. Quantize the activations and weights and sparsify the weight
-
-For gpt-fast `Int4WeightOnlyConfig()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
-
-If you don't have enough VRAM to quantize your entire model on GPU and you find CPU quantization to be too slow then you can use the device argument like so `quantize_(model, Int8WeightOnlyConfig(), device="cuda")` which will send and quantize each layer individually to your GPU.
-
-If you see slowdowns with any of these techniques or you're unsure which option to use, consider using [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers and pick the best way to quantize each layer.
-
-```python
-model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+```shell
+vllm serve pytorch/Phi-4-mini-instruct-int4wo-hqq --tokenizer microsoft/Phi-4-mini-instruct -O3
 ```
 
-We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
+**Benefits**: 67% VRAM reduction and 12-20% speedup on A100 GPUs while maintaining quality.
 
-### Evaluation
-
-You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
-quantized with post training quantization, by following these steps:
-
-1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
-2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
-3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
-4. Run an evaluation. Example:
-
-```bash
-lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
-```
-
-Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
-
-### KV Cache Quantization
-
-We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
-
-In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](torchao/_models/llama/README.md)
+[Step-by-step quantization guide](https://huggingface.co/pytorch/Phi-4-mini-instruct-int4wo-hqq#quantization-recipe) | [Pre-quantized models](https://huggingface.co/pytorch)
 
 ## Training
 
 ### Quantization Aware Training
 
-Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/). For more details, please see the [QAT README](./torchao/quantization/qat/README.md).
+Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with [Torchtune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/). For more details, please see the [QAT README](./torchao/quantization/qat/README.md).
 
 ```python
 from torchao.quantization import (
@@ -117,7 +106,7 @@ quantize_(my_model, Int8DynamicActivationInt4WeightConfig(group_size=32))
 
 ### Float8
 
-[torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
+[torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433
 
 With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on up to 512 GPU / 405B parameter count scale** ([details](https://pytorch.org/blog/training-using-float8-fsdp2/))
 
@@ -142,89 +131,88 @@ We've added support for semi-structured 2:4 sparsity with **6% end-to-end speedu
 The code change is a 1 liner with the full example available [here](torchao/sparsity/training/)
 
 ```python
+from torchao.sparsity.training import SemiSparseLinear, swap_linear_with_semi_sparse_linear
+
 swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
 ```
 
 ### Memory-efficient optimizers
 
-ADAM takes 2x as much memory as the model params so we can quantize the optimizer state to either 8 or 4 bit effectively reducing the optimizer VRAM requirements by 2x or 4x respectively over an fp16 baseline
+Optimizers like ADAM can consume substantial GPU memory - 2x as much as the model parameters themselves. TorchAO provides two approaches to reduce this overhead:
+
+1. **Quantized optimizers**: Reduce optimizer state memory by 2-4x by quantizing to lower precision
+
 
 ```python
 from torchao.optim import AdamW8bit, AdamW4bit, AdamWFp8
 optim = AdamW8bit(model.parameters()) # replace with Adam4bit and AdamFp8 for the 4 / fp8 versions
 ```
+Our quantized optimizers are implemented in just a few hundred lines of PyTorch code and compiled for efficiency. While slightly slower than specialized kernels, they offer an excellent balance of memory savings and performance. See detailed [benchmarks here](https://github.com/pytorch/ao/tree/main/torchao/optim).
 
-In practice, we are a tiny bit slower than expertly written kernels but the implementations for these optimizers were written in a **few hundred lines of PyTorch code** and compiled so please use them or copy-paste them for your quantized optimizers. Benchmarks [here](https://github.com/pytorch/ao/tree/main/torchao/optim)
+2. **CPU offloading**: Move optimizer state and gradients to CPU memory
 
-We also have support for [single GPU CPU offloading](https://github.com/pytorch/ao/tree/main/torchao/optim#optimizer-cpu-offload) where both the gradients (same size as weights) and the optimizers will be efficiently sent to the CPU. This alone can **reduce your VRAM requirements by 60%**
+For maximum memory savings, we support [single GPU CPU offloading](https://github.com/pytorch/ao/tree/main/torchao/optim#optimizer-cpu-offload) that efficiently moves both gradients and optimizer state to CPU memory. This approach can **reduce your VRAM requirements by 60%** with minimal impact on training speed:
 
 ```python
 optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
 optim.load_state_dict(ckpt["optim"])
 ```
 
-## Composability
-
-1. `torch.compile`: A key design principle for us is composability as in any new dtype or layout we provide needs to work with our compiler. It shouldn't matter if the kernels are written in pure PyTorch, CUDA, C++, or Triton - things should just work! So we write the dtype, layout, or bit packing logic in pure PyTorch and code-generate efficient kernels.
-3. [FSDP2](https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md): Historically most quantization has been done for inference, there is now a thriving area of research combining distributed algorithms and quantization.
-
-The best example we have combining the composability of lower bit dtype with compile and fsdp is [NF4](torchao/dtypes/nf4tensor.py) which we used to implement the [QLoRA](https://www.youtube.com/watch?v=UvRl4ansfCg) algorithm. So if you're doing research at the intersection of this area we'd love to hear from you.
-
-## Custom Kernels
-
-We've added support for authoring and releasing [custom ops](./torchao/csrc/) that do not graph break with `torch.compile()` so if you love writing kernels but hate packaging them so they work all operating systems and cuda versions, we'd love to accept contributions for your custom ops. We have a few examples you can follow
-
-1. [fp6](torchao/dtypes/floatx) for 2x faster inference over fp16 with an easy to use API `quantize_(model, FPXWeightOnlyConfig(3, 2))`
-2. [2:4 Sparse Marlin GEMM](https://github.com/pytorch/ao/pull/733) 2x speedups for FP16xINT4 kernels even at batch sizes up to 256
-3. [int4 tinygemm unpacker](https://github.com/pytorch/ao/pull/415) which makes it easier to switch quantized backends for inference
-
-If you believe there's other CUDA kernels we should be taking a closer look at please leave a comment on [this issue](https://github.com/pytorch/ao/issues/697)
-
-
-## Alpha features
-
-Things we're excited about but need more time to cook in the oven
-
-1. [MX](torchao/prototype/mx_formats) training and inference support with tensors using the [OCP MX spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) data types, which can be described as groupwise scaled float8/float6/float4/int8, with the scales being constrained to powers of two. This work is prototype as the hardware support is not available yet.
-2. [Int8 Quantized Training](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training): We're trying out full int8 training. This is easy to use with `quantize_(model, int8_weight_only_quantized_training())`. This work is prototype as the memory benchmarks are not compelling yet.
-3. [IntX](https://github.com/pytorch/ao/tree/main/torchao/dtypes/uintx): We've managed to support all the ints by doing some clever bitpacking in pure PyTorch and then compiling it. This work is prototype as unfortunately without some more investment in either the compiler or low-bit kernels, int4 is more compelling than any smaller dtype
-4. [Bitnet](https://github.com/pytorch/ao/blob/main/torchao/prototype/dtypes/bitnet.py): Mostly this is very cool to people on the team. This is prototype because how useful these kernels are is highly dependent on better hardware and kernel support.
-
 ## Installation
 
-`torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
+`torchao` makes liberal use of several new features in PyTorch, it's recommended to use it with the current nightly or latest stable version of PyTorch, see [getting started](https://pytorch.org/get-started/locally/) for more details.
 
-Stable release from Pypi which will default to CUDA 12.4
-
-```Shell
+Install the stable release (recommended):
+```bash
 pip install torchao
 ```
 
-Stable Release from the PyTorch index
-```Shell
-pip install torchao --extra-index-url https://download.pytorch.org/whl/cu124 # full options are cpu/cu118/cu124/cu126
+Other options:
+```bash
+# Nightly build
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu124
+
+# Different CUDA versions
+pip install torchao --index-url https://download.pytorch.org/whl/cu118  # CUDA 11.8
+pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
+
 ```
 
-Nightly Release
-```Shell
-pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126 # full options are cpu/cu118/cu126/cu128
+### Development Install
+```
+USE_CPP=0 python setup.py develop  # Skip C++/CUDA extensions
 ```
 
-For *most* developers you probably want to skip building custom C++/CUDA extensions for faster iteration
+## Composability
+`torch.compile`: A key design principle for us is composability - any custom dtype or memory layout should work with our compiler. We enable kernel implementations in PyTorch, CUDA, C++, or Triton. This allows researchers and engineers to start with high-level dtype and layout logic in pure PyTorch, then progressively optimize performance by implementing lower-level kernels as needed, while maintaining compatibility with the compile infrastructure.
 
-```Shell
-USE_CPP=0 pip install -e .
-```
+[FSDP2](https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md): Historically most quantization has been done for inference, there is now a thriving area of research combining distributed algorithms and quantization.
+
+The best example we have combining the composability of lower bit dtype with compile and fsdp is [NF4](torchao/dtypes/nf4tensor.py) which we used to implement the [QLoRA](https://www.youtube.com/watch?v=UvRl4ansfCg) algorithm. So if you're doing research at the intersection of this area we'd love to hear from you.
+
+Our framework makes it straightforward to add tensor parallel support to your custom quantized tensor subclass. Check out our [tensor parallel tutorial](tutorials/developer_api_guide/tensor_parallel.py) to see how a quantized tensor subclass can be extended to support column and row-wise tensor sharding while maintaining compatibility with `torch.compile`.
+
+## Prototype Features
+
+The [prototype](torchao/prototype/README.md) directory contains experimental and upcoming features including:
+
+- [MX Training & Inference](torchao/prototype/mx_formats/README.md): MX formats with a native PyTorch POC
+- [Int8 Quantized Training](torchao/prototype/quantized_training/README.md): Low-precision training methods
+- And more experimental features in development
+
+These features are under active development and may change. We welcome contributions from researchers and developers!
+
+> ⚠️ Note: Features in the prototype directory do not have BC guarantees and are subject to change.
 
 ## OSS Integrations
 
 We're also fortunate to be integrated into some of the leading open-source libraries including
 1. Hugging Face transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
-2. Hugging Face diffusers best practices with torch.compile and torchao in a standalone repo [diffusers-torchao](https://github.com/sayakpaul/diffusers-torchao)
+2. Hugging Face diffusers best practices with torch.compile and torchao in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
 3. Mobius HQQ backend leveraged our int4 kernels to get [195 tok/s on a 4090](https://github.com/mobiusml/hqq#faster-inference)
-4. [TorchTune](https://github.com/pytorch/torchtune) for our QLoRA and QAT recipes
-5. [torchchat](https://github.com/pytorch/torchchat) for post training quantization
-6. SGLang for LLM serving: [usage](https://github.com/sgl-project/sglang/blob/4f2ee48ed1c66ee0e189daa4120581de324ee814/docs/backend/backend.md?plain=1#L83) and the major [PR](https://github.com/sgl-project/sglang/pull/1341).
+4. [TorchTune](https://pytorch.org/torchtune/main/tutorials/qlora_finetune.html?highlight=qlora) for our QLoRA and QAT recipes
+5. VLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html)
+6. SGLang for LLM serving: [usage](https://docs.sglang.ai/backend/server_arguments.html#server-arguments) and the major [PR](https://github.com/sgl-project/sglang/pull/1341).
 
 ## Videos
 * [Keynote talk at GPU MODE IRL](https://youtu.be/FH5wiwOyPX4?si=VZK22hHz25GRzBG1&t=1009)
@@ -233,6 +221,19 @@ We're also fortunate to be integrated into some of the leading open-source libra
 * [Advanced Quantization at CUDA MODE](https://youtu.be/1u9xUK3G4VM?si=4JcPlw2w8chPXW8J)
 * [Chip Huyen's GPU Optimization Workshop](https://www.youtube.com/live/v_q2JTIqE20?si=mf7HeZ63rS-uYpS6)
 * [Cohere for AI community talk](https://www.youtube.com/watch?v=lVgrE36ZUw0)
+
+
+## For Developers
+
+### Custom Kernels
+
+We've added support for authoring and releasing [custom ops](./torchao/csrc/) that do not graph break with `torch.compile()`. We have a few examples you can follow
+
+1. [fp6](torchao/dtypes/floatx/README.md) for 2x faster inference over fp16 with an easy to use API `quantize_(model, fpx_weight_only(3, 2))`
+2. [2:4 Sparse Marlin GEMM](https://github.com/pytorch/ao/pull/733) 2x speedups for FP16xINT4 kernels even at batch sizes up to 256
+3. [int4 tinygemm unpacker](https://github.com/pytorch/ao/pull/415) which makes it easier to switch quantized backends for inference
+
+If you believe there's other CUDA kernels we should be taking a closer look at please leave a comment on [this issue](https://github.com/pytorch/ao/issues/697) or feel free to contribute directly to the repo.
 
 
 ## License
