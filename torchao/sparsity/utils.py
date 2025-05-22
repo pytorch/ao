@@ -50,11 +50,11 @@ def create_semi_structured_tensor(r, c, dtype):
 def create_binary_tensor(shape, percent_zeros):
     """
     Creates a PyTorch tensor with a specific percentage of zeros and ones.
-    
+
     Args:
         shape (tuple): The shape of the tensor to create
         percent_zeros (float): Percentage of zeros in the tensor (between 0 and 1)
-    
+
     Returns:
         torch.Tensor: A tensor with specified percentage of zeros and ones
     """

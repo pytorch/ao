@@ -3,9 +3,9 @@ This code is adapted from https://github.com/FasterDecoding/TEAL/blob/main/kerne
 
 Since we already have sparse activations from ReLU, we can get rid of the thresholding step and just use the sparse tensor directly.
 """
+
 import sys
 import warnings
-from typing import Optional
 
 import torch
 import triton
@@ -16,8 +16,8 @@ if not sys.warnoptions:
     # to suppress repeated warnings when being used in a training loop.
     warnings.simplefilter("once")
 
-configs=[
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2), 
+configs = [
+    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=2),
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4),
     triton.Config({"BLOCK_M": 8, "BLOCK_N": 128}, num_warps=2),
     triton.Config({"BLOCK_M": 16, "BLOCK_N": 256}, num_warps=4),
@@ -33,13 +33,13 @@ configs=[
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 512}, num_warps=4),
     triton.Config({"BLOCK_M": 32, "BLOCK_N": 512}, num_warps=4),
     triton.Config({"BLOCK_M": 16, "BLOCK_N": 512}, num_warps=4),
-
     # # Llama 3 variants can use BLOCK_N >= 1024
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 1024}, num_warps=4),
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 1024}, num_warps=4),
     triton.Config({"BLOCK_M": 32, "BLOCK_N": 1024}, num_warps=4),
     triton.Config({"BLOCK_M": 16, "BLOCK_N": 1024}, num_warps=4),
 ]
+
 
 @triton.autotune(
     configs=configs,
@@ -48,38 +48,45 @@ configs=[
 )
 @triton.jit
 def splitk_sparse_gemv_kernel(
-    Y, # Pointers to matrices
-    A, X,
+    Y,  # Pointers to matrices
+    A,
+    X,
     # Matrix dimensions
-    N, M,
-    CACHE_KEY_N, CACHE_KEY_M,
+    N,
+    M,
+    CACHE_KEY_N,
+    CACHE_KEY_M,
     # Meta-parameters
-    BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_M: tl.constexpr,
 ):
     start_n = tl.program_id(0)
     start_m = tl.program_id(1)
     # now compute the block that each program will go through
     # rn (resp. rm) denotes a range of indices for rows (resp. col) of A
-    
+
     rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
     rm = start_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    
+
     A_ptr = A + (rm[:, None] * N + rn[None, :])
     X_ptr = X + rm
     Y_ptr = Y + rn
-    
+
     # eviction policy go brrr
-    x0 = tl.load(X_ptr, mask=rm < M, other=0.0, eviction_policy='evict_last') # reuse x across threadblocks
-    idx = (x0 != 0.0)
+    x0 = tl.load(
+        X_ptr, mask=rm < M, other=0.0, eviction_policy="evict_last"
+    )  # reuse x across threadblocks
+    idx = x0 != 0.0
     # selectively load weight rows
-    a = tl.load(A_ptr, mask=idx[:, None], other=0.0, eviction_policy='evict_first') # only load weights once per threadblock
+    a = tl.load(
+        A_ptr, mask=idx[:, None], other=0.0, eviction_policy="evict_first"
+    )  # only load weights once per threadblock
     acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], axis=0)
 
     # rematerialize rm and rn to save registers
     rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
     # TODO atomic add supports bfloat16 in latest triton, we should update to that
     tl.atomic_add(Y_ptr, acc0, mask=rn < N)
-
 
 
 # NOTE: assumes that weight is column major
@@ -98,7 +105,7 @@ def splitk_sparse_gemv(
     seq_len, _ = x.shape
     assert x.shape[-1] == Z
     assert x.is_contiguous()
-    
+
     assert weight.stride(1) > 1, "weight should be column major"
 
     # 1D launch kernel where each block gets its own program.
@@ -113,7 +120,6 @@ def splitk_sparse_gemv(
         device=x.device,
         dtype=torch.float16,
     )
-
 
     kernel = wrap_triton(splitk_sparse_gemv_kernel)
     kernel[grid](
