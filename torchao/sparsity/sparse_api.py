@@ -24,6 +24,24 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.sparsity.blocksparse import BlockSparseTensor
+from dataclasses import dataclass
+
+import torch
+from torch import nn
+
+from torchao.core.config import AOBaseConfig
+from torchao.ops import (
+    rowwise_scaled_linear_sparse_cutlass_f8f8,
+)
+from torchao.quantization.quant_api import (
+    _float8_cutlass_quant,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
+
+from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 
 # Sparsity helper functions
@@ -134,3 +152,139 @@ def sparsify_(
         _is_linear if filter_fn is None else filter_fn,
         extra_args=(config,),
     )
+
+
+from torchao.utils import TorchAOBaseTensor
+
+class ActivationSparseTensor(TorchAOBaseTensor):
+    data: Optional[torch.Tensor]
+
+    __slots__ = ["data"]
+
+    @staticmethod
+    def __new__(  # noqa: PYI034
+        cls,
+        shape: torch.Size,
+        data: Optional[torch.Tensor],
+        requires_grad: bool = False,
+    ):
+        assert data is not None
+        kwargs = {
+            "device": data.device,
+            "dtype": data.dtype,
+            "layout": data.layout,
+            "requires_grad": requires_grad,
+        }
+        tensor = torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+        tensor.data = data
+        return tensor
+
+    def __repr__(self) -> str:  # type: ignore[override]
+        assert hasattr(self, "shape")
+        return f"{self.__class__.__name__}(shape={self.shape})"
+
+    def __tensor_flatten__(self):
+        inner_tensors = list(
+            filter(lambda x: getattr(self, x) is not None, self.__slots__)
+        )
+        tensor_meta = (self.shape, self.requires_grad)
+        return inner_tensors, tensor_meta
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls,
+        inner_tensors,
+        tensor_meta,
+        outer_size,
+        outer_stride,
+    ) -> torch.Tensor:
+        shape, requires_grad = tensor_meta
+        return cls(
+            shape=shape,
+            data=inner_tensors.get("data", None),
+            requires_grad=requires_grad,
+        )
+
+    @classmethod
+    def from_dense(cls, weight):
+        return cls(weight.shape,
+                   weight.data.t().contiguous().t(),
+                   requires_grad=False)
+
+    def apply_fn_to_shard(self, func):
+        return ActivationSparseTensor(
+            shape=self.shape,
+            data=func(self.data),
+            requires_grad=self.requires_grad,
+        )
+
+# Subclass op dispatch registration
+implements = ActivationSparseTensor.implements
+aten = torch.ops.aten
+
+
+@implements(
+    [
+        aten.detach.default,
+        aten.slice.Tensor,
+    ]
+)
+def _(func, types, args, kwargs):
+    new_data = func(args[0].data, *args[1:], **kwargs)
+    return ActivationSparseTensor(
+        new_data.shape,
+        data=new_data,
+        requires_grad=False,
+    )
+
+@implements(
+    [aten.copy_.default]
+)
+def _(func, types, args, kwargs):
+    self = args[0]
+    src = args[1]
+    self.data.copy_(src.data)
+    return
+
+@implements(torch.nn.functional.linear)
+def sparse_activation_linear(func, types, args, kwargs):
+    x_orig, w, bias = args
+    assert bias is None
+    x = x_orig.view(-1, x_orig.size(-1))
+    # M = w.shape[0]
+    # K = w.shape[1]
+
+    if x.shape[0] == 1:
+        x_relu = torch.square(torch.nn.functional.relu(x))
+        res = torch.ops.torchao.splitk_sparse_gemv(x_relu,
+                                                    w.data)
+        return res.view(*x_orig.shape[:-1], w.shape[0])
+    else:
+        x_orig_relu = torch.square(torch.nn.functional.relu(x_orig))
+        return torch.nn.functional.linear(x_orig_relu, w.data, bias)
+
+
+@dataclass
+class ActivationSparseLinearConfig(AOBaseConfig):
+    """
+    Adds in acceleration for activation sparsity to linear layers for decode. 
+
+    Args:
+        `activation_dtype`: data type for quantized activation tensor.
+        `weight_dtype`: data type for quantized weight tensor.
+    """
+
+    activation_dtype: torch.dtype = torch.float8_e4m3fn
+    weight_dtype: torch.dtype = torch.float8_e4m3fn
+
+@register_quantize_module_handler(
+    ActivationSparseLinearConfig
+)
+def _(
+    module: torch.nn.Module,
+    config: ActivationSparseLinearConfig,
+):
+    new_weight = ActivationSparseTensor.from_dense(module.weight.data)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module

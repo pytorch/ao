@@ -43,7 +43,7 @@ configs=[
 
 @triton.autotune(
     configs=configs,
-    key=["CACHE_KEY_M", "CACHE_KEY_N", "BATCHSIZE"],
+    key=["CACHE_KEY_M", "CACHE_KEY_N"],
     reset_to_zero=["Y"],  # reset the content of Y to zero before computation
 )
 @triton.jit
@@ -54,7 +54,6 @@ def splitk_sparse_gemv_kernel(
     N, M,
     CACHE_KEY_N, CACHE_KEY_M,
     # Meta-parameters
-    BATCHSIZE: tl.constexpr, 
     BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr,
 ):
     start_n = tl.program_id(0)
@@ -70,15 +69,15 @@ def splitk_sparse_gemv_kernel(
     Y_ptr = Y + rn
     
     # eviction policy go brrr
-    if BATCHSIZE == 1:
-        x0 = tl.load(X_ptr, mask=rm < M, other=0.0, eviction_policy='evict_last') # reuse x across threadblocks
-        idx = (x0 != 0)
-        # selectively load weight rows
-        a = tl.load(A_ptr, mask=idx[:, None], other=0.0, eviction_policy='evict_first') # only load weights once per threadblock
-        acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], axis=0)
+    x0 = tl.load(X_ptr, mask=rm < M, other=0.0, eviction_policy='evict_last') # reuse x across threadblocks
+    idx = (x0 != 0.0)
+    # selectively load weight rows
+    a = tl.load(A_ptr, mask=idx[:, None], other=0.0, eviction_policy='evict_first') # only load weights once per threadblock
+    acc0 = tl.sum(a.to(tl.float32) * x0.to(tl.float32)[:, None], axis=0)
 
     # rematerialize rm and rn to save registers
     rn = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    # TODO atomic add supports bfloat16 in latest triton, we should update to that
     tl.atomic_add(Y_ptr, acc0, mask=rn < N)
 
 
@@ -97,8 +96,8 @@ def splitk_sparse_gemv(
     :return: result tensor y
     """
     N, Z = weight.shape
-    beam_width, seq_len, _ = x.shape
-    assert x.shape[2] == Z
+    seq_len, _ = x.shape
+    assert x.shape[-1] == Z
     assert x.is_contiguous()
     
     assert weight.stride(1) > 1, "weight should be column major"
@@ -109,8 +108,7 @@ def splitk_sparse_gemv(
         triton.cdiv(Z, META["BLOCK_M"]),
     )
 
-    output = torch.empty(
-        beam_width,
+    output = torch.zeros(
         seq_len,
         N,
         device=x.device,
@@ -127,15 +125,14 @@ def splitk_sparse_gemv(
         Z,
         N // 16,  # key for triton cache (limit number of compilations)
         Z // 16,
-        beam_width,  # BATCHSIZE
         # can't use kwargs because auto-tuner requires args
     )
 
-    # if x.dtype is not output.dtype:
-    #     warnings.warn(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
-    #     return output.to(dtype=x.dtype)
+    if x.dtype is not output.dtype:
+        # warnings.warn(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
+        return output.to(dtype=x.dtype)
 
-    if out_dtype:
-        return output.to(dtype=out_dtype)
+    # if out_dtype:
+    #     return output.to(dtype=out_dtype)
 
     return output
