@@ -53,6 +53,7 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
+        pip install pytest==8.3.3 --force-reinstall
         pip list
         python -u -m pytest --version
         pwd
