@@ -43,10 +43,7 @@ lib.define(
     "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
 )
 lib.define(
-    "_sparse24_fp8_sm90_cutlass_gemm(Tensor a, Tensor a_mdata, Tensor b, *, Tensor? a_scale = None, Tensor? b_scale = None, int swizzle_size=8, str swizzle_axis='n', int sm_count=128) -> Tensor"
-)
-lib.define(
-    "_sparse24_sm90_cutlass_compress(Tensor a) -> (Tensor, Tensor)"
+    "sparse24_fp8_sm90_cutlass_gemm(Tensor a, Tensor a_mdata, Tensor b, *, Tensor? a_scale = None, Tensor? b_scale = None, int swizzle_size=8, str swizzle_axis='n', int sm_count=128) -> Tensor"
 )
 lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
@@ -845,7 +842,7 @@ def sparse24_sm90_sparsify(
         input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
     )
 
-def _sparse24_fp8_sm90_cutlass_gemm(
+def sparse24_fp8_sm90_cutlass_gemm(
     a: Tensor,
     meta: Tensor,
     b: Tensor,
@@ -855,7 +852,7 @@ def _sparse24_fp8_sm90_cutlass_gemm(
     swizzle_axis: str,
     sm_count: int,
 ) -> Tensor:
-    return torch.ops.torchao._sparse24_fp8_sm90_cutlass_gemm(a, meta, b, a_scale=a_scale, b_scale=b_scale, swizzle_size=swizzle_size, swizzle_axis=swizzle_axis, sm_count=sm_count)
+    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(a, meta, b, a_scale=a_scale, b_scale=b_scale, swizzle_size=swizzle_size, swizzle_axis=swizzle_axis, sm_count=sm_count)
 
 def swizzle_mm(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool

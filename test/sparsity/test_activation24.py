@@ -163,7 +163,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
 
     # Check MM without scale
     eye = torch.eye(A.shape[1], device=A.device, dtype=A.dtype).T
-    A_reconstructed = torch.ops.torchao._sparse24_fp8_sm90_cutlass_gemm(
+    A_reconstructed = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         A_packed, A_mdata, eye
     )
     assert torch.allclose(A.float(), A_reconstructed.float())
@@ -201,7 +201,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_random_tensor(
     b_scale = b_scale.T
 
     A_packed, A_mdata = to_sparse_semi_structured_cutlass_sm9x_f8(A)
-    out_sparse = torch.ops.torchao._sparse24_fp8_sm90_cutlass_gemm(
+    out_sparse = torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
         A_packed, A_mdata, B, a_scale=a_scale, b_scale=b_scale
     )
     out_ref = torch._scaled_mm(

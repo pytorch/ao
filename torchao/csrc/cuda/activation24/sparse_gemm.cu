@@ -17,7 +17,6 @@
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
 #include "cutlass/numeric_types.h"
 #include "cutlass/transform/device/transform_universal_adapter.hpp"
-#include "cutlass/transform/kernel/sparse_gemm_compressor.hpp"
 
 #include <tuple>
 #include <type_traits>
@@ -330,109 +329,16 @@ Tensor _sparse24_fp8_sm90_cutlass_gemm(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
 }
-
-template <bool kIsMeta, typename ElementT>
-std::tuple<Tensor, Tensor> _sparse24_sm90_cutlass_compress_t(Tensor a) {
-  std::optional<at::cuda::CUDAGuard> device_guard;
-  if (!kIsMeta) {
-    device_guard.emplace(a.device());
-  }
-
-  using K = SparseRowwiseKernel<ElementT>;
-  TORCH_CHECK(a.scalar_type() == K::kElementAAt);
-  TORCH_CHECK(a.is_contiguous());
-
-  // Offline compressor kernel
-  using LayoutA = cutlass::layout::RowMajor;
-  using ProblemShape = cute::Shape<int, int, int, int>;
-  using SparseConfig = typename K::CollectiveMainloop::SparseConfig;
-  using CompressorUtility =
-      cutlass::transform::kernel::StructuredSparseCompressorUtility<
-          ProblemShape,
-          typename K::ElementA,
-          LayoutA,
-          SparseConfig>;
-
-  using CompressorKernel =
-      cutlass::transform::kernel::StructuredSparseCompressor<
-          ProblemShape,
-          typename K::ElementA,
-          LayoutA,
-          SparseConfig,
-          cutlass::arch::Sm90>;
-
-  using Compressor =
-      cutlass::transform::device::TransformUniversalAdapter<CompressorKernel>;
-
-  auto problem_shape =
-      cute::make_shape(int(a.size(0)), 8192, int(a.size(1)), 1);
-  auto [M, N, k, L] = problem_shape;
-  auto stride_A = cutlass::make_cute_packed_stride(
-      cutlass::gemm::TagToStrideA_t<LayoutA>{}, cute::make_shape(M, k, L));
-  CompressorUtility compressor_utility(problem_shape, stride_A);
-
-  int ME = compressor_utility.get_metadata_m_physical();
-  int KE = compressor_utility.get_metadata_k_physical();
-  int KC = compressor_utility.get_tensorA_k_physical();
-
-  auto a_compressed = a.new_empty({M, KC * L});
-  auto e = a.new_empty({ME * KE * L}, at::TensorOptions().dtype(at::kByte));
-
-  if (kIsMeta) {
-    return std::make_tuple(a_compressed, e);
-  }
-
-  cutlass::KernelHardwareInfo hw_info;
-  hw_info.device_id = a.device().index();
-  hw_info.sm_count = 128;
-  typename Compressor::Arguments arguments{
-      problem_shape,
-      {(typename K::ElementA const*)a.data_ptr(),
-       stride_A,
-       (typename K::ElementA*)a_compressed.data_ptr(),
-       (typename K::ElementE*)e.data_ptr()},
-      {hw_info}};
-
-  Compressor compressor_op;
-  int64_t workspace_size = Compressor::get_workspace_size(arguments);
-  Tensor workspace = a.new_empty(
-      {workspace_size}, at::TensorOptions().dtype(at::ScalarType::Byte));
-
-  CUTLASS_STATUS_CHECK(compressor_op.can_implement(arguments));
-  CUTLASS_STATUS_CHECK(
-      compressor_op.initialize(arguments, workspace.data_ptr()));
-  CUTLASS_STATUS_CHECK(compressor_op.run());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  return std::make_tuple(a_compressed, e);
-}
-
-template <bool kIsMeta>
-std::tuple<Tensor, Tensor> _sparse24_sm90_cutlass_compress(Tensor a) {
-  if (a.scalar_type() == at::ScalarType::Float8_e4m3fn) {
-    return _sparse24_sm90_cutlass_compress_t<kIsMeta, cutlass::float_e4m3_t>(a);
-  }
-  if (a.scalar_type() == at::ScalarType::BFloat16) {
-    return _sparse24_sm90_cutlass_compress_t<kIsMeta, cutlass::bfloat16_t>(a);
-  }
-  TORCH_CHECK(false, "Unsupported dtype for operand");
-}
 } // namespace
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl(
-      TORCH_SELECTIVE_NAME("torchao::_sparse24_fp8_sm90_cutlass_gemm"),
+      TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
       TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<false>));
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::_sparse24_sm90_cutlass_compress"),
-      TORCH_FN(_sparse24_sm90_cutlass_compress<false>));
 }
 
 TORCH_LIBRARY_IMPL(torchao, Meta, m) {
   m.impl(
-      TORCH_SELECTIVE_NAME("torchao::_sparse24_fp8_sm90_cutlass_gemm"),
+      TORCH_SELECTIVE_NAME("torchao::sparse24_fp8_sm90_cutlass_gemm"),
       TORCH_FN(_sparse24_fp8_sm90_cutlass_gemm<true>));
-  m.impl(
-      TORCH_SELECTIVE_NAME("torchao::_sparse24_sm90_cutlass_compress"),
-      TORCH_FN(_sparse24_sm90_cutlass_compress<true>));
 }
