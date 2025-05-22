@@ -149,7 +149,7 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
     M=512, K=256, dtype=torch.float8_e4m3fn
 ) -> None:
     torch.manual_seed(0)
-    
+
     A_dense = create_semi_structured_tensor(M, K, dtype=torch.bfloat16).cuda()
     A_aqt = _float8_cutlass_quant(A_dense, dtype)
     A = A_aqt.tensor_impl.float8_data
@@ -183,7 +183,6 @@ def test_sparse24_fp8_sm90_cutlass_gemm_eye(
 def test_sparse24_fp8_sm90_cutlass_gemm_random_tensor(
     M=512, N=1024, K=256, dtype=torch.float8_e4m3fn
 ) -> None:
-
     def _to_fp8_rowwise(x: torch.Tensor, dtype):
         max_v = torch.finfo(dtype).max
         x_scale = (x.abs().max(1, keepdim=True)[0] / max_v).float()
@@ -208,4 +207,3 @@ def test_sparse24_fp8_sm90_cutlass_gemm_random_tensor(
         A, B, scale_a=a_scale, scale_b=b_scale, out_dtype=out_sparse.dtype
     )
     assert torch.allclose(out_sparse, out_ref, rtol=0.01, atol=0.01)
-

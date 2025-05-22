@@ -842,6 +842,7 @@ def sparse24_sm90_sparsify(
         input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
     )
 
+
 def sparse24_fp8_sm90_cutlass_gemm(
     a: Tensor,
     meta: Tensor,
@@ -852,7 +853,17 @@ def sparse24_fp8_sm90_cutlass_gemm(
     swizzle_axis: str,
     sm_count: int,
 ) -> Tensor:
-    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(a, meta, b, a_scale=a_scale, b_scale=b_scale, swizzle_size=swizzle_size, swizzle_axis=swizzle_axis, sm_count=sm_count)
+    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
+        a,
+        meta,
+        b,
+        a_scale=a_scale,
+        b_scale=b_scale,
+        swizzle_size=swizzle_size,
+        swizzle_axis=swizzle_axis,
+        sm_count=sm_count,
+    )
+
 
 def swizzle_mm(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
