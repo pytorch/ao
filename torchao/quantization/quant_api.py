@@ -600,7 +600,7 @@ def quantize_(
     if isinstance(config, ModuleFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            _ao_per_module_config_handler,
+            _module_fqn_to_config_handler,
             filter_fn,
             device=device,
             extra_args=(config,),
@@ -2019,7 +2019,7 @@ class ModuleFqnToConfig(AOBaseConfig):
     )
 
 
-def _ao_per_module_config_handler(
+def _module_fqn_to_config_handler(
     module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
 ):
     c = None

@@ -946,7 +946,7 @@ class TestQuantFlow(TestCase):
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_default(self):
+    def test_module_fqn_to_config_default(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
@@ -960,7 +960,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_module_name(self):
+    def test_module_fqn_to_config_module_name(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
@@ -974,7 +974,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch 2.6+")
-    def test_ao_per_module_config_embedding_linear(self):
+    def test_module_fqn_to_config_embedding_linear(self):
         weight_dtype = torch.int8
         granularity = PerGroup(8)
         mapping_type = MappingType.SYMMETRIC
@@ -1006,7 +1006,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_skip(self):
+    def test_module_fqn_to_config_skip(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
