@@ -64,7 +64,7 @@ jobs:
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
+            dev-requirements-overrides: "s/^pytest.*$/pytest==7.4.0/"
           - name: CUDA 2.6
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: 'torch==2.6.0'
@@ -83,7 +83,7 @@ jobs:
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
-            dev-requirements-overrides: "s/^pytest$/pytest==7.4.0/"
+            dev-requirements-overrides: "s/^pytest.*$/pytest==7.4.0/"
           - name: CPU 2.6
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu'

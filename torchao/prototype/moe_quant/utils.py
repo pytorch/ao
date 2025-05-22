@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import torch
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
@@ -282,7 +288,6 @@ def moe_quant_fn(module, config: MoEQuantConfig):
 
     warnings.simplefilter("ignore", lineno=84)
     warnings.simplefilter("ignore", lineno=105)
-    assert "ConditionalFeedForwardAOQuantizable" in str(type(module))
 
     for weight_attr in ["w1", "w2", "w3"]:
         param = getattr(module, weight_attr)

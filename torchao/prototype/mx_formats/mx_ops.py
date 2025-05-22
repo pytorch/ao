@@ -28,7 +28,6 @@ from torch.utils._pytree import tree_map
 import torchao.ops
 from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
 )
@@ -117,8 +116,8 @@ def _addmm_mx_dispatch(
                 out_dtype=torch.bfloat16,
             )
         else:
-            assert a._elem_dtype == DTYPE_FP4
-            assert b._elem_dtype == DTYPE_FP4
+            assert a._elem_dtype == torch.float4_e2m1fn_x2
+            assert b._elem_dtype == torch.float4_e2m1fn_x2
             assert gemm_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             # FP4 operations
             res = torchao.ops.mx_fp4_bf16(
@@ -208,7 +207,7 @@ def mx_cast_up_op(func, types, args, kwargs):
 def mx_view_op(func, types, args, kwargs):
     data = args[0]._data
     new_size = args[1]
-    if args[0]._elem_dtype == DTYPE_FP4:
+    if args[0]._elem_dtype == torch.float4_e2m1fn_x2:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     elif args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3] and args[0]._pack_fp6:

@@ -49,11 +49,15 @@ use_cpp = os.getenv("USE_CPP")
 
 import platform
 
-build_torchao_experimental = (
+build_macos_arm_auto = (
     use_cpp == "1"
     and platform.machine().startswith("arm64")
     and platform.system() == "Darwin"
 )
+
+use_cpp_kernels = os.getenv("USE_CPP_KERNELS", "0") == "1"
+
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
 
 version_prefix = read_version()
 # Version is version.dev year month date if using nightlies and version if not
@@ -119,8 +123,33 @@ class BuildOptions:
                 "TORCHAO_BUILD_EXPERIMENTAL_MPS requires MPS be available"
             )
 
+        # TORCHAO_PARALLEL_BACKEND specifies which parallel backend to use
+        # Possible values: aten_openmp, executorch, openmp, pthreadpool, single_threaded
+        self.parallel_backend = os.getenv("TORCHAO_PARALLEL_BACKEND", "aten_openmp")
+
+        # TORCHAO_ENABLE_ARM_NEON_DOT enable ARM NEON Dot Product extension
+        # Enabled by default on macOS silicon
+        self.enable_arm_neon_dot = self._os_bool_var(
+            "TORCHAO_ENABLE_ARM_NEON_DOT",
+            default=(self._is_arm64() and self._is_macos()),
+        )
+        if self.enable_arm_neon_dot:
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_NEON_DOT requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
+
+        # TORCHAO_ENABLE_ARM_I8MM enable ARM 8-bit Integer Matrix Multiply instructions
+        # Not enabled by default on macOS as not all silicon mac supports it
+        self.enable_arm_i8mm = self._os_bool_var(
+            "TORCHAO_ENABLE_ARM_I8MM", default=False
+        )
+        if self.enable_arm_i8mm:
+            assert self.build_cpu_aarch64, (
+                "TORCHAO_ENABLE_ARM_I8MM requires TORCHAO_BUILD_CPU_AARCH64 be set"
+            )
+
     def _is_arm64(self) -> bool:
-        return platform.machine().startswith("arm64")
+        return platform.machine().startswith("arm64") or platform.machine() == "aarch64"
 
     def _is_macos(self) -> bool:
         return platform.system() == "Darwin"
@@ -282,6 +311,21 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
+        if (
+            use_cpp_kernels
+            and platform.system() == "Linux"
+            and TORCH_VERSION_AT_LEAST_2_7
+        ):
+            if torch._C._cpu._is_avx512_supported():
+                extra_compile_args["cxx"].extend(
+                    [
+                        "-DCPU_CAPABILITY_AVX512",
+                        "-march=native",
+                        "-mfma",
+                        "-fopenmp",
+                    ]
+                )
+
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             if "nvcc" in extra_compile_args:
@@ -303,6 +347,12 @@ def get_extensions():
 
     # Collect C++ source files
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
+    if not use_cpp_kernels or platform.system() != "Linux":
+        # Remove csrc/cpu/*.cpp
+        excluded_sources = list(
+            glob.glob(os.path.join(extensions_dir, "cpu/*.cpp"), recursive=True)
+        )
+        sources = [s for s in sources if s not in excluded_sources]
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(
@@ -383,6 +433,7 @@ def get_extensions():
                     "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
                 ),
                 os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
+                os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
             ]
             for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
                 cutlass_90a_sources.append(
@@ -431,7 +482,8 @@ def get_extensions():
             )
         )
 
-    if build_torchao_experimental:
+    # Build CMakeLists from /torchao/experimental - additional options become available : TORCHAO_BUILD_CPU_AARCH64, TORCHAO_BUILD_KLEIDIAI, TORCHAO_BUILD_MPS_OPS, TORCHAO_PARALLEL_BACKEND
+    if build_macos_arm_auto or os.getenv("BUILD_TORCHAO_EXPERIMENTAL") == "1":
         build_options = BuildOptions()
 
         def bool_to_on_off(value):
@@ -451,6 +503,9 @@ def get_extensions():
                         f"-DTORCHAO_BUILD_CPU_AARCH64={bool_to_on_off(build_options.build_cpu_aarch64)}",
                         f"-DTORCHAO_BUILD_KLEIDIAI={bool_to_on_off(build_options.build_kleidi_ai)}",
                         f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
+                        f"-DTORCHAO_ENABLE_ARM_NEON_DOT={bool_to_on_off(build_options.enable_arm_neon_dot)}",
+                        f"-DTORCHAO_ENABLE_ARM_I8MM={bool_to_on_off(build_options.enable_arm_i8mm)}",
+                        f"-DTORCHAO_PARALLEL_BACKEND={build_options.parallel_backend}",
                         "-DTorch_DIR=" + torch_dir,
                     ]
                     + (

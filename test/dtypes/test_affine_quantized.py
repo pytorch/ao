@@ -421,6 +421,24 @@ class TestAffineQuantizedBasic(TestCase):
         # making sure param.data is updated
         assert param.data.dequantize()[0][0] != 0
 
+    @common_utils.parametrize("device", ["cuda"])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    @skip_if_no_cuda()
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_mm_int4wo(self, device, dtype):
+        weight = torch.randn(512, 1024).to(device).to(dtype)
+        weight = weight.t()
+
+        l = torch.nn.Linear(512, 1024).to(device).to(dtype)
+        l.weight = torch.nn.Parameter(weight)
+        quantize_(l, Int4WeightOnlyConfig())
+        # weight shape: 1024 x 512
+        weight = l.weight
+
+        input = torch.randn(1, 512, device=device, dtype=dtype)
+        # make sure it runs
+        torch.nn.functional.linear(input, weight)
+
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedBasic)
