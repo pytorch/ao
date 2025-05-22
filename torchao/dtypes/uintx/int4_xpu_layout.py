@@ -125,7 +125,7 @@ def _linear_fp_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
 
-    act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1])
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
