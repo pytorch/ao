@@ -433,10 +433,12 @@ def get_extensions():
                     "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
                 ),
                 os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
-                # 11.8 not supported
-                if torch.version.cuda >= "12.0":
-                    os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
             ]
+            # 11.8 not supported
+            if torch.version.cuda >= "12.0":
+                cutlass_90a_sources.append(
+                    os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
+                )
             for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
                 cutlass_90a_sources.append(
                     os.path.join(
