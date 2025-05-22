@@ -46,8 +46,8 @@ from torchao.dtypes.uintx.int4_cpu_layout import (
 from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_check,
     _linear_bf16_act_uint4_weight_float_zero_impl,
-    _linear_bf16_act_uint4_weight_int8_zero_check,
-    _linear_bf16_act_uint4_weight_int8_zero_impl,
+    _linear_fp_act_uint4_weight_int8_zero_check,
+    _linear_fp_act_uint4_weight_int8_zero_impl,
 )
 from torchao.dtypes.uintx.marlin_qqq_tensor import (
     _linear_int8_act_int4_weight_marlin_qqq_check,
@@ -262,7 +262,6 @@ def _(func, types, args, kwargs):
         raise NotImplementedError(
             f"{func} is not implemented for non floating point input"
         )
-
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
