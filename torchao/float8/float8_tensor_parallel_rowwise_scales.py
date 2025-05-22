@@ -249,85 +249,65 @@ class Float8ColwiseParallel(ColwiseParallel):
     ):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
-            input_row_major = inputs[0]
-            input_col_major = inputs[0]
+            input = inputs[0]
+            input_t = inputs[0].t()
         elif len(inputs) == 2:
-            input_row_major, input_col_major = inputs[0], inputs[1]
+            input, input_t = inputs[0], inputs[1]
         else:
             raise ValueError("expected inputs to be length 1 or 2, but got", len(inputs))
 
-        # handle row major input tensor
-        if not isinstance(input_row_major, DTensor):
-            input_row_major = DTensor.from_local(
-                input_row_major, device_mesh, input_layouts, run_check=False
+        # convert input to DTensor
+        if isinstance(input, DTensor):
+            dt_input = input
+        else:
+            dt_input = DTensor.from_local(
+                input, device_mesh, input_layouts, run_check=False
             )
-        if not tensor_already_casted_to_fp8(input_row_major):
-            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-                input_row_major,
+
+        # convert input to fp8 rowwise
+        if not tensor_already_casted_to_fp8(dt_input):
+            dt_input_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
                 axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
-
-            # For columnwise scales, we have to reshape to 2D before scaling along dim=0,
-            # otherwise scale will be along the batch dim, which isn't what we need.
-            # We will reshape back to 3D after the all-gather in Float8Linear.forward()
-            input_2d = input_row_major.reshape(-1, input_row_major.shape[-1])
-            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_2d,
-                mod.config.cast_config_input.target_dtype,
-                mod.linear_mm_config,
-                gemm_input_role=GemmInputRole.INPUT,
-                scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
-            )  # DTensor(Float8Tensor) 
         else:
-            input_tensor_row_major_rowwise_scales = input_row_major
+            dt_input_fp8 = dt_input
 
-
-        # handle col major input tensor
-        if not isinstance(input_col_major, DTensor):
-            input_col_major = DTensor.from_local(
-                input_col_major, device_mesh, input_layouts, run_check=False
+        # convert input_t to DTensor
+        if isinstance(input_t, DTensor):
+            dt_input_t = input_t
+        else:
+            dt_input_t = DTensor.from_local(
+                input_t, device_mesh, input_layouts, run_check=False
             )
-        if not tensor_already_casted_to_fp8(input_col_major):
-            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-                input_col_major,
+        # convert input_t to fp8 rowwise
+        if not tensor_already_casted_to_fp8(input_t):
+            dt_input_t_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input_t,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
                 axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
-
-            # For columnwise scales, we have to reshape to 2D before scaling along dim=0,
-            # otherwise scale will be along the batch dim, which isn't what we need.
-            # We will reshape back to 3D after the all-gather in Float8Linear.forward()
-            input_2d_col_major = input_row_major.reshape(-1, input_row_major.shape[-1])
-            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_2d_col_major,
-                mod.config.cast_config_input.target_dtype,
-                mod.linear_mm_config,
-                gemm_input_role=GemmInputRole.INPUT,
-                scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
-            )  # DTensor(Float8Tensor) 
         else:
-            input_tensor_col_major_colwise_scales = input_col_major
+            dt_input_t_fp8 = input_t
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
-            if input_tensor_row_major_rowwise_scales is not None:
-                input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
+            if dt_input_fp8 is not None:
+                dt_input_fp8 = dt_input_fp8.redistribute(
                     placements=desired_input_layouts, async_op=True
                 )
-            if input_tensor_col_major_colwise_scales is not None:
-                input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
+            if dt_input_t_fp8 is not None:
+                dt_input_t_fp8 = dt_input_t_fp8.redistribute(
                     placements=desired_input_layouts, async_op=True
                 )
-        return input_tensor_row_major_rowwise_scales, input_tensor_col_major_colwise_scales
+        return dt_input_fp8, dt_input_t_fp8
 
     @staticmethod
     def _prepare_output_fn(output_layouts, use_local_output, mod, outputs, device_mesh):
@@ -362,103 +342,84 @@ class Float8RowwiseParallel(RowwiseParallel):
     Like `RowwiseParallel`, but with all-gather in float8 with rowwise scales.
     """
 
+
     @staticmethod
     def _prepare_input_fn(
         input_layouts, desired_input_layouts, mod, inputs, device_mesh,
     ):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
-            input_row_major = inputs[0]
-            input_col_major = inputs[0]
+            input = inputs[0]
+            input_t = inputs[0].t()
         elif len(inputs) == 2:
-            input_row_major, input_col_major = inputs[0], inputs[1]
+            input, input_t = inputs[0], inputs[1]
         else:
             raise ValueError("expected inputs to be length 1 or 2, but got", len(inputs))
 
-        # handle row major input tensor
-        if not isinstance(input_row_major, DTensor):
-            input_row_major = DTensor.from_local(
-                input_row_major, device_mesh, input_layouts, run_check=False
+        # convert input to DTensor
+        if isinstance(input, DTensor):
+            dt_input = input
+        else:
+            dt_input = DTensor.from_local(
+                input, device_mesh, input_layouts, run_check=False
             )
-        if not tensor_already_casted_to_fp8(input_row_major):
-            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-                input_row_major,
+
+        # convert input to fp8 rowwise
+        if not tensor_already_casted_to_fp8(dt_input):
+            dt_input_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
                 axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
-
-            # For columnwise scales, we have to reshape to 2D before scaling along dim=0,
-            # otherwise scale will be along the batch dim, which isn't what we need.
-            # We will reshape back to 3D after the all-gather in Float8Linear.forward()
-            input_2d = input_row_major.reshape(-1, input_row_major.shape[-1])
-            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_2d,
-                mod.config.cast_config_input.target_dtype,
-                mod.linear_mm_config,
-                gemm_input_role=GemmInputRole.INPUT,
-                scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
-            )  # DTensor(Float8Tensor) 
         else:
-            input_tensor_row_major_rowwise_scales = input_row_major
+            dt_input_fp8 = dt_input
 
-
-        # handle col major input tensor
-        if not isinstance(input_col_major, DTensor):
-            input_col_major = DTensor.from_local(
-                input_col_major, device_mesh, input_layouts, run_check=False
+        # convert input_t to DTensor
+        if isinstance(input_t, DTensor):
+            dt_input_t = input_t
+        else:
+            dt_input_t = DTensor.from_local(
+                input_t, device_mesh, input_layouts, run_check=False
             )
-        if not tensor_already_casted_to_fp8(input_col_major):
-            input_tensor_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-                input_col_major,
+        # convert input_t to fp8 rowwise
+        if not tensor_already_casted_to_fp8(input_t):
+            dt_input_t_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input_t,
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
                 axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
-
-            # For columnwise scales, we have to reshape to 2D before scaling along dim=0,
-            # otherwise scale will be along the batch dim, which isn't what we need.
-            # We will reshape back to 3D after the all-gather in Float8Linear.forward()
-            input_2d_col_major = input_row_major.reshape(-1, input_row_major.shape[-1])
-            input_tensor_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                input_2d_col_major,
-                mod.config.cast_config_input.target_dtype,
-                mod.linear_mm_config,
-                gemm_input_role=GemmInputRole.INPUT,
-                scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
-            )  # DTensor(Float8Tensor) 
         else:
-            input_tensor_col_major_colwise_scales = input_col_major
+            dt_input_t_fp8 = input_t
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
-            if input_tensor_row_major_rowwise_scales is not None:
-                input_tensor_row_major_rowwise_scales = input_tensor_row_major_rowwise_scales.redistribute(
+            if dt_input_fp8 is not None:
+                dt_input_fp8 = dt_input_fp8.redistribute(
                     placements=desired_input_layouts, async_op=True
                 )
-            if input_tensor_col_major_colwise_scales is not None:
-                input_tensor_col_major_colwise_scales = input_tensor_col_major_colwise_scales.redistribute(
+            if dt_input_t_fp8 is not None:
+                dt_input_t_fp8 = dt_input_t_fp8.redistribute(
                     placements=desired_input_layouts, async_op=True
                 )
-        return input_tensor_row_major_rowwise_scales, input_tensor_col_major_colwise_scales
+        return dt_input_fp8, dt_input_t_fp8
 
     @staticmethod
     def _prepare_output_fn(output_layouts, use_local_output, mod, outputs, device_mesh):
-        # Rowwise sharding produces partial output, depending on output layouts:
-        # 1. to replicate -> allreduce
-        # 2. to shard -> reduce_scatter
+        # outputs is a shard on last dimension DTensor, i.e. Shard(-1)
         if outputs.placements != output_layouts:
-            outputs = outputs.redistribute(placements=output_layouts, async_op=True)
-        
-        # do not convert output to float8
+            outputs = outputs.redistribute(
+                placements=output_layouts, async_op=True
+            )  # DTensor(torch.Tensor)
 
-        # back to local tensor if use_local_output is True
+        # do not convert output to float8
+        
+        # back to local tensor
         return outputs.to_local() if use_local_output else outputs
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
@@ -525,21 +486,21 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
 
     def _prepare_input_arg(self, input, mesh, input_layout, desired_layout):
         if input_layout is not None:
-            if isinstance(input, DTensor):
+            if not isinstance(input, DTensor):
                 # TODO: re-enable the check once we fix the compile path
                 # assert inp.placements[0] == input_layout
-                dt_inp = input
+                dt_input = input
             else:
                 assert isinstance(input, torch.Tensor), (
                     "expecting input to be a torch.Tensor!"
                 )
-                dt_inp = DTensor.from_local(
+                dt_input = DTensor.from_local(
                     input, mesh, (input_layout,), run_check=False
                 )
             
             
-            dt_inp_row_major_rowwise_scales = hp_tensor_to_float8_dynamic(
-                dt_inp,
+            dt_input_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input,
                 e4m3_dtype,
                 self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
@@ -547,23 +508,22 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
 
-            dt_inp_2d = dt_inp.reshape(-1, dt_inp.shape[-1])
-            dt_inp_col_major_colwise_scales = hp_tensor_to_float8_dynamic(
-                dt_inp_2d,
+            dt_input_t_fp8 = hp_tensor_to_float8_dynamic(
+                dt_input_fp8.t(),
                 e4m3_dtype,
                 self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=ScalingGranularity.AXISWISE,
-                axiswise_dim=0,
+                axiswise_dim=-1,
             )  # DTensor(Float8Tensor)
 
             if desired_layout is not None and input_layout != desired_layout:
-                dt_inp_row_major_rowwise_scales = dt_inp_row_major_rowwise_scales.redistribute(placements=(desired_layout,))
-                dt_inp_col_major_colwise_scales = dt_inp_col_major_colwise_scales.redistribute(placements=(desired_layout,))
+                dt_input_fp8 = dt_input_fp8.redistribute(placements=(desired_layout,))
+                dt_input_t_fp8 = dt_input_t_fp8.redistribute(placements=(desired_layout,))
 
-            out_dt_inp_row_major_rowwise_scales = dt_inp_row_major_rowwise_scales.to_local() if self.use_local_output else dt_inp_row_major_rowwise_scales
-            out_dt_inp_col_major_colwise_scales = dt_inp_col_major_colwise_scales.to_local() if self.use_local_output else dt_inp_col_major_colwise_scales
-            return out_dt_inp_row_major_rowwise_scales, out_dt_inp_col_major_colwise_scales
+            dt_input_fp8 = dt_input_fp8.to_local() if self.use_local_output else dt_input_fp8
+            dt_input_t_fp8 = dt_input_t_fp8.to_local() if self.use_local_output else dt_input_t_fp8
+            return dt_input_fp8, dt_input_t_fp8
         else:
             # for non-DTensor input (e.g. freqs_cis buffer in RoPE) we don't need to do anything.
             return input, None
@@ -589,7 +549,3 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
         assert self.linear_mm_config is not None
         super()._apply(module, device_mesh)
         return module
-
-def is_row_major(tensor: torch.Tensor) -> bool:
-    assert tensor.dim() >= 2
-    return tensor.stride(-2) > tensor.stride(-1) and tensor.stride(-1) == 1
