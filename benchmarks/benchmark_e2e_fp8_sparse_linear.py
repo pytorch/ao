@@ -3,8 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import copy
-
 import pandas as pd
 import torch
 from torch import nn
@@ -12,7 +10,7 @@ from tqdm import tqdm
 from triton.testing import do_bench
 
 from torchao.prototype.sparsity.activation.srelu_linear import (
-    ActivationSparseLinearConfig,
+    SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 )
 from torchao.prototype.sparsity.activation.utils import SquaredReLU
 from torchao.quantization import (
@@ -22,23 +20,16 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
-from torchao.sparsity.utils import create_binary_tensor
 
 
 def benchmark_microseconds(f, *args):
     return do_bench(lambda: f(*args), return_mode="median") * 1e3
 
 
-def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
-
-    target_sparsity_output = create_binary_tensor((1, num_tokens, intermediate_size), 0.9).cuda().to(torch.bfloat16)
-    target_sparsity_output = torch.randn(num_tokens, intermediate_size).cuda().to(torch.bfloat16) * target_sparsity_output
-    print(target_sparsity_output)
-
-
+def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
     ffn_ref = (
         nn.Sequential(
-            # nn.Linear(hidden_size, intermediate_size, bias=False),
+            nn.Linear(hidden_size, intermediate_size, bias=False),
             SquaredReLU(),
             nn.Linear(intermediate_size, hidden_size, bias=False),
         )
@@ -46,22 +37,32 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
         .cuda()
     )
 
-
-    # input_tensor = torch.randn(num_tokens, hidden_size).to(torch.bfloat16).cuda()
-    input_tensor = target_sparsity_output
-    # ffn_ref[0].weight.data = torch.linalg.solve(input_tensor, target_sparsity_output).T
-    # ffn_ref[0].weight.data = torch.load("/data/users/jessecai/ao/checkpoints/meta-llama/ffn_up.pt")
-
+    input_tensor = torch.randn(num_tokens, hidden_size).to(torch.bfloat16).cuda()
     fp16_time = benchmark_microseconds(ffn_ref, input_tensor)
-    # breakpoint()
 
     # bf16
-    ffn_clone = copy.deepcopy(ffn_ref)
+    ffn_clone = (
+        nn.Sequential(
+            nn.Linear(hidden_size, intermediate_size, bias=False),
+            SquaredReLU(),
+            nn.Linear(intermediate_size, hidden_size, bias=False),
+        )
+        .to(torch.bfloat16)
+        .cuda()
+    )
     ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
     fp16_c_time = benchmark_microseconds(ffn_clone, input_tensor)
 
     # fp8
-    ffn_clone = copy.deepcopy(ffn_ref)
+    ffn_clone = (
+        nn.Sequential(
+            nn.Linear(hidden_size, intermediate_size, bias=False),
+            SquaredReLU(),
+            nn.Linear(intermediate_size, hidden_size, bias=False),
+        )
+        .to(torch.bfloat16)
+        .cuda()
+    )
     quantize_(
         ffn_clone,
         Float8DynamicActivationFloat8WeightConfig(
@@ -72,27 +73,38 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
     fp8_c_time = benchmark_microseconds(ffn_clone, input_tensor)
 
     # fp8 sparse
-    ffn_clone = copy.deepcopy(ffn_ref)
+    ffn_clone = (
+        nn.Sequential(
+            nn.Linear(hidden_size, intermediate_size, bias=False),
+            SquaredReLU(),
+            nn.Linear(intermediate_size, hidden_size, bias=False),
+        )
+        .to(torch.bfloat16)
+        .cuda()
+    )
     quantize_(ffn_clone, Float8DynamicActivationFloat8SemiSparseWeightConfig())
     ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
     fp8_c_sparse_time = benchmark_microseconds(ffn_clone, input_tensor)
 
     # activation fp8 sparse
-    ffn_clone = copy.deepcopy(ffn_ref)
-    # quantize_(
-    #     ffn_clone[0],
-    #     Float8DynamicActivationFloat8WeightConfig(
-    #         granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
-    #     ),
-    # )
-    # quantize_(
-    #     ffn_clone,
-    #     SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(),
-    #     filter_fn=lambda mod, fqn: "1" in fqn,
-    # )
+    ffn_clone = (
+        nn.Sequential(
+            nn.Linear(hidden_size, intermediate_size, bias=False),
+            # no Squared RELU since it will be fused into the second linear
+            nn.Linear(intermediate_size, hidden_size, bias=False),
+        )
+        .to(torch.bfloat16)
+        .cuda()
+    )
+    quantize_(
+        ffn_clone[0],
+        Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(), mm_config=Float8MMConfig(use_fast_accum=True)
+        ),
+    )
     quantize_(
         ffn_clone,
-        ActivationSparseLinearConfig(),
+        SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig(),
         filter_fn=lambda mod, fqn: "1" in fqn,
     )
     ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
@@ -112,7 +124,7 @@ def benchmark(num_tokens, hidden_size=4096, intermediate_size=16384):
 if __name__ == "__main__":
     with torch.no_grad():
         results = []
-        for num_tokens in tqdm([1]):
+        for num_tokens in tqdm([64, 128, 256, 512, 1024, 2048, 4096]):
             results.append(benchmark(num_tokens))
             torch.compiler.reset()
 

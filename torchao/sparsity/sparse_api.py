@@ -156,6 +156,7 @@ def sparsify_(
 
 from torchao.utils import TorchAOBaseTensor
 
+
 class ActivationSparseTensor(TorchAOBaseTensor):
     data: Optional[torch.Tensor]
 
@@ -207,9 +208,7 @@ class ActivationSparseTensor(TorchAOBaseTensor):
 
     @classmethod
     def from_dense(cls, weight):
-        return cls(weight.shape,
-                   weight.data.t().contiguous().t(),
-                   requires_grad=False)
+        return cls(weight.shape, weight.data.t().contiguous().t(), requires_grad=False)
 
     def apply_fn_to_shard(self, func):
         return ActivationSparseTensor(
@@ -217,6 +216,7 @@ class ActivationSparseTensor(TorchAOBaseTensor):
             data=func(self.data),
             requires_grad=self.requires_grad,
         )
+
 
 # Subclass op dispatch registration
 implements = ActivationSparseTensor.implements
@@ -237,18 +237,19 @@ def _(func, types, args, kwargs):
         requires_grad=False,
     )
 
-@implements(
-    [aten.copy_.default]
-)
+
+@implements([aten.copy_.default])
 def _(func, types, args, kwargs):
     self = args[0]
     src = args[1]
     self.data.copy_(src.data)
     return
 
+
 @implements(torch.nn.functional.linear)
 def sparse_activation_linear(func, types, args, kwargs):
     x_orig, w, bias = args
+    print(x_orig.shape)
     assert bias is None
     x = x_orig.view(-1, x_orig.size(-1))
     # M = w.shape[0]
@@ -256,8 +257,7 @@ def sparse_activation_linear(func, types, args, kwargs):
 
     if x.shape[0] == 1:
         x_relu = torch.square(torch.nn.functional.relu(x))
-        res = torch.ops.torchao.splitk_sparse_gemv(x_relu,
-                                                    w.data)
+        res = torch.ops.torchao.splitk_sparse_gemv(x_relu, w.data)
         return res.view(*x_orig.shape[:-1], w.shape[0])
     else:
         x_orig_relu = torch.square(torch.nn.functional.relu(x_orig))
@@ -267,7 +267,7 @@ def sparse_activation_linear(func, types, args, kwargs):
 @dataclass
 class ActivationSparseLinearConfig(AOBaseConfig):
     """
-    Adds in acceleration for activation sparsity to linear layers for decode. 
+    Adds in acceleration for activation sparsity to linear layers for decode.
 
     Args:
         `activation_dtype`: data type for quantized activation tensor.
@@ -277,9 +277,8 @@ class ActivationSparseLinearConfig(AOBaseConfig):
     activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
-@register_quantize_module_handler(
-    ActivationSparseLinearConfig
-)
+
+@register_quantize_module_handler(ActivationSparseLinearConfig)
 def _(
     module: torch.nn.Module,
     config: ActivationSparseLinearConfig,

@@ -87,7 +87,6 @@ def splitk_sparse_gemv_kernel(
 def splitk_sparse_gemv(
     x: torch.Tensor,
     weight: torch.Tensor,
-    out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
     Compute y = sparse(X) @ weight.
@@ -129,10 +128,6 @@ def splitk_sparse_gemv(
     )
 
     if x.dtype is not output.dtype:
-        # warnings.warn(f"Warning: incuring dtype conversion overhead since input dtype is not torch.float16. Detected dtype: {x.dtype}. ")
         return output.to(dtype=x.dtype)
-
-    # if out_dtype:
-    #     return output.to(dtype=out_dtype)
 
     return output
