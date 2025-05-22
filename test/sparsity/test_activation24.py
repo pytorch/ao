@@ -143,6 +143,7 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
 
 
+@unittest.skipIf(not torch.cuda.is_available(), "Needs cuda to run")
 def test_splitk_sparse_gemv():
     torch.manual_seed(0)
 
