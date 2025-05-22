@@ -24,6 +24,24 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.sparsity.blocksparse import BlockSparseTensor
+from dataclasses import dataclass
+
+import torch
+from torch import nn
+
+from torchao.core.config import AOBaseConfig
+from torchao.ops import (
+    rowwise_scaled_linear_sparse_cutlass_f8f8,
+)
+from torchao.quantization.quant_api import (
+    _float8_cutlass_quant,
+)
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
+)
+
+from torchao.kernel.splitk_sparse_gemv import splitk_sparse_gemv
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 
 # Sparsity helper functions
@@ -135,20 +153,26 @@ def sparsify_(
         extra_args=(config,),
     )
 
+def _to_fp8_rowwise(x: torch.Tensor, dtype):
+    max_v = torch.finfo(dtype).max
+    x_scale = (x.abs().max(1, keepdim=True)[0] / max_v).float()
+    x = (x / x_scale).to(dtype)
+    return x, x_scale
 
 from torchao.utils import TorchAOBaseTensor
 
-
 class ActivationSparseTensor(TorchAOBaseTensor):
     data: Optional[torch.Tensor]
+    scale: Optional[torch.Tensor]
 
-    __slots__ = ["data"]
+    __slots__ = ["data", "scale"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
         cls,
         shape: torch.Size,
         data: Optional[torch.Tensor],
+        scale: Optional[torch.Tensor],
         requires_grad: bool = False,
     ):
         assert data is not None
@@ -160,6 +184,7 @@ class ActivationSparseTensor(TorchAOBaseTensor):
         }
         tensor = torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
         tensor.data = data
+        tensor.scale = scale
         return tensor
 
     def __repr__(self) -> str:  # type: ignore[override]
@@ -185,20 +210,31 @@ class ActivationSparseTensor(TorchAOBaseTensor):
         return cls(
             shape=shape,
             data=inner_tensors.get("data", None),
+            scale=inner_tensors.get("scale", None),
             requires_grad=requires_grad,
         )
 
     @classmethod
-    def from_dense(cls, weight):
-        return cls(weight.shape, weight.data.t().contiguous().t(), requires_grad=False)
+    def from_dense(cls, weight, use_fp8=True):
+        if use_fp8:
+            weight, scale = _to_fp8_rowwise(weight, torch.float8_e4m3fn)
+            return cls(weight.shape,
+                    data=weight.data.t().contiguous().t(),
+                    scale=scale,
+                    requires_grad=False)
+        else:
+            return cls(weight.shape,
+                    data=weight.data.t().contiguous().t(),
+                    scale=None,
+                    requires_grad=False)
 
     def apply_fn_to_shard(self, func):
         return ActivationSparseTensor(
             shape=self.shape,
             data=func(self.data),
+            scale=func(self.scale),
             requires_grad=self.requires_grad,
         )
-
 
 # Subclass op dispatch registration
 implements = ActivationSparseTensor.implements
@@ -213,25 +249,30 @@ aten = torch.ops.aten
 )
 def _(func, types, args, kwargs):
     new_data = func(args[0].data, *args[1:], **kwargs)
+    if args[0].scale is None:
+        new_scale = None
+    else:
+        new_scale = func(args[0].scale, *args[1:], **kwargs)
     return ActivationSparseTensor(
         new_data.shape,
         data=new_data,
+        scale=new_scale,
         requires_grad=False,
     )
 
-
-@implements([aten.copy_.default])
+@implements(
+    [aten.copy_.default]
+)
 def _(func, types, args, kwargs):
     self = args[0]
     src = args[1]
     self.data.copy_(src.data)
+    self.scale.copy_(src.scale)
     return
-
 
 @implements(torch.nn.functional.linear)
 def sparse_activation_linear(func, types, args, kwargs):
     x_orig, w, bias = args
-    print(x_orig.shape)
     assert bias is None
     x = x_orig.view(-1, x_orig.size(-1))
     # M = w.shape[0]
@@ -239,17 +280,47 @@ def sparse_activation_linear(func, types, args, kwargs):
 
     if x.shape[0] == 1:
         x_relu = torch.square(torch.nn.functional.relu(x))
-        res = torch.ops.torchao.splitk_sparse_gemv(x_relu, w.data)
+        res = torch.ops.torchao.splitk_sparse_gemv(x_relu,
+                                                    w.data)
         return res.view(*x_orig.shape[:-1], w.shape[0])
     else:
-        x_orig_relu = torch.square(torch.nn.functional.relu(x_orig))
-        return torch.nn.functional.linear(x_orig_relu, w.data, bias)
+        print(x.shape)
+        X_scale = torch.empty([x.shape[0], 1], dtype=torch.float32, device=x.device)
+        Xq_sparse, X_meta = torch.ops.torchao.sparse24_sm90_sparsify(
+            x,
+            "cutlass",
+            "srelu",
+            "largest",
+            dtype=torch.float8_e4m3fn,
+            scale=X_scale,
+        )
+        X_scale_squeeze = X_scale.squeeze() 
+
+        breakpoint()
+
+        result = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            w.data,
+            w.scale.squeeze(),
+            Xq_sparse,
+            X_meta,
+            X_scale_squeeze,
+            bias=None,
+            out_dtype=torch.bfloat16,
+        ).t()
+
+        breakpoint()
+
+        return result
+
+        # For normal linear
+        # x_orig_relu = torch.square(torch.nn.functional.relu(x_orig))
+        # return torch.nn.functional.linear(x_orig_relu, w.data, bias)
 
 
 @dataclass
 class ActivationSparseLinearConfig(AOBaseConfig):
     """
-    Adds in acceleration for activation sparsity to linear layers for decode.
+    Adds in acceleration for activation sparsity to linear layers for decode. 
 
     Args:
         `activation_dtype`: data type for quantized activation tensor.
@@ -259,8 +330,8 @@ class ActivationSparseLinearConfig(AOBaseConfig):
     activation_dtype: torch.dtype = torch.float8_e4m3fn
     weight_dtype: torch.dtype = torch.float8_e4m3fn
 
-
-@register_quantize_module_handler(ActivationSparseLinearConfig)
+@register_quantize_module_handler(
+    ActivationSparseLinearConfig)
 def _(
     module: torch.nn.Module,
     config: ActivationSparseLinearConfig,
