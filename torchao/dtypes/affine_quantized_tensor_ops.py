@@ -130,8 +130,8 @@ def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
     if dispatch_condition in _AQT_QLINEAR_DISPATCH_TABLE:
         del _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition]
     else:
-        logger.warn(
-            f"Attempting to remove non-existant dispatch condition {dispatch_condition}"
+        logger.warning(
+            f"Attempting to remove non-existent dispatch condition {dispatch_condition}"
         )
 
 
@@ -274,7 +274,7 @@ def _(func, types, args, kwargs):
     try:
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -363,7 +363,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
@@ -397,7 +397,7 @@ def _(func, types, args, kwargs):
             input_tensor, transposed_weight_tensor, bias
         )
     except QuantizedLinearNotImplementedError as e:
-        # fallback path is only called when user did not specify a specfic quantized linear implementation with `_layout.quantized_linear_impl`
+        # fallback path is only called when user did not specify a specific quantized linear implementation with `_layout.quantized_linear_impl`
         if (
             isinstance(weight_tensor, AffineQuantizedTensor)
             and hasattr(weight_tensor._layout, "quantized_linear_impl")
