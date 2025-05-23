@@ -45,6 +45,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
+    to_fbgemm_int4,
     to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
@@ -142,6 +143,7 @@ __all__ = [
     "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
+    "FbgemmConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -1965,6 +1967,33 @@ def _fpx_weight_only_transform(
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
+
+
+@dataclass
+class FbgemmConfig(AOBaseConfig):
+    io_dtype: str
+    group_size: int = 128
+    is_grouped_mm: bool = False
+
+
+@register_quantize_module_handler(FbgemmConfig)
+def _(module: torch.nn.Module, config: FbgemmConfig) -> torch.nn.Module:
+    if config.io_dtype == "bf16i4bf16" and not config.is_grouped_mm:
+        try:
+            import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+
+            logger.info("Using efficient FP8 or INT4 operators in fbgemm-gpu.")
+        except ImportError:
+            logger.error(
+                "No efficient FP8 or INT4 operators. Please install fbgemm-gpu."
+            )
+            raise
+
+        weight = to_fbgemm_int4(module.weight, config.group_size)
+        module.weight = torch.nn.Parameter(weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    else:
+        raise NotImplementedError(f"{config} not supported yet")
 
 
 @dataclass
