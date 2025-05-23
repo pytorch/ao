@@ -261,7 +261,6 @@ def wikitext2_ppl(
     if compile:
         model = torch.compile(model)
 
-    print("model:", model)
     return benchmark(model, tokenizer, sequence_length, tasks=tasks, device=device)
 
 
