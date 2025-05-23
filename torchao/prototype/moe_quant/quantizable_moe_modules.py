@@ -1,9 +1,11 @@
 import torch
+import torchao
 import torch.nn.functional as F
 from torch import Tensor, nn
 
 from torchao.prototype.moe_quant.utils import FakeExtraDimTensor
-
+from torchao.quantization.utils import _torchtitan_available
+from torchao.prototype.moe_quant.kernels import fp8_dq_moe_op
 
 class MOEFeedForwardAOQuantizable(nn.Module):
     def __init__(
@@ -28,7 +30,7 @@ class MOEFeedForwardAOQuantizable(nn.Module):
         self.return_scores = return_scores
 
     def forward(self, x: Tensor) -> Tensor:
-        batch_size = x.shape[0]
+        shape_no_dim = x.shape[:-1]
         x = x.view(-1, self.hidden_dim)  # x: [T, D]
         scores = self.router(x)  # [T, E]
         scores = F.softmax(scores, dim=-1)
@@ -40,11 +42,12 @@ class MOEFeedForwardAOQuantizable(nn.Module):
         out = self.experts(x, expert_indices, scores, self.top_k)
         if self.shared_expert:
             out += self.shared_expert(x)
-
+        out =  out.reshape(*shape_no_dim, -1)
+        
         if self.return_scores:
-            return out.reshape(batch_size, -1, self.hidden_dim), scores
+            return out, scores
         else:
-            return out.reshape(batch_size, -1, self.hidden_dim)
+            return out
 
 
 class ConditionalFeedForwardAOQuantizable(nn.Module):
@@ -79,7 +82,7 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
         self,
         x: Tensor,  # T, D
         expert_indices: Tensor,  # T, A
-        expert_weights: Tensor,  # T, A
+        scores: Tensor,  # T, A
         top_k: int,
     ) -> Tensor:
         num_tokens, _hidden_dim = x.shape
@@ -105,11 +108,20 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
 
             # combine outputs
             final_out = (
-                (torch.cat(outs, dim=0) * expert_weights.view(-1, 1))
+                (torch.cat(outs, dim=0) * scores.view(-1, 1))
                 .sum(dim=0)
                 .reshape(x.shape)
             )
             return final_out
+        
+        # fp8 dq moe
+        elif (
+            isinstance(self.w1, torchao.quantization.linear_activation_quantized_tensor.LinearActivationQuantizedTensor) and 
+            isinstance(self.w1.original_weight_tensor._layout, torchao.dtypes.floatx.float8_layout.Float8Layout)
+        ):
+            final_out = fp8_dq_moe_op(x, self.w1, self.w2, self.w3, expert_indices, scores)
+            return final_out
+        
         else:
             expert_list = [x for x in range(self.num_experts)]
 
@@ -172,7 +184,7 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
 
             # weigh outputs
             ordered_outs = torch.cat(outs, dim=0)  # [T*A, D]
-            ordered_token_activation_weights = expert_weights.view(-1, 1)[
+            ordered_token_activation_weights = scores.view(-1, 1)[
                 ordered_token_activations
             ].view(-1, 1)  # [T*A, 1]
             weighted_ordered_outs = (
