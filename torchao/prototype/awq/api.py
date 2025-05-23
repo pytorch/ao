@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import types
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 
@@ -13,6 +14,7 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
+    Int4XPULayout,
 )
 from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
@@ -114,6 +116,7 @@ class AWQUIntXConfig(AOBaseConfig):
     group_size: int = 64
     use_hqq: bool = False
     set_inductor_config: bool = True
+    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.FLOAT
 
 
 # for bc
@@ -135,16 +138,21 @@ def _awq_uintx_transform(
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, (
         "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     )
-
+    
+    device = observed_linear.weight.device
     equalization_scale = observed_linear.act_obs.calculate_qparams()
     # AQT config
     if quant_dtype == torch.uint4:
         target_dtype = torch.int32
         eps = 1e-6
         preserve_zero = False
-        zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
-        _layout = TensorCoreTiledLayout(inner_k_tiles=8)
+        zero_point_dtype = torch.bfloat16 if config.zero_point_domain != ZeroPointDomain.INT else torch.int8
+        zero_point_domain = config.zero_point_domain
+
+        if "xpu" in device.type:
+            _layout = Int4XPULayout()
+        else:
+            _layout = TensorCoreTiledLayout(inner_k_tiles=8)
     else:
         target_dtype = torch.uint8
         eps = torch.finfo(torch.float32).eps

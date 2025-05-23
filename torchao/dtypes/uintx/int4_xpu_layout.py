@@ -242,14 +242,16 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
     ):
         assert isinstance(_layout, Int4XPULayout)
 
-        from torchao.quantization.utils import convert_weight_to_int4pack_xpu
 
         if TORCH_VERSION_AT_LEAST_2_8:
             assert int_data.dtype == torch.int32, (
                 "torch.ops.aten._convert_weight_to_int4pack_for_cpu expects `int32` dtype"
             )
-            packed_weight = convert_weight_to_int4pack_xpu(
-                int_data, zero_point.dtype != scale.dtype
+            packed_weight = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(
+                torch.uint8
+            )
+            packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+                packed_weight.contiguous(), 8
             )
         else:
             assert False, "INT4 not supported on XPU until 2.8"

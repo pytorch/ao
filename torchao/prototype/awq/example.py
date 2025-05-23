@@ -13,6 +13,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.awq import AWQObservedLinear, awq_uintx, insert_awq_observer_
 from torchao.quantization import int4_weight_only, quantize_
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+)
+from torchao.dtypes import Int4XPULayout
+
+
+zero_point_domain_dict = {"float":ZeroPointDomain.FLOAT, "int":ZeroPointDomain.INT, "none":ZeroPointDomain.NONE}
 
 
 # adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255
@@ -71,6 +78,8 @@ def wiki2_eval(
             log_likelihood = model(input_ids, labels=target_ids).loss * trg_len
         if device.startswith("cuda"):
             torch.cuda.synchronize()
+        if device.startswith("xpu"):
+            torch.xpu.synchronize()
         t2 = time.time()
         t.append((t2 - t1))
         lls.append(log_likelihood)
@@ -190,6 +199,7 @@ def wikitext2_ppl(
     precision: torch.dtype,
     sequence_length: int,
     compile: bool,
+    zero_point_domin: str,
     model_save_path: str,
 ):
     print(f"Loading model on {device}...")
@@ -231,8 +241,9 @@ def wikitext2_ppl(
         t0 = time.time()
         quantize_(
             model,
-            awq_uintx(quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq),
+            awq_uintx(quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq, zero_point_domain=zero_point_domain_dict[zero_point_domin]),
             is_observed_linear,
+            torch.device(device),
         )
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:
@@ -242,10 +253,15 @@ def wikitext2_ppl(
         group_size = int(quant.split("-")[1])
         use_hqq = "hqq" in quant
         print(f"running {quant} quantization with group size {group_size}")
-        quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
+        int4_weight_only_config = int4_weight_only(group_size=group_size, use_hqq=use_hqq)
+        if "xpu" in device:
+            int4_weight_only_config.layout = Int4XPULayout()
+            int4_weight_only_config.layout.zero_point_domin = zero_point_domain_dict["zero_point_domin"]
+        quantize_(model, int4_weight_only_config)
     if compile:
         model = torch.compile(model)
 
+    print("model:", model)
     return benchmark(model, tokenizer, sequence_length, tasks=tasks, device=device)
 
 
@@ -300,6 +316,13 @@ if __name__ == "__main__":
         help="Flag to indicate if compilation is required.",
     )
     parser.add_argument(
+        "--zero_point_domin",
+        type=str,
+        default="float",
+        choices=['float', 'int', 'none'],
+        help="Zero point type. Default is 'float'.",
+    )
+    parser.add_argument(
         "--model_save_path",
         type=str,
         default=None,
@@ -320,6 +343,7 @@ if __name__ == "__main__":
         args.precision,
         args.seq_len,
         args.compile,
+        args.zero_point_domin,
         args.model_save_path,
     )
 
