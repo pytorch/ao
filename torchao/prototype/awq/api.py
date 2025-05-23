@@ -143,6 +143,10 @@ def _awq_uintx_transform(
     equalization_scale = observed_linear.act_obs.calculate_qparams()
     # AQT config
     if quant_dtype == torch.uint4:
+        if ((config.zero_point_domain == ZeroPointDomain.INT) and ("xpu" not in device.type)):
+            raise ValueError(
+                f"_awq_uintx_transform with ZeroPointDomain.INT is only applicable to Intel GPU."
+            )
         target_dtype = torch.int32
         eps = 1e-6
         preserve_zero = False
