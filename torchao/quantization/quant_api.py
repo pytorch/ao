@@ -1412,7 +1412,7 @@ def _float8_weight_only_quant_tensor(weight, config):
         input_float=weight,
         block_size=block_size,
         target_dtype=config.weight_dtype,
-        scale_dtype=None,
+        scale_dtype=torch.float32,
         _layout=Float8Layout(mm_config=None),
     )
     return new_weight
@@ -1519,6 +1519,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
             only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        scale_dtype: By default we set to fp32, if a user is on 12.8 and sets it to e8m0 we well ensure power of 2 scaling
 
     """
 
@@ -1529,6 +1530,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
+    scale_dtype: torch.dtype = torch.float32
 
     def __post_init__(self):
         if self.mm_config is None:
@@ -1549,6 +1551,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     weight_dtype = config.weight_dtype
     granularity = config.granularity
     mm_config = config.mm_config
+    scale_dtype = config.scale_dtype
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1570,7 +1573,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         input_float=weight,
         block_size=block_size,
         target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
+        scale_dtype=scale_dtype,
         _layout=Float8Layout(mm_config=mm_config),
     )
 

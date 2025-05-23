@@ -463,7 +463,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
             scale = choose_qparams_affine_float8(
-                input_float, float8_dtype=target_dtype, block_size=block_size
+                input_float,
+                float8_dtype=target_dtype,
+                block_size=block_size,
+                scale_dtype=scale_dtype,
             )
             data = quantize_affine_float8(input_float, scale, target_dtype)
             data, scale, zero_point = _layout.post_process(
