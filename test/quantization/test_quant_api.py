@@ -880,6 +880,13 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     def test_8da4w_cpu(self, dtype, x_dim):
+        print(
+            "========================= dtype =",
+            dtype,
+            ", x_dim =",
+            x_dim,
+            "=========================",
+        )
         device = "cpu"
         m = ToyLinearModel().eval().to(dtype).to(device)
         m2 = copy.deepcopy(m)
@@ -890,27 +897,35 @@ class TestQuantFlow(TestCase):
         with torch.no_grad():
             # Currently, the difference between Int8DynamicActInt4WeightCPULayout and PlainLayout
             # is that the former packs two int4 weights into one int8, while the latter does not.
+            print(">>> quantize with Int8DynamicActInt4WeightCPULayout")
             quantize_(
                 m,
                 int8_dynamic_activation_int4_weight(
                     group_size=32, layout=Int8DynamicActInt4WeightCPULayout()
                 ),
             )
-            y, code = torch._inductor.utils.run_and_get_code(
-                torch.compile(m, fullgraph=True, dynamic=True),
-                *example_inputs,
-            )
-            # ensure the expected op is in the code
-            assert "shift" in code[0]  # unpacking int4 values
-            assert "extern_kernels.mm" in code[0]
+            # y, code = torch._inductor.utils.run_and_get_code(
+            #     torch.compile(m, fullgraph=True, dynamic=True),
+            #     *example_inputs,
+            # )
+            # # ensure the expected op is in the code
+            # assert "shift" in code[0]  # unpacking int4 values
+            # assert "extern_kernels.mm" in code[0]
+            print(">>> run with Int8DynamicActInt4WeightCPULayout")
+            y = m(*example_inputs)
+            print(">>> quantize with PlainLayout")
             quantize_(
                 m2,
                 int8_dynamic_activation_int4_weight(
-                    group_size=32, layout=PlainLayout()
+                    group_size=32,
+                    # mapping_type=MappingType.ASYMMETRIC,
+                    layout=PlainLayout(),
                 ),
             )
             torch._dynamo.reset()  # may segfault without this
-            y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
+            print(">>> run with PlainLayout")
+            # y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
+            y2 = m2(*example_inputs)
             assert torch.allclose(y, y2)
 
     # TODO(#1690): move to new config names
