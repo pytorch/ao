@@ -53,27 +53,25 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        input_row_major: Float8Tensor,
-        input_col_major: Float8Tensor,
+        input: Float8Tensor,
+        input_t: Float8Tensor,
         weight_hp_t: torch.Tensor,
         linear_mm_config: LinearMMConfig,
         config: Float8LinearConfig,
     ):
-        assert input_col_major.dim() == 2, "input_col_major must be 2D Float8Tensor"
-
-        ctx.save_for_backward(input_col_major, weight_hp_t)
+        ctx.save_for_backward(input_t, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
         ctx.config = config
 
         c = config
 
-        if tensor_already_casted_to_fp8(input_row_major):
-            input_maybe_fp8 = input_row_major
+        if tensor_already_casted_to_fp8(input):
+            input_maybe_fp8 = input
         elif c.cast_config_input.scaling_type is ScalingType.DISABLED:
-            input_maybe_fp8 = input_row_major
+            input_maybe_fp8 = input
         else:
             input_maybe_fp8 = hp_tensor_to_float8_dynamic(
-                input_row_major,
+                input,
                 c.cast_config_input.target_dtype,
                 linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
@@ -111,7 +109,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input_fp8_col_major, weight_hp_t = ctx.saved_tensors
+        input_t, weight_hp_t = ctx.saved_tensors
         c = ctx.config
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -136,16 +134,16 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
                 scaling_granularity=c.cast_config_grad_output.scaling_granularity,
                 axiswise_dim=get_maybe_axiswise_dim(
-                    -1, c.cast_config_grad_output.scaling_granularity
+                    0, c.cast_config_grad_output.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
             # TODO(future PR): var name is axiswise specific, fix it
-            weight_t_maybe_fp8_dim0 = weight_hp_t
+            weight_t_maybe_fp8 = weight_hp_t
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
-            weight_t_maybe_fp8_dim0 = weight_hp_t
+            weight_t_maybe_fp8 = weight_hp_t
         else:
             if (
                 c.cast_config_weight_for_grad_input.scaling_granularity
@@ -162,7 +160,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
             # to be solved to have a chance to reuse max(abs(weight, dim=...))
             # from the forward to get max(abs(weight)) here without reading
             # the entire tensor.
-            weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
+            weight_t_maybe_fp8 = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
                 c.cast_config_weight_for_grad_input.target_dtype,
                 ctx.linear_mm_config,
@@ -175,8 +173,8 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
             )
 
         grad_input = torch.mm(
+            weight_t_maybe_fp8,
             grad_output_reshaped_maybe_fp8_dim0,
-            weight_t_maybe_fp8_dim0.t(),
         )
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
@@ -185,18 +183,19 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         #
         # calculate grad_weight
         #
-
-        if tensor_already_casted_to_fp8(grad_output_reshaped):
+        grad_output_t = grad_output.transpose(-2, -1)
+        grad_output_t_reshaped = grad_output_t.reshape(-1, grad_output_t.shape[-1])
+        if tensor_already_casted_to_fp8(grad_output_t_reshaped):
             # TODO(future PR): var name is axiswise specific, fix it
-            grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
+            grad_output_t_maybe_fp8 = grad_output_t_reshaped
         elif (
             c.cast_config_grad_output_for_grad_weight.scaling_type
             is ScalingType.DISABLED
         ):
-            grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
+            grad_output_t_maybe_fp8 = grad_output_t_reshaped
         else:
-            grad_output_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
-                grad_output_reshaped,
+            grad_output_t_maybe_fp8 = hp_tensor_to_float8_dynamic(
+                grad_output_t_reshaped,
                 c.cast_config_grad_output_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.GRAD_OUTPUT,
@@ -207,34 +206,34 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
-        if tensor_already_casted_to_fp8(input_fp8_col_major):
+        if tensor_already_casted_to_fp8(input_t):
             # TODO(future PR): var name is axiswise specific, fix it
-            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major
+            input_t_maybe_fp8 = input_t
         elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
-            input_reshaped_maybe_fp8_dim1 = input_fp8_col_major
+            input_t_maybe_fp8 = input_t
         else:
-            input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
-                input_fp8_col_major,
+            input_t_maybe_fp8 = hp_tensor_to_float8_dynamic(
+                input_t,
                 c.cast_config_input_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
                 scaling_granularity=c.cast_config_input_for_grad_weight.scaling_granularity,
                 axiswise_dim=get_maybe_axiswise_dim(
-                    0, c.cast_config_input_for_grad_weight.scaling_granularity
+                    -1, c.cast_config_input_for_grad_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
 
         grad_weight = torch.mm(
-            grad_output_reshaped_maybe_fp8_dim1.t(),
-            input_reshaped_maybe_fp8_dim1,
+            input_t_maybe_fp8,
+            grad_output_t_maybe_fp8,
         )
 
         # the 2nd input (col-major) is created only for fp8 rowwise all-gather, it should have no grad.
         # we cannot pass "None" because under the hood, pytorch will create a regular, non-DTensor filled
         # with 0s, which is incompatible for subsequent ops with other DTensors during backward.
         # So we have to manually create a DTensor with 0s here.
-        empty_grad = grad_input.clone().reshape(input_reshaped_maybe_fp8_dim1.shape)
+        empty_grad = grad_input.clone().reshape(input_t_maybe_fp8.shape)
         empty_grad.fill_(0.0)
         return grad_input, empty_grad, grad_weight.t(), None, None
 
@@ -250,7 +249,7 @@ class Float8ColwiseParallel(ColwiseParallel):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
             input = inputs[0]
-            input_t = inputs[0].t()
+            input_t = inputs[0].transpose(-2, -1)
         elif len(inputs) == 2:
             input, input_t = inputs[0], inputs[1]
         else:
@@ -350,7 +349,7 @@ class Float8RowwiseParallel(RowwiseParallel):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
             input = inputs[0]
-            input_t = inputs[0].t()
+            input_t = inputs[0].tranpose(-2, -1)
         elif len(inputs) == 2:
             input, input_t = inputs[0], inputs[1]
         else:
@@ -490,12 +489,19 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 # TODO: re-enable the check once we fix the compile path
                 # assert inp.placements[0] == input_layout
                 dt_input = input
+                dt_input_t = input.transpose(-2, -1).contiguous()
             else:
                 assert isinstance(input, torch.Tensor), (
                     "expecting input to be a torch.Tensor!"
                 )
                 dt_input = DTensor.from_local(
                     input, mesh, (input_layout,), run_check=False
+                )
+                dt_input_t = DTensor.from_local(
+                    input.transpose(-2, -1).contiguous(),
+                    mesh, 
+                    (input_layout,), 
+                    run_check=False,
                 )
             
             
@@ -509,7 +515,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
             )  # DTensor(Float8Tensor)
 
             dt_input_t_fp8 = hp_tensor_to_float8_dynamic(
-                dt_input_fp8.t(),
+                dt_input_t,
                 e4m3_dtype,
                 self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,

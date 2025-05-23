@@ -488,27 +488,8 @@ def allgather_fp8(aten_op, args, kwargs=None):
     fp8_scale = fp8_scale.contiguous()
     fp8_scale = aten_op(fp8_scale, *args[1:], **kwargs) 
 
-    # special case: if axiswise_dim is 0, we need to compute the max of the scales
-    # (really what we want is the global amax for each row, but we compute the scale as
-    # reciprocal(TORCH_FP8_DTYPE_MAX/amax ).
-    # example:
-    #   A.shape = (8192,4096) with Shard(dim=0).
-    #   A_shard.shape = (4096,4096)
-    #   Compute scales with axiswise_dim=0: A_shard_scale.shape = (1,4096)
-    #   all-gather on dim0 will result in original tensor, with 2 partial scales:
-    #   A_out.shape = (8192,4096), A_out_scale.shape = (2,4096) => max => (1,4096)
-    #
-    # This is only true for axiswise_dim=0, because for axiswise_dim=-1, the scales
-    # are simply concatenated, rather than averaged.
-    # example:
-    #   A.shape = (8192,4096) with Shard(dim=0).
-    #   A_shard.shape = (4096,4096)
-    #   Compute scales with axiswise_dim=-1: A_shard_scale.shape = (4096,1)
-    #   all-gather on dim0 will result in original tensor, with 2 partial scales (shape-wise)
-    #   that are complate numerically.
-    #   A_out.shape = (8192,4096), A_out_scale.shape = (8192,1)
-    if fp8_input._axiswise_dim == 0:
-        fp8_scale = torch.max(fp8_scale, dim=0, keepdim=True).values
+    if fp8_input._axiswise_dim is not None:
+        assert fp8_input._axiswise_dim != 0, "all-gather with axiswise_dim=0 is not supported"
         
     debug_print(f"allgather_fp8 fp8_out {fp8_out.shape} fp8_scale {fp8_scale.shape}")
     return Float8Tensor(
