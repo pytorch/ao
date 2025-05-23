@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+import torchao
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
 
 from torchao.prototype.moe_quant.utils import FakeExtraDimTensor
-
+from torchao.quantization.utils import _torchtitan_available
+from torchao.prototype.moe_quant.kernels import fp8_dq_moe_op
 
 def find_multiple(n: int, k: int) -> int:
     if n % k == 0:
@@ -34,6 +36,7 @@ class ModelArgs:
     norm_eps: float = 1e-5
     num_experts: int = 8
     num_activated_experts: int = 2
+    use_fbgemm_kernel: bool = False
 
     def __post_init__(self):
         if self.n_local_heads == -1:
@@ -225,43 +228,6 @@ class Attention(nn.Module):
         y = self.wo(y)
         return y
 
-
-# class ConditionalFeedForward(nn.Module):
-#     def __init__(self, config):
-#         super().__init__()
-#         self.w1 = nn.Parameter(torch.empty(config.num_experts, config.intermediate_size, config.dim))
-#         self.w2 = nn.Parameter(torch.empty(config.num_experts, config.dim, config.intermediate_size))
-#         self.w3 = nn.Parameter(torch.empty(config.num_experts, config.intermediate_size, config.dim))
-
-#     def forward(self, x: Tensor, expert_indices: Tensor) -> Tensor:
-#         w1_weights = self.w1[expert_indices] # [T, A, D, D]
-#         w3_weights = self.w3[expert_indices] # [T, A, D, D]
-#         w2_weights = self.w2[expert_indices]  # [T, A, D, D]
-#         x1 = F.silu(torch.einsum('ti,taoi -> tao', x, w1_weights))
-#         x3 = torch.einsum('ti, taoi -> tao', x, w3_weights)
-#         expert_outs =  torch.einsum('tao, taio -> tai', (x1 * x3), w2_weights)
-#         return expert_outs
-
-
-# class MOEFeedForward(nn.Module):
-#     def __init__(self, config) -> None:
-#         super().__init__()
-#         self.gate = nn.Linear(config.dim, config.num_experts, bias=False)
-#         self.cond_ffn = ConditionalFeedForward(config)
-#         self.dim = config.dim
-#         self.num_activated_experts = config.num_activated_experts
-#     def forward(self, x: Tensor) -> Tensor:
-#         x = x.view(-1, self.dim)
-#         # T = num_tokens, E = num_experts, D = hidden dim, A = activated experts
-#         # x: [T, D]
-#         scores = self.gate(x) # [T, E]
-#         expert_weights = F.softmax(scores, dim=-1)
-#         expert_weights, expert_indices = torch.topk(expert_weights, self.num_activated_experts, dim=-1) # [T, A], [T, A]
-#         expert_weights /= expert_weights.sum(dim=-1, keepdim=True) # [T, A]
-#         expert_outs = self.cond_ffn(x, expert_indices)
-#         return torch.einsum('tai,ta -> ti', expert_outs, expert_weights)
-
-
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
@@ -347,7 +313,9 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
             torch.empty(config.num_experts, config.intermediate_size, config.dim)
         )  # E, I, D
         self.num_experts = config.num_experts
+        self.use_fbgemm_kernel = config.use_fbgemm_kernel
 
+    # TODO move this into kernels, single token decomposed kernel, multi token...etc
     def forward(
         self,
         x: Tensor,  # T, D
@@ -381,6 +349,14 @@ class ConditionalFeedForwardAOQuantizable(nn.Module):
                 .sum(dim=0)
                 .unsqueeze(-1)
             )
+            return final_out
+        # fp8 dq moe
+        elif (
+            isinstance(self.w1, torchao.quantization.linear_activation_quantized_tensor.LinearActivationQuantizedTensor) and 
+            isinstance(self.w1.original_weight_tensor._layout, torchao.dtypes.floatx.float8_layout.Float8Layout)
+        ):
+
+            final_out = fp8_dq_moe_op(x, self.w1, self.w2, self.w3, expert_indices, expert_weights, use_fbgemm_kernel=self.use_fbgemm_kernel)
             return final_out
         else:
             expert_list = [x for x in range(self.num_experts)]
