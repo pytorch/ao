@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -318,7 +319,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         # between these two devices, in the future we should not use the same layout for
         # cpu and cuda device: https://github.com/pytorch/ao/issues/1117
         if not is_device(torch.device(self.device).type, device):
-            raise ValueError(
+            logging.warning(
                 f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}"
             )
         return self.__class__(

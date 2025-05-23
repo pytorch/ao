@@ -1017,6 +1017,25 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
         assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int4wo_cuda_serialization(self):
+        config = Int4WeightOnlyConfig(group_size=32)
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        # quantize in cuda
+        quantize_(model, config)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model(*example_inputs)
+        with tempfile.NamedTemporaryFile() as ckpt:
+            # save checkpoint in cuda
+            torch.save(model.state_dict(), ckpt)
+            # load checkpoint on cpu then move checkpoint to cuda
+            # This is what torchtune does: https://github.com/pytorch/torchtune/blob/v0.6.1/torchtune/training/checkpointing/_utils.py#L253
+            sd = torch.load(ckpt.name, weights_only=False, map_location="cpu")
+            for k, v in sd.items():
+                sd[k] = v.to("cuda")
+            # load state_dict in cuda
+            model.load_state_dict(sd, assign=True)
+
 
 class TestMultiTensorFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
