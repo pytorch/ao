@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
     PrepareModuleInput,
@@ -42,7 +43,7 @@ def _float8_linear_supports_float8_allgather(m):
 
 
 @torch._dynamo.allow_in_graph
-class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
+class matmul_with_fp8_input_and_input_t(torch.autograd.Function):
     """
     Differentiable scaled mm between input and weight tensor, with the 
     input tensor already given in float8 row-major format (for forward) 
@@ -98,9 +99,11 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
             )
-
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm
+        if input_t.shape[-1] != input.shape[-2]:
+            torch.distributed.breakpoint()
+        print(f"fwd input: {input.shape}, input_t: {input_t.shape}, weight_hp_t: {weight_hp_t.shape}")
         orig_shape = input_maybe_fp8.shape
         input_maybe_fp8_reshaped = input_maybe_fp8.reshape(-1, orig_shape[-1])
         res_bits = torch.mm(input_maybe_fp8_reshaped, weight_maybe_fp8_t)
@@ -112,6 +115,7 @@ class matmul_with_fp8_input_row_and_col_major(torch.autograd.Function):
         input_t, weight_hp_t = ctx.saved_tensors
         c = ctx.config
 
+        print(f"bwd grad_output: {grad_output.shape}, input_t: {input_t.shape}, weight_hp_t: {weight_hp_t.shape}")
         # the reshapes are needed in order to make the shapes compatible with
         # torch.mm
         grad_output_orig_shape = grad_output.shape
@@ -249,7 +253,7 @@ class Float8ColwiseParallel(ColwiseParallel):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
             input = inputs[0]
-            input_t = inputs[0].transpose(-2, -1)
+            input_t = inputs[0].transpose(-2, -1).contiguous()
         elif len(inputs) == 2:
             input, input_t = inputs[0], inputs[1]
         else:
@@ -349,7 +353,7 @@ class Float8RowwiseParallel(RowwiseParallel):
         # annotate module input placements/sharding with input_layouts
         if len(inputs) == 1:
             input = inputs[0]
-            input_t = inputs[0].tranpose(-2, -1)
+            input_t = inputs[0].transpose(-2, -1).contiguous()
         elif len(inputs) == 2:
             input, input_t = inputs[0], inputs[1]
         else:
@@ -380,6 +384,7 @@ class Float8RowwiseParallel(RowwiseParallel):
         if isinstance(input_t, DTensor):
             dt_input_t = input_t
         else:
+            # danvm: sharding dim for transposed input is wrong here, since we have transposed dims
             dt_input_t = DTensor.from_local(
                 input_t, device_mesh, input_layouts, run_check=False
             )
@@ -485,7 +490,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
 
     def _prepare_input_arg(self, input, mesh, input_layout, desired_layout):
         if input_layout is not None:
-            if not isinstance(input, DTensor):
+            if isinstance(input, DTensor):
                 # TODO: re-enable the check once we fix the compile path
                 # assert inp.placements[0] == input_layout
                 dt_input = input

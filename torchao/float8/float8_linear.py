@@ -28,7 +28,7 @@ from torchao.float8.float8_utils import tensor_to_scale
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.float8.float8_tensor import Float8Tensor
 from torchao.float8.float8_tensor_parallel_rowwise_scales import (
-    matmul_with_fp8_input_row_and_col_major,
+    matmul_with_fp8_input_and_input_t,
 )
 
 def _get_weight_scale(
@@ -355,14 +355,10 @@ class Float8Linear(torch.nn.Linear):
 
         using_fp8_rowwise_all_gather = (
            input_row_major is not None and 
-           input_col_major is not None and
-           isinstance(input_row_major, DTensor) and
-           isinstance(input_col_major, DTensor) and
-           isinstance(input_row_major.to_local(), Float8Tensor) and
-           isinstance(input_col_major.to_local(), Float8Tensor)
+           input_col_major is not None
         )
         if using_fp8_rowwise_all_gather:
-            output = matmul_with_fp8_input_row_and_col_major.apply(
+            output = matmul_with_fp8_input_and_input_t.apply(
                 input_row_major,
                 input_col_major,
                 weight_maybe_fp8_t,
