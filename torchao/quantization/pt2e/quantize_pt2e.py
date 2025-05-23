@@ -11,6 +11,8 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
 if TORCH_VERSION_AT_LEAST_2_7:
     from .constant_fold import constant_fold
 
+from typing import Union
+
 from torch.fx import GraphModule, Node
 from torch.fx.passes.infra.pass_manager import PassManager
 
@@ -39,7 +41,7 @@ __all__ = [
 
 def prepare_pt2e(
     model: GraphModule,
-    quantizer: Quantizer,
+    quantizer: Union[Quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer],
 ) -> GraphModule:
     """Prepare a model for post training quantization
 
@@ -127,7 +129,7 @@ def prepare_pt2e(
 
 def prepare_qat_pt2e(
     model: GraphModule,
-    quantizer: Quantizer,
+    quantizer: Union[Quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer],
 ) -> GraphModule:
     """Prepare a model for quantization aware training
 
