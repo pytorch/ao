@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import unittest
+
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -14,13 +16,23 @@ from torchao.quantization import (
     FbgemmConfig,
     quantize_,
 )
+from torchao.quantization.utils import compute_error
+from torchao.utils import is_sm_at_least_90
 
 
 class TestFbgemmInt4Tensor(TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
     def test_linear(self):
-        linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        dtype = torch.bfloat16
+        device = "cuda"
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        original = linear(input)
         config = FbgemmConfig(io_dtype="bf16i4bf16", is_grouped_mm=False)
         quantize_(linear, config)
+        quantized = linear(input)
+        self.assertTrue(compute_error(original, quantized) > 20)
 
 
 if __name__ == "__main__":

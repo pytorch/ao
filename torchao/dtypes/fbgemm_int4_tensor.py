@@ -136,7 +136,7 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
+    res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.packed_weight,
         weight_tensor.scale,
