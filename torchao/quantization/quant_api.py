@@ -54,7 +54,12 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype, e5m2_dtype
 from torchao.float8.float8_linear import Float8Linear
-from torchao.float8.inference import Float8MMConfig
+from torchao.float8.inference import (
+    Float8MMConfig,
+    FP8Granularity,
+    _check_hardware_support,
+    _normalize_granularity,
+)
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
@@ -1431,56 +1436,9 @@ def _float8_weight_only_transform(
     return module
 
 
-_fp8_granularities = Union[PerTensor, PerRow]
-
-
-# Validate and process granularity input
-def _normalize_granularity(
-    granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
-    ],
-) -> Tuple[_fp8_granularities, _fp8_granularities]:
-    processed_granularity = None
-    if granularity is None:
-        processed_granularity = (PerTensor(), PerTensor())
-    elif isinstance(granularity, (PerTensor, PerRow)):
-        processed_granularity = (granularity, granularity)
-    elif isinstance(granularity, tuple) and len(granularity) == 2:
-        if not (
-            isinstance(granularity[0], (PerTensor, PerRow))
-            and isinstance(granularity[1], (PerTensor, PerRow))
-        ):
-            raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
-            )
-        if not isinstance(granularity[0], type(granularity[1])):
-            raise ValueError(
-                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
-            )
-        processed_granularity = granularity
-    else:
-        raise ValueError(
-            f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
-        )
-    # Validate granularity with supported Hardware
-    for _granularity in processed_granularity:
-        if isinstance(_granularity, PerTensor):
-            assert is_sm_at_least_89() or is_MI300(), (
-                "PerTensor quantization only works for CUDA>=8.9 and MI300+"
-            )
-        elif isinstance(_granularity, PerRow):
-            assert is_sm_at_least_90() or is_MI300(), (
-                "PerRow quantization only works for CUDA>=9.0 and MI300+"
-            )
-        else:
-            raise ValueError(f"Invalid granularity type: {_granularity}")
-
-    return processed_granularity
-
-
 def _input_activation_quant_func_fp8(
     x: torch.Tensor,
-    activation_granularity: _fp8_granularities,
+    activation_granularity: FP8Granularity,
     activation_dtype: torch.dtype,
     scale: Optional[torch.Tensor] = None,
     zero_point: Optional[torch.Tensor] = None,
@@ -1567,7 +1525,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
@@ -1575,6 +1533,11 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     def __post_init__(self):
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
+
+        activation_granularity, weight_granularity = _normalize_granularity(
+            self.granularity
+        )
+        self.granularity = (activation_granularity, weight_granularity)
 
 
 # for bc
@@ -1587,7 +1550,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     granularity = config.granularity
     mm_config = config.mm_config
 
-    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+    # Ensure works on device
+    _check_hardware_support(granularity)
+    activation_granularity, weight_granularity = granularity
 
     if not _fp8_mm_compat(weight):
         # TODO(future PR): this should really throw an exception instead of silently
@@ -1704,7 +1669,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[
-        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
     ] = None
     mm_config: Optional[Float8MMConfig] = None
     set_inductor_config: bool = True
