@@ -35,6 +35,7 @@ jobs:
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
+          ${CONDA_RUN} export PYTHONPATH=.
 
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results

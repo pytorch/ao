@@ -75,7 +75,7 @@ def create_benchmark_result(
             {},
         ),
         "metric": (
-            f"{metric_name}(ms)",  # name with unit
+            f"{metric_name}(wrt bf16)",  # name with unit
             metric_values,  # benchmark_values
             0.0,  # TODO: Will need to define the target value
             {},
@@ -106,11 +106,11 @@ def run_ci_benchmarks(config_path: str) -> List[Dict[str, Any]]:
             # Create benchmark result in OSS format
             benchmark_result = create_benchmark_result(
                 benchmark_name="TorchAO Quantization Benchmark",
-                shape=config.shape,
-                metric_name="inference_time",
-                metric_values=[result.model_inference_time_in_ms],
+                shape=[config.m, config.k, config.n],
+                metric_name="speedup",
+                metric_values=[result.speedup],
                 quant_type=config.quantization,
-                device=config.params.get("device", "cpu"),
+                device=config.device,
             )
             results.append(benchmark_result)
 
