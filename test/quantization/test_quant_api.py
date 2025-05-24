@@ -310,7 +310,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
     )
     def test_8da4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
@@ -325,7 +325,7 @@ class TestQuantFlow(TestCase):
         not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower"
     )
     def test_8da4w_quantizer_linear_bias(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
@@ -336,190 +336,10 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    # TODO: save model weights as artifacts and re-enable in CI
-    # For now, to run this test, you will need to download the weights from HF
-    # and run this script to convert them:
-    # https://github.com/pytorch-labs/gpt-fast/blob/6253c6bb054e658d67566150f87329b87815ae63/scripts/convert_hf_checkpoint.py
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_8da4w_gptq_quantizer(self):
-        from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
-
-        # should be similar to TorchCompileDynamicQuantizer
-        precision = torch.bfloat16
-        device = "cpu"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        blocksize = 128
-        percdamp = 0.01
-        groupsize = 128
-        calibration_tasks = ["wikitext"]
-        calibration_limit = 1
-        calibration_seq_length = 100
-        input_prep_func = prepare_inputs_for_model
-        pad_calibration_inputs = False
-
-        inputs = (
-            InputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                input_prep_func,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-            )
-            .record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            )
-            .get_inputs()
-        )
-
-        quantizer = Int8DynActInt4WeightGPTQQuantizer(
-            blocksize,
-            percdamp,
-            groupsize,
-            precision=precision,
-        )
-        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-        model = quantizer.quantize(model, inputs)
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.88, (
-            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(
-        not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch verion is 2.4 or lower"
-    )
-    def test_8da4w_quantizer_eval(self):
-        from torchao._models._eval import TransformerEvalWrapper
-        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-
-        precision = torch.bfloat16
-        device = "cpu"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-
-        quantizer = Int8DynActInt4WeightQuantizer(groupsize=128, precision=precision)
-        q_model = quantizer.quantize(model)
-        result = TransformerEvalWrapper(
-            q_model,
-            tokenizer,
-            q_model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_gptq_quantizer_int4_weight_only(self):
-        from torchao._models._eval import (
-            MultiTensorInputRecorder,
-            TransformerEvalWrapper,
-        )
-        from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
-
-        precision = torch.bfloat16
-        device = "cuda"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device="cpu")
-        model.eval()
-
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-
-        blocksize = 128
-        percdamp = 0.01
-        groupsize = 64
-        calibration_tasks = ["wikitext"]
-        calibration_limit = 5
-        calibration_seq_length = 100
-        input_prep_func = prepare_inputs_for_model
-        pad_calibration_inputs = False
-        inputs = (
-            MultiTensorInputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                input_prep_func,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device="cpu",
-            )
-            .record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            )
-            .get_inputs()
-        )
-
-        quantizer = Int4WeightOnlyGPTQQuantizer(
-            blocksize,
-            percdamp,
-            groupsize,
-        )
-        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-        model = quantizer.quantize(model, inputs).cuda()
-
-        result = TransformerEvalWrapper(
-            model.cuda(),
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            None,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
         from torchao._models._eval import TransformerEvalWrapper
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
 
         precision = torch.bfloat16
         device = "cuda"
@@ -648,7 +468,7 @@ class TestQuantFlow(TestCase):
         )
 
         # reference
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
 
         quantizer = Int8DynActInt4WeightQuantizer(
@@ -1035,43 +855,6 @@ class TestQuantFlow(TestCase):
                 sd[k] = v.to("cuda")
             # load state_dict in cuda
             model.load_state_dict(sd, assign=True)
-
-
-class TestMultiTensorFlow(TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_multitensor_add_tensors(self):
-        from torchao.quantization.GPTQ_MT import MultiTensor
-
-        tensor1 = torch.randn(3, 3)
-        tensor2 = torch.randn(3, 3)
-        mt = MultiTensor(tensor1)
-        mt.add_tensors(tensor2)
-        self.assertEqual(mt.count, 2)
-        self.assertTrue(torch.equal(mt.values[0], tensor1))
-        self.assertTrue(torch.equal(mt.values[1], tensor2))
-
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_multitensor_pad_unpad(self):
-        from torchao.quantization.GPTQ_MT import MultiTensor
-
-        tensor1 = torch.randn(3, 3)
-        mt = MultiTensor(tensor1)
-        mt.pad_to_length(3)
-        self.assertEqual(mt.count, 3)
-        mt.unpad()
-        self.assertEqual(mt.count, 1)
-
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_multitensor_inplace_operation(self):
-        from torchao.quantization.GPTQ_MT import MultiTensor
-
-        tensor1 = torch.ones(3, 3)
-        mt = MultiTensor(tensor1)
-        mt += 1  # In-place addition
-        self.assertTrue(torch.equal(mt.values[0], torch.full((3, 3), 2)))
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
