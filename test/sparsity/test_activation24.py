@@ -19,7 +19,7 @@ from torchao.prototype.sparsity.activation.srelu_linear import (
     SRELUFloat8SemiSparseDynamicActivationFloat8WeightConfig,
 )
 from torchao.sparsity import sparsify_
-from torchao.sparsity.utils import create_semi_structured_tensor
+from torchao.sparsity.utils import create_binary_tensor, create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
 
 
@@ -142,6 +142,23 @@ def test_srelu_fp8_semi_sparse_activation_linear(M=512, K=2048, N=1024):
         custom_output = reference_linear_copy(input_tensor)
 
         torch.testing.assert_close(reference_output, custom_output, rtol=0.1, atol=0.01)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Needs cuda to run")
+def test_splitk_sparse_gemv():
+    torch.manual_seed(0)
+
+    activation = create_binary_tensor((1, 1, 4096), 0.2).cuda().to(torch.float16)
+    weight = torch.randn(16384, 4096, dtype=torch.float16).cuda()
+
+    # weight must be column major
+    weight_transposed = weight.T.contiguous().T
+
+    sparse_res = torch.ops.torchao.splitk_sparse_gemv(activation, weight_transposed)
+    dense_res = F.linear(activation, weight_transposed)
+
+    # This rtol is ridiculousl high, because the split gemv output accumulates slightly differently than the dense output.
+    torch.testing.assert_close(sparse_res, dense_res, rtol=10, atol=0.1)
 
 
 @unittest.skipIf(not is_sm_at_least_90(), "Need cuda arch greater than SM90")
