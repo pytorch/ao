@@ -1,0 +1,53 @@
+name: Microbenchmarks-Perf-Nightly
+
+on:
+  pull_request:
+    branches:
+      - main
+  # Uncomment below for nightly runs
+  # push:
+  #   tags:
+  #     - ciflow/benchmark/*
+  # workflow_dispatch:
+  # schedule:
+  #   - cron: '0 7 * * *'  # Run daily at 7 AM UTC
+
+jobs:
+  benchmark:
+    runs-on: linux.aws.h100
+    strategy:
+      matrix:
+        torch-spec:
+          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup miniconda
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@main
+        with:
+          python-version: "3.9"
+
+      - name: Run benchmark
+        shell: bash
+        run: |
+          set -eux
+          ${CONDA_RUN} python -m pip install --upgrade pip
+          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
+          ${CONDA_RUN} pip install -r dev-requirements.txt
+          ${CONDA_RUN} pip install .
+
+          # Create benchmark results directory
+          mkdir -p ${{ runner.temp }}/benchmark-results
+
+          # Run microbenchmarks
+          ${CONDA_RUN} python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
+            --config benchmarks/microbenchmarks/benchmark_config.yml \
+            --output ${{ runner.temp }}/benchmark-results/microbenchmark-results.json
+
+      - name: Upload the benchmark results to OSS benchmark database for the dashboard
+        uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main
+        with:
+          benchmark-results-dir: ${{ runner.temp }}/benchmark-results
+          dry-run: false
+          schema-version: v3
+          github-token: ${{ secrets.GITHUB_TOKEN }}
