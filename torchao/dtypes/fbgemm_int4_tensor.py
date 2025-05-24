@@ -43,7 +43,7 @@ def int4_row_quantize(
     scales = scales.view(x.shape[0], -1).t().contiguous()
     zeros = zeros.view(x.shape[0], -1).t().contiguous()
 
-    return out, scales, zeros
+    return out, scales.to(x.dtype), zeros.to(x.dtype)
 
 
 def pack_int4(x: torch.Tensor) -> torch.Tensor:
@@ -68,6 +68,7 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         shape = packed_weight.shape
         kwargs = {}
         kwargs["device"] = packed_weight.device
+        kwargs["dtype"] = scale.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
@@ -98,7 +99,10 @@ class FbgemmInt4Tensor(TorchAOBaseTensor):
         )
 
     def __repr__(self):
-        raise NotImplementedError("Subclasses must implement __repr__")
+        return (
+            f"{self.__class__.__name__}(weight={self.packed_weight}, group_size={self.group_size}, "
+            f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
+        )
 
     @classmethod
     def from_float(cls, w: torch.Tensor, group_size: int = 128):
@@ -136,6 +140,9 @@ def _(func, types, args, kwargs):
             f"{func} is not implemented for non floating point input"
         )
 
+    orig_act_size = input_tensor.size()
+    orig_out_features = weight_tensor.shape[-2]
+
     res = torch.ops.fbgemm.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.packed_weight,
@@ -144,7 +151,7 @@ def _(func, types, args, kwargs):
     )
     if bias is not None:
         res = res + bias
-    return res
+    return res.reshape(*orig_act_size[:-1], orig_out_features)
 
 
 @implements([aten.detach.default, aten.alias.default])
