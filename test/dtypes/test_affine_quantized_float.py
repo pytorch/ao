@@ -48,6 +48,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine_float8,
 )
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_8,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
@@ -355,6 +356,59 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
+    @common_utils.parametrize(
+        "granularity", [PerTensor(), PerRow()] if is_sm_at_least_90() else [PerTensor()]
+    )
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_8, "Requires PyTorch 2.8+ with e8m0 support"
+    )
+    def test_fp8_e8m0_scale_dtype(self, granularity):
+        """Test float8 quantization with e8m0 scale dtype on PyTorch 2.8+"""
+        device = "cuda"
+        dtype = torch.bfloat16
+        in_features, out_features = 256, 512
+
+        # Create model
+        model = ToyLinearModel(in_features, out_features).to(device).to(dtype)
+        quant_model = copy.deepcopy(model)
+
+        # Create config with e8m0 scale dtype
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity, scale_dtype=torch.float8_e8m0fnu
+        )
+
+        # Quantize the model
+        quantize_(quant_model, config)
+
+        # Verify that the scale dtype is correctly set
+        for layer_name in ["linear1", "linear2"]:
+            layer = getattr(quant_model, layer_name)
+            weight_impl = layer.weight.original_weight_tensor.tensor_impl
+
+            # All though we specify w/ e8m0 we still cast to fp32
+            self.assertEqual(weight_impl.scale.dtype, torch.float32)
+
+            # Verify scale is power of 2 (requirement for e8m0)
+            scale_values = weight_impl.scale.float()
+            log2_scales = torch.log2(scale_values)
+            self.assertTrue(
+                torch.allclose(log2_scales, torch.round(log2_scales), atol=0),
+                "e8m0 scales should be powers of 2",
+            )
+
+        # Test forward pass
+        input_tensor = torch.randn(32, in_features, device=device, dtype=dtype)
+
+        with torch.no_grad():
+            output = model(input_tensor)
+            output_quant = quant_model(input_tensor)
+
+        # Verify output shape and that computation completes without error
+        expected_shape = (32, in_features)  # ToyLinearModel returns to original size
+        self.assertEqual(output.shape, expected_shape)
+        error = compute_error(output, output_quant)
+        assert error > 20, f"Quantization error is too high got a SQNR of {error}"
+
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     @common_utils.parametrize("block_size", [None, (1, 32), (2, 16), (4, 8)])

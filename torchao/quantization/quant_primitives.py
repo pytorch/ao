@@ -2005,6 +2005,7 @@ def choose_qparams_affine_float8(
         # Shielding for Version > 2.8
         assert scale_dtype is torch.float8_e8m0fnu, "Only float8_e8m0fnuz is supported"
         scale = torch.exp2(torch.round(torch.log2(scale)))
+
     return scale.to(dtype=torch.float32)
 
 
