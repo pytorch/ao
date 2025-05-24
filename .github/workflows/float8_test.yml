@@ -51,4 +51,4 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        pytest test/float8 --verbose -s
+        pytest test --verbose -s
