@@ -31,11 +31,17 @@ jobs:
         shell: bash
         run: |
           set -eux
+
+          # Upgrade pip
           ${CONDA_RUN} python -m pip install --upgrade pip
+
+          # Install dependencies
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
-          ${CONDA_RUN} export PYTHONPATH=.
+
+          # Set PYTHONPATH to include the benchmarks directory
+          ${CONDA_RUN} export PYTHONPATH=$PYTHONPATH:$(pwd)/benchmarks
 
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results
