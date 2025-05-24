@@ -545,6 +545,7 @@
     <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Float8DynamicActivationFloat8SemiSparseWeightConfig&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ModuleFqnToConfig&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span> <span class="o">=</span> <span class="p">{</span>
@@ -1005,10 +1006,10 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span>
 
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOPerModuleConfig</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">ModuleFqnToConfig</span><span class="p">):</span>
         <span class="n">_replace_with_custom_fn_if_matches_filter_with_name</span><span class="p">(</span>
             <span class="n">model</span><span class="p">,</span>
-            <span class="n">_ao_per_module_config_handler</span><span class="p">,</span>
+            <span class="n">_module_fqn_to_config_handler</span><span class="p">,</span>
             <span class="n">filter_fn</span><span class="p">,</span>
             <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
             <span class="n">extra_args</span><span class="o">=</span><span class="p">(</span><span class="n">config</span><span class="p">,),</span>
@@ -2411,7 +2412,7 @@
 
 
 <span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">AOPerModuleConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ModuleFqnToConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Per module configurations for torchao quantize_ API</span>
 
 <span class="sd">    Args:</span>
@@ -2427,8 +2428,8 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_ao_per_module_config_handler</span><span class="p">(</span>
-    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AOPerModuleConfig</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_module_fqn_to_config_handler</span><span class="p">(</span>
+    <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ModuleFqnToConfig</span>
 <span class="p">):</span>
     <span class="n">c</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">module_fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">module_fqn_to_config</span><span class="p">:</span>
