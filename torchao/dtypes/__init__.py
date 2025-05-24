@@ -18,6 +18,7 @@ from .uintx import (
     CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
+    Int8DynamicActInt4WeightCPULayout,
     MarlinQQQLayout,
     MarlinQQQTensor,
     MarlinSparseLayout,
@@ -61,4 +62,5 @@ __all__ = [
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4XPULayout",
+    "Int8DynamicActInt4WeightCPULayout",
 ]

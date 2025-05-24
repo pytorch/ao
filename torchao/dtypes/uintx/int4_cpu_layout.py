@@ -150,7 +150,7 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         device = kwargs["device"]
         if not is_device(torch.device(self.device).type, device):
             raise ValueError(
-                f"Int4CPUAQTTensorImpl does not support conversion from {self.device} to {device}"
+                f"{self.__class__.__name__} does not support conversion from {self.device} to {device}"
             )
         return self.__class__(
             self.packed_weight.to(device),
@@ -181,18 +181,6 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
 
-        if func is aten.t.default:
-            """we don't need to repack the weight and just rely on external
-            shape being changed and record the status of transpose/no-transpose
-            """
-            transposed = Int4CPUAQTTensorImpl(
-                args[0].packed_weight,
-                args[0].scale_and_zero,
-                not args[0].transposed,
-                args[0]._layout,
-            )
-            return return_and_correct_aliasing(func, args, kwargs, transposed)
-
         if func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim in [0, 1]:
@@ -217,11 +205,11 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
                 return return_and_correct_aliasing(func, args, kwargs, sliced)
             else:
                 raise NotImplementedError(
-                    f"Int4CPUAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                    f"{cls.__name__} dispatch: attempting to run {func}, with dim={dim}, that is not supported"
                 )
 
         raise NotImplementedError(
-            f"Int4CPUAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
+            f"{cls.__name__} dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -350,3 +338,190 @@ def _linear_fp_act_uint4_weight_cpu_impl(input_tensor, weight_tensor, bias):
     if bias is not None:
         y += bias
     return y.to(orig_dtype)
+
+
+@dataclass(frozen=True)
+class Int8DynamicActInt4WeightCPULayout(Layout):
+    """Layout class for da8w4 CPU layout for affine quantized tensor"""
+
+    pass
+
+
+@register_layout(Int8DynamicActInt4WeightCPULayout)
+class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
+    """TensorImpl for da8w4 CPU layout for affine quantized tensor
+    It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 2-d tensor of
+    dimension: [n][k / 2] (uint8 dtype)
+    It is similar to Int4CPUAQTTensorImpl but with a different memory layout of weight data
+    fields:
+      packed_weight (torch.Tensor): the 2-d packed tensor in a Int4 CPU layout
+      scales (torch.Tensor): the scales Tensor used to map between floating point tensor to quantized tensor
+      qzeros (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
+    """
+
+    def __new__(
+        cls,
+        packed_weight: torch.Tensor,
+        scales: torch.Tensor,
+        qzeros: torch.Tensor,
+        compensation: torch.Tensor,
+        transposed: bool,
+        _layout: Layout,
+    ):
+        kwargs = {}
+        kwargs["device"] = packed_weight.device
+        kwargs["layout"] = (
+            kwargs.get("layout")
+            if kwargs.get("layout", False)
+            else packed_weight.layout
+        )
+        kwargs["dtype"] = packed_weight.dtype
+        kwargs["requires_grad"] = False
+        shape = packed_weight.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        packed_weight: torch.Tensor,
+        scales: torch.Tensor,
+        qzeros: torch.Tensor,
+        compensation: torch.Tensor,
+        transposed: bool,
+        _layout: Layout,
+    ):
+        self.packed_weight = packed_weight
+        self.scales = scales
+        self.qzeros = qzeros
+        self.compensation = compensation
+        self.transposed = transposed
+        self._layout = _layout
+
+    def __tensor_flatten__(self):
+        return ["packed_weight", "scales", "qzeros", "compensation"], [
+            self.transposed,
+            self._layout,
+        ]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        packed_weight, scales, qzeros = (
+            tensor_data_dict["packed_weight"],
+            tensor_data_dict["scales"],
+            tensor_data_dict["qzeros"],
+            tensor_data_dict["compensation"],
+        )
+        (
+            transposed,
+            _layout,
+        ) = tensor_attributes
+        return cls(packed_weight, scales, qzeros, transposed, _layout)
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        _layout: Layout,
+    ):
+        assert isinstance(_layout, Int8DynamicActInt4WeightCPULayout)
+        assert int_data.dtype == torch.int8, "DA8W4 CPU: expects uint8 weight"
+        assert int_data.shape[1] % 2 == 0, "DA8W4 CPU: expects even number of columns"
+        # int8 -> uint8
+        int_data = (int_data + 8).to(torch.uint8)
+        if scale.dim() == 1:
+            scale.unsqueeze_(-1)
+        scale = scale.to(torch.float)
+        if zero_point.dim() == 1:
+            zero_point.unsqueeze_(-1)
+        zero_point = zero_point.to(torch.int8) + 8
+
+        weight_int4, scales, qzeros, compensation = (
+            torch.ops.torchao.da8w4_linear_prepack_cpu(int_data, scale, zero_point)
+        )
+        return cls(weight_int4, scales, qzeros, compensation, False, _layout)
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.packed_weight),
+            fn(self.scales),
+            fn(self.qzeros),
+            fn(self.compensation),
+            self.transposed,
+            self._layout,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+        if func is aten.t.default:
+            """we don't need to repack the weight and just rely on external
+            shape being changed and record the status of transpose/no-transpose
+            """
+            transposed = DA8W4CPUAQTTensorImpl(
+                args[0].packed_weight,
+                args[0].scales,
+                args[0].qzeros,
+                args[0].compensation,
+                not args[0].transposed,
+                args[0]._layout,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, transposed)
+        else:
+            return super().__torch_dispatch__(func, types, args, kwargs)
+
+    __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @property
+    def block_size(self):
+        assert len(self.packed_weight.shape) == 2
+        weight_shape = self.packed_weight.shape
+        N = weight_shape[0]
+        K = weight_shape[1] * 2
+        groups = self.scales.numel() // N
+        group_size = K // groups
+        return (1, group_size)
+
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Unpack weight by linear(eye(K), packed_weight).t()
+        packed_w_shape = self.packed_weight.shape
+        if len(packed_w_shape) == 4:
+            K = packed_w_shape[1] * packed_w_shape[2]
+        else:
+            K = packed_w_shape[1]
+        x = torch.eye(K).to(torch.uint8)
+        x_scale = torch.ones(K).float()
+        x_qzero = torch.zeros(K).to(torch.int8)
+        w_scale = torch.ones_like(self.scales).float()
+        w_qzero = torch.zeros_like(self.qzeros).to(torch.int8)
+        plain_weight = torch.ops.torchao.da8w4_linear_cpu.default(
+            x,
+            x_scale,
+            x_qzero,
+            self.packed_weight,
+            w_scale,
+            w_qzero,
+            self.compensation,
+            None,  # bias
+            torch.float,  # out_dtype
+        )
+        plain_weight = plain_weight.t().contiguous()
+        plain_weight = plain_weight.to(torch.int8)
+
+        if self.scales.dim() == 2:
+            assert self.qzeros.dim() == 2
+            plain_scales = self.scales
+            plain_qzeros = self.qzeros
+        else:
+            assert self.scales.dim() == 3 and self.qzeros.dim() == 3
+            packed_shape = self.scales.shape  # [Nc, G, block_n]
+            plain_scales = (
+                self.scales.permute([0, 2, 1]).contiguous().view([-1, packed_shape[1]])
+            )
+            plain_qzeros = (
+                self.qzeros.permute([0, 2, 1]).contiguous().view([-1, packed_shape[1]])
+            )
+
+        return plain_weight, plain_scales, plain_qzeros
