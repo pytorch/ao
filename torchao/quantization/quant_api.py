@@ -136,6 +136,7 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
+    "ModuleFqnToConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -596,10 +597,10 @@ def quantize_(
     """
     filter_fn = _is_linear if filter_fn is None else filter_fn
 
-    if isinstance(config, AOPerModuleConfig):
+    if isinstance(config, ModuleFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            _ao_per_module_config_handler,
+            _module_fqn_to_config_handler,
             filter_fn,
             device=device,
             extra_args=(config,),
@@ -2002,7 +2003,7 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class AOPerModuleConfig(AOBaseConfig):
+class ModuleFqnToConfig(AOBaseConfig):
     """Per module configurations for torchao quantize_ API
 
     Args:
@@ -2018,8 +2019,8 @@ class AOPerModuleConfig(AOBaseConfig):
     )
 
 
-def _ao_per_module_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
+def _module_fqn_to_config_handler(
+    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
 ):
     c = None
     if module_fqn in config.module_fqn_to_config:
