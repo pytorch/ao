@@ -1,16 +1,12 @@
 name: Microbenchmarks-Perf-Nightly
 
 on:
-  pull_request:
-    branches:
-      - main
-  # Uncomment below for nightly runs
-  # push:
-  #   tags:
-  #     - ciflow/benchmark/*
-  # workflow_dispatch:
-  # schedule:
-  #   - cron: '0 7 * * *'  # Run daily at 7 AM UTC
+  push:
+    tags:
+      - ciflow/benchmark/*
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'  # Run daily at 7 AM UTC
 
 jobs:
   benchmark:
@@ -40,8 +36,8 @@ jobs:
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
 
-          # Set PYTHONPATH to include the benchmarks directory
-          ${CONDA_RUN} export PYTHONPATH=$PYTHONPATH:$(pwd)/benchmarks
+          # Set PYTHONPATH to current directory (.) if not set, and include the benchmarks directory
+          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
 
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results
