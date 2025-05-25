@@ -83,7 +83,9 @@ da8w4_linear_prepack_impl(
   at::Tensor blocked_weight;
   at::Tensor blocked_scales = new_scales.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
   at::Tensor blocked_qzeros = new_qzeros.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
-  at::Tensor compensation = weight_view.sum(-1).permute({0, 2, 1}).contiguous().to(at::kInt);
+  // weight was increased by 8 during quantization, so we need to subtract 8
+  at::Tensor compensation = weight_view.to(at::kInt).sub(8).sum(-1);
+  compensation = compensation.permute({0, 2, 1}).contiguous().to(at::kInt);
 
   if (da8w4_can_pack_weight()) {
     blocked_weight = at::empty({Nc, Kc, block_k, block_n / 2}, weight.options());
@@ -220,7 +222,7 @@ void _dequant_and_store(
     float* __restrict__ output,
     const int32_t* __restrict__ input,
     const float* __restrict__ scale_a,
-    const int8_t* __restrict__ zp_a,
+    const int32_t* __restrict__ zp_a,
     const float* __restrict__ scale_b,
     const int32_t* __restrict__ comp_b,
     int M,
@@ -231,7 +233,7 @@ void _dequant_and_store(
 #pragma GCC unroll 2
   for (int m = 0; m < M; ++m) {
     float a_scale = *(scale_a + m * ldsa);
-    int32_t a_zp = (int32_t)(*(zp_a + m * ldsa));
+    int32_t a_zp = *(zp_a + m * ldsa);
     __m512 va_scale = _mm512_set1_ps(a_scale);
     __m512i va_zp = _mm512_set1_epi32(a_zp);
     int n = 0;
@@ -287,7 +289,7 @@ void _dequant_gemm_accum(
     float* C,
     const uint8_t* A,
     const float* scales_a,
-    const int8_t* qzeros_a,
+    const int32_t* qzeros_a,
     const uint8_t* B,
     const float* scales_b,
     const int8_t* qzeros_b,
@@ -469,7 +471,7 @@ void _da8w4_linear_impl(
 
   const uint8_t* a_ptr = input_view.data_ptr<uint8_t>();
   const float* a_scales_ptr = input_scales.data_ptr<float>();
-  const int8_t* a_qzeros_ptr = input_qzeros.data_ptr<int8_t>();
+  const int32_t* a_qzeros_ptr = input_qzeros.data_ptr<int32_t>();
   const uint8_t* b_ptr = weight.data_ptr<uint8_t>();
   const float* b_scales_ptr = weight_scales.data_ptr<float>();
   const int8_t* b_qzeros_ptr = weight_qzeros.data_ptr<int8_t>();
@@ -493,7 +495,7 @@ void _da8w4_linear_impl(
           _dequant_gemm_accum<use_cpublas>(
             y_buf[0] /*C*/,
             a_ptr + mci * block_m * K + kci * block_k /*A*/,
-            a_scales_ptr + mci * block_m /*scakes_a*/,
+            a_scales_ptr + mci * block_m /*scales_a*/,
             a_qzeros_ptr + mci * block_m /*qzeros_a*/,
             b_ptr + (nc * Kc + kci) * block_n * block_k / 2 /*B*/,
             b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n /*scales_b*/,

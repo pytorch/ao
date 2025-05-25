@@ -647,6 +647,38 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
         )
 
 
+def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.uint8
+    scale_dtype = torch.float32
+    eps = torch.finfo(torch.float32).eps
+    zero_point_dtype = torch.int32
+    quant_min = 0
+    quant_max = 255
+    if TORCH_VERSION_AT_LEAST_2_6:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+        )
+    else:
+        out = to_affine_quantized_intx(
+            x,
+            mapping_type,
+            _get_per_token_block_size(x),
+            target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+    return out
+
+
 def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
@@ -723,7 +755,10 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
-        input_quant_func = _int8_asymm_per_token_quant
+        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+            input_quant_func = _uint8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
         if isinstance(layout, MarlinQQQLayout):
             input_quant_func = _int8_symm_per_token_quant

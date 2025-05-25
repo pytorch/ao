@@ -16,11 +16,12 @@ from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
+from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TORCH_VERSION_AT_LEAST_2_6,
+    TORCH_VERSION_AT_LEAST_2_7,
     fill_defaults,
 )
 
@@ -527,3 +528,90 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
             )
 
         return plain_weight, plain_scales, plain_qzeros
+
+
+def _aqt_is_uint8(aqt):
+    """Check if an AffineQuantizedTensor is uint8 quantized Tensor"""
+    return (
+        aqt.tensor_impl.dtype == torch.uint8
+        and aqt.quant_min == 0
+        and aqt.quant_max == 255
+    )
+
+
+def _aqt_is_int4(aqt):
+    """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
+    return (
+        aqt.tensor_impl.dtype == torch.uint8
+        and aqt.quant_min == -8
+        and aqt.quant_max == 7
+    )
+
+
+def _linear_int8_act_int4_weight_cpu_check(input_tensor, weight_tensor, bias):
+    ret = (
+        TORCH_VERSION_AT_LEAST_2_7
+        and is_device(input_tensor.device.type, "cpu")
+        and is_device(weight_tensor.device.type, "cpu")
+        and (bias is None or is_device(bias.device.type, "cpu"))
+        and isinstance(input_tensor, AffineQuantizedTensor)
+        and _aqt_is_uint8(input_tensor)
+        and _is_float(input_tensor.dtype)
+        and isinstance(input_tensor._layout, PlainLayout)
+        and isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_int4(weight_tensor)
+        and _is_float(weight_tensor.dtype)
+        and isinstance(weight_tensor._layout, Int8DynamicActInt4WeightCPULayout)
+    )
+    return ret
+
+
+def _linear_int8_act_int4_weight_cpu_impl(input_tensor, weight_tensor, bias):
+    assert TORCH_VERSION_AT_LEAST_2_7, (
+        f"Requires PyTorch version at least 2.7, but got: {torch.__version__}"
+    )
+    assert is_device(input_tensor.device.type, "cpu"), (
+        f"For CPU device only but got: {input_tensor.device}"
+    )
+    assert weight_tensor.block_size[0] == 1, (
+        f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    )
+    assert input_tensor.shape[-1] == weight_tensor.shape[1], (
+        f"need input_tensor shape: {input_tensor.shape} final"
+        f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
+    )
+
+    act_mat = input_tensor
+    act = act_mat.tensor_impl.int_data
+    act_scales = act_mat.tensor_impl.scale
+    act_qzeros = act_mat.tensor_impl.zero_point
+
+    packed_weight = weight_tensor.tensor_impl.packed_weight
+    wei_scales = weight_tensor.tensor_impl.scales
+    wei_qzeros = weight_tensor.tensor_impl.qzeros
+    compensation = weight_tensor.tensor_impl.compensation
+
+    orig_act_size = act_mat.size()
+    orig_dtype = act_mat.dtype
+
+    # reshape to 2D
+    act = act.reshape(-1, act.shape[-1])
+
+    y = torch.ops.torchao.da8w4_linear_cpu.default(
+        act.contiguous(),
+        act_scales,
+        act_qzeros,
+        packed_weight,
+        wei_scales,
+        wei_qzeros,
+        compensation,
+        bias,
+        orig_dtype,  # out_dtype
+    )
+
+    # remove out_feature padding
+    orig_out_features = weight_tensor.shape[-2]
+    y = y[:, :orig_out_features]
+    y = y.reshape(*orig_act_size[:-1], orig_out_features)
+
+    return y.to(orig_dtype)
