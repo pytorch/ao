@@ -15,7 +15,6 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 import copy
 import io
 import random
-from contextlib import nullcontext
 from functools import partial
 from typing import Tuple
 
@@ -137,7 +136,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         output_quantized = quantized_model(input_tensor)
 
         error = compute_error(output_original, output_quantized)
-        self.assertGreater(error, 20, f"Quantization error is too high got a SQNR of {error}")
+        self.assertGreater(
+            error, 20, f"Quantization error is too high got a SQNR of {error}"
+        )
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
