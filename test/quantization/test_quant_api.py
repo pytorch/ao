@@ -919,6 +919,13 @@ class TestQuantFlow(TestCase):
             elif dtype == torch.half:
                 atol, rtol = 0.005, 1e-3
             assert torch.allclose(y, y2, atol=atol, rtol=rtol)
+            # Test get_plain by dequantize()
+            dqw1 = m.linear1.weight.original_weight_tensor.dequantize()
+            dqw2 = m.linear2.weight.original_weight_tensor.dequantize()
+            dqw1_ref = m2.linear1.weight.original_weight_tensor.dequantize()
+            dqw2_ref = m2.linear2.weight.original_weight_tensor.dequantize()
+            assert torch.allclose(dqw1, dqw1_ref)
+            assert torch.allclose(dqw2, dqw2_ref)
 
     # TODO(#1690): move to new config names
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
