@@ -898,25 +898,21 @@ class TestQuantFlow(TestCase):
                     group_size=32, layout=Int8DynamicActInt4WeightCPULayout()
                 ),
             )
-            # y, code = torch._inductor.utils.run_and_get_code(
-            #     torch.compile(m, fullgraph=True, dynamic=True),
-            #     *example_inputs,
-            # )
-            # # ensure the expected op is in the code
-            # assert "shift" in code[0]  # unpacking int4 values
-            # assert "extern_kernels.mm" in code[0]
-            y = m(*example_inputs)
+            y, code = torch._inductor.utils.run_and_get_code(
+                torch.compile(m, fullgraph=True, dynamic=True),
+                *example_inputs,
+            )
+            # ensure the expected op is in the code
+            assert "torch.ops.torchao.da8w4_linear_cpu.default" in code[0]
             quantize_(
                 m2,
                 int8_dynamic_activation_int4_weight(
                     group_size=32,
-                    # mapping_type=MappingType.ASYMMETRIC,
                     layout=PlainLayout(),
                 ),
             )
             torch._dynamo.reset()  # may segfault without this
-            # y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
-            y2 = m2(*example_inputs)
+            y2 = torch.compile(m2, fullgraph=True, dynamic=True)(*example_inputs)
             atol, rtol = 1e-7, 1e-5
             if dtype == torch.bfloat16:
                 atol, rtol = 0.01, 1e-3

@@ -1040,4 +1040,6 @@ def _(
     bias: Optional[Tensor],
     out_dtype: torch.dtype,
 ) -> Tensor:
-    return input.new_empty(*input.shape[:-1], weight.shape[0], dtype=out_dtype)
+    assert weight.dim() == 4
+    N = weight.size(0) * weight.size(3) * 2
+    return input.new_empty(*input.shape[:-1], N, dtype=out_dtype)

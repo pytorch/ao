@@ -409,7 +409,7 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        packed_weight, scales, qzeros = (
+        packed_weight, scales, qzeros, compensation = (
             tensor_data_dict["packed_weight"],
             tensor_data_dict["scales"],
             tensor_data_dict["qzeros"],
@@ -419,7 +419,7 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
             transposed,
             _layout,
         ) = tensor_attributes
-        return cls(packed_weight, scales, qzeros, transposed, _layout)
+        return cls(packed_weight, scales, qzeros, compensation, transposed, _layout)
 
     @classmethod
     def from_plain(
