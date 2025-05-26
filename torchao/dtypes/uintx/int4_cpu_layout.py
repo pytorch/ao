@@ -494,7 +494,7 @@ class DA8W4CPUAQTTensorImpl(Int4CPUAQTTensorImpl):
             K = packed_w_shape[1]
         x = torch.eye(K).to(torch.uint8)
         x_scale = torch.ones(K).float()
-        x_qzero = torch.zeros(K).to(torch.int8)
+        x_qzero = torch.zeros(K).to(torch.int32)
         w_scale = torch.ones_like(self.scales).float()
         w_qzero = torch.zeros_like(self.qzeros).to(torch.int8)
         plain_weight = torch.ops.torchao.da8w4_linear_cpu.default(
