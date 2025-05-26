@@ -513,6 +513,9 @@ void _da8w4_linear_impl(
       }
     }
   });
+  if constexpr (use_cpublas) {
+    at::native::cpublas::brgemm_release();
+  }
 }
 
 at::Tensor da8w4_linear_impl(

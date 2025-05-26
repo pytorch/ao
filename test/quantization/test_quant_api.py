@@ -877,6 +877,10 @@ class TestQuantFlow(TestCase):
             assert "_weight_int4pack_mm_for_cpu" in code[0]
             assert "aten.mm.default" not in code[0]
 
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
+        reason="cpp kernels not built",
+    )
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Test only enabled for 2.7+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
