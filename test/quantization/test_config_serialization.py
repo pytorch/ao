@@ -20,7 +20,6 @@ from torchao.core.config import (
     config_to_dict,
 )
 from torchao.quantization.quant_api import (
-    AOPerModuleConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
@@ -30,6 +29,7 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    ModuleFqnToConfig,
     PerRow,
     UIntXWeightOnlyConfig,
 )
@@ -63,16 +63,14 @@ configs = [
     GemliteUIntXWeightOnlyConfig(
         group_size=128,  # Optional, has default of 64
         bit_width=8,  # Optional, has default of 4
-        packing_bitwidth=8,  # Optional, has default of 32
-        contiguous=True,  # Optional, has default of None
     ),
     FPXWeightOnlyConfig(ebits=4, mbits=8),
     # Sparsity configs
     SemiSparseWeightConfig(),
     BlockSparseWeightConfig(blocksize=128),
-    AOPerModuleConfig({}),
-    AOPerModuleConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
-    AOPerModuleConfig(
+    ModuleFqnToConfig({}),
+    ModuleFqnToConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
+    ModuleFqnToConfig(
         {
             "linear1": Int4WeightOnlyConfig(),
             "linear2": Int8DynamicActivationInt4WeightConfig(),

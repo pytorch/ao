@@ -137,6 +137,7 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
+    "ModuleFqnToConfig",
 ]
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
@@ -597,10 +598,10 @@ def quantize_(
     """
     filter_fn = _is_linear if filter_fn is None else filter_fn
 
-    if isinstance(config, AOPerModuleConfig):
+    if isinstance(config, ModuleFqnToConfig):
         _replace_with_custom_fn_if_matches_filter_with_name(
             model,
-            _ao_per_module_config_handler,
+            _module_fqn_to_config_handler,
             filter_fn,
             device=device,
             extra_args=(config,),
@@ -1020,8 +1021,6 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
 
     group_size: Optional[int] = 64
     bit_width: int = 4
-    packing_bitwidth: int = 32
-    contiguous: Optional[bool] = None
     set_inductor_config: bool = True
 
 
@@ -1035,8 +1034,6 @@ def _gemlite_uintx_weight_only_transform(
 ):
     group_size = config.group_size
     bit_width = config.bit_width
-    packing_bitwidth = config.packing_bitwidth
-    contiguous = config.contiguous
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1047,9 +1044,7 @@ def _gemlite_uintx_weight_only_transform(
     use_hqq = True if bit_width == 4 else False
     new_weight = to_affine_quantized_intx(
         weight,
-        **get_gemlite_aqt_kwargs(
-            weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
-        ),
+        **get_gemlite_aqt_kwargs(weight, group_size, bit_width, use_hqq),
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
@@ -2049,7 +2044,7 @@ def _fpx_weight_only_transform(
 
 
 @dataclass
-class AOPerModuleConfig(AOBaseConfig):
+class ModuleFqnToConfig(AOBaseConfig):
     """Per module configurations for torchao quantize_ API
 
     Args:
@@ -2065,8 +2060,8 @@ class AOPerModuleConfig(AOBaseConfig):
     )
 
 
-def _ao_per_module_config_handler(
-    module: torch.nn.Module, module_fqn: str, config: AOPerModuleConfig
+def _module_fqn_to_config_handler(
+    module: torch.nn.Module, module_fqn: str, config: ModuleFqnToConfig
 ):
     c = None
     if module_fqn in config.module_fqn_to_config:

@@ -39,11 +39,11 @@ from torchao.quantization import (
     PerGroup,
 )
 from torchao.quantization.quant_api import (
-    AOPerModuleConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     Quantizer,
     TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
@@ -991,10 +991,10 @@ class TestQuantFlow(TestCase):
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_default(self):
+    def test_module_fqn_to_config_default(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
-        config = AOPerModuleConfig({"_default": config1, "linear2": config2})
+        config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
         quantize_(model, config)
@@ -1005,10 +1005,10 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_module_name(self):
+    def test_module_fqn_to_config_module_name(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
-        config = AOPerModuleConfig({"linear1": config1, "linear2": config2})
+        config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
         quantize_(model, config)
@@ -1019,7 +1019,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_6, "Need torch 2.6+")
-    def test_ao_per_module_config_embedding_linear(self):
+    def test_module_fqn_to_config_embedding_linear(self):
         weight_dtype = torch.int8
         granularity = PerGroup(8)
         mapping_type = MappingType.SYMMETRIC
@@ -1032,7 +1032,7 @@ class TestQuantFlow(TestCase):
         # example model linear is Linear(16, 8)
         linear_config = Int8DynamicActivationInt4WeightConfig(group_size=16)
 
-        config = AOPerModuleConfig({"emb": embedding_config, "linear": linear_config})
+        config = ModuleFqnToConfig({"emb": embedding_config, "linear": linear_config})
         indices = torch.randint(0, 10, (32,))
         indices = indices.unsqueeze(0)
         example_inputs = (indices,)
@@ -1051,9 +1051,9 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear.weight, LinearActivationQuantizedTensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_ao_per_module_config_skip(self):
+    def test_module_fqn_to_config_skip(self):
         config1 = Int4WeightOnlyConfig(group_size=32)
-        config = AOPerModuleConfig({"_default": config1, "linear2": None})
+        config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
         quantize_(model, config)
@@ -1061,6 +1061,25 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
         assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int4wo_cuda_serialization(self):
+        config = Int4WeightOnlyConfig(group_size=32)
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        # quantize in cuda
+        quantize_(model, config)
+        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model(*example_inputs)
+        with tempfile.NamedTemporaryFile() as ckpt:
+            # save checkpoint in cuda
+            torch.save(model.state_dict(), ckpt)
+            # load checkpoint on cpu then move checkpoint to cuda
+            # This is what torchtune does: https://github.com/pytorch/torchtune/blob/v0.6.1/torchtune/training/checkpointing/_utils.py#L253
+            sd = torch.load(ckpt.name, weights_only=False, map_location="cpu")
+            for k, v in sd.items():
+                sd[k] = v.to("cuda")
+            # load state_dict in cuda
+            model.load_state_dict(sd, assign=True)
 
 
 class TestMultiTensorFlow(TestCase):
