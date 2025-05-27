@@ -31,10 +31,18 @@ jobs:
           # Upgrade pip
           ${CONDA_RUN} python -m pip install --upgrade pip
 
+          ${CONDA_RUN} ls
+          ${CONDA_RUN} pwd
+          ${CONDA_RUN} echo $PYTHONPATH
+
           # Install dependencies
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install .
+
+          ${CONDA_RUN} ls
+          ${CONDA_RUN} pwd
+          ${CONDA_RUN} echo $PYTHONPATH
 
           # Set PYTHONPATH to current directory (.) if not set, and include the benchmarks directory
           ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
@@ -42,8 +50,12 @@ jobs:
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results
 
+          ${CONDA_RUN} ls
+          ${CONDA_RUN} pwd
+          ${CONDA_RUN} echo $PYTHONPATH
+
           # Run microbenchmarks
-          ${CONDA_RUN} python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
+          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks && echo $PYTHONPATH && python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
             --config benchmarks/microbenchmarks/benchmark_config.yml \
             --output ${{ runner.temp }}/benchmark-results/microbenchmark-results.json
 
