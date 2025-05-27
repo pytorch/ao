@@ -27,7 +27,7 @@ jobs:
           ${CONDA_RUN} python -m pip install --upgrade pip
 
           ${CONDA_RUN} ls
-          ${CONDA_RUN} pwd
+          ${CONDA_RUN} bash -c 'pwd'
           ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
 
           # Install dependencies
@@ -36,7 +36,7 @@ jobs:
           ${CONDA_RUN} pip install .
 
           ${CONDA_RUN} ls
-          ${CONDA_RUN} pwd
+          ${CONDA_RUN} bash -c 'pwd'
           ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
 
           # Set PYTHONPATH to current directory (.) if not set, and include the benchmarks directory
@@ -45,14 +45,17 @@ jobs:
           # Create benchmark results directory
           mkdir -p ${{ runner.temp }}/benchmark-results
 
-          ${CONDA_RUN} ls
-          ${CONDA_RUN} pwd
-          ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
-
           # Run microbenchmarks
-          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks" && python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
-            --config benchmarks/microbenchmarks/benchmark_config.yml \
-            --output ${{ runner.temp }}/benchmark-results/microbenchmark-results.json
+          # Run microbenchmarks
+          ${CONDA_RUN} bash -c '
+            export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
+            echo "PYTHONPATH is: $PYTHONPATH"
+            echo "Current directory is: $(pwd)"
+            ls
+            python benchmarks/microbenchmarks/run_ci_microbenchmarks.py \
+              --config benchmarks/microbenchmarks/benchmark_config.yml \
+              --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results.json"'
+
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
         uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main
