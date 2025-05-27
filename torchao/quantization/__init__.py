@@ -39,7 +39,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    AOPerModuleConfig,
     CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
@@ -55,6 +54,7 @@ from .quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    ModuleFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
@@ -147,7 +147,7 @@ __all__ = [
     "IntxWeightOnlyConfig",
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
-    "AOPerModuleConfig",
+    "ModuleFqnToConfig",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",

@@ -462,10 +462,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
-
-            scale = choose_qparams_affine_float8(input_float, float8_dtype=target_dtype)
+            scale = choose_qparams_affine_float8(
+                input_float, float8_dtype=target_dtype, block_size=block_size
+            )
             data = quantize_affine_float8(input_float, scale, target_dtype)
-
             data, scale, zero_point = _layout.post_process(
                 data, scale, None, block_size
             )
@@ -503,7 +503,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 input_float,
                 scale,
                 target_dtype,
-                scale_dtype,
             )
 
             data, scale, zero_point = _layout.post_process(
