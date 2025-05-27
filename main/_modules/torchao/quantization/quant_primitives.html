@@ -2379,6 +2379,7 @@
     <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">float8_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Calculates float8 scaling factor for the given high precision tensor, using tensorwise granularity.</span>
@@ -2386,14 +2387,84 @@
 <span class="sd">    Args:</span>
 <span class="sd">        tensor (torch.Tensor): Input tensor to be quantized.</span>
 <span class="sd">        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).</span>
+<span class="sd">        scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).</span>
+<span class="sd">        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
     <span class="c1"># only tensorwise scaling is supported for now:</span>
-    <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
-    <span class="n">min_val_neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span>
-    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">tensor</span><span class="p">)</span>
-    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="o">-</span><span class="n">min_val_neg</span><span class="p">,</span> <span class="n">max_val_pos</span><span class="p">)</span>
-    <span class="n">scale</span> <span class="o">=</span> <span class="n">max_val_pos</span> <span class="o">/</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">scale_dtype</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">block_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">max_abs</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">max_abs</span> <span class="o">/</span> <span class="n">quant_max</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">shape_for_reduction</span><span class="p">,</span> <span class="n">reduction_dims</span> <span class="o">=</span> <span class="n">_get_reduction_params</span><span class="p">(</span>
+            <span class="n">block_size</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span>
+        <span class="p">)</span>
+        <span class="n">tensor_reshaped</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">shape_for_reduction</span><span class="p">)</span>
+        <span class="n">max_abs</span> <span class="o">=</span> <span class="n">tensor_reshaped</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">reduction_dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">max_abs</span> <span class="o">/</span> <span class="n">quant_max</span>
+        <span class="c1"># Reshape scale back to match the expected output shape</span>
+        <span class="c1"># The scale tensor should have the same shape as the input divided by block_size</span>
+        <span class="n">output_shape</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">input_size</span> <span class="o">//</span> <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">input_size</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">output_shape</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">:</span>
+        <span class="c1"># Shielding for Version &gt; 2.8</span>
+        <span class="k">assert</span> <span class="n">scale_dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e8m0fnu</span><span class="p">,</span> <span class="s2">&quot;Only float8_e8m0fnuz is supported&quot;</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp2</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="n">scale</span><span class="p">)))</span>
+    <span class="k">return</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_expand_scale_to_tensor_shape</span><span class="p">(</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">target_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Expand a scale tensor to match the target tensor shape for block-wise quantization.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        scale (torch.Tensor): Scale tensor with shape corresponding to block structure</span>
+<span class="sd">        target_shape (torch.Size): Target tensor shape to expand to</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        torch.Tensor: Scale tensor expanded to match target_shape</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">target_shape</span><span class="p">:</span>
+        <span class="c1"># Scale already matches target shape</span>
+        <span class="k">return</span> <span class="n">scale</span>
+
+    <span class="k">if</span> <span class="n">scale</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># Scalar scale - can broadcast naturally</span>
+        <span class="k">return</span> <span class="n">scale</span>
+
+    <span class="c1"># Calculate block sizes from shape difference</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">target_shape</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Scale tensor has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2"> dimensions but target has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">target_shape</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">block_sizes</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+        <span class="n">target_shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">//</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">target_shape</span><span class="p">))</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Verify that target_shape is evenly divisible by scale.shape</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">target_dim</span><span class="p">,</span> <span class="n">scale_dim</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
+        <span class="nb">zip</span><span class="p">(</span><span class="n">target_shape</span><span class="p">,</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">block_sizes</span><span class="p">)</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">target_dim</span> <span class="o">!=</span> <span class="n">scale_dim</span> <span class="o">*</span> <span class="n">block_size</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Dimension </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">: target size </span><span class="si">{</span><span class="n">target_dim</span><span class="si">}</span><span class="s2"> is not evenly divisible &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;by scale size </span><span class="si">{</span><span class="n">scale_dim</span><span class="si">}</span><span class="s2"> (block size would be </span><span class="si">{</span><span class="n">target_dim</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">scale_dim</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="p">)</span>
+
+    <span class="c1"># Expand scale using repeat_interleave</span>
+    <span class="n">expanded_scale</span> <span class="o">=</span> <span class="n">scale</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">block_size</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">block_sizes</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">block_size</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">expanded_scale</span> <span class="o">=</span> <span class="n">expanded_scale</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">i</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">expanded_scale</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">quantize_affine_float8</span><span class="p">(</span>
@@ -2403,16 +2474,13 @@
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        tensor (torch.Tensor): Input tensor to be quantized.</span>
-<span class="sd">        scale (torch.Tensor): Scaling factor for the quantization.</span>
-<span class="sd">        float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Note: when the line below is compiled with `torch.compile`, `tensor` is automatically</span>
-    <span class="c1"># upcasted to `float32` to multiply with the scale, since scale is a fp32 tensor in float8 quantization.</span>
-    <span class="c1"># In order to match numerics between eager and compile, we upcast manually here.</span>
-    <span class="n">tensor_scaled</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">/</span> <span class="n">scale</span>
+    <span class="n">tensor_fp32</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="c1"># Expand scale to match tensor dimensions for block-wise quantization</span>
+    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+    <span class="n">tensor_scaled</span> <span class="o">=</span> <span class="n">tensor_fp32</span> <span class="o">/</span> <span class="n">scale_expanded</span>
     <span class="n">max_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
     <span class="n">tensor_clamped</span> <span class="o">=</span> <span class="n">tensor_scaled</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="nb">min</span><span class="o">=-</span><span class="n">max_value</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="n">max_value</span><span class="p">)</span>
     <span class="n">fp8_tensor</span> <span class="o">=</span> <span class="n">tensor_clamped</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">float8_dtype</span><span class="p">)</span>
@@ -2426,17 +2494,13 @@
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Dequantizes the float8 tensor to high precision tensor.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        tensor (torch.Tensor): Input float8 tensor to be dequantized.</span>
-<span class="sd">        scale (torch.Tensor): Scaling factor for the dequantization.</span>
-<span class="sd">        output_dtype (torch.dtype): Data type of the output tensor (e.g., torch.float32).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Note: when the line below is compiled with `torch.compile`, `tensor` is automatically</span>
-    <span class="c1"># upcasted to `float32` to divide by the scale, since scale is a fp32 for float8 quantization.</span>
-    <span class="c1"># In order to match numerics between eager and compile, we upcast manually here.</span>
     <span class="n">fp8_tensor</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
-    <span class="n">hp_tensor</span> <span class="o">=</span> <span class="n">fp8_tensor</span> <span class="o">*</span> <span class="n">scale</span>
+
+    <span class="c1"># Expand scale to match tensor dimensions for block-wise quantization</span>
+    <span class="n">scale_expanded</span> <span class="o">=</span> <span class="n">_expand_scale_to_tensor_shape</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+    <span class="n">hp_tensor</span> <span class="o">=</span> <span class="n">fp8_tensor</span> <span class="o">*</span> <span class="n">scale_expanded</span>
     <span class="k">return</span> <span class="n">hp_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
 </pre></div>
 

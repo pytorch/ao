@@ -871,10 +871,10 @@
         <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
             <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
             <span class="n">input_float</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
-
-            <span class="n">scale</span> <span class="o">=</span> <span class="n">choose_qparams_affine_float8</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">)</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="n">choose_qparams_affine_float8</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span>
+            <span class="p">)</span>
             <span class="n">data</span> <span class="o">=</span> <span class="n">quantize_affine_float8</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">)</span>
-
             <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>
                 <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">block_size</span>
             <span class="p">)</span>
@@ -912,7 +912,6 @@
                 <span class="n">input_float</span><span class="p">,</span>
                 <span class="n">scale</span><span class="p">,</span>
                 <span class="n">target_dtype</span><span class="p">,</span>
-                <span class="n">scale_dtype</span><span class="p">,</span>
             <span class="p">)</span>
 
             <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">_layout</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span>

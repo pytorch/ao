@@ -413,7 +413,7 @@
 <span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils._python_dispatch</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -435,6 +435,18 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_is_float8_type</span><span class="p">,</span> <span class="n">fill_defaults</span>
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
+<span class="n">FLOAT8_IMPL_OPS_TABLE</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">implements</span><span class="p">(</span><span class="n">aten_ops</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Any</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register aten ops to the float8 op table&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">aten_ops</span><span class="p">:</span>
+            <span class="n">FLOAT8_IMPL_OPS_TABLE</span><span class="p">[</span><span class="n">op</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span>
+        <span class="k">return</span> <span class="n">func</span>
+
+    <span class="k">return</span> <span class="n">decorator</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;Float8AQTTensorImpl&quot;</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="s2">&quot;Float8AQTTensorImpl&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -442,7 +454,6 @@
     <span class="n">transposed_match</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">transposed</span> <span class="o">==</span> <span class="n">src</span><span class="o">.</span><span class="n">transposed</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span> <span class="ow">is</span> <span class="kc">False</span> <span class="ow">and</span> <span class="n">src</span><span class="o">.</span><span class="n">transposed</span> <span class="ow">is</span> <span class="kc">None</span>
     <span class="p">)</span>
-
     <span class="k">return</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">Float8AQTTensorImpl</span><span class="p">)</span>
         <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">Float8AQTTensorImpl</span><span class="p">)</span>
@@ -569,89 +580,22 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
 
-        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
-<span class="w">            </span><span class="sd">&quot;&quot;&quot;we don&#39;t need to repack the weight and just rely on external</span>
-<span class="sd">            shape being changed and record the status of transpose/no-transpose</span>
-<span class="sd">            &quot;&quot;&quot;</span>
-            <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span>
-            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
-            <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-            <span class="n">src</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-            <span class="k">if</span> <span class="n">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
-                <span class="n">self_tensors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
-                <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="n">self_tensors</span><span class="p">:</span>
-                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
-                <span class="k">return</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mistach: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">in</span> <span class="p">[</span><span class="n">aten</span><span class="o">.</span><span class="n">select</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                <span class="n">func</span><span class="p">,</span>
-                <span class="n">args</span><span class="p">,</span>
-                <span class="n">kwargs</span><span class="p">,</span>
-                <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">func</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)),</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-            <span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
-            <span class="k">if</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="c1"># TODO: scale replecation should be dependent on block size</span>
-                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-                    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                        <span class="n">func</span><span class="p">,</span>
-                        <span class="n">args</span><span class="p">,</span>
-                        <span class="n">kwargs</span><span class="p">,</span>
-                        <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span>
-                            <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
-                        <span class="p">),</span>
-                    <span class="p">)</span>
-                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                        <span class="n">func</span><span class="p">,</span>
-                        <span class="n">args</span><span class="p">,</span>
-                        <span class="n">kwargs</span><span class="p">,</span>
-                        <span class="n">Float8AQTTensorImpl</span><span class="p">(</span>
-                            <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span>
-                            <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
-                            <span class="kc">None</span><span class="p">,</span>
-                            <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
-                        <span class="p">),</span>
-                    <span class="p">)</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Float8AQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with scale ndim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span>
-                    <span class="p">)</span>
-            <span class="k">elif</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
-                    <span class="n">func</span><span class="p">,</span>
-                    <span class="n">args</span><span class="p">,</span>
-                    <span class="n">kwargs</span><span class="p">,</span>
-                    <span class="n">Float8AQTTensorImpl</span><span class="p">(</span>
-                        <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span>
-                            <span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span>
-                        <span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
-                        <span class="kc">None</span><span class="p">,</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
-                    <span class="p">),</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">allowed_subclasses</span><span class="p">(</span><span class="nb">type</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="nb">issubclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_subclasses</span><span class="o">.</span><span class="n">fake_tensor</span><span class="o">.</span><span class="n">FakeTensor</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">_subclasses</span><span class="o">.</span><span class="n">functional_tensor</span><span class="o">.</span><span class="n">FunctionalTensor</span><span class="p">,</span> <span class="nb">type</span>
                 <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;Float8AQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span>
-                <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Float8AQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
             <span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">allowed_subclasses</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">types</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">NotImplemented</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">FLOAT8_IMPL_OPS_TABLE</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">FLOAT8_IMPL_OPS_TABLE</span><span class="p">[</span><span class="n">func</span><span class="p">](</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span><span class="p">)</span>
 
     <span class="n">__torch_function__</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_disabled_torch_function_impl</span>
 
@@ -688,6 +632,130 @@
             <span class="sa">f</span><span class="s2">&quot;transposed=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="si">}</span><span class="s2">, &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;_layout=</span><span class="si">{</span><span class="n">_layout</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
+
+
+<span class="c1">##########################</span>
+<span class="c1"># Regsiter FP8 Ops</span>
+<span class="c1">##########################</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">alias</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;we don&#39;t need to repack the weight and just rely on external</span>
+<span class="sd">    shape being changed and record the status of transpose/no-transpose</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">transposed</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">aten</span><span class="o">.</span><span class="n">copy_</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">src</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">_same_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
+        <span class="n">self_tensors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="n">self_tensors</span><span class="p">:</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
+        <span class="k">return</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mismatch: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">aten</span><span class="o">.</span><span class="n">select</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">Tensor</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span>
+        <span class="n">args</span><span class="p">,</span>
+        <span class="n">kwargs</span><span class="p">,</span>
+        <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">func</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)),</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+
+    <span class="c1"># Always slice the float8_data</span>
+    <span class="n">sliced_data</span> <span class="o">=</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># Per-tensor quantization - scale doesn&#39;t change</span>
+        <span class="n">sliced_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Block-wise quantization - need to slice the scale appropriately</span>
+        <span class="n">sliced_scale</span> <span class="o">=</span> <span class="n">_slice_scale_for_dimension</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+        <span class="n">func</span><span class="p">,</span>
+        <span class="n">args</span><span class="p">,</span>
+        <span class="n">kwargs</span><span class="p">,</span>
+        <span class="n">Float8AQTTensorImpl</span><span class="p">(</span>
+            <span class="n">sliced_data</span><span class="p">,</span>
+            <span class="n">sliced_scale</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_slice_scale_for_dimension</span><span class="p">(</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">data_shape</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Slice the scale tensor appropriately based on the data tensor slicing.</span>
+
+<span class="sd">    This function calculates how the scale should be sliced when the data tensor</span>
+<span class="sd">    is sliced along a given dimension, taking into account the block structure.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Unsupported case for now, this would be 1 scale per data element</span>
+    <span class="k">if</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">data_shape</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+
+    <span class="c1"># Reconstruct block sizes based on data shape and scale shape</span>
+    <span class="n">block_sizes</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">data_shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">//</span> <span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data_shape</span><span class="p">)))</span>
+
+    <span class="k">if</span> <span class="n">dim</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">block_sizes</span><span class="p">):</span>
+        <span class="c1"># Slicing beyond the dimensions we care about</span>
+        <span class="k">return</span> <span class="n">scale</span>
+
+    <span class="n">block_size_for_dim</span> <span class="o">=</span> <span class="n">block_sizes</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">block_size_for_dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># Scale is per-element along this dimension</span>
+        <span class="c1"># Slice away as normal</span>
+        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># There is blocking in this dimension</span>
+        <span class="c1"># Calculate which scale elements correspond to the sliced data</span>
+        <span class="n">scale_start</span> <span class="o">=</span> <span class="n">start</span> <span class="o">//</span> <span class="n">block_size_for_dim</span> <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="n">scale_end</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">end</span> <span class="o">+</span> <span class="n">block_size_for_dim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">block_size_for_dim</span>
+            <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Error on Step &gt; 1</span>
+        <span class="k">if</span> <span class="n">step</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="s2">&quot;Slicing with step &gt; 1 is not implemented for scale tensors.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="n">scale</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">scale_start</span><span class="p">,</span> <span class="n">scale_end</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
 
 
 <span class="c1">##########################</span>
@@ -742,13 +810,12 @@
     <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
     <span class="c1"># Handle case where input tensor is more than 2D</span>
     <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-
     <span class="c1"># Handle rowwise case</span>
     <span class="k">if</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">),</span> <span class="p">(</span>
             <span class="s2">&quot;Input tensor must be rowwise block size&quot;</span>
         <span class="p">)</span>
-        <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_scale</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_scale</span><span class="o">.</span><span class="n">T</span>
         <span class="n">input_scale</span> <span class="o">=</span> <span class="n">preprocess_scale</span><span class="p">(</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="c1"># Preprocess data</span>

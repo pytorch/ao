@@ -463,7 +463,12 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Layout</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">e4m3_dtype</span><span class="p">,</span> <span class="n">e5m2_dtype</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8MMConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Float8MMConfig</span><span class="p">,</span>
+    <span class="n">FP8Granularity</span><span class="p">,</span>
+    <span class="n">_check_hardware_support</span><span class="p">,</span>
+    <span class="n">_normalize_granularity</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.linear_activation_weight_observed_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
 <span class="p">)</span>
@@ -1841,56 +1846,9 @@
     <span class="k">return</span> <span class="n">module</span>
 
 
-<span class="n">_fp8_granularities</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">]</span>
-
-
-<span class="c1"># Validate and process granularity input</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">_normalize_granularity</span><span class="p">(</span>
-    <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
-        <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
-    <span class="p">],</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]:</span>
-    <span class="n">processed_granularity</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">granularity</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">processed_granularity</span> <span class="o">=</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">(),</span> <span class="n">PerTensor</span><span class="p">())</span>
-    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">)):</span>
-        <span class="n">processed_granularity</span> <span class="o">=</span> <span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">granularity</span><span class="p">)</span>
-    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span>
-            <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
-            <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
-        <span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Invalid granularity types: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
-            <span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">type</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">])):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Different granularities for activation and weight are not supported: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
-            <span class="p">)</span>
-        <span class="n">processed_granularity</span> <span class="o">=</span> <span class="n">granularity</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Invalid granularity specification: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
-        <span class="p">)</span>
-    <span class="c1"># Validate granularity with supported Hardware</span>
-    <span class="k">for</span> <span class="n">_granularity</span> <span class="ow">in</span> <span class="n">processed_granularity</span><span class="p">:</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
-                <span class="s2">&quot;PerTensor quantization only works for CUDA&gt;=8.9 and MI300+&quot;</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
-            <span class="k">assert</span> <span class="n">is_sm_at_least_90</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">(),</span> <span class="p">(</span>
-                <span class="s2">&quot;PerRow quantization only works for CUDA&gt;=9.0 and MI300+&quot;</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity type: </span><span class="si">{</span><span class="n">_granularity</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-    <span class="k">return</span> <span class="n">processed_granularity</span>
-
-
 <span class="k">def</span><span class="w"> </span><span class="nf">_input_activation_quant_func_fp8</span><span class="p">(</span>
     <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-    <span class="n">activation_granularity</span><span class="p">:</span> <span class="n">_fp8_granularities</span><span class="p">,</span>
+    <span class="n">activation_granularity</span><span class="p">:</span> <span class="n">FP8Granularity</span><span class="p">,</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1977,7 +1935,7 @@
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
-        <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
+        <span class="n">Union</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">FP8Granularity</span><span class="p">]]</span>
     <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
@@ -1985,6 +1943,11 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span>
 
 
 <span class="c1"># for bc</span>
@@ -1997,7 +1960,9 @@
     <span class="n">granularity</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">granularity</span>
     <span class="n">mm_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">mm_config</span>
 
-    <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
+    <span class="c1"># Ensure works on device</span>
+    <span class="n">_check_hardware_support</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
+    <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">granularity</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">_fp8_mm_compat</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
@@ -2114,7 +2079,7 @@
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
-        <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
+        <span class="n">Union</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">FP8Granularity</span><span class="p">,</span> <span class="n">FP8Granularity</span><span class="p">]]</span>
     <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
